@@ -93,6 +93,7 @@ function initEditor(schoolId) {
     editor.on('load', () => {
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
+        loadCustomComponents(editor, schoolId);
 
         const wrapper = editor.getWrapper();
         if (!wrapper || wrapper.components().length === 0) {
@@ -162,6 +163,28 @@ function filterBlocksBySchool(editor, schoolId) {
 
     blocksToRemove.forEach(id => bm.remove(id));
     bm.render();
+}
+
+async function loadCustomComponents(editor, schoolId) {
+    if (!schoolId || schoolId === 'master') return;
+    try {
+        const response = await fetch(`/api/components/${schoolId}`);
+        if (!response.ok) throw new Error('Network response was not ok');
+        const components = await response.json();
+        
+        components.forEach(comp => {
+            const blockId = `db-comp-${comp.id}`;
+            const categoryLabel = comp.category || `${CURRENT_SCHOOL?.name || schoolId} Components`;
+            editor.BlockManager.add(blockId, {
+                label: comp.name,
+                category: categoryLabel,
+                content: typeof comp.content === 'string' ? JSON.parse(comp.content) : comp.content,
+                media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(comp.name)}"></div></div>`
+            });
+        });
+    } catch (e) {
+        console.error('Failed to load custom components:', e);
+    }
 }
 
 function updateSchoolUI(school) {
@@ -241,6 +264,19 @@ function initUI(editor) {
         });
     }
 
+    function showConfirm({ title, message }) {
+        return new Promise(resolve => {
+            openModal({
+                title,
+                body: `<p class="modal-message">${message}</p>`,
+                actions: [
+                    { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
+                    { label: 'Vider la page', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
+                ]
+            });
+        });
+    }
+
     modalCloseButton.onclick = closeModal;
 
     // Devices
@@ -275,6 +311,64 @@ function initUI(editor) {
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
             loadDefaultTemplate(editor);
+        }
+    };
+
+    // Clear Canvas
+    const btnClear = document.getElementById('btn-clear');
+    if (btnClear) {
+        btnClear.onclick = async () => {
+            const confirm = await showConfirm({ title: 'Vider le canevas', message: 'Êtes-vous sûr de vouloir tout supprimer ? Vous perdrez tout le contenu actuel de la page.' });
+            if (confirm) {
+                editor.setComponents('');
+                editor.setStyle('');
+            }
+        };
+    }
+
+    // Save Component
+    document.getElementById('btn-save-component').onclick = async () => {
+        const html = editor.getHtml();
+        const css = editor.getCss();
+        
+        if (!html || !html.trim()) {
+            await showAlert({ title: 'Attention', message: 'Le canevas est vide. Veuillez ajouter des éléments avant de sauvegarder.' });
+            return;
+        }
+
+        const name = await showPrompt({ title: 'Sauvegarder la page entière comme composant', message: 'Nom du composant :', placeholder: 'Mon Layout Complet' });
+        if (!name) return;
+
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const contentStr = `<style>${css}</style>${html}`;
+
+        const componentData = {
+            school_id: schoolId,
+            name: name,
+            category: `${CURRENT_SCHOOL?.name || 'Custom'} Components`,
+            content: contentStr
+        };
+
+        try {
+            const res = await fetch('/api/components', { 
+                method: 'POST', 
+                headers: { 'Content-Type': 'application/json' }, 
+                body: JSON.stringify(componentData) 
+            });
+            if (!res.ok) throw new Error(await res.text());
+            
+            // Add dynamically to block manager
+            editor.BlockManager.add(`custom-${Date.now()}`, {
+                label: name,
+                category: componentData.category,
+                content: componentData.content,
+                media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(name)}"></div></div>`
+            });
+
+            await showAlert({ title: 'Succès', message: 'Page entière sauvegardée comme composant et ajoutée aux blocs !' });
+        } catch (e) {
+            console.error(e);
+            await showAlert({ title: 'Erreur', message: 'Impossible de sauvegarder le composant. ' + e.message });
         }
     };
 

@@ -185,6 +185,60 @@ http.createServer(async (req, res) => {
         return;
     }
 
+    // ── API: Save component ──────────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/components') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const { school_id, name, category, content } = data;
+
+                if (!school_id || !name || !content) {
+                    res.writeHead(400);
+                    return res.end('Missing required fields');
+                }
+
+                const supaResult = await supabaseRequest('POST', '/components', {
+                    school_id,
+                    name,
+                    category: category || 'Custom Components',
+                    content
+                });
+
+                if (supaResult && supaResult.code) {
+                    console.log(`❌ Erreur Supabase Components:`, supaResult);
+                    res.writeHead(500);
+                    return res.end('Erreur Supabase: ' + JSON.stringify(supaResult));
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: 'Component saved successfully' }));
+            } catch (e) {
+                console.log(`❌ Erreur catch components:`, e.message);
+                res.writeHead(500);
+                res.end('Error: ' + e.message);
+            }
+        });
+        return;
+    }
+
+    // ── API: Get components by school ────────────────────────────────
+    if (req.method === 'GET' && pathname.startsWith('/api/components/')) {
+        try {
+            const schoolId = decodeURIComponent(pathname.replace('/api/components/', ''));
+            const result = await supabaseRequest('GET', `/components?school_id=eq.${encodeURIComponent(schoolId)}`);
+            
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result || []));
+        } catch (e) {
+            console.log(`❌ Erreur catch get components:`, e.message);
+            res.writeHead(500);
+            res.end('Error: ' + e.message);
+        }
+        return;
+    }
+
     // ── API: List all projects ───────────────────────────────────────
     if (req.method === 'GET' && pathname === '/api/projects') {
         try {

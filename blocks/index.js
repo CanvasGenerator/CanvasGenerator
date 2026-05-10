@@ -1,3 +1,4 @@
+import basics from './basics/index.js';
 import headerEfap from './header-efap/index.js';
 import footerEfap from './footer-efap/index.js';
 import headerBrassart from './header-brassart/index.js';
@@ -34,6 +35,7 @@ export function registerBlocks(editor) {
 
     // Load all blocks
     [
+        basics,
         headerEfap, footerEfap, icartBlocks,
         headerBrassart, footerBrassart,
         hero, twoColumn, richText, ctaButton, imageCaption, spacer,
