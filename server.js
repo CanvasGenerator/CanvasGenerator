@@ -3,7 +3,7 @@ require('dotenv').config();
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
-const { syncProjectToSfmc, isSfmcConfigured } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -36,7 +36,7 @@ const mimeTypes = {
     '.json': 'application/json',
 };
 
-async function supabaseRequest(method, endpoint, body = null) {
+async function supabaseRequest(method, endpoint, body = null, extraHeaders = {}) {
     const url = `${SUPABASE_URL}/rest/v1${endpoint}`;
     console.log(`📡 Supabase ${method} → ${url}`);
     if (body) console.log(`📦 Body envoyé:`, JSON.stringify(body).substring(0, 200) + '...');
@@ -47,7 +47,8 @@ async function supabaseRequest(method, endpoint, body = null) {
             'Content-Type': 'application/json',
             'apikey': SUPABASE_KEY,
             'Authorization': `Bearer ${SUPABASE_KEY}`,
-            'Prefer': method === 'POST' ? 'resolution=merge-duplicates,return=minimal' : ''
+            'Prefer': method === 'POST' ? 'resolution=merge-duplicates,return=minimal' : '',
+            ...extraHeaders
         }
     };
     if (body) options.body = JSON.stringify(body);
@@ -55,12 +56,13 @@ async function supabaseRequest(method, endpoint, body = null) {
     const response = await fetch(url, options);
     console.log(`✅ Supabase réponse status: ${response.status}`);
 
-    if (response.status === 204 || response.status === 201) {
-        console.log(`✅ Supabase OK (pas de contenu retourné)`);
+    const text = await response.text();
+    if (!text) {
+        console.log(`✅ Supabase OK (réponse vide)`);
         return null;
     }
 
-    const result = await response.json();
+    const result = JSON.parse(text);
     console.log(`📬 Supabase réponse body:`, JSON.stringify(result).substring(0, 300));
     return result;
 }
@@ -133,7 +135,7 @@ http.createServer(async (req, res) => {
 <body>${html}</body>
 </html>`;
 
-                const supaResult = await supabaseRequest('POST', '/Projects', {
+                const supaResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                     project_name: projectName,
                     html: fullHtml,
                     css: css,
@@ -199,21 +201,45 @@ http.createServer(async (req, res) => {
                     return res.end('Missing required fields');
                 }
 
+                // Use a custom request to get the inserted data (representation)
                 const supaResult = await supabaseRequest('POST', '/components', {
                     school_id,
                     name,
                     category: category || 'Custom Components',
                     content
-                });
+                }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
 
-                if (supaResult && supaResult.code) {
-                    console.log(`❌ Erreur Supabase Components:`, supaResult);
-                    res.writeHead(500);
-                    return res.end('Erreur Supabase: ' + JSON.stringify(supaResult));
+                console.log('📡 Résultat Supabase (Save Component):', JSON.stringify(supaResult));
+
+                let newComponent;
+                if (!supaResult || (Array.isArray(supaResult) && supaResult.length === 0)) {
+                    console.warn('⚠️ Supabase did not return representation. Using fallback.');
+                    newComponent = {
+                        id: Date.now(), // Fallback ID if DB doesn't return one
+                        school_id,
+                        name,
+                        category: category || `${school_id.toUpperCase()} Components`,
+                        content
+                    };
+                } else {
+                    newComponent = Array.isArray(supaResult) ? supaResult[0] : supaResult;
+                }
+
+                // ☁️ SYNC TO SFMC
+                const { syncComponentToSfmc, isSfmcConfigured } = require('./lib/sfmc');
+                let sfmcResult = { skipped: true };
+                
+                if (isSfmcConfigured()) {
+                    try {
+                        sfmcResult = await syncComponentToSfmc({ schoolId: school_id, name, content });
+                        console.log(`☁️ SFMC Component sync: ${sfmcResult.action} → ${name}`);
+                    } catch (sfmcErr) {
+                        console.error(`⚠️ SFMC Component sync failed:`, sfmcErr.message);
+                    }
                 }
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: 'Component saved successfully' }));
+                res.end(JSON.stringify({ message: 'Component saved successfully', sfmc: sfmcResult, component: newComponent }));
             } catch (e) {
                 console.log(`❌ Erreur catch components:`, e.message);
                 res.writeHead(500);
@@ -274,6 +300,166 @@ http.createServer(async (req, res) => {
             res.writeHead(500);
             res.end('Error: ' + e.message);
         }
+        return;
+    }
+
+    // ── API: Create SFMC Data Extension ───────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/sfmc/create-data-extension') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { name, fields } = JSON.parse(body);
+                if (!name || !fields) {
+                    res.writeHead(400);
+                    return res.end('Missing name or fields');
+                }
+                const result = await createDataExtension({ name, fields });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error creating DE:', e.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Create SFMC Form Asset ───────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/sfmc/create-form-asset') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { name, schoolId, html, css, ampscript } = JSON.parse(body);
+                const result = await createFormAsset({ name, schoolId, html, css, ampscript });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error creating Form Asset:', e.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Save Form to Supabase ────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/forms/save-to-supabase') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                // Use upsert logic: if ID is provided, update; otherwise insert.
+                const result = await supabaseRequest('POST', '/Forms', data, { 
+                    'Prefer': 'resolution=merge-duplicates,return=representation' 
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error saving form to Supabase:', e.message);
+                res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Get Forms for School ────────────────────────────────────
+    if (req.method === 'GET' && pathname.startsWith('/api/forms/')) {
+        try {
+            const schoolId = pathname.replace('/api/forms/', '');
+            const result = await supabaseRequest('GET', `/Forms?school_id=eq.${schoolId}&order=created_at.desc`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result));
+        } catch (e) {
+            console.error('❌ Error fetching forms:', e.message);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+    // ── API: Delete Form ──────────────────────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/forms/')) {
+        try {
+            const id = pathname.replace('/api/forms/', '');
+            await supabaseRequest('DELETE', `/Forms?id=eq.${id}`);
+            res.writeHead(200);
+            res.end('Deleted');
+        } catch (e) {
+            console.error('❌ Error deleting form:', e.message);
+            res.writeHead(500);
+            res.end(e.message);
+        }
+        return;
+    }
+
+    // ── AI: Generate Content ─────────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/ai/generate') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const { prompt, schoolId } = JSON.parse(body);
+                const school = SCHOOLS.find(s => s.id === schoolId) || {};
+                
+                // Simulated AI generation logic
+                const schoolName = school.name || 'notre établissement';
+                let generatedText = `Découvrez l'excellence à l'${schoolName}. ${prompt.length > 5 ? 'Basé sur votre demande : ' + prompt : 'Notre programme est conçu pour propulser votre carrière vers de nouveaux sommets.'}`;
+                
+                if (prompt.toLowerCase().includes('titre')) {
+                    generatedText = `Inscrivez-vous à la JPO de l'${schoolName} !`;
+                } else if (prompt.toLowerCase().includes('bouton')) {
+                    generatedText = `Je m'inscris maintenant`;
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ text: generatedText }));
+            } catch (e) {
+                res.writeHead(500);
+                res.end(e.message);
+            }
+        });
+        return;
+    }
+
+    // ── AI: Translate Page ───────────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/ai/translate') {
+        let body = '';
+        req.on('data', chunk => body += chunk);
+        req.on('end', async () => {
+            try {
+                const { html, targetLang } = JSON.parse(body);
+                
+                // Simulated translation (simple replacement for demo)
+                const dict = {
+                    en: { 'Prénom': 'First Name', 'Nom': 'Last Name', 'Envoyer': 'Send', 'Inscrivez-vous': 'Sign up', 'Succès': 'Success' },
+                    es: { 'Prénom': 'Nombre', 'Nom': 'Apellido', 'Envoyer': 'Enviar', 'Inscrivez-vous': 'Regístrate', 'Succès': 'Éxito' }
+                };
+
+                let translatedHtml = html;
+                const replacements = dict[targetLang] || {};
+                for (const [fr, target] of Object.entries(replacements)) {
+                    translatedHtml = translatedHtml.split(fr).join(target);
+                }
+
+                // Add a simulated "translated" feel
+                if (!dict[targetLang]) {
+                    translatedHtml = translatedHtml.replace(/>([^<]+)</g, (match, text) => {
+                        return `>[${targetLang.toUpperCase()}] ${text}<`;
+                    });
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ html: translatedHtml }));
+            } catch (e) {
+                res.writeHead(500);
+                res.end(e.message);
+            }
+        });
         return;
     }
 

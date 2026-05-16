@@ -1,6 +1,8 @@
 import { initStorage } from './storage.js';
 import { initExport } from './export.js';
+import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
+import { FormGenerator } from './form-generator.js';
 
 const BLOCK_THUMBNAILS = {
     'header-efap': 'assets/block-thumbnails/header-efap.svg',
@@ -178,7 +180,7 @@ async function loadCustomComponents(editor, schoolId) {
             editor.BlockManager.add(blockId, {
                 label: comp.name,
                 category: categoryLabel,
-                content: typeof comp.content === 'string' ? JSON.parse(comp.content) : comp.content,
+                content: typeof comp.content === 'string' && comp.content.trim().startsWith('{') ? JSON.parse(comp.content) : comp.content,
                 media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(comp.name)}"></div></div>`
             });
         });
@@ -278,6 +280,13 @@ function initUI(editor) {
     }
 
     modalCloseButton.onclick = closeModal;
+    
+    // Expose globally
+    window.showAlert = showAlert;
+    window.showConfirm = showConfirm;
+    window.showPrompt = showPrompt;
+    window.openModal = openModal;
+    window.closeModal = closeModal;
 
     // Devices
     document.getElementById('device-desktop').onclick = () => editor.setDevice('Desktop');
@@ -314,7 +323,89 @@ function initUI(editor) {
         }
     };
 
-    // Clear Canvas
+    // Tab Switching Logic
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.onclick = () => {
+            const tab = btn.dataset.tab;
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.querySelectorAll('.tab-content').forEach(c => c.classList.add('hidden'));
+            btn.classList.add('active');
+            
+            const panel = document.getElementById(`${tab}-panel`);
+            if (panel) panel.classList.remove('hidden');
+
+            if (tab === 'forms') {
+                loadSchoolForms();
+            }
+        };
+    });
+
+    async function loadSchoolForms() {
+        const container = document.getElementById('forms-list');
+        if (!CURRENT_SCHOOL) return;
+
+        container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #6b7280;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>';
+
+        try {
+            const response = await fetch(`/api/forms/${CURRENT_SCHOOL.id}`);
+            const forms = await response.json();
+
+            if (!Array.isArray(forms) || forms.length === 0) {
+                container.innerHTML = `<div style="text-align:center; padding: 2rem; color: #6b7280;">
+                    ${forms.error ? 'Erreur: ' + forms.error : 'Aucun formulaire trouvé.'}
+                </div>`;
+                return;
+            }
+
+            container.innerHTML = forms.map(f => {
+                // Prepare form data for insertion
+                const formData = JSON.stringify({
+                    html: f.html,
+                    css: f.css,
+                    ampscript: f.ampscript,
+                    name: f.name
+                }).replace(/'/g, "&#39;");
+
+                return `
+                <div class="form-list-item" onclick='window.insertForm(${formData})'>
+                    <i class="fas fa-file-invoice"></i>
+                    <div class="form-list-item-content">
+                        <div class="form-list-item-name">${f.name}</div>
+                        <div class="form-list-item-meta">DE: ${f.data_extension_name}</div>
+                    </div>
+                    <i class="fas fa-plus" style="font-size: 0.8rem; opacity: 0.5"></i>
+                </div>
+            `}).join('');
+
+        } catch (e) {
+            console.error('Error loading forms:', e);
+            container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #ef4444;">Erreur de chargement.</div>';
+        }
+    }
+
+    window.insertForm = (formData) => {
+        const { html, css, ampscript, name } = formData;
+        
+        // We insert a container that includes the AMPscript and the Form
+        // We wrap it in a custom component to identify it
+        editor.addComponents(`
+            <div class="sfmc-form-container" data-form-name="${name}" style="margin: 20px 0;">
+                <div style="display:none">%%[ ${ampscript} ]%%</div>
+                <style>${css}</style>
+                ${html}
+            </div>
+        `);
+        
+        // Show success notification
+        // Show success notification
+        if (window.showAlert) {
+            window.showAlert({ title: 'Succès', message: `Le formulaire "${name}" a été inséré dans votre page avec succès.` });
+        } else {
+            alert(`Formulaire "${name}" inséré avec succès.`);
+        }
+    };
+
+    // Sidebar Toggles
     const btnClear = document.getElementById('btn-clear');
     if (btnClear) {
         btnClear.onclick = async () => {
@@ -324,6 +415,119 @@ function initUI(editor) {
                 editor.setStyle('');
             }
         };
+    }
+
+    // Form Builder
+    document.getElementById('btn-form-builder').onclick = async () => {
+        const choice = await showFormSelectionModal();
+        if (choice === 'new') {
+            const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+            const generator = new FormGenerator(schoolId, CURRENT_SCHOOL || {});
+            generator.open();
+        } else if (choice && typeof choice === 'object') {
+            const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+            const generator = new FormGenerator(schoolId, CURRENT_SCHOOL || {});
+            generator.load(choice);
+            generator.open();
+        }
+    };
+
+    async function showFormSelectionModal() {
+        return new Promise(async (resolve) => {
+            const modalBody = document.getElementById('modal-body');
+            const modalTitle = document.getElementById('modal-title');
+            const modal = document.getElementById('modal-container');
+            const modalContent = modal.querySelector('.modal-content');
+
+            modalContent.classList.add('modal-lg'); // Make it wider
+            modalTitle.textContent = 'Form Builder - Sélection';
+            modalBody.innerHTML = `
+                <div class="selection-grid">
+                    <button class="selection-card primary" id="choice-new">
+                        <div class="selection-card-icon"><i class="fas fa-magic"></i></div>
+                        <div class="selection-card-text">
+                            <strong>Nouveau formulaire</strong>
+                            <span>Créer un design de zéro</span>
+                        </div>
+                    </button>
+                    
+                    <div class="selection-divider">
+                        <span>OU</span>
+                    </div>
+
+                    <div class="selection-section">
+                        <h4 class="selection-title">Modifier un formulaire existant</h4>
+                        <div id="modal-forms-list" class="selection-list">
+                            <div class="loading-state"><i class="fas fa-circle-notch fa-spin"></i> Chargement...</div>
+                        </div>
+                    </div>
+                </div>
+            `;
+            modal.classList.remove('hidden');
+
+            try {
+                const response = await fetch(`/api/forms/${CURRENT_SCHOOL.id}`);
+                const forms = await response.json();
+                const list = document.getElementById('modal-forms-list');
+                
+                if (!Array.isArray(forms) || forms.length === 0) {
+                    list.innerHTML = '<p style="color: #666; font-size: 0.9rem; text-align: center; padding: 1rem;">Aucun formulaire existant.</p>';
+                } else {
+                    list.innerHTML = forms.map(f => `
+                        <div class="form-list-item" data-id="${f.id}">
+                            <i class="fas fa-edit" onclick="event.stopPropagation(); window.loadFormToEdit('${f.id}')"></i>
+                            <div class="form-list-item-content" onclick="window.loadFormToEdit('${f.id}')">
+                                <div class="form-list-item-name">${f.name}</div>
+                                <div class="form-list-item-meta">Créé le ${new Date(f.created_at).toLocaleDateString()}</div>
+                            </div>
+                            <button class="btn-icon-danger" onclick="event.stopPropagation(); window.deleteForm('${f.id}', '${f.name}')" title="Supprimer">
+                                <i class="fas fa-trash-alt"></i>
+                            </button>
+                        </div>
+                    `).join('');
+
+                    window.loadFormToEdit = (id) => {
+                        const form = forms.find(f => f.id === id);
+                        modal.classList.add('hidden');
+                        modalContent.classList.remove('modal-lg');
+                        resolve(form);
+                    };
+
+                    window.deleteForm = async (id, name) => {
+                        if (await showConfirm({ title: 'Supprimer le formulaire', message: `Êtes-vous sûr de vouloir supprimer "${name}" ?` })) {
+                            try {
+                                await fetch(`/api/forms/${id}`, { method: 'DELETE' });
+                                document.querySelector(`.form-list-item[data-id="${id}"]`).remove();
+                            } catch (e) { console.error(e); }
+                        }
+                    };
+                }
+            } catch (e) {
+                console.error(e);
+                document.getElementById('modal-forms-list').innerHTML = '<p style="color: #ef4444;">Erreur lors du chargement.</p>';
+            }
+
+            document.getElementById('choice-new').onclick = () => {
+                modal.classList.add('hidden');
+                modalContent.classList.remove('modal-lg');
+                resolve('new');
+            };
+
+            const closeBtn = modal.querySelector('.close-modal');
+            const closeHandler = () => {
+                modal.classList.add('hidden');
+                modalContent.classList.remove('modal-lg');
+                resolve(null);
+            };
+            closeBtn.onclick = closeHandler;
+            modal.querySelector('.btn-secondary.close-modal').onclick = closeHandler;
+            if (closeBtn) {
+                closeBtn.onclick = () => {
+                    modal.classList.add('hidden');
+                    resolve(null);
+                };
+            }
+        });
     }
 
     // Save Component
@@ -356,16 +560,31 @@ function initUI(editor) {
                 body: JSON.stringify(componentData) 
             });
             if (!res.ok) throw new Error(await res.text());
+
+            const resData = await res.json();
+            const comp = resData.component;
             
-            // Add dynamically to block manager
-            editor.BlockManager.add(`custom-${Date.now()}`, {
-                label: name,
-                category: componentData.category,
-                content: componentData.content,
-                media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(name)}"></div></div>`
+            if (!comp) throw new Error("Données du composant manquantes dans la réponse.");
+
+            // Add dynamically to block manager using the real Database ID
+            const blockId = comp.id.toString().startsWith('db-') ? comp.id : `db-comp-${comp.id}`;
+            const schoolName = (CURRENT_SCHOOL?.name || 'Custom').toUpperCase();
+            const targetCategory = comp.category || `${schoolName} Components`;
+
+            editor.BlockManager.add(blockId, {
+                label: comp.name,
+                category: targetCategory,
+                content: comp.content, // HTML/CSS string
+                media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(comp.name)}"></div></div>`
             });
 
-            await showAlert({ title: 'Succès', message: 'Page entière sauvegardée comme composant et ajoutée aux blocs !' });
+            // Focus and open category
+            const bm = editor.BlockManager;
+            const category = bm.getCategories().find(c => c.get('id') === targetCategory);
+            if (category) category.set('open', true);
+            bm.render();
+
+            await showAlert({ title: 'Succès', message: 'Composant sauvegardé dans Supabase et Salesforce ! Il est maintenant synchronisé avec la base de données.' });
         } catch (e) {
             console.error(e);
             await showAlert({ title: 'Erreur', message: 'Impossible de sauvegarder le composant. ' + e.message });
@@ -411,12 +630,42 @@ function initUI(editor) {
             const projects = await response.json();
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
-            let listHtml = '<div class="project-list">';
-            filtered.forEach(p => {
-                const displayName = p.project_name.replace(`school-${schoolId}__`, '');
-                listHtml += `<div class="project-row" style="cursor:pointer" onclick="window.loadProject('${p.project_name}', '${displayName}')"><strong>${displayName}</strong></div>`;
-            });
-            listHtml += '</div>';
+            
+            let listHtml = `
+                <div class="selection-grid">
+                    <div class="selection-section">
+                        <h4 class="selection-title">Sélectionnez un projet à charger</h4>
+                        <div class="selection-list" style="max-height: 400px;">
+            `;
+            
+            if (filtered.length === 0) {
+                listHtml += '<div class="loading-state">Aucun projet trouvé pour cette école.</div>';
+            } else {
+                filtered.forEach(p => {
+                    const displayName = p.project_name.replace(`school-${schoolId}__`, '');
+                    const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+                    listHtml += `
+                        <div class="form-list-item" onclick="window.loadProject('${p.project_name}', '${displayName}')">
+                            <i class="fas fa-folder-open"></i>
+                            <div class="form-list-item-content">
+                                <div class="form-list-item-name">${displayName}</div>
+                                <div class="form-list-item-meta">Dernière modification : ${date}</div>
+                            </div>
+                            <i class="fas fa-chevron-right" style="opacity: 0.3"></i>
+                        </div>
+                    `;
+                });
+            }
+            
+            listHtml += `
+                        </div>
+                    </div>
+                </div>
+            `;
+            
+            const modal = document.getElementById('modal-container');
+            const modalContent = modal.querySelector('.modal-content');
+            modalContent.classList.add('modal-lg');
             openModal({ title: 'Ouvrir un projet', body: listHtml });
         } catch (e) { console.error(e); }
     };
@@ -428,6 +677,8 @@ function initUI(editor) {
             editor.loadProjectData(JSON.parse(project.project_data));
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
+            const modal = document.getElementById('modal-container');
+            modal.querySelector('.modal-content').classList.remove('modal-lg');
             closeModal();
         } catch (e) { console.error(e); }
     };

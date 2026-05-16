@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom UI Styles -->
     <link rel="stylesheet" href="css/builder.css">
+    <link rel="stylesheet" href="css/form-generator.css">
     
     <!-- External Libraries -->
     <script src="https://unpkg.com/grapesjs"></script>
@@ -79,6 +80,12 @@
                     </button>
                 </div>
                 <button class="btn-outline" id="btn-save-component" title="Save Selected Component" style="margin-right: 8px;">Save Component</button>
+                <button class="btn-outline" id="btn-form-builder" style="margin-right: 8px; border-color: #3b82f6; color: #3b82f6;">
+                    <i class="fas fa-wpforms"></i> Form Builder
+                </button>
+                <button class="btn-outline" id="btn-ai-assistant" title="Intelligence Artificielle" style="margin-right: 8px; border-color: #8b5cf6; color: #8b5cf6;">
+                    <i class="fas fa-magic"></i> AI Assistant
+                </button>
                 <button class="btn-primary" id="btn-save">Save Project</button>
                 <button class="btn-outline" id="btn-preview">Preview</button>
             </div>
@@ -89,6 +96,7 @@
             <aside class="sidebar-left">
                 <div class="sidebar-tabs">
                     <button class="tab-btn active" data-tab="blocks">Blocks</button>
+                    <button class="tab-btn" data-tab="forms">Forms</button>
                     <button class="tab-btn" data-tab="layers">Layers</button>
                 </div>
                 <div class="tab-content" id="blocks-panel">
@@ -97,6 +105,14 @@
                     </div>
                     <div id="blocks"></div>
                     <button class="btn-add-block" id="btn-create-block">+ New Block</button>
+                </div>
+                <div class="tab-content hidden" id="forms-panel">
+                    <div class="search-box">
+                        <input type="text" placeholder="Search forms..." id="form-search">
+                    </div>
+                    <div id="forms-list" class="forms-list-container">
+                        <!-- Forms will be loaded here -->
+                    </div>
                 </div>
                 <div class="tab-content hidden" id="layers-panel">
                     <div id="layers-container"></div>
