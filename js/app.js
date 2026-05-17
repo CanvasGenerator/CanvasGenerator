@@ -30,6 +30,7 @@ const BLOCK_THUMBNAILS = {
 };
 
 let CURRENT_SCHOOL = null;
+let currentProjectIsNew = true;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
@@ -99,10 +100,8 @@ function initEditor(schoolId) {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         loadCustomComponents(editor, schoolId);
 
-        const wrapper = editor.getWrapper();
-        if (!wrapper || wrapper.components().length === 0) {
-            loadDefaultTemplate(editor);
-        }
+        // Au lieu de charger directement le template, on affiche la popup de choix
+        showOpeningPopup();
     });
 
     if (schoolId === 'icart') initIcartSpecifics(editor);
@@ -279,6 +278,18 @@ function initUI(editor) {
                 ]
             });
         });
+    }
+
+    function showLoading(message) {
+        openModal({
+            title: 'Veuillez patienter',
+            body: `<div style="text-align:center; padding:2rem;"><i class="fas fa-spinner fa-spin" style="font-size:2rem; color:#1A7A5E; margin-bottom:1rem;"></i><p>${message}</p></div>`,
+            actions: []
+        });
+    }
+    
+    function hideLoading() {
+        closeModal();
     }
 
     modalCloseButton.onclick = closeModal;
@@ -595,17 +606,119 @@ function initUI(editor) {
 
     // Save Project
     document.getElementById('btn-save').onclick = async () => {
-        const name = await getProjectName('Sauvegarder');
-        if (!name) return;
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const projectData = { projectName: `school-${schoolId}__${name}`, html: editor.getHtml(), css: editor.getCss(), projectData: editor.getProjectData() };
-        try {
-            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
-            if (!res.ok) throw new Error(await res.text());
-            await showAlert({ title: 'Succès', message: 'Projet sauvegardé !' });
-        } catch (e) { 
-            console.error(e);
-            await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+
+        if (!currentProjectIsNew) {
+            // Existing project -> Direct Save
+            const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+            if (!fullName) {
+                await showAlert({ title: 'Erreur', message: 'Nom du projet introuvable. Veuillez utiliser le Dashboard pour ouvrir un projet.' });
+                return;
+            }
+
+            const projectData = { 
+                projectName: fullName, 
+                html: editor.getHtml(), 
+                css: editor.getCss(), 
+                projectData: editor.getProjectData() 
+            };
+
+            try {
+                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                if (!res.ok) throw new Error(await res.text());
+                await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès !' });
+            } catch (e) { 
+                console.error(e);
+                await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+            }
+        } else {
+            // New project -> Show modal
+            const modal = document.getElementById('save-new-project-modal');
+            if (!modal) return;
+            modal.classList.remove('hidden');
+
+            document.getElementById('btn-close-save-new').onclick = () => modal.classList.add('hidden');
+
+            document.getElementById('btn-confirm-save-new').onclick = async () => {
+                const lang = document.getElementById('select-new-project-lang').value;
+                const nameInput = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`);
+                
+                if (!nameInput || nameInput === 'Nouveau Projet') {
+                    await showAlert({ title: 'Erreur', message: 'Nom du projet introuvable. Veuillez recharger la page.' });
+                    return;
+                }
+
+                modal.classList.add('hidden');
+                
+                let finalHtml = editor.getHtml();
+                
+                // If language is not FR, translate the canvas first
+                if (lang !== 'FR') {
+                    try {
+                        showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
+                        const translateRes = await fetch('/api/ai/translate', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ html: finalHtml, targetLang: lang })
+                        });
+
+                        if (!translateRes.ok) throw new Error(await translateRes.text());
+                        const translateData = await translateRes.json();
+                        finalHtml = translateData.html;
+                        
+                        // Update the canvas to show translated content
+                        editor.setComponents(finalHtml);
+                    } catch (e) {
+                        hideLoading();
+                        console.error(e);
+                        await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+                        return;
+                    }
+                } else {
+                    showLoading('Sauvegarde en cours...');
+                }
+                
+                const fullName = `school-${schoolId}__${nameInput}__${lang}`;
+                
+                // Need to get project data AFTER updating components to save the translated structure
+                const projectData = { 
+                    projectName: fullName, 
+                    html: finalHtml, 
+                    css: editor.getCss(), 
+                    projectData: editor.getProjectData() 
+                };
+
+                try {
+                    const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                    if (!res.ok) throw new Error(await res.text());
+                    
+                    // Mark as not new and save full name
+                    currentProjectIsNew = false;
+                    localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
+                    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
+                    
+                    hideLoading();
+                    
+                    const userChoice = await new Promise(resolve => {
+                        openModal({
+                            title: 'Succès',
+                            body: `<p class="modal-message">Nouveau projet sauvegardé${lang !== 'FR' ? ' et traduit' : ''} avec succès !</p>`,
+                            actions: [
+                                { label: 'Continuer l\'édition', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
+                                { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                            ]
+                        });
+                    });
+
+                    if (!userChoice) {
+                        showOpeningPopup();
+                    }
+                } catch (e) { 
+                    hideLoading();
+                    console.error(e);
+                    await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+                }
+            };
         }
     };
 
@@ -644,13 +757,20 @@ function initUI(editor) {
                 listHtml += '<div class="loading-state">Aucun projet trouvé pour cette école.</div>';
             } else {
                 filtered.forEach(p => {
-                    const displayName = p.project_name.replace(`school-${schoolId}__`, '');
+                    const fullName = p.project_name.replace(`school-${schoolId}__`, '');
+                    const parts = fullName.split('__');
+                    const displayName = parts[0];
+                    const lang = parts[1] || 'FR';
                     const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' });
+                    
                     listHtml += `
                         <div class="form-list-item" onclick="window.loadProject('${p.project_name}', '${displayName}')">
                             <i class="fas fa-folder-open"></i>
                             <div class="form-list-item-content">
-                                <div class="form-list-item-name">${displayName}</div>
+                                <div class="form-list-item-name">
+                                    ${displayName}
+                                    <span class="language-badge" style="background: #EAF6F1; color: #1A7A5E; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${lang}</span>
+                                </div>
                                 <div class="form-list-item-meta">Dernière modification : ${date}</div>
                             </div>
                             <i class="fas fa-chevron-right" style="opacity: 0.3"></i>
@@ -679,6 +799,7 @@ function initUI(editor) {
             editor.loadProjectData(JSON.parse(project.project_data));
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
+            localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
             const modal = document.getElementById('modal-container');
             modal.querySelector('.modal-content').classList.remove('modal-lg');
             closeModal();
@@ -699,3 +820,204 @@ function initIcartSpecifics(editor) {
 function escapeHtml(value) {
     return String(value).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
+
+async function showOpeningPopup() {
+    const modal = document.getElementById('school-open-modal');
+    if (!modal) return;
+    
+    modal.classList.remove('hidden');
+    
+    document.getElementById('btn-create-new-project').onclick = () => {
+        modal.classList.add('hidden');
+        currentProjectIsNew = true;
+        document.getElementById('btn-new').click();
+    };
+
+    const listContainer = document.getElementById('dashboard-projects-list');
+    const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+
+    try {
+        const response = await fetch('/api/projects');
+        const projects = await response.json();
+        const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
+        
+        if (filtered.length === 0) {
+            listContainer.innerHTML = '<div style="text-align:center; padding: 2rem; color: #6b7280; font-size: 14px;">Aucun projet récent. Créez-en un nouveau !</div>';
+        } else {
+            listContainer.innerHTML = filtered.map(p => {
+                const fullName = p.project_name.replace(`school-${schoolId}__`, '');
+                const parts = fullName.split('__');
+                const displayName = parts[0];
+                const lang = parts[1] || 'FR';
+                const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+                
+                return `
+                    <div class="form-list-item" style="cursor: default;">
+                        <i class="fas fa-folder-open"></i>
+                        <div class="form-list-item-content">
+                            <div class="form-list-item-name" style="font-size: 14px;">
+                                ${displayName}
+                                <span class="language-badge" style="background: #EAF6F1; color: #1A7A5E; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${lang}</span>
+                            </div>
+                            <div class="form-list-item-meta" style="font-size: 12px;">Modifié le ${date}</div>
+                        </div>
+                        <div style="display: flex; gap: 8px;">
+                            <button class="btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="window.editProject('${p.project_name}', '${displayName}')">
+                                <i class="fas fa-pen"></i> Modifier
+                            </button>
+                            <button class="btn-outline" style="padding: 6px 12px; font-size: 12px; color: #4F46E5; border-color: #C7D2FE; background: #EEF2FF;" onclick="window.duplicateProject('${p.project_name}')">
+                                <i class="fas fa-language"></i> Dupliquer
+                            </button>
+                        </div>
+                    </div>
+                `;
+            }).join('');
+        }
+    } catch (e) {
+        console.error(e);
+        listContainer.innerHTML = '<div style="text-align:center; padding: 2rem; color: #ef4444;">Erreur de chargement des projets.</div>';
+    }
+}
+
+// Global handlers for the dashboard buttons
+window.editProject = async (fullName, displayName) => {
+    document.getElementById('school-open-modal').classList.add('hidden');
+    currentProjectIsNew = false;
+    await window.loadProject(fullName, displayName);
+};
+
+window.duplicateProject = (fullName) => {
+    document.getElementById('school-open-modal').classList.add('hidden');
+    const modal = document.getElementById('duplicate-project-modal');
+    modal.classList.remove('hidden');
+    
+    document.getElementById('duplicate-source-name').textContent = `Source: ${fullName}`;
+    
+    const typeSelect = document.getElementById('select-duplicate-type');
+    const translateOpts = document.getElementById('duplicate-translate-options');
+    const simpleOpts = document.getElementById('duplicate-simple-options');
+
+    typeSelect.onchange = () => {
+        if (typeSelect.value === 'translate') {
+            translateOpts.classList.remove('hidden');
+            simpleOpts.classList.add('hidden');
+        } else {
+            translateOpts.classList.add('hidden');
+            simpleOpts.classList.remove('hidden');
+        }
+    };
+
+    document.getElementById('btn-close-duplicate').onclick = () => modal.classList.add('hidden');
+
+    document.getElementById('btn-confirm-duplicate').onclick = async () => {
+        const type = typeSelect.value;
+        modal.classList.add('hidden');
+        
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+
+        if (type === 'translate') {
+            const targetLang = document.getElementById('select-duplicate-lang').value;
+            const newDisplayName = await showPrompt({ title: 'Nom du projet traduit', message: 'Entrez le nouveau nom :', placeholder: 'nom-projet-traduit' });
+            if (!newDisplayName) {
+                showOpeningPopup();
+                return;
+            }
+
+            try {
+                showLoading('Traduction en cours par l\'IA Gemini... Cela peut prendre quelques secondes.');
+                
+                const response = await fetch(`/api/project/${fullName}`);
+                const sourceProject = await response.json();
+                
+                const translateRes = await fetch('/api/ai/translate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ html: sourceProject.html, targetLang })
+                });
+
+                if (!translateRes.ok) throw new Error(await translateRes.text());
+                const translateData = await translateRes.json();
+                
+                const newFullName = `school-${schoolId}__${newDisplayName}__${targetLang}`;
+                const projectData = { 
+                    projectName: newFullName, 
+                    html: translateData.html, 
+                    css: sourceProject.css, 
+                    projectData: sourceProject.project_data 
+                };
+
+                const saveRes = await fetch('/api/save', { 
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                });
+                if (!saveRes.ok) throw new Error(await saveRes.text());
+                
+                hideLoading();
+                const userChoice = await new Promise(resolve => {
+                    openModal({
+                        title: 'Succès',
+                        body: `<p class="modal-message">Page ${targetLang} créée avec succès !</p>`,
+                        actions: [
+                            { label: 'Ouvrir la page traduite', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
+                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                        ]
+                    });
+                });
+                if (userChoice) {
+                    window.editProject(newFullName, newDisplayName);
+                } else {
+                    showOpeningPopup(); // Refresh dashboard
+                }
+            } catch (e) {
+                hideLoading();
+                console.error(e);
+                await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+            }
+        } else {
+            const newDisplayName = document.getElementById('input-duplicate-name').value;
+            if (!newDisplayName) {
+                await showAlert({ title: 'Attention', message: 'Veuillez saisir un nom pour la copie.' });
+                showOpeningPopup();
+                return;
+            }
+            try {
+                const response = await fetch(`/api/project/${fullName}`);
+                const sourceProject = await response.json();
+                
+                const originalParts = fullName.replace(`school-${schoolId}__`, '').split('__');
+                const lang = originalParts[1] || 'FR';
+
+                const newFullName = `school-${schoolId}__${newDisplayName}__${lang}`;
+                const projectData = { 
+                    projectName: newFullName, 
+                    html: sourceProject.html, 
+                    css: sourceProject.css, 
+                    projectData: sourceProject.project_data 
+                };
+
+                const saveRes = await fetch('/api/save', { 
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                });
+                if (!saveRes.ok) throw new Error(await saveRes.text());
+                
+                const userChoice = await new Promise(resolve => {
+                    openModal({
+                        title: 'Succès',
+                        body: `<p class="modal-message">Projet copié avec succès !</p>`,
+                        actions: [
+                            { label: 'Ouvrir la copie', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
+                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                        ]
+                    });
+                });
+                if (userChoice) {
+                    window.editProject(newFullName, newDisplayName);
+                } else {
+                    showOpeningPopup(); // Refresh dashboard
+                }
+            } catch (e) {
+                console.error(e);
+                await showAlert({ title: 'Erreur', message: 'Échec de la copie. ' + e.message });
+            }
+        }
+    };
+};

@@ -10,6 +10,10 @@
     <link rel="stylesheet" href="https://unpkg.com/grapesjs/dist/css/grapes.min.css">
     <!-- FontAwesome for Icons -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
     <!-- Custom UI Styles -->
     <link rel="stylesheet" href="css/builder.css">
     <link rel="stylesheet" href="css/form-generator.css">
@@ -93,6 +97,7 @@
             <aside class="sidebar-left">
                 <div class="sidebar-tabs">
                     <button class="tab-btn active" data-tab="blocks">Blocks</button>
+                    <button class="tab-btn" data-tab="forms">Forms</button>
                     <button class="tab-btn" data-tab="layers">Layers</button>
                 </div>
                 <div class="tab-content" id="blocks-panel">
@@ -100,6 +105,15 @@
                         <input type="text" placeholder="Search blocks..." id="block-search">
                     </div>
                     <div id="blocks"></div>
+                </div>
+                <div class="tab-content hidden" id="forms-panel">
+                    <div class="search-box">
+                        <input type="text" placeholder="Search forms..." id="form-search">
+                    </div>
+                    <div id="forms-list" class="forms-list-container">
+                        <!-- Forms will be loaded here -->
+                    </div>
+                </div>
                 <div class="tab-content hidden" id="layers-panel">
                     <div id="layers-container"></div>
                 </div>
@@ -159,6 +173,87 @@
     </div>
 
     <!-- Modals -->
+    <!-- Modal Ouverture École (Dashboard) -->
+    <div id="school-open-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 600px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3>Tableau de bord de l'école</h3>
+                <button class="close-modal" id="btn-close-dashboard" style="display:none;">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; overflow-y: auto;">
+                <button id="btn-create-new-project" class="btn-primary" style="width: 100%; padding: 16px; font-size: 15px; margin-bottom: 24px;">
+                    <i class="fas fa-plus" style="margin-right: 8px;"></i> Créer un nouveau projet
+                </button>
+
+                <h4 style="margin-bottom: 12px; color: #6B7280; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Projets récents</h4>
+                <div id="dashboard-projects-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="text-align:center; padding: 2rem; color: #6b7280;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Sauvegarde Nouveau Projet -->
+    <div id="save-new-project-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Sauvegarder le projet</h3>
+                <button class="close-modal" id="btn-close-save-new">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div id="new-project-name-container" style="margin-bottom: 16px; display: none;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Nom du projet :</label>
+                    <input type="text" id="input-new-project-name" class="form-control" placeholder="ex: ma-landing-page" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                </div>
+                <div style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Version linguistique :</label>
+                    <select id="select-new-project-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="FR">Français (FR)</option>
+                        <option value="EN">Anglais (EN)</option>
+                        <option value="ES">Espagnol (ES)</option>
+                    </select>
+                </div>
+                <button id="btn-confirm-save-new" class="btn-primary" style="width:100%; padding: 12px;">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Duplication Projet -->
+    <div id="duplicate-project-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Dupliquer le projet</h3>
+                <button class="close-modal" id="btn-close-duplicate">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p id="duplicate-source-name" style="margin-bottom: 16px; font-size: 13px; color: #6B7280;">Source: ...</p>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Type de duplication :</label>
+                    <select id="select-duplicate-type" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="translate">Traduire automatiquement (IA)</option>
+                        <option value="simple">Duplication simple (Copie exacte)</option>
+                    </select>
+                </div>
+
+                <div id="duplicate-translate-options" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Langue cible :</label>
+                    <select id="select-duplicate-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="EN">Anglais (EN)</option>
+                        <option value="ES">Espagnol (ES)</option>
+                        <option value="FR">Français (FR)</option>
+                    </select>
+                </div>
+
+                <div id="duplicate-simple-options" class="hidden" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Nouveau nom :</label>
+                    <input type="text" id="input-duplicate-name" class="form-control" placeholder="copie-page" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                </div>
+
+                <button id="btn-confirm-duplicate" class="btn-primary" style="width:100%; padding: 12px;">Dupliquer</button>
+            </div>
+        </div>
+    </div>
     <div id="modal-container" class="modal-overlay hidden">
         <div class="modal-content">
             <div class="modal-header">
