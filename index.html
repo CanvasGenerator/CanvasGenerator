@@ -93,7 +93,6 @@
             <aside class="sidebar-left">
                 <div class="sidebar-tabs">
                     <button class="tab-btn active" data-tab="blocks">Blocks</button>
-                    <button class="tab-btn" data-tab="forms">Forms</button>
                     <button class="tab-btn" data-tab="layers">Layers</button>
                 </div>
                 <div class="tab-content" id="blocks-panel">
@@ -101,16 +100,6 @@
                         <input type="text" placeholder="Search blocks..." id="block-search">
                     </div>
                     <div id="blocks"></div>
-                    <button class="btn-add-block" id="btn-create-block">+ New Block</button>
-                </div>
-                <div class="tab-content hidden" id="forms-panel">
-                    <div class="search-box">
-                        <input type="text" placeholder="Search forms..." id="form-search">
-                    </div>
-                    <div id="forms-list" class="forms-list-container">
-                        <!-- Forms will be loaded here -->
-                    </div>
-                </div>
                 <div class="tab-content hidden" id="layers-panel">
                     <div id="layers-container"></div>
                 </div>
@@ -190,19 +179,30 @@
     <!-- AI Floating Bot -->
     <div id="ai-bot-widget" class="ai-bot-widget">
         <div id="ai-bot-panel" class="ai-bot-panel hidden">
-            <div class="ai-bot-header">
-                <div class="ai-bot-avatar">
-                    <img src="assets/LogoReetain.png" alt="Bot">
-                    <span>Assistant Reetain <span class="online-status"></span></span>
+            <!-- Sidebar (ChatGPT style) -->
+            <div class="ai-bot-sidebar">
+                <button id="btn-new-chat" class="btn-new-chat"><i class="fas fa-plus"></i> Nouvelle discussion</button>
+                <div id="ai-conversations-list" class="ai-conversations-list">
+                    <!-- Conversations will be listed here -->
                 </div>
-                <button id="btn-close-ai-bot">&times;</button>
             </div>
-            <div id="ai-chat-messages" class="ai-messages">
-                <div class="ai-msg bot">Bonjour ! 👋<br>Je suis votre assistant IA Reetain. Je peux vous aider à rédiger des textes, optimiser vos CTAs ou organiser votre contenu. De quoi avez-vous besoin ?</div>
-            </div>
-            <div class="ai-chat-input-area">
-                <textarea id="ai-chat-input" placeholder="Écrivez votre message..."></textarea>
-                <button id="btn-send-ai"><i class="fas fa-paper-plane"></i></button>
+            
+            <!-- Main Chat Area -->
+            <div class="ai-bot-main">
+                <div class="ai-bot-header">
+                    <div class="ai-bot-avatar">
+                        <img src="assets/LogoReetain.png" alt="Bot">
+                        <span>Assistant Reetain <span class="online-status"></span></span>
+                    </div>
+                    <button id="btn-close-ai-bot">&times;</button>
+                </div>
+                <div id="ai-chat-messages" class="ai-messages">
+                    <div class="ai-msg bot">Bonjour ! 👋<br>Je suis votre assistant IA Reetain. Je peux vous aider à rédiger des textes, optimiser vos CTAs ou organiser votre contenu. De quoi avez-vous besoin ?</div>
+                </div>
+                <div class="ai-chat-input-area">
+                    <textarea id="ai-chat-input" placeholder="Écrivez votre message..."></textarea>
+                    <button id="btn-send-ai"><i class="fas fa-paper-plane"></i></button>
+                </div>
             </div>
         </div>
         <button id="btn-toggle-ai-bot" class="ai-bot-bubble">

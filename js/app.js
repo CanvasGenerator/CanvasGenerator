@@ -40,6 +40,7 @@ document.addEventListener('DOMContentLoaded', async () => {
         const response = await fetch(`/api/school/${schoolId}?v=${Date.now()}`);
         if (response.ok) {
             CURRENT_SCHOOL = await response.json();
+            window.CURRENT_SCHOOL = CURRENT_SCHOOL;
 
             // Security overrides for main schools
             if (CURRENT_SCHOOL.id === 'efap') {

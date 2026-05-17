@@ -80,62 +80,6 @@ export default function (editor) {
         type: 'link', content: 'Lien texte', style: { color: 'var(--brand-primary)', 'text-decoration': 'underline' }
     });
 
-    // ── Forms ──────────────────────────────────────────────────────────
-    const catForms = 'Forms';
-    addBlock('b-input', 'Input', catForms, 'fa-solid fa-keyboard', {
-        type: 'default', tagName: 'input', attributes: { type: 'text', placeholder: 'Texte ici...' }, style: { width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', 'border-radius': '4px', 'font-size': '16px', 'margin-bottom': '10px' }
-    });
-    addBlock('b-textarea', 'Textarea', catForms, 'fa-solid fa-align-left', {
-        type: 'default', tagName: 'textarea', attributes: { placeholder: 'Votre message...' }, style: { width: '100%', padding: '10px 12px', border: '1px solid #d1d5db', 'border-radius': '4px', 'font-size': '16px', 'min-height': '100px', 'margin-bottom': '10px' }
-    });
-    addBlock('b-select', 'Select', catForms, 'fa-solid fa-caret-down', `
-        <select style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 16px; margin-bottom: 10px; background-color: #fff;">
-            <option value="">Sélectionnez une option</option>
-            <option value="1">Option 1</option>
-            <option value="2">Option 2</option>
-        </select>
-    `);
-    addBlock('b-checkbox', 'Checkbox', catForms, 'fa-solid fa-check-square', `
-        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; color: #4b5563;">
-            <input type="checkbox" style="width: 16px; height: 16px;">
-            <span>Case à cocher</span>
-        </label>
-    `);
-    addBlock('b-radio', 'Radio', catForms, 'fa-solid fa-dot-circle', `
-        <label style="display: flex; align-items: center; gap: 8px; margin-bottom: 10px; cursor: pointer; color: #4b5563;">
-            <input type="radio" name="radio-group" style="width: 16px; height: 16px;">
-            <span>Bouton radio</span>
-        </label>
-    `);
-    addBlock('b-toggle', 'Toggle Switch', catForms, 'fa-solid fa-toggle-on', `
-        <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
-            <div style="width: 40px; height: 24px; background-color: #e5e7eb; border-radius: 9999px; position: relative; cursor: pointer;">
-                <div style="width: 20px; height: 20px; background-color: #fff; border-radius: 50%; position: absolute; top: 2px; left: 2px; box-shadow: 0 1px 3px rgba(0,0,0,0.3);"></div>
-            </div>
-            <span style="color: #4b5563;">Toggle</span>
-        </div>
-    `);
-    addBlock('b-form-field', 'Form Field', catForms, 'fa-solid fa-text-height', `
-        <div style="margin-bottom: 16px; width: 100%;">
-            <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">Label du champ</label>
-            <input type="text" placeholder="Entrez la valeur" style="width: 100%; padding: 10px 12px; border: 1px solid #d1d5db; border-radius: 4px; font-size: 16px; box-sizing: border-box;">
-        </div>
-    `);
-    addBlock('b-form', 'Form', catForms, 'fa-brands fa-wpforms', `
-        <form style="padding: 24px; background-color: #fff; border-radius: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.1); width: 100%; max-width: 500px;">
-            <h3 style="margin-top: 0; margin-bottom: 20px; color: #111827; font-size: 20px;">Contactez-nous</h3>
-            <div style="margin-bottom: 16px;">
-                <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">Nom</label>
-                <input type="text" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;">
-            </div>
-            <div style="margin-bottom: 16px;">
-                <label style="display: block; margin-bottom: 8px; font-weight: 500; color: #374151;">Email</label>
-                <input type="email" style="width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 4px; box-sizing: border-box;">
-            </div>
-            <button type="submit" style="width: 100%; padding: 12px; background-color: var(--brand-primary); color: #fff; border: none; border-radius: 4px; font-weight: bold; cursor: pointer;">Envoyer</button>
-        </form>
-    `);
-
     // ── Media ──────────────────────────────────────────────────────────
     const catMedia = 'Media';
     addBlock('b-image', 'Image', catMedia, 'fa-solid fa-image', {
