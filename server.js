@@ -403,26 +403,112 @@ http.createServer(async (req, res) => {
         req.on('data', chunk => body += chunk);
         req.on('end', async () => {
             try {
-                const { prompt, schoolId } = JSON.parse(body);
+                const { prompt, schoolId, projectId } = JSON.parse(body);
                 const school = SCHOOLS.find(s => s.id === schoolId) || {};
                 
-                // Simulated AI generation logic
                 const schoolName = school.name || 'notre établissement';
-                let generatedText = `Découvrez l'excellence à l'${schoolName}. ${prompt.length > 5 ? 'Basé sur votre demande : ' + prompt : 'Notre programme est conçu pour propulser votre carrière vers de nouveaux sommets.'}`;
+                const schoolMetier = school.description || 'Formation supérieure';
+
+                console.log(`\n🤖 [AI] Requête reçue pour l'école : ${schoolName} (${schoolId})`);
+                console.log(`📝 [AI] Prompt utilisateur : "${prompt}"`);
+
+                // Sauvegarde du message utilisateur dans Supabase
+                try {
+                    await supabaseRequest('POST', '/chat_history', {
+                        sender: 'user',
+                        message: prompt,
+                        school_id: schoolId,
+                        project_id: projectId
+                    });
+                } catch (err) {
+                    console.error('⚠️ [AI] Impossible de sauvegarder le message utilisateur:', err.message);
+                }
+
+                const systemPrompt = `Tu es l'Assistant IA expert de Reetain, conçu pour aider les consultants marketing à créer des landing pages pour un réseau d'écoles.
+Tu es actuellement configuré pour l'école : ${schoolName}.
+Le domaine/métier de cette école est : ${schoolMetier}.
+
+Ton rôle est de donner des recommandations courtes, percutantes et orientées conversion pour cette école spécifique. Tu dois proposer :
+1. Des titres accrocheurs adaptés au domaine de l'école.
+2. Des textes de boutons (CTA) qui incitent au clic.
+3. Des idées d'organisation de contenu.
+
+Règles importantes :
+- Ne donne JAMAIS de code HTML ou CSS, donne uniquement du texte que le consultant peut copier-coller.
+- Adapte ton ton au domaine de l'école (ex: créatif pour le design, corpo pour la communication).
+- Sois concis, comme dans un vrai chat. Pas de longs discours.
+- Si l'utilisateur te salue simplement (ex: "bonjour", "salut"), réponds poliment en te présentant et en lui demandant comment tu peux l'aider pour sa page aujourd'hui, sans générer de contenu tout de suite.`;
+
+                const apiKey = process.env.GEMINI_API_KEY;
+                if (!apiKey) {
+                    console.error("❌ [AI] Clé API Gemini manquante dans le fichier .env");
+                    throw new Error("Clé API Gemini manquante dans le fichier .env");
+                }
+
+                console.log(`📡 [AI] Envoi de la requête à Gemini API (gemini-2.5-flash)...`);
                 
-                if (prompt.toLowerCase().includes('titre')) {
-                    generatedText = `Inscrivez-vous à la JPO de l'${schoolName} !`;
-                } else if (prompt.toLowerCase().includes('bouton')) {
-                    generatedText = `Je m'inscris maintenant`;
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        systemInstruction: { parts: [{ text: systemPrompt }] },
+                        generationConfig: { temperature: 0.7 }
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.error) {
+                    console.error(`❌ [AI] Erreur retournée par Gemini :`, data.error.message);
+                    throw new Error(data.error.message);
+                }
+
+                const generatedText = data.candidates[0].content.parts[0].text;
+                console.log(`✨ [AI] Réponse générée avec succès (${generatedText.length} caractères)`);
+
+                // Sauvegarde de la réponse du bot dans Supabase
+                try {
+                    await supabaseRequest('POST', '/chat_history', {
+                        sender: 'bot',
+                        message: generatedText,
+                        school_id: schoolId,
+                        project_id: projectId
+                    });
+                } catch (err) {
+                    console.error('⚠️ [AI] Impossible de sauvegarder la réponse du bot:', err.message);
                 }
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ text: generatedText }));
             } catch (e) {
-                res.writeHead(500);
-                res.end(e.message);
+                console.error('❌ Erreur Gemini:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ text: `Désolé, j'ai rencontré une erreur : ${e.message}` }));
             }
         });
+        return;
+    }
+
+    // ── AI: Get History ──────────────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/ai/history') {
+        const schoolId = params.get('schoolId');
+        if (!schoolId) {
+            res.writeHead(400);
+            res.end('schoolId missing');
+            return;
+        }
+
+        try {
+            console.log(`\n📜 [AI] Récupération de l'historique pour l'école: ${schoolId}`);
+            const data = await supabaseRequest('GET', `/chat_history?school_id=eq.${encodeURIComponent(schoolId)}&order=created_at.asc`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(data || []));
+        } catch (e) {
+            console.error("❌ [AI] Erreur lors de la récupération de l'historique:", e.message);
+            res.writeHead(500);
+            res.end(e.message);
+        }
         return;
     }
 

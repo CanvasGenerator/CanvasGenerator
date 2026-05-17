@@ -968,11 +968,11 @@ body {
     width: 60px;
     height: 60px;
     border-radius: 50%;
-    background: linear-gradient(135deg, #8b5cf6 0%, #6366f1 100%);
+    background: #1a1a1a;
     color: white;
     border: none;
     cursor: pointer;
-    box-shadow: 0 10px 25px rgba(139, 92, 246, 0.4);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.2);
     display: flex;
     align-items: center;
     justify-content: center;
@@ -999,18 +999,76 @@ body {
 }
 
 .ai-bot-panel {
-    width: 350px;
-    height: 500px;
+    width: 650px; /* Plus large pour la colonne */
+    height: 550px;
     background: #ffffff;
     border-radius: 12px;
     box-shadow: 0 5px 25px rgba(0, 0, 0, 0.2);
     margin-bottom: 20px;
-    display: flex;
-    flex-direction: column;
+    display: flex; /* En ligne pour avoir la barre latérale */
     overflow: hidden;
     border: 1px solid #ddd;
     transform-origin: bottom right;
     transition: transform 0.2s ease, opacity 0.2s ease;
+}
+
+.ai-bot-sidebar {
+    width: 200px;
+    background: #202123; /* Couleur sombre style ChatGPT */
+    color: white;
+    display: flex;
+    flex-direction: column;
+    padding: 15px;
+}
+
+.ai-bot-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.btn-new-chat {
+    background: transparent;
+    color: white;
+    border: 1px solid #4d4d4f;
+    border-radius: 5px;
+    padding: 10px;
+    text-align: left;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.875rem;
+    transition: background 0.2s;
+}
+
+.btn-new-chat:hover {
+    background: rgba(255,255,255,0.1);
+}
+
+.ai-conversations-list {
+    flex: 1;
+    overflow-y: auto;
+    margin-top: 15px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.ai-conv-item {
+    padding: 10px;
+    border-radius: 5px;
+    cursor: pointer;
+    font-size: 0.8125rem;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    transition: background 0.2s;
+    color: #ececf1;
+}
+
+.ai-conv-item:hover, .ai-conv-item.active {
+    background: rgba(255,255,255,0.1);
 }
 
 .ai-bot-panel.hidden {
@@ -1018,7 +1076,7 @@ body {
 }
 
 .ai-bot-header {
-    background: #4f46e5;
+    background: #1a1a1a;
     padding: 15px;
     color: white;
     display: flex;
@@ -1104,7 +1162,7 @@ body {
 
 .ai-msg.user {
     align-self: flex-end;
-    background: #8b5cf6;
+    background: #333333;
     color: white;
     border-bottom-right-radius: 2px;
 }
