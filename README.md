@@ -68,6 +68,34 @@ Each school (EFAP, BRASSART, ICART, etc.) has its own branded identity (colors, 
 
 ---
 
+## 🆕 What's New (Latest Updates)
+
+We recently introduced powerful new features to transform CanvasGenerator into an intelligent, self-sufficient marketing tool:
+
+### 1. 🏗️ Custom Components Saving
+Users can now build custom blocks on the canvas and click **"Save Component"**. The component is persisted to Supabase and immediately available in the Block Manager under "Custom Components".
+> 📸 *[INSÉRER CAPTURE D'ÉCRAN ICI : Le Block Manager avec la catégorie Custom Components ouverte]*
+
+### 2. 📝 Integrated Form Builder & SFMC Sync
+Create lead-capture forms directly in the editor. Upon saving, the system automatically creates a **Data Extension** in Salesforce Marketing Cloud and generates a **Code Snippet Asset** in Content Builder.
+> 📸 *[INSÉRER CAPTURE D'ÉCRAN ICI : Le panneau "Forms" avec quelques champs configurés]*
+
+### 3. 🤖 AI Virtual Assistant (Gemini)
+A contextual AI bot is available via a floating widget. It knows which school you are working on and can help generate copy, suggest CTAs, or improve your layout design.
+> 📸 *[INSÉRER CAPTURE D'ÉCRAN ICI : La fenêtre du Bot IA ouverte en bas à droite]*
+
+### 4. 🌍 One-Click AI Translation
+Translate entire landing pages without breaking the HTML/CSS layout.
+- **Duplicate & Translate:** Translate an existing project from the dashboard.
+- **Translate on Save:** Create a new project, drag French components, and select a target language (e.g., ES) to translate on the fly before saving.
+> 📸 *[INSÉRER CAPTURE D'ÉCRAN ICI : La petite fenêtre de Duplication montrant le choix de la langue]*
+
+### 5. ⚡ Revamped UX & Dashboard
+A new non-blocking **Dashboard** replaces the old alert prompts, listing recent projects with language badges. Heavy tasks (like AI translation) now use modern, non-blocking loading spinners with clear success options.
+> 📸 *[INSÉRER CAPTURE D'ÉCRAN ICI : Le nouveau Dashboard listant les projets]*
+
+---
+
 ## 🏗 Architecture
 
 ```

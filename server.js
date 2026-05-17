@@ -520,24 +520,41 @@ Règles importantes :
             try {
                 const { html, targetLang } = JSON.parse(body);
                 
-                // Simulated translation (simple replacement for demo)
-                const dict = {
-                    en: { 'Prénom': 'First Name', 'Nom': 'Last Name', 'Envoyer': 'Send', 'Inscrivez-vous': 'Sign up', 'Succès': 'Success' },
-                    es: { 'Prénom': 'Nombre', 'Nom': 'Apellido', 'Envoyer': 'Enviar', 'Inscrivez-vous': 'Regístrate', 'Succès': 'Éxito' }
-                };
-
-                let translatedHtml = html;
-                const replacements = dict[targetLang] || {};
-                for (const [fr, target] of Object.entries(replacements)) {
-                    translatedHtml = translatedHtml.split(fr).join(target);
+                // Call Gemini Translation API
+                const apiKey = process.env.GEMINI_API_KEY_TRANSLATION;
+                if (!apiKey) {
+                    throw new Error("Clé API de traduction manquante dans l'environnement (GEMINI_API_KEY_TRANSLATION).");
                 }
 
-                // Add a simulated "translated" feel
-                if (!dict[targetLang]) {
-                    translatedHtml = translatedHtml.replace(/>([^<]+)</g, (match, text) => {
-                        return `>[${targetLang.toUpperCase()}] ${text}<`;
-                    });
+                const prompt = `Translate the following HTML content faithfully into ${targetLang}. 
+Preserve all HTML structure, tags, attributes, classes, and IDs exactly as they are. 
+Only translate the human-readable text content. 
+Adapt the formulations naturally to the target language (do not do a word-for-word translation). 
+Return ONLY the raw translated HTML code without any markdown formatting, backticks, or extra text.
+
+HTML to translate:
+${html}`;
+
+                console.log(`\n🤖 [AI] Demande de traduction vers ${targetLang}...`);
+                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        contents: [{ parts: [{ text: prompt }] }],
+                        generationConfig: { temperature: 0.2 }
+                    })
+                });
+
+                if (!response.ok) {
+                    const err = await response.json();
+                    throw new Error(err.error?.message || 'Erreur API Gemini');
                 }
+
+                const data = await response.json();
+                let translatedHtml = data.candidates?.[0]?.content?.parts?.[0]?.text || html;
+                
+                // Nettoyage des backticks si l'IA en ajoute quand même
+                translatedHtml = translatedHtml.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim();
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ html: translatedHtml }));

@@ -8,30 +8,20 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg-main: #eef8f6;
-            --bg-sidebar: rgba(255, 255, 255, 0.88);
-            --bg-toolbar: rgba(251, 255, 254, 0.84);
-            --bg-surface: #ffffff;
-            --bg-surface-hover: #effaf7;
-            --bg-surface-strong: #e1f5f0;
-            --bg-surface-soft: #f7fcfb;
-            --border-color: rgba(41, 117, 105, 0.14);
-            --border-hover: rgba(41, 117, 105, 0.24);
-            --text-main: #28444a;
-            --text-secondary: #5d7a81;
-            --text-muted: #8ca2a8;
-            --accent: #24b28d;
-            --accent-hover: #199f7d;
-            --accent-glow: rgba(36, 178, 141, 0.18);
-            --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.1);
-            --shadow-md: 0 4px 12px rgba(41, 117, 105, 0.12);
-            --shadow-lg: 0 12px 32px rgba(41, 117, 105, 0.15);
+            --bg-main: #F7F8FA;
+            --bg-surface: #FFFFFF;
+            --border-color: #EAECF0;
+            --text-main: #0F1621;
+            --text-secondary: #6B7280;
+            --text-muted: #9CA3AF;
+            --accent: #1A7A5E;
+            --accent-soft: #EAF6F1;
+            --accent-border: #C3E6D9;
             --radius-md: 8px;
             --radius-lg: 12px;
-            --radius-xl: 16px;
             --transition: 150ms ease;
         }
 
@@ -39,21 +29,22 @@
 
         body {
             min-height: 100vh;
-            background: 
-                radial-gradient(circle at top center, rgba(103, 185, 232, 0.12) 0%, rgba(238, 248, 246, 0) 42%),
-                radial-gradient(circle at 15% 5%, rgba(36, 178, 141, 0.05) 0%, rgba(238, 248, 246, 0) 28%),
-                linear-gradient(180deg, #f5fbf9 0%, #edf8f6 100%);
+            background: var(--bg-main);
             color: var(--text-main);
             font-family: 'Inter', -apple-system, sans-serif;
             -webkit-font-smoothing: antialiased;
+            font-weight: 400;
+        }
+
+        h1, h2, h3, h4 {
+            font-weight: 500;
+            color: var(--text-main);
         }
 
         /* ── Header ── */
         .selector-header {
             height: 60px;
-            background: var(--bg-toolbar);
-            backdrop-filter: blur(20px) saturate(1.6);
-            -webkit-backdrop-filter: blur(20px) saturate(1.6);
+            background: var(--bg-surface);
             border-bottom: 1px solid var(--border-color);
             display: flex;
             align-items: center;
@@ -62,43 +53,44 @@
             position: sticky;
             top: 0;
             z-index: 100;
-            box-shadow: var(--shadow-sm);
         }
         .selector-header .logo-icon {
-            width: 28px;
-            height: 28px;
+            width: 32px;
+            height: 32px;
+            background: var(--accent);
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
             flex-shrink: 0;
+            overflow: hidden;
         }
-        .selector-header .logo-icon img { width: 100%; height: 100%; object-fit: contain; }
+        .selector-header .logo-icon img {
+            width: 80%;
+            height: 80%;
+            object-fit: contain;
+            filter: brightness(0) invert(1); /* Rendre le logo blanc sur fond vert */
+        }
         .selector-header .logo-text {
             font-size: 16px;
-            font-weight: 700;
+            font-weight: 500;
             letter-spacing: -0.02em;
             color: var(--text-main);
         }
-        .logo-text span { color: var(--accent); }
         
         .header-spacer { flex: 1; }
         
         .header-meta {
-            font-size: 13px;
-            color: var(--text-secondary);
+            font-size: 12px;
+            color: var(--accent);
             display: flex;
             align-items: center;
             gap: 8px;
-            background: var(--bg-surface-soft);
-            padding: 6px 12px;
+            background: var(--accent-soft);
+            padding: 4px 10px;
             border-radius: 99px;
-            border: 1px solid var(--border-color);
-        }
-        .header-meta .dot {
-            width: 8px; height: 8px;
-            border-radius: 50%;
-            background: var(--accent);
-            box-shadow: 0 0 8px var(--accent-glow);
+            border: 1px solid var(--accent-border);
+            font-weight: 500;
         }
 
         /* ── Main content ── */
@@ -110,37 +102,69 @@
 
         /* ── Hero heading ── */
         .selector-hero {
-            margin-bottom: 56px;
+            margin-bottom: 48px;
             text-align: center;
         }
         .selector-hero .eyebrow {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
-            font-size: 12px;
-            font-weight: 700;
+            font-size: 11px;
+            font-weight: 500;
             text-transform: uppercase;
-            letter-spacing: 0.1em;
+            letter-spacing: 0.12em;
             color: var(--accent);
-            margin-bottom: 16px;
-            padding: 4px 12px;
-            background: var(--accent-surface);
-            border-radius: 99px;
+            margin-bottom: 12px;
         }
         .selector-hero h1 {
-            font-size: 42px;
-            font-weight: 800;
-            letter-spacing: -0.04em;
-            line-height: 1.1;
-            margin-bottom: 16px;
-            color: var(--text-main);
+            font-size: 28px;
+            line-height: 1.2;
+            margin-bottom: 8px;
         }
         .selector-hero p {
-            font-size: 18px;
+            font-size: 13px;
             color: var(--text-secondary);
             line-height: 1.6;
             max-width: 600px;
             margin: 0 auto;
+        }
+
+        /* ── Stats bar ── */
+        .stats-summary {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            margin-bottom: 48px;
+            background: var(--bg-surface);
+            border-radius: var(--radius-lg);
+            border: 1px solid var(--border-color);
+            overflow: hidden;
+        }
+        .summary-item {
+            text-align: center;
+            padding: 20px;
+            position: relative;
+        }
+        .summary-item:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            right: 0;
+            top: 20%;
+            height: 60%;
+            width: 1px;
+            background: var(--border-color);
+        }
+        .summary-val {
+            display: block;
+            font-size: 24px;
+            font-weight: 500;
+            color: var(--text-main);
+            margin-bottom: 2px;
+        }
+        .summary-lbl {
+            font-size: 11px;
+            font-weight: 500;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
         }
 
         /* ── Master template banner ── */
@@ -149,92 +173,83 @@
             align-items: center;
             justify-content: space-between;
             gap: 24px;
-            padding: 24px 32px;
+            padding: 20px 24px;
             background: var(--bg-surface);
             border: 1px solid var(--border-color);
-            border-radius: var(--radius-xl);
+            border-radius: var(--radius-lg);
             margin-bottom: 48px;
-            box-shadow: var(--shadow-md);
-            transition: transform var(--transition), box-shadow var(--transition);
+            transition: border-color var(--transition), box-shadow var(--transition);
         }
         .master-banner:hover {
-            transform: translateY(-2px);
-            box-shadow: var(--shadow-lg);
+            border-color: var(--accent);
+            box-shadow: 0 0 0 3px rgba(26,122,94,0.08);
         }
         .master-banner-left {
             display: flex;
             align-items: center;
-            gap: 20px;
+            gap: 16px;
         }
         .master-icon {
-            width: 48px;
-            height: 48px;
-            border-radius: var(--radius-lg);
-            background: var(--bg-surface-soft);
-            border: 1px solid var(--border-color);
+            width: 40px;
+            height: 40px;
+            border-radius: 8px;
+            background: var(--accent-soft);
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 24px;
+            font-size: 18px;
             flex-shrink: 0;
             color: var(--accent);
         }
         .master-banner h3 {
-            font-size: 18px;
-            font-weight: 700;
-            margin-bottom: 4px;
-            color: var(--text-main);
+            font-size: 15px;
+            margin-bottom: 2px;
         }
         .master-banner p {
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-secondary);
         }
         .btn-master {
             background: var(--accent);
             color: #ffffff;
             border: none;
-            border-radius: var(--radius-md);
-            padding: 12px 24px;
-            font-size: 14px;
-            font-weight: 700;
+            border-radius: 8px;
+            padding: 10px 18px;
+            font-size: 13px;
+            font-weight: 500;
             cursor: pointer;
             font-family: inherit;
-            transition: all var(--transition);
+            transition: opacity var(--transition);
             white-space: nowrap;
-            box-shadow: 0 4px 12px var(--accent-glow);
         }
         .btn-master:hover { 
-            background: var(--accent-hover);
-            transform: translateY(-1px);
-            box-shadow: 0 6px 16px var(--accent-glow);
+            opacity: 0.9;
         }
 
         /* ── School grid ── */
         .school-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            grid-template-columns: repeat(3, 1fr);
             gap: 24px;
         }
 
         .school-card {
             background: var(--bg-surface);
             border: 1px solid var(--border-color);
-            border-radius: var(--radius-xl);
+            border-radius: var(--radius-lg);
             overflow: hidden;
             cursor: pointer;
             transition: all var(--transition);
             display: flex;
             flex-direction: column;
-            box-shadow: var(--shadow-sm);
         }
         .school-card:hover {
-            transform: translateY(-6px);
             border-color: var(--accent);
-            box-shadow: var(--shadow-lg);
+            box-shadow: 0 0 0 3px rgba(26,122,94,0.08);
         }
 
         .school-card-body {
-            padding: 28px;
+            padding: 24px;
             flex: 1;
             display: flex;
             flex-direction: column;
@@ -244,51 +259,44 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            margin-bottom: 20px;
+            margin-bottom: 16px;
         }
 
         .school-emoji-box {
-            width: 52px;
-            height: 52px;
-            background: var(--bg-surface-soft);
-            border-radius: var(--radius-lg);
+            width: 36px;
+            height: 36px;
+            background: #F7F8FA;
+            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 28px;
-            border: 1px solid var(--border-subtle);
+            font-size: 18px;
         }
 
         .school-badge {
-            font-size: 11px;
-            font-weight: 800;
-            padding: 4px 10px;
+            font-size: 10px;
+            font-weight: 500;
+            padding: 3px 8px;
             border-radius: 99px;
-            color: #ffffff;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
         }
 
         .school-card-name {
-            font-size: 22px;
-            font-weight: 800;
-            color: var(--text-main);
-            margin-bottom: 4px;
-            letter-spacing: -0.02em;
+            font-size: 16px;
+            margin-bottom: 2px;
         }
 
         .school-card-full {
-            font-size: 13px;
+            font-size: 12px;
             color: var(--text-muted);
-            margin-bottom: 16px;
-            line-height: 1.4;
+            margin-bottom: 12px;
         }
 
         .school-card-desc {
-            font-size: 14px;
+            font-size: 13px;
             color: var(--text-secondary);
-            line-height: 1.6;
-            margin-bottom: 24px;
+            line-height: 1.5;
+            margin-bottom: 20px;
             flex: 1;
         }
 
@@ -296,8 +304,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding-top: 20px;
-            border-top: 1px solid var(--border-subtle);
+            padding-top: 16px;
+            border-top: 1px solid var(--border-color);
         }
 
         .school-stats {
@@ -312,61 +320,32 @@
             align-items: center;
             gap: 5px;
         }
-        .stat-group i { color: var(--accent); opacity: 0.7; }
 
         .school-arrow {
-            width: 32px;
-            height: 32px;
-            background: var(--bg-surface-soft);
-            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            background: #F7F8FA;
+            border-radius: 6px;
             display: flex;
             align-items: center;
             justify-content: center;
-            color: var(--accent);
+            color: var(--text-muted);
             transition: all var(--transition);
-            border: 1px solid var(--border-color);
         }
         .school-card:hover .school-arrow {
-            background: var(--accent);
-            color: #ffffff;
-            border-color: var(--accent);
-            transform: translateX(3px);
+            color: var(--accent);
+            background: var(--accent-soft);
         }
 
-        /* ── Stats bar ── */
-        .stats-summary {
-            display: flex;
-            justify-content: center;
-            gap: 64px;
-            margin-bottom: 64px;
-            padding: 32px;
-            background: var(--bg-surface-soft);
-            border-radius: var(--radius-xl);
-            border: 1px solid var(--border-color);
-        }
-        .summary-item {
-            text-align: center;
-        }
-        .summary-val {
-            display: block;
-            font-size: 32px;
-            font-weight: 800;
-            color: var(--text-main);
-            letter-spacing: -0.02em;
-            margin-bottom: 4px;
-        }
-        .summary-lbl {
-            font-size: 13px;
-            font-weight: 600;
-            color: var(--text-muted);
-            text-transform: uppercase;
-            letter-spacing: 0.05em;
+        @media (max-width: 1024px) {
+            .school-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
         @media (max-width: 768px) {
             .selector-main { padding: 48px 20px; }
-            .selector-hero h1 { font-size: 32px; }
-            .stats-summary { flex-direction: column; gap: 32px; padding: 24px; }
+            .school-grid { grid-template-columns: 1fr; }
+            .stats-summary { grid-template-columns: 1fr; }
+            .summary-item:not(:last-child)::after { display: none; }
             .master-banner { flex-direction: column; align-items: stretch; text-align: center; }
             .master-banner-left { flex-direction: column; }
         }
@@ -378,18 +357,17 @@
         <div class="logo-icon">
             <img src="assets/LogoReetain.png" alt="Logo">
         </div>
-        <span class="logo-text">Landing Page <span>Builder</span></span>
+        <span class="logo-text">Landing Page Builder</span>
         <div class="header-spacer"></div>
         <div class="header-meta">
-            <span class="dot"></span>
-            <span id="server-status">Serveur Connecté</span>
+            Multi-écoles
         </div>
     </header>
 
     <main class="selector-main">
         <div class="selector-hero">
             <div class="eyebrow">Reetain · Écosystème Multi-écoles</div>
-            <h1>Déployez vos landing pages<br>pour chaque établissement.</h1>
+            <h1>Déployez vos landing pages</h1>
             <p>Une structure commune, dix identités uniques. Sélectionnez une école pour commencer à éditer sa page dédiée.</p>
         </div>
 
@@ -416,7 +394,7 @@
                     <p>Définissez la structure de référence et les blocs communs à toutes les écoles.</p>
                 </div>
             </div>
-            <button class="btn-master" id="btn-open-master">Éditer le Master →</button>
+            <button class="btn-master" id="btn-open-master">Éditer le Master</button>
         </div>
 
         <div id="debug-error" style="display:none; background:#fee2e2; color:#991b1b; padding:16px; border-radius:8px; margin-bottom:24px; border:1px solid #f87171;"></div>
@@ -443,6 +421,13 @@
             let totalProjects = 0;
             let lastDate = null;
 
+            // Couleurs spécifiques demandées pour les badges
+            const badgeColors = {
+                efap: { bg: '#EBF3FB', text: '#185FA5' },
+                brassart: { bg: '#FBEAF0', text: '#993556' },
+                icart: { bg: '#FAEEDA', text: '#854F0B' }
+            };
+
             schools.forEach(school => {
                 const projects = projectsMap[school.id] || [];
                 totalProjects += projects.length;
@@ -452,13 +437,16 @@
                     if (!lastDate || d > lastDate) lastDate = d;
                 });
 
+                // Récupération des couleurs de badge spécifiques ou valeur par défaut
+                const colors = badgeColors[school.id] || { bg: '#F7F8FA', text: '#6B7280' };
+
                 const card = document.createElement('div');
                 card.className = 'school-card';
                 card.innerHTML = `
                     <div class="school-card-body">
                         <div class="school-card-top">
                             <div class="school-emoji-box">${school.emoji}</div>
-                            <span class="school-badge" style="background:${school.color}">${school.name}</span>
+                            <span class="school-badge" style="background:${colors.bg}; color:${colors.text}">${school.name}</span>
                         </div>
                         <div class="school-card-name">${school.name}</div>
                         <div class="school-card-full">${school.fullName}</div>
@@ -466,7 +454,7 @@
                         <div class="school-card-footer">
                             <div class="school-stats">
                                 <div class="stat-group">
-                                    <i class="fas fa-file-alt"></i>
+                                    <i class="far fa-file-alt"></i>
                                     <strong>${projects.length}</strong>
                                 </div>
                             </div>
@@ -498,7 +486,7 @@
                     fetchJSON('/api/schools'),
                     fetchJSON('/api/projects').catch(err => {
                         console.warn("Erreur chargement projets:", err);
-                        return []; // Fallback to empty projects if DB fails
+                        return [];
                     })
                 ]);
 
@@ -518,7 +506,7 @@
             } catch (err) {
                 console.error(err);
                 document.getElementById('server-status').textContent = 'Erreur serveur';
-                document.getElementById('server-status').style.color = '#e16a5a'; // var(--danger)
+                document.getElementById('server-status').style.color = '#e16a5a';
                 
                 const debugEl = document.getElementById('debug-error');
                 debugEl.style.display = 'block';
