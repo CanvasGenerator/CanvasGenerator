@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <!-- Custom UI Styles -->
     <link rel="stylesheet" href="css/builder.css">
+    <link rel="stylesheet" href="css/form-generator.css">
     
     <!-- External Libraries -->
     <script src="https://unpkg.com/grapesjs"></script>
@@ -79,6 +80,9 @@
                     </button>
                 </div>
                 <button class="btn-outline" id="btn-save-component" title="Save Selected Component" style="margin-right: 8px;">Save Component</button>
+                <button class="btn-outline" id="btn-form-builder" style="margin-right: 8px; border-color: #3b82f6; color: #3b82f6;">
+                    <i class="fas fa-wpforms"></i> Form Builder
+                </button>
                 <button class="btn-primary" id="btn-save">Save Project</button>
                 <button class="btn-outline" id="btn-preview">Preview</button>
             </div>
@@ -89,6 +93,7 @@
             <aside class="sidebar-left">
                 <div class="sidebar-tabs">
                     <button class="tab-btn active" data-tab="blocks">Blocks</button>
+                    <button class="tab-btn" data-tab="forms">Forms</button>
                     <button class="tab-btn" data-tab="layers">Layers</button>
                 </div>
                 <div class="tab-content" id="blocks-panel">
@@ -97,6 +102,14 @@
                     </div>
                     <div id="blocks"></div>
                     <button class="btn-add-block" id="btn-create-block">+ New Block</button>
+                </div>
+                <div class="tab-content hidden" id="forms-panel">
+                    <div class="search-box">
+                        <input type="text" placeholder="Search forms..." id="form-search">
+                    </div>
+                    <div id="forms-list" class="forms-list-container">
+                        <!-- Forms will be loaded here -->
+                    </div>
                 </div>
                 <div class="tab-content hidden" id="layers-panel">
                     <div id="layers-container"></div>
@@ -174,5 +187,28 @@
 
     <!-- App Scripts -->
     <script type="module" src="js/app.js"></script>
+    <!-- AI Floating Bot -->
+    <div id="ai-bot-widget" class="ai-bot-widget">
+        <div id="ai-bot-panel" class="ai-bot-panel hidden">
+            <div class="ai-bot-header">
+                <div class="ai-bot-avatar">
+                    <img src="assets/LogoReetain.png" alt="Bot">
+                    <span>Assistant Reetain <span class="online-status"></span></span>
+                </div>
+                <button id="btn-close-ai-bot">&times;</button>
+            </div>
+            <div id="ai-chat-messages" class="ai-messages">
+                <div class="ai-msg bot">Bonjour ! 👋<br>Je suis votre assistant IA Reetain. Je peux vous aider à rédiger des textes, optimiser vos CTAs ou organiser votre contenu. De quoi avez-vous besoin ?</div>
+            </div>
+            <div class="ai-chat-input-area">
+                <textarea id="ai-chat-input" placeholder="Écrivez votre message..."></textarea>
+                <button id="btn-send-ai"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+        <button id="btn-toggle-ai-bot" class="ai-bot-bubble">
+            <i class="fas fa-robot"></i>
+            <span class="ai-badge">IA</span>
+        </button>
+    </div>
 </body>
 </html>

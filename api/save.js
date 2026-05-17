@@ -28,7 +28,7 @@ module.exports = async function handler(req, res) {
 
         // created_at is intentionally not sent: on first insert the DB default
         // sets it; on upsert (merge-duplicates) the existing value is preserved.
-        await supabaseRequest('POST', '/Projects', {
+        await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
             project_name: projectName,
             html: fullHtml,
             css,
