@@ -83,9 +83,6 @@
                 <button class="btn-outline" id="btn-form-builder" style="margin-right: 8px; border-color: #3b82f6; color: #3b82f6;">
                     <i class="fas fa-wpforms"></i> Form Builder
                 </button>
-                <button class="btn-outline" id="btn-ai-assistant" title="Intelligence Artificielle" style="margin-right: 8px; border-color: #8b5cf6; color: #8b5cf6;">
-                    <i class="fas fa-magic"></i> AI Assistant
-                </button>
                 <button class="btn-primary" id="btn-save">Save Project</button>
                 <button class="btn-outline" id="btn-preview">Preview</button>
             </div>
@@ -190,5 +187,28 @@
 
     <!-- App Scripts -->
     <script type="module" src="js/app.js"></script>
+    <!-- AI Floating Bot -->
+    <div id="ai-bot-widget" class="ai-bot-widget">
+        <div id="ai-bot-panel" class="ai-bot-panel hidden">
+            <div class="ai-bot-header">
+                <div class="ai-bot-avatar">
+                    <img src="assets/LogoReetain.png" alt="Bot">
+                    <span>Assistant Reetain <span class="online-status"></span></span>
+                </div>
+                <button id="btn-close-ai-bot">&times;</button>
+            </div>
+            <div id="ai-chat-messages" class="ai-messages">
+                <div class="ai-msg bot">Bonjour ! 👋<br>Je suis votre assistant IA Reetain. Je peux vous aider à rédiger des textes, optimiser vos CTAs ou organiser votre contenu. De quoi avez-vous besoin ?</div>
+            </div>
+            <div class="ai-chat-input-area">
+                <textarea id="ai-chat-input" placeholder="Écrivez votre message..."></textarea>
+                <button id="btn-send-ai"><i class="fas fa-paper-plane"></i></button>
+            </div>
+        </div>
+        <button id="btn-toggle-ai-bot" class="ai-bot-bubble">
+            <i class="fas fa-robot"></i>
+            <span class="ai-badge">IA</span>
+        </button>
+    </div>
 </body>
 </html>

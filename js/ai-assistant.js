@@ -1,167 +1,85 @@
 /**
- * AI Assistant Module
- * Handles AI-powered content generation and translation.
+ * AI Assistant Module (Floating Bot Version)
+ * Handles conversational recommendations in a floating widget.
  */
 export function initAiAssistant(editor) {
-    const btnAi = document.getElementById('btn-ai-assistant');
-    if (!btnAi) return;
+    const chatInput = document.getElementById('ai-chat-input');
+    const btnSend = document.getElementById('btn-send-ai');
+    const messagesContainer = document.getElementById('ai-chat-messages');
+    
+    // Toggle elements
+    const btnToggle = document.getElementById('btn-toggle-ai-bot');
+    const btnClose = document.getElementById('btn-close-ai-bot');
+    const botPanel = document.getElementById('ai-bot-panel');
 
-    btnAi.onclick = () => {
-        openAiModal();
+    if (!btnSend || !chatInput || !btnToggle) return;
+
+    // Toggle Logic
+    btnToggle.onclick = () => {
+        botPanel.classList.toggle('hidden');
+        if (!botPanel.classList.contains('hidden')) {
+            chatInput.focus();
+        }
     };
 
-    function openAiModal() {
-        const body = `
-            <div class="ai-container">
-                <div class="ai-tabs">
-                    <button class="ai-tab active" data-tab="generate">🪄 Générer</button>
-                    <button class="ai-tab" data-tab="translate">🌍 Traduire</button>
-                </div>
-                
-                <div id="ai-content-generate" class="ai-pane">
-                    <p class="ai-hint">Décrivez le contenu que vous souhaitez générer pour le composant sélectionné.</p>
-                    <textarea id="ai-prompt" placeholder="ex: Un titre accrocheur pour une JPO Master en Communication à l'EFAP..." rows="4"></textarea>
-                    <div class="ai-actions">
-                        <button class="btn-ai-magic" id="btn-do-generate">
-                            <i class="fas fa-sparkles"></i> Générer le texte
-                        </button>
-                    </div>
-                </div>
+    btnClose.onclick = () => {
+        botPanel.classList.add('hidden');
+    };
 
-                <div id="ai-content-translate" class="ai-pane hidden">
-                    <p class="ai-hint">Traduisez toute votre page en un clic.</p>
-                    <div class="ai-lang-selector">
-                        <label>Langue cible :</label>
-                        <select id="ai-target-lang">
-                            <option value="en">Anglais 🇬🇧</option>
-                            <option value="es">Espagnol 🇪🇸</option>
-                            <option value="de">Allemand 🇩🇪</option>
-                            <option value="it">Italien 🇮🇹</option>
-                        </select>
-                    </div>
-                    <div class="ai-actions">
-                        <button class="btn-ai-magic" id="btn-do-translate">
-                            <i class="fas fa-globe"></i> Traduire la page entière
-                        </button>
-                    </div>
-                </div>
+    btnSend.onclick = () => handleSendMessage();
+    chatInput.onkeydown = (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleSendMessage();
+        }
+    };
 
-                <div id="ai-result-container" class="ai-result hidden">
-                    <div class="ai-result-header">Résultat suggéré :</div>
-                    <div id="ai-result-text" contenteditable="true"></div>
-                    <div class="ai-result-footer">
-                        <button class="btn-secondary" id="btn-ai-discard">Ignorer</button>
-                        <button class="btn-primary" id="btn-ai-apply">Appliquer au composant</button>
-                    </div>
-                </div>
-            </div>
-        `;
+    async function handleSendMessage() {
+        const text = chatInput.value.trim();
+        if (!text) return;
 
-        if (window.openModal) {
-            window.openModal({ 
-                title: 'Reetain AI Assistant', 
-                body: body 
+        // User message
+        appendMessage('user', text);
+        chatInput.value = '';
+
+        // Bot thinking
+        const thinkingId = appendMessage('bot', '<i class="fas fa-spinner fa-spin"></i> Je réfléchis...');
+
+        try {
+            const res = await fetch('/api/ai/generate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ 
+                    prompt: text, 
+                    schoolId: window.CURRENT_SCHOOL?.id,
+                    context: 'floating_bot'
+                })
             });
-            attachAiEvents();
+            const data = await res.json();
+            
+            updateMessage(thinkingId, data.text);
+        } catch (e) {
+            console.error(e);
+            updateMessage(thinkingId, "Désolé, je rencontre une petite difficulté technique. Pouvez-vous réessayer ?");
         }
     }
 
-    function attachAiEvents() {
-        const modal = document.getElementById('modal-container');
-        
-        // Tabs logic
-        modal.querySelectorAll('.ai-tab').forEach(tab => {
-            tab.onclick = () => {
-                modal.querySelectorAll('.ai-tab').forEach(t => t.classList.remove('active'));
-                modal.querySelectorAll('.ai-pane').forEach(p => p.classList.add('hidden'));
-                tab.classList.add('active');
-                modal.querySelector(`#ai-content-${tab.dataset.tab}`).classList.remove('hidden');
-            };
-        });
+    function appendMessage(sender, text) {
+        const id = 'msg-' + Date.now();
+        const msg = document.createElement('div');
+        msg.className = `ai-msg ${sender}`;
+        msg.id = id;
+        msg.innerHTML = text;
+        messagesContainer.appendChild(msg);
+        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        return id;
+    }
 
-        // Generate Logic
-        document.getElementById('btn-do-generate').onclick = async () => {
-            const prompt = document.getElementById('ai-prompt').value;
-            if (!prompt) return;
-
-            showLoading(true);
-            try {
-                const res = await fetch('/api/ai/generate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ prompt, schoolId: window.CURRENT_SCHOOL?.id })
-                });
-                const data = await res.json();
-                
-                showResult(data.text);
-            } catch (e) {
-                console.error(e);
-                alert("Erreur lors de la génération IA.");
-            } finally {
-                showLoading(false);
-            }
-        };
-
-        // Translate Logic
-        document.getElementById('btn-do-translate').onclick = async () => {
-            const lang = document.getElementById('ai-target-lang').value;
-            
-            if (await window.showConfirm({ 
-                title: 'Confirmation de traduction', 
-                message: 'Voulez-vous traduire toute la page ? Cette action modifiera tous les textes existants.' 
-            })) {
-                showLoading(true);
-                try {
-                    const html = editor.getHtml();
-                    const res = await fetch('/api/ai/translate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ html, targetLang: lang })
-                    });
-                    const data = await res.json();
-                    
-                    editor.setComponents(data.html);
-                    window.closeModal();
-                    window.showAlert({ title: 'Succès', message: 'La page a été traduite avec succès !' });
-                } catch (e) {
-                    console.error(e);
-                    alert("Erreur lors de la traduction.");
-                } finally {
-                    showLoading(false);
-                }
-            }
-        };
-
-        function showResult(text) {
-            const container = document.getElementById('ai-result-container');
-            const resultText = document.getElementById('ai-result-text');
-            resultText.innerText = text;
-            container.classList.remove('hidden');
+    function updateMessage(id, text) {
+        const msg = document.getElementById(id);
+        if (msg) {
+            msg.innerHTML = text;
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
-
-        function showLoading(isLoading) {
-            const btn = document.getElementById('btn-do-generate');
-            if (isLoading) {
-                btn.disabled = true;
-                btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Magie en cours...';
-            } else {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-sparkles"></i> Générer le texte';
-            }
-        }
-
-        document.getElementById('btn-ai-discard').onclick = () => {
-            document.getElementById('ai-result-container').classList.add('hidden');
-        };
-
-        document.getElementById('btn-ai-apply').onclick = () => {
-            const selected = editor.getSelected();
-            if (selected && selected.is('text')) {
-                selected.set('content', document.getElementById('ai-result-text').innerText);
-                window.closeModal();
-            } else {
-                window.showAlert({ title: 'Attention', message: 'Veuillez sélectionner un bloc de texte dans l\'éditeur pour appliquer le résultat.' });
-            }
-        };
     }
 }

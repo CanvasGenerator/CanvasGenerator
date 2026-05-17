@@ -90,6 +90,7 @@ function initEditor(schoolId) {
     initBlockThumbnailMedia(editor);
     initStorage(editor);
     initExport(editor);
+    initAiAssistant(editor);
     registerBlocks(editor);
 
     editor.on('load', () => {
