@@ -146,12 +146,59 @@ export function initAiAssistant(editor) {
         }
     }
 
+    function formatMarkdown(text) {
+        if (!text) return '';
+        
+        // Return loader as is
+        if (text.includes('fa-spin') || text.includes('fa-spinner')) {
+            return text;
+        }
+
+        // Escape HTML to prevent XSS
+        let html = text
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        // Bold: **text** -> <strong>text</strong>
+        html = html.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+
+        // Lists: Convert lines starting with "* " or "- " into list items
+        const lines = html.split('\n');
+        let inList = false;
+        const formattedLines = lines.map(line => {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('* ') || trimmed.startsWith('- ')) {
+                const content = trimmed.substring(2);
+                let prefix = '';
+                if (!inList) {
+                    inList = true;
+                    prefix = '<ul style="margin: 8px 0; padding-left: 20px; list-style-type: disc;">';
+                }
+                return `${prefix}<li style="margin-bottom: 4px;">${content}</li>`;
+            } else {
+                let suffix = '';
+                if (inList) {
+                    inList = false;
+                    suffix = '</ul>';
+                }
+                return suffix + line;
+            }
+        });
+
+        if (inList) {
+            formattedLines.push('</ul>');
+        }
+
+        return formattedLines.join('\n');
+    }
+
     function appendMessage(sender, text) {
         const id = 'msg-' + Date.now();
         const msg = document.createElement('div');
         msg.className = `ai-msg ${sender}`;
         msg.id = id;
-        msg.innerHTML = text;
+        msg.innerHTML = formatMarkdown(text);
         messagesContainer.appendChild(msg);
         messagesContainer.scrollTop = messagesContainer.scrollHeight;
         return id;
@@ -160,7 +207,7 @@ export function initAiAssistant(editor) {
     function updateMessage(id, text) {
         const msg = document.getElementById(id);
         if (msg) {
-            msg.innerHTML = text;
+            msg.innerHTML = formatMarkdown(text);
             messagesContainer.scrollTop = messagesContainer.scrollHeight;
         }
     }

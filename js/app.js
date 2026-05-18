@@ -300,6 +300,8 @@ function initUI(editor) {
     window.showPrompt = showPrompt;
     window.openModal = openModal;
     window.closeModal = closeModal;
+    window.showLoading = showLoading;
+    window.hideLoading = hideLoading;
 
     // Devices
     document.getElementById('device-desktop').onclick = () => editor.setDevice('Desktop');
@@ -917,14 +919,14 @@ window.duplicateProject = (fullName) => {
 
         if (type === 'translate') {
             const targetLang = document.getElementById('select-duplicate-lang').value;
-            const newDisplayName = await showPrompt({ title: 'Nom du projet traduit', message: 'Entrez le nouveau nom :', placeholder: 'nom-projet-traduit' });
+            const newDisplayName = await window.showPrompt({ title: 'Nom du projet traduit', message: 'Entrez le nouveau nom :', placeholder: 'nom-projet-traduit' });
             if (!newDisplayName) {
                 showOpeningPopup();
                 return;
             }
 
             try {
-                showLoading('Traduction en cours par l\'IA Gemini... Cela peut prendre quelques secondes.');
+                window.showLoading('Traduction en cours par l\'IA Gemini... Cela peut prendre quelques secondes.');
                 
                 const response = await fetch(`/api/project/${fullName}`);
                 const sourceProject = await response.json();
@@ -951,14 +953,14 @@ window.duplicateProject = (fullName) => {
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 
-                hideLoading();
+                window.hideLoading();
                 const userChoice = await new Promise(resolve => {
-                    openModal({
+                    window.openModal({
                         title: 'Succès',
                         body: `<p class="modal-message">Page ${targetLang} créée avec succès !</p>`,
                         actions: [
-                            { label: 'Ouvrir la page traduite', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
-                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                            { label: 'Ouvrir la page traduite', className: 'btn-primary', onClick: () => { window.closeModal(); resolve(true); } },
+                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve(false); } }
                         ]
                     });
                 });
@@ -968,18 +970,19 @@ window.duplicateProject = (fullName) => {
                     showOpeningPopup(); // Refresh dashboard
                 }
             } catch (e) {
-                hideLoading();
+                window.hideLoading();
                 console.error(e);
-                await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+                await window.showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
             }
         } else {
             const newDisplayName = document.getElementById('input-duplicate-name').value;
             if (!newDisplayName) {
-                await showAlert({ title: 'Attention', message: 'Veuillez saisir un nom pour la copie.' });
+                await window.showAlert({ title: 'Attention', message: 'Veuillez saisir un nom pour la copie.' });
                 showOpeningPopup();
                 return;
             }
             try {
+                window.showLoading('Copie du projet en cours...');
                 const response = await fetch(`/api/project/${fullName}`);
                 const sourceProject = await response.json();
                 
@@ -999,13 +1002,14 @@ window.duplicateProject = (fullName) => {
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 
+                window.hideLoading();
                 const userChoice = await new Promise(resolve => {
-                    openModal({
+                    window.openModal({
                         title: 'Succès',
                         body: `<p class="modal-message">Projet copié avec succès !</p>`,
                         actions: [
-                            { label: 'Ouvrir la copie', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
-                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                            { label: 'Ouvrir la copie', className: 'btn-primary', onClick: () => { window.closeModal(); resolve(true); } },
+                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve(false); } }
                         ]
                     });
                 });
@@ -1015,8 +1019,9 @@ window.duplicateProject = (fullName) => {
                     showOpeningPopup(); // Refresh dashboard
                 }
             } catch (e) {
+                window.hideLoading();
                 console.error(e);
-                await showAlert({ title: 'Erreur', message: 'Échec de la copie. ' + e.message });
+                await window.showAlert({ title: 'Erreur', message: 'Échec de la copie. ' + e.message });
             }
         }
     };
