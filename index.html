@@ -99,9 +99,7 @@
                     <button class="tab-btn active" data-tab="blocks">Blocks</button>
                     <button class="tab-btn" data-tab="forms">Forms</button>
                     <button class="tab-btn" data-tab="layers">Layers</button>
-                    <button class="tab-btn" data-tab="properties" title="Page Properties &amp; SEO">
-                        <i class="fas fa-sliders-h" style="font-size:11px;"></i> SEO
-                    </button>
+
                 </div>
                 <div class="tab-content" id="blocks-panel">
                     <div class="search-box">
@@ -120,97 +118,6 @@
                 <div class="tab-content hidden" id="layers-panel">
                     <div id="layers-container"></div>
                 </div>
-
-                <!-- Properties / SEO Panel -->
-                <div class="tab-content hidden" id="properties-panel">
-                    <div class="props-scroll">
-
-                        <!-- Basic Info -->
-                        <div class="props-section">
-                            <div class="props-section-title">
-                                <i class="fas fa-file-alt"></i> Info de base
-                            </div>
-                            <div class="props-section-body">
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-heading"></i> Titre de la page</span>
-                                    </label>
-                                    <input id="prop-title" type="text" class="props-input" placeholder="Titre descriptif du projet">
-                                </div>
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-align-left"></i> Description interne</span>
-                                    </label>
-                                    <textarea id="prop-desc" class="props-input props-textarea" rows="2" placeholder="Description pour l'administration..."></textarea>
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- SEO Settings -->
-                        <div class="props-section">
-                            <div class="props-section-title">
-                                <i class="fas fa-search"></i> Paramètres SEO
-                            </div>
-                            <div class="props-section-body">
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-globe"></i> SEO Meta Title</span>
-                                        <span class="props-counter" id="seo-title-counter">0 / 60</span>
-                                    </label>
-                                    <input id="prop-seo-title" type="text" class="props-input" placeholder="Titre accrocheur · 50-60 car." maxlength="100">
-                                    <div class="props-length-bar"><div class="props-length-fill" id="seo-title-bar"></div></div>
-                                </div>
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-paragraph"></i> SEO Meta Description</span>
-                                        <span class="props-counter" id="seo-desc-counter">0 / 160</span>
-                                    </label>
-                                    <textarea id="prop-seo-desc" class="props-input props-textarea" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." maxlength="300"></textarea>
-                                    <div class="props-length-bar"><div class="props-length-fill" id="seo-desc-bar"></div></div>
-                                </div>
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-key"></i> Mots-clés <span class="props-optional">(optionnel)</span></span>
-                                    </label>
-                                    <input id="prop-keywords" type="text" class="props-input" placeholder="JPO, formation, inscription, école...">
-                                </div>
-                                <div class="props-field">
-                                    <label class="props-label">
-                                        <span class="props-label-text"><i class="fas fa-link"></i> URL Canonique <span class="props-optional">(optionnel)</span></span>
-                                    </label>
-                                    <input id="prop-canonical" type="url" class="props-input" placeholder="https://ecole.fr/page-canonique">
-                                </div>
-                            </div>
-                        </div>
-
-                        <!-- Schema.org JSON-LD -->
-                        <div class="props-section">
-                            <div class="props-section-title">
-                                <i class="fas fa-code"></i> Schema.org (JSON-LD)
-                            </div>
-                            <div class="props-section-body">
-                                <p class="props-hint">Les métadonnées structurées sont injectées dynamiquement dans le &lt;head&gt; au format JSON-LD.</p>
-                                <div class="props-schema-wrap">
-                                    <div class="props-schema-header">
-                                        <div class="props-schema-dots">
-                                            <span></span><span></span><span></span>
-                                        </div>
-                                        <span class="props-schema-lang">json-ld</span>
-                                    </div>
-                                    <textarea id="prop-schema" class="props-input props-schema" rows="8" spellcheck="false" placeholder='{
-  "@context": "https://schema.org",
-  "@type": "Event",
-  "name": "JPO EFAP",
-  "description": "Journée porte ouverte",
-  "startDate": "2026-06-10"
-}'></textarea>
-                                </div>
-                                <div id="prop-schema-error" class="props-schema-error hidden"></div>
-                            </div>
-                        </div>
-
-                    </div><!-- /.props-scroll -->
-                </div><!-- /#properties-panel -->
             </aside>
 
             <!-- Canvas Area -->
@@ -348,6 +255,61 @@
             </div>
         </div>
     </div>
+
+    <!-- Modal Validation & Edition SEO avant Sauvegarde -->
+    <div id="save-seo-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 500px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fas fa-search-dollar" style="color: #1A7A5E; margin-right: 8px;"></i> Validation & Sauvegarde SEO</h3>
+                <button class="close-modal" id="btn-close-save-seo">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 24px; max-height: 75vh; overflow-y: auto;">
+                <p class="modal-message" style="margin-bottom: 20px; font-size: 13px; color: #4B5563; line-height: 1.5;">
+                    Vérifiez ou mettez à jour les métadonnées SEO de votre projet avant de l'enregistrer dans <strong>Supabase</strong> et de le synchroniser avec <strong>Salesforce Marketing Cloud (SFMC)</strong>.
+                </p>
+                
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-heading" style="color: #6B7280; margin-right: 4px;"></i> Titre de la page
+                    </label>
+                    <input type="text" id="modal-seo-title" class="modal-input" placeholder="ex: ma-landing-page" style="margin-bottom: 0;">
+                </div>
+                
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-globe" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Title</span>
+                        <span id="modal-seo-title-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 60</span>
+                    </label>
+                    <input type="text" id="modal-seo-meta-title" class="modal-input" placeholder="Titre accrocheur · 50-60 car." style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-paragraph" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Description</span>
+                        <span id="modal-seo-desc-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 160</span>
+                    </label>
+                    <textarea id="modal-seo-meta-desc" class="modal-input" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." style="margin-bottom: 0; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+
+                <div class="props-field" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-key" style="color: #6B7280; margin-right: 4px;"></i> Mots-clés (Keywords)
+                    </label>
+                    <input type="text" id="modal-seo-keywords" class="modal-input" placeholder="ex: JPO, formation, inscription" style="margin-bottom: 0;">
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button id="btn-save-seo-cancel" class="btn-outline" style="flex: 1; padding: 12px; border-color: #D1D5DB; color: #4B5563; font-weight: 500;">
+                        Annuler
+                    </button>
+                    <button id="btn-save-seo-confirm" class="btn-primary" style="flex: 1; padding: 12px; background: #1A7A5E; font-weight: 600;">
+                        Sauvegarder & Synchroniser
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div id="modal-container" class="modal-overlay hidden">
         <div class="modal-content">
             <div class="modal-header">

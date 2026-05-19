@@ -512,6 +512,9 @@ Règles importantes :
         return;
     }
 
+    // ── API pages routes extracted to /api/pages/ directory ──
+    // We replicate them here so local `node server.js` still works.
+
     // ── API: List all pages (CMS dashboard) ──────────────────────────────
     if (req.method === 'GET' && pathname === '/api/pages') {
         try {
@@ -520,9 +523,15 @@ Règles importantes :
                 'GET',
                 '/Projects?select=project_name,properties,created_at&order=created_at.desc'
             );
-            const pages = (result || []).map(p => {
+            
+            if (!Array.isArray(result)) {
+                console.error("Supabase returned an error or non-array:", result);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: result.message || 'Failed to fetch pages' }));
+            }
+
+            const pages = result.map(p => {
                 const props = p.properties || {};
-                // derive school from prefix school-<id>__
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)__/);
                 const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
                 const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+__/, '').split('__');
@@ -559,25 +568,22 @@ Règles importantes :
                     return res.end('sourceProjectName and newTitle are required');
                 }
 
-                // Fetch source
                 const result = await supabaseRequest(
                     'GET',
                     `/Projects?project_name=eq.${encodeURIComponent(sourceProjectName)}&limit=1`
                 );
-                if (!result || result.length === 0) {
+                if (!Array.isArray(result) || result.length === 0) {
                     res.writeHead(404);
                     return res.end('Source project not found');
                 }
                 const source = result[0];
 
-                // Build new project_name: replace display-part only
                 const schoolMatch = sourceProjectName.match(/^(school-[a-z0-9-]+)__/);
                 const schoolPrefix = schoolMatch ? schoolMatch[1] : 'school-unknown';
                 const langMatch = sourceProjectName.match(/__([A-Z]{2})$/);
                 const lang = langMatch ? langMatch[1] : 'FR';
                 const newProjectName = `${schoolPrefix}__${newTitle}__${lang}`;
 
-                // Copy properties but clear the title so it shows the new name
                 const sourceProps = source.properties || {};
                 const newProps = { ...sourceProps, title: newTitle };
 
@@ -589,7 +595,6 @@ Règles importantes :
                     properties:   newProps
                 });
 
-                // Sync duplicated page to SFMC
                 if (isSfmcConfigured()) {
                     try {
                         await syncProjectToSfmc({ projectName: newProjectName, fullHtml: source.html });
@@ -609,19 +614,35 @@ Règles importantes :
         return;
     }
 
-    // ── API: Delete a page ────────────────────────────────────────────────
-    if (req.method === 'DELETE' && pathname.startsWith('/api/pages/')) {
-        try {
-            const projectName = decodeURIComponent(pathname.replace('/api/pages/', ''));
-            console.log(`\n🗑️ Suppression page: "${projectName}"`);
-            await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`);
-            res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify({ message: 'Page deleted' }));
-        } catch (e) {
-            console.error('❌ /api/pages delete error:', e.message);
-            res.writeHead(500);
-            return res.end('Error: ' + e.message);
-        }
+    // ── API: Delete a page (CMS) ──────────────────────────────────────────
+    if ((req.method === 'POST' && pathname === '/api/pages/delete') || (req.method === 'DELETE' && pathname.startsWith('/api/pages/'))) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                let projectName = '';
+                if (req.method === 'POST') {
+                    const parsed = JSON.parse(body || '{}');
+                    projectName = parsed.projectName;
+                } else {
+                    projectName = decodeURIComponent(pathname.replace('/api/pages/', ''));
+                }
+                
+                if (!projectName) {
+                    res.writeHead(400);
+                    return res.end('projectName is required');
+                }
+
+                console.log(`\n🗑️ Suppression page: "${projectName}"`);
+                await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'Page deleted' }));
+            } catch (e) {
+                console.error('❌ /api/pages delete error:', e.message);
+                res.writeHead(500);
+                return res.end('Error: ' + e.message);
+            }
+        });
         return;
     }
 

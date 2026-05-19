@@ -135,7 +135,7 @@ function initEditor(schoolId) {
 }
 
 // ── Page Properties state ───────────────────────────────────────────────────
-let pageProperties = {
+let currentProjectProperties = {
     title: '', description: '',
     seoTitle: '', seoDescription: '', keywords: '', canonical: '',
     schemaLd: ''
@@ -178,6 +178,22 @@ function initProperties() {
             catch (e) { schemaErr.classList.remove('hidden'); schemaErr.textContent = '⚠ ' + e.message; }
         });
     }
+
+    // Modal SEO Counters
+    const bindModalCounter = (inputId, counterId, min, max) => {
+        const el = document.getElementById(inputId);
+        const cnt = document.getElementById(counterId);
+        if (!el || !cnt) return;
+        const update = () => {
+            const len = el.value.length;
+            cnt.textContent = `${len} / ${max}`;
+            cnt.style.color = len > max ? '#ef4444' : len >= min ? '#10b981' : '#6b7280';
+        };
+        el.addEventListener('input', update);
+        update();
+    };
+    bindModalCounter('modal-seo-meta-title', 'modal-seo-title-counter', 50, 60);
+    bindModalCounter('modal-seo-meta-desc', 'modal-seo-desc-counter', 120, 160);
 }
 
 function collectProperties() {
@@ -217,6 +233,41 @@ function populateProperties(props = {}) {
     ['prop-seo-title', 'prop-seo-desc', 'prop-schema'].forEach(id => {
         document.getElementById(id)?.dispatchEvent(new Event('input'));
     });
+}
+
+// ── NEW: Build complete HTML with SEO meta tags injected into <head> ─────────
+// This ensures SFMC receives a full HTML document with all SEO metadata,
+// instead of raw GrapesJS body HTML without any <head> or meta tags.
+function buildFinalHtml(bodyHtml, css, properties = {}) {
+    const title      = escapeHtml(properties.seoTitle || properties.title || '');
+    const metaDesc   = escapeHtml(properties.seoDescription || '');
+    const keywords   = escapeHtml(properties.keywords || '');
+    const canonical  = (properties.canonical || '').trim();
+    const schemaLd   = (properties.schemaLd || '').trim();
+
+    const canonicalTag = canonical
+        ? `\n    <link rel="canonical" href="${escapeHtml(canonical)}">`
+        : '';
+
+    // Schema.org JSON-LD — already validated before this point, so safe to embed
+    const schemaTag = schemaLd
+        ? `\n    <script type="application/ld+json">\n    ${schemaLd}\n    </script>`
+        : '';
+
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${title}</title>
+    <meta name="description" content="${metaDesc}">
+    <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}
+    <style>${css}</style>
+</head>
+<body>
+${bodyHtml}
+</body>
+</html>`;
 }
 
 function injectBrandVariables(editor, school, intoMainDoc = false) {
@@ -547,7 +598,6 @@ function initUI(editor) {
         `);
         
         // Show success notification
-        // Show success notification
         if (window.showAlert) {
             window.showAlert({ title: 'Succès', message: `Le formulaire "${name}" a été inséré dans votre page avec succès.` });
         } else {
@@ -741,46 +791,88 @@ function initUI(editor) {
         }
     };
 
+    async function performDirectSave(fullName) {
+        // Validate JSON-LD before sending
+        const propsToSave = collectProperties();
+        if (propsToSave.schemaLd) {
+            try { JSON.parse(propsToSave.schemaLd); }
+            catch (jsonErr) {
+                await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                return;
+            }
+        }
+
+        // ── CHANGED: wrap body HTML in a full document with SEO <head> ──────
+        const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+
+        const projectData = { 
+            projectName: fullName, 
+            html: finalHtml,           // full HTML with SEO meta tags
+            css: editor.getCss(), 
+            projectData: editor.getProjectData(),
+            properties: propsToSave
+        };
+
+        try {
+            showLoading('Sauvegarde en cours...');
+            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+            hideLoading();
+            if (!res.ok) throw new Error(await res.text());
+            await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès et synchronisé avec Salesforce !' });
+        } catch (e) { 
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+        }
+    }
+
     // Save Project
     document.getElementById('btn-save').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
 
         if (!currentProjectIsNew) {
-            // Existing project -> Direct Save
+            // Existing project -> Show SEO Modal
             const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
             if (!fullName) {
                 await showAlert({ title: 'Erreur', message: 'Nom du projet introuvable. Veuillez utiliser le Dashboard pour ouvrir un projet.' });
                 return;
             }
 
-            // Validate JSON-LD before sending
-            const propsToSave = collectProperties();
-            if (propsToSave.schemaLd) {
-                try { JSON.parse(propsToSave.schemaLd); }
-                catch (jsonErr) {
-                    await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
-                    return;
-                }
-            }
+            // Populate the modal fields with the current values of properties panel
+            document.getElementById('modal-seo-title').value = (document.getElementById('prop-title')?.value || '').trim();
+            document.getElementById('modal-seo-meta-title').value = (document.getElementById('prop-seo-title')?.value || '').trim();
+            document.getElementById('modal-seo-meta-desc').value = (document.getElementById('prop-seo-desc')?.value || '').trim();
+            document.getElementById('modal-seo-keywords').value = (document.getElementById('prop-keywords')?.value || '').trim();
 
-            const projectData = { 
-                projectName: fullName, 
-                html: editor.getHtml(), 
-                css: editor.getCss(), 
-                projectData: editor.getProjectData(),
-                properties: propsToSave
+            // Trigger counter updates
+            document.getElementById('modal-seo-meta-title').dispatchEvent(new Event('input'));
+            document.getElementById('modal-seo-meta-desc').dispatchEvent(new Event('input'));
+
+            const seoModal = document.getElementById('save-seo-modal');
+            seoModal.classList.remove('hidden');
+
+            document.getElementById('btn-close-save-seo').onclick = () => seoModal.classList.add('hidden');
+
+            // "Annuler" -> Just hide the modal
+            document.getElementById('btn-save-seo-cancel').onclick = () => {
+                seoModal.classList.add('hidden');
             };
 
-            try {
-                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
-                if (!res.ok) throw new Error(await res.text());
-                await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès !' });
-            } catch (e) { 
-                console.error(e);
-                await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
-            }
+            // "Valider & Sauvegarder" -> Update properties panel inputs from modal inputs, then save
+            document.getElementById('btn-save-seo-confirm').onclick = async () => {
+                seoModal.classList.add('hidden');
+                
+                // Copy values back to memory
+                currentProjectProperties.title = document.getElementById('modal-seo-title').value.trim();
+                currentProjectProperties.seoTitle = document.getElementById('modal-seo-meta-title').value.trim();
+                currentProjectProperties.seoDescription = document.getElementById('modal-seo-meta-desc').value.trim();
+                currentProjectProperties.keywords = document.getElementById('modal-seo-keywords').value.trim();
+
+                await performDirectSave(fullName);
+            };
+
         } else {
-            // New project -> Show modal
+            // New project -> Show language selection modal first
             const modal = document.getElementById('save-new-project-modal');
             if (!modal) return;
             modal.classList.remove('hidden');
@@ -797,86 +889,127 @@ function initUI(editor) {
                 }
 
                 modal.classList.add('hidden');
+
+                // Now show the SEO validation modal pre-filled with values before the actual save!
+                document.getElementById('modal-seo-title').value = nameInput;
                 
-                let finalHtml = editor.getHtml();
-                
-                // If language is not FR, translate the canvas first
-                if (lang !== 'FR') {
+                // Default fallback properties
+                const defaultSeoTitle = nameInput;
+                const defaultSeoDesc = `Découvrez notre nouvelle page ${nameInput} pour l'école ${CURRENT_SCHOOL?.name || 'Reetain'}. Retrouvez toutes les informations.`;
+                const defaultKeywords = `${CURRENT_SCHOOL?.name || 'école'}, formation, JPO, inscription`;
+
+                document.getElementById('modal-seo-meta-title').value = defaultSeoTitle;
+                document.getElementById('modal-seo-meta-desc').value = defaultSeoDesc;
+                document.getElementById('modal-seo-keywords').value = defaultKeywords;
+
+                // Trigger counters
+                document.getElementById('modal-seo-meta-title').dispatchEvent(new Event('input'));
+                document.getElementById('modal-seo-meta-desc').dispatchEvent(new Event('input'));
+
+                const seoModal = document.getElementById('save-seo-modal');
+                seoModal.classList.remove('hidden');
+
+                document.getElementById('btn-close-save-seo').onclick = () => seoModal.classList.add('hidden');
+
+                const proceedSaveNew = async (shouldUseModalValues) => {
+                    seoModal.classList.add('hidden');
+                    
+                    if (shouldUseModalValues) {
+                        // Copy values back to memory
+                        currentProjectProperties.title = document.getElementById('modal-seo-title').value.trim();
+                        currentProjectProperties.seoTitle = document.getElementById('modal-seo-meta-title').value.trim();
+                        currentProjectProperties.seoDescription = document.getElementById('modal-seo-meta-desc').value.trim();
+                        currentProjectProperties.keywords = document.getElementById('modal-seo-keywords').value.trim();
+                    } else {
+                        // Pre-populate with defaults if direct
+                        currentProjectProperties.title = nameInput;
+                        currentProjectProperties.seoTitle = defaultSeoTitle;
+                        currentProjectProperties.seoDescription = defaultSeoDesc;
+                        currentProjectProperties.keywords = defaultKeywords;
+                    }
+
+                    // Start the translation & save process
+                    let finalBodyHtml = editor.getHtml();
+                    
+                    if (lang !== 'FR') {
+                        try {
+                            showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
+                            const translateRes = await fetch('/api/ai/translate', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ html: finalBodyHtml, targetLang: lang })
+                            });
+
+                            if (!translateRes.ok) throw new Error(await translateRes.text());
+                            const translateData = await translateRes.json();
+                            finalBodyHtml = translateData.html;
+                            editor.setComponents(finalBodyHtml);
+                        } catch (e) {
+                            hideLoading();
+                            console.error(e);
+                            await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+                            return;
+                        }
+                    } else {
+                        showLoading('Sauvegarde en cours...');
+                    }
+
+                    const fullName = `school-${schoolId}__${nameInput}__${lang}`;
+                    const propsToSave = collectProperties();
+                    
+                    if (propsToSave.schemaLd) {
+                        try { JSON.parse(propsToSave.schemaLd); }
+                        catch (jsonErr) {
+                            hideLoading();
+                            await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                            return;
+                        }
+                    }
+
+                    // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
+                    const finalHtml = buildFinalHtml(finalBodyHtml, editor.getCss(), propsToSave);
+
+                    const projectData = { 
+                        projectName: fullName, 
+                        html: finalHtml,           // full HTML with SEO meta tags
+                        css: editor.getCss(), 
+                        projectData: editor.getProjectData(),
+                        properties: propsToSave
+                    };
+
                     try {
-                        showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
-                        const translateRes = await fetch('/api/ai/translate', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ html: finalHtml, targetLang: lang })
+                        const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                        if (!res.ok) throw new Error(await res.text());
+                        
+                        currentProjectIsNew = false;
+                        localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
+                        localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
+                        
+                        hideLoading();
+                        
+                        const userChoice = await new Promise(resolve => {
+                            openModal({
+                                title: 'Succès',
+                                body: `<p class="modal-message">Nouveau projet sauvegardé${lang !== 'FR' ? ' et traduit' : ''} avec succès !</p>`,
+                                actions: [
+                                    { label: 'Continuer l\'édition', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
+                                    { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
+                                ]
+                            });
                         });
 
-                        if (!translateRes.ok) throw new Error(await translateRes.text());
-                        const translateData = await translateRes.json();
-                        finalHtml = translateData.html;
-                        
-                        // Update the canvas to show translated content
-                        editor.setComponents(finalHtml);
-                    } catch (e) {
+                        if (!userChoice) {
+                            showOpeningPopup();
+                        }
+                    } catch (e) { 
                         hideLoading();
                         console.error(e);
-                        await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
-                        return;
+                        await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
                     }
-                } else {
-                    showLoading('Sauvegarde en cours...');
-                }
-                
-                const fullName = `school-${schoolId}__${nameInput}__${lang}`;
-                
-                // Validate JSON-LD before sending
-                const propsToSave = collectProperties();
-                if (propsToSave.schemaLd) {
-                    try { JSON.parse(propsToSave.schemaLd); }
-                    catch (jsonErr) {
-                        await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
-                        return;
-                    }
-                }
-
-                // Need to get project data AFTER updating components to save the translated structure
-                const projectData = { 
-                    projectName: fullName, 
-                    html: finalHtml, 
-                    css: editor.getCss(), 
-                    projectData: editor.getProjectData(),
-                    properties: propsToSave
                 };
 
-                try {
-                    const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
-                    if (!res.ok) throw new Error(await res.text());
-                    
-                    // Mark as not new and save full name
-                    currentProjectIsNew = false;
-                    localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
-                    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
-                    
-                    hideLoading();
-                    
-                    const userChoice = await new Promise(resolve => {
-                        openModal({
-                            title: 'Succès',
-                            body: `<p class="modal-message">Nouveau projet sauvegardé${lang !== 'FR' ? ' et traduit' : ''} avec succès !</p>`,
-                            actions: [
-                                { label: 'Continuer l\'édition', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
-                                { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
-                            ]
-                        });
-                    });
-
-                    if (!userChoice) {
-                        showOpeningPopup();
-                    }
-                } catch (e) { 
-                    hideLoading();
-                    console.error(e);
-                    await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
-                }
+                document.getElementById('btn-save-seo-cancel').onclick = () => seoModal.classList.add('hidden');
+                document.getElementById('btn-save-seo-confirm').onclick = () => proceedSaveNew(true);
             };
         }
     };
@@ -886,7 +1019,17 @@ function initUI(editor) {
         const name = await getProjectName('Aperçu');
         if (!name) return;
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const projectData = { projectName: `school-${schoolId}__${name}`, html: editor.getHtml(), css: editor.getCss(), projectData: editor.getProjectData() };
+
+        // ── CHANGED: preview also sends full HTML with current SEO properties ──
+        const propsToSave = collectProperties();
+        const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+
+        const projectData = { 
+            projectName: `school-${schoolId}__${name}`, 
+            html: finalHtml,           // full HTML with SEO meta tags
+            css: editor.getCss(), 
+            projectData: editor.getProjectData() 
+        };
         try {
             const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
             if (!res.ok) throw new Error(await res.text());
@@ -1100,9 +1243,14 @@ window.duplicateProject = (fullName) => {
                 const translateData = await translateRes.json();
                 
                 const newFullName = `school-${schoolId}__${newDisplayName}__${targetLang}`;
+
+                // ── CHANGED: wrap translated HTML in full document with SEO ──
+                const sourceProps = sourceProject.properties || {};
+                const finalHtml = buildFinalHtml(translateData.html, sourceProject.css || '', sourceProps);
+
                 const projectData = { 
                     projectName: newFullName, 
-                    html: translateData.html, 
+                    html: finalHtml,           // full HTML with SEO meta tags
                     css: sourceProject.css, 
                     projectData: sourceProject.project_data 
                 };
@@ -1149,9 +1297,14 @@ window.duplicateProject = (fullName) => {
                 const lang = originalParts[1] || 'FR';
 
                 const newFullName = `school-${schoolId}__${newDisplayName}__${lang}`;
+
+                // ── CHANGED: wrap copied HTML in full document with SEO ──────
+                const sourceProps = sourceProject.properties || {};
+                const finalHtml = buildFinalHtml(sourceProject.html || '', sourceProject.css || '', sourceProps);
+
                 const projectData = { 
                     projectName: newFullName, 
-                    html: sourceProject.html, 
+                    html: finalHtml,           // full HTML with SEO meta tags
                     css: sourceProject.css, 
                     projectData: sourceProject.project_data 
                 };

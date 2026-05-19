@@ -307,7 +307,11 @@
         btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
 
         try {
-            const res = await fetch(`/api/pages/${encodeURIComponent(delTarget)}`, { method: 'DELETE' });
+            const res = await fetch(`/api/pages/delete`, { 
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: delTarget })
+            });
             if (!res.ok) throw new Error(await res.text());
             closeDelModal();
             await loadPages();
