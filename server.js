@@ -512,6 +512,119 @@ Règles importantes :
         return;
     }
 
+    // ── API: List all pages (CMS dashboard) ──────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/pages') {
+        try {
+            console.log(`\n📋 CMS: Récupération de toutes les pages`);
+            const result = await supabaseRequest(
+                'GET',
+                '/Projects?select=project_name,properties,created_at&order=created_at.desc'
+            );
+            const pages = (result || []).map(p => {
+                const props = p.properties || {};
+                // derive school from prefix school-<id>__
+                const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)__/);
+                const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
+                const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+__/, '').split('__');
+                const displayName = parts[0] || p.project_name;
+                const lang = parts[1] || 'FR';
+                return {
+                    project_name: p.project_name,
+                    title:        props.title || displayName,
+                    school,
+                    lang,
+                    seoTitle:     props.seoTitle || '',
+                    updated_at:   p.created_at
+                };
+            });
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(pages));
+        } catch (e) {
+            console.error('❌ /api/pages error:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
+    // ── API: Duplicate a page (CMS) ───────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/pages/duplicate') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { sourceProjectName, newTitle } = JSON.parse(body);
+                if (!sourceProjectName || !newTitle) {
+                    res.writeHead(400);
+                    return res.end('sourceProjectName and newTitle are required');
+                }
+
+                // Fetch source
+                const result = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(sourceProjectName)}&limit=1`
+                );
+                if (!result || result.length === 0) {
+                    res.writeHead(404);
+                    return res.end('Source project not found');
+                }
+                const source = result[0];
+
+                // Build new project_name: replace display-part only
+                const schoolMatch = sourceProjectName.match(/^(school-[a-z0-9-]+)__/);
+                const schoolPrefix = schoolMatch ? schoolMatch[1] : 'school-unknown';
+                const langMatch = sourceProjectName.match(/__([A-Z]{2})$/);
+                const lang = langMatch ? langMatch[1] : 'FR';
+                const newProjectName = `${schoolPrefix}__${newTitle}__${lang}`;
+
+                // Copy properties but clear the title so it shows the new name
+                const sourceProps = source.properties || {};
+                const newProps = { ...sourceProps, title: newTitle };
+
+                await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                    project_name: newProjectName,
+                    html:         source.html,
+                    css:          source.css,
+                    project_data: source.project_data,
+                    properties:   newProps
+                });
+
+                // Sync duplicated page to SFMC
+                if (isSfmcConfigured()) {
+                    try {
+                        await syncProjectToSfmc({ projectName: newProjectName, fullHtml: source.html });
+                    } catch (sfmcErr) {
+                        console.error('⚠️  SFMC duplicate sync failed:', sfmcErr.message);
+                    }
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'Page duplicated!', newProjectName }));
+            } catch (e) {
+                console.error('❌ /api/pages/duplicate error:', e.message);
+                res.writeHead(500);
+                return res.end('Error: ' + e.message);
+            }
+        });
+        return;
+    }
+
+    // ── API: Delete a page ────────────────────────────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/pages/')) {
+        try {
+            const projectName = decodeURIComponent(pathname.replace('/api/pages/', ''));
+            console.log(`\n🗑️ Suppression page: "${projectName}"`);
+            await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ message: 'Page deleted' }));
+        } catch (e) {
+            console.error('❌ /api/pages delete error:', e.message);
+            res.writeHead(500);
+            return res.end('Error: ' + e.message);
+        }
+        return;
+    }
+
     // ── AI: Translate Page ───────────────────────────────────────────
     if (req.method === 'POST' && pathname === '/api/ai/translate') {
         let body = '';

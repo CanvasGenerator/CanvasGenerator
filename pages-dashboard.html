@@ -1,0 +1,336 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landing Pages — CMS Dashboard</title>
+    <link rel="icon" type="image/png" href="assets/LogoReetain.png">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/builder.css">
+    <style>
+        body { overflow: auto; height: auto; }
+    </style>
+</head>
+<body class="cms-page">
+
+    <!-- Header -->
+    <header class="cms-header">
+        <a href="school-selector.html" class="cms-logo">
+            <div class="cms-logo-icon">
+                <img src="assets/LogoReetain.png" alt="Reetain">
+            </div>
+            <div>
+                <div>Landing Page <span style="color:#1a7a5e">Builder</span></div>
+                <div style="font-size:11px;font-weight:400;color:#6b7280;margin-top:-1px;">CMS Dashboard</div>
+            </div>
+        </a>
+        <div style="display:flex;align-items:center;gap:12px;">
+            <a id="btn-back-selector" href="school-selector.html" class="cms-btn cms-btn-preview">
+                <i class="fas fa-arrow-left"></i> Sélecteur d'école
+            </a>
+            <a id="btn-new-page" href="#" class="cms-btn cms-btn-edit" style="font-size:13px;padding:8px 16px;">
+                <i class="fas fa-plus"></i> Nouvelle page
+            </a>
+        </div>
+    </header>
+
+    <!-- Body -->
+    <div class="cms-body">
+
+        <!-- Title row -->
+        <div class="cms-title-row">
+            <div>
+                <h1>Pages publiées</h1>
+                <p class="cms-subtitle">Gérez, éditez et dupliquez vos landing pages depuis ce tableau de bord.</p>
+            </div>
+            <div style="display:flex;gap:10px;align-items:center;">
+                <input id="search-input" type="text" placeholder="Rechercher une page…"
+                    style="border:1px solid #eaecf0;border-radius:8px;padding:8px 14px;font-size:13px;font-family:inherit;width:240px;outline:none;transition:border-color .15s;"
+                    onfocus="this.style.borderColor='#1a7a5e'" onblur="this.style.borderColor='#eaecf0'">
+                <select id="filter-school"
+                    style="border:1px solid #eaecf0;border-radius:8px;padding:8px 12px;font-size:13px;font-family:inherit;background:#fff;cursor:pointer;">
+                    <option value="">Toutes les écoles</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Table -->
+        <div class="cms-table-wrap">
+            <table class="cms-table" id="pages-table">
+                <thead>
+                    <tr>
+                        <th>Titre de la page</th>
+                        <th>École</th>
+                        <th>Langue</th>
+                        <th>Dernière mise à jour</th>
+                        <th style="text-align:right;">Actions</th>
+                    </tr>
+                </thead>
+                <tbody id="pages-tbody">
+                    <tr>
+                        <td colspan="5" class="cms-empty">
+                            <i class="fas fa-circle-notch fa-spin"></i>
+                            Chargement des pages…
+                        </td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+
+    </div><!-- /.cms-body -->
+
+    <!-- Duplicate Modal -->
+    <div id="dup-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-copy" style="color:#7e22ce;margin-right:8px;"></i>Dupliquer la page</h3>
+                <button class="cms-modal-close" id="dup-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p style="font-size:13px;color:#6b7280;margin-bottom:16px;" id="dup-source-label">Source : …</p>
+                <label class="cms-modal-label">Nouveau titre de la page</label>
+                <input id="dup-new-title" class="cms-modal-input" type="text" placeholder="Copie de ma-page">
+                <p style="font-size:11px;color:#9ca3af;">Le contenu, les données SEO et le schéma JSON-LD seront copiés automatiquement.</p>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="dup-cancel">Annuler</button>
+                <button class="cms-btn-confirm" id="dup-confirm">
+                    <i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Delete Confirm Modal -->
+    <div id="del-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-trash-alt" style="color:#be123c;margin-right:8px;"></i>Supprimer la page</h3>
+                <button class="cms-modal-close" id="del-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p style="font-size:14px;color:#374151;" id="del-source-label">Êtes-vous sûr de vouloir supprimer cette page ? Cette action est irréversible.</p>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="del-cancel">Annuler</button>
+                <button class="cms-btn-confirm" id="del-confirm" style="background:#be123c;">
+                    <i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // ── State ──────────────────────────────────────────────────────────────
+    let allPages = [];
+    let dupTarget = null;
+    let delTarget = null;
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    function formatDate(iso) {
+        if (!iso) return '—';
+        return new Date(iso).toLocaleDateString('fr-FR', {
+            day: '2-digit', month: 'short', year: 'numeric'
+        });
+    }
+
+    function getSchoolFromProject(projectName) {
+        const m = (projectName || '').match(/^school-([a-z0-9-]+)__/);
+        return m ? m[1].toUpperCase() : '—';
+    }
+
+    function getBuilderUrl(projectName) {
+        const m = (projectName || '').match(/^school-([a-z0-9-]+)__/);
+        const school = m ? m[1] : null;
+        if (!school) return `/?school=unknown`;
+        return `/?school=${school}&project=${encodeURIComponent(projectName)}`;
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    function renderTable(pages) {
+        const tbody = document.getElementById('pages-tbody');
+        if (!pages || pages.length === 0) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="5" class="cms-empty">
+                        <i class="fas fa-file-circle-xmark"></i>
+                        Aucune page trouvée.
+                    </td>
+                </tr>`;
+            return;
+        }
+
+        tbody.innerHTML = pages.map(p => `
+            <tr>
+                <td>
+                    <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
+                    ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
+                </td>
+                <td>
+                    <span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span>
+                </td>
+                <td>
+                    <span class="cms-badge cms-badge-lang">${escHtml(p.lang || 'FR')}</span>
+                </td>
+                <td style="color:#9ca3af;font-size:12px;">${formatDate(p.updated_at)}</td>
+                <td>
+                    <div class="cms-actions" style="justify-content:flex-end;">
+                        <a href="${getBuilderUrl(p.project_name)}" class="cms-btn cms-btn-edit" title="Éditer">
+                            <i class="fas fa-pen"></i> Éditer
+                        </a>
+                        <a href="/preview/${encodeURIComponent(p.project_name)}" target="_blank" class="cms-btn cms-btn-preview" title="Prévisualiser">
+                            <i class="fas fa-eye"></i>
+                        </a>
+                        <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}')">
+                            <i class="fas fa-copy"></i>
+                        </button>
+                        <button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}')">
+                            <i class="fas fa-trash-alt"></i>
+                        </button>
+                    </div>
+                </td>
+            </tr>
+        `).join('');
+    }
+
+    function escHtml(s) {
+        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    }
+    function escAttr(s) {
+        return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+    }
+
+    // ── Load pages ─────────────────────────────────────────────────────────
+    async function loadPages() {
+        try {
+            const res = await fetch('/api/pages');
+            allPages = await res.json();
+
+            // Populate school filter
+            const schoolSet = new Set(allPages.map(p => p.school).filter(Boolean));
+            const filterEl = document.getElementById('filter-school');
+            schoolSet.forEach(s => {
+                const opt = document.createElement('option');
+                opt.value = s; opt.textContent = s;
+                filterEl.appendChild(opt);
+            });
+
+            renderTable(allPages);
+        } catch (e) {
+            document.getElementById('pages-tbody').innerHTML = `
+                <tr><td colspan="5" class="cms-empty" style="color:#ef4444;">
+                    <i class="fas fa-exclamation-triangle"></i>
+                    Erreur de chargement : ${e.message}
+                </td></tr>`;
+        }
+    }
+
+    // ── Search / Filter ────────────────────────────────────────────────────
+    function filterPages() {
+        const q = document.getElementById('search-input').value.toLowerCase();
+        const school = document.getElementById('filter-school').value;
+        const filtered = allPages.filter(p => {
+            const matchQ = !q || (p.title || '').toLowerCase().includes(q) || (p.project_name || '').toLowerCase().includes(q) || (p.seoTitle || '').toLowerCase().includes(q);
+            const matchS = !school || p.school === school;
+            return matchQ && matchS;
+        });
+        renderTable(filtered);
+    }
+
+    document.getElementById('search-input').addEventListener('input', filterPages);
+    document.getElementById('filter-school').addEventListener('change', filterPages);
+
+    // ── Duplicate ──────────────────────────────────────────────────────────
+    function openDuplicate(projectName, title) {
+        dupTarget = projectName;
+        document.getElementById('dup-source-label').textContent = `Source : ${title}`;
+        document.getElementById('dup-new-title').value = '';
+        document.getElementById('dup-modal').style.display = 'flex';
+        setTimeout(() => document.getElementById('dup-new-title').focus(), 50);
+    }
+
+    function closeDupModal() {
+        document.getElementById('dup-modal').style.display = 'none';
+        dupTarget = null;
+    }
+
+    document.getElementById('dup-modal-close').onclick = closeDupModal;
+    document.getElementById('dup-cancel').onclick     = closeDupModal;
+
+    document.getElementById('dup-confirm').onclick = async () => {
+        const newTitle = document.getElementById('dup-new-title').value.trim();
+        if (!newTitle) { document.getElementById('dup-new-title').focus(); return; }
+
+        const btn = document.getElementById('dup-confirm');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Copie…';
+
+        try {
+            const res = await fetch('/api/pages/duplicate', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ sourceProjectName: dupTarget, newTitle })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            closeDupModal();
+            await loadPages();
+        } catch (e) {
+            alert('Erreur lors de la duplication : ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer';
+        }
+    };
+
+    // ── Delete ─────────────────────────────────────────────────────────────
+    function openDelete(projectName, title) {
+        delTarget = projectName;
+        document.getElementById('del-source-label').textContent =
+            `Êtes-vous sûr de vouloir supprimer « ${title} » ? Cette action est irréversible.`;
+        document.getElementById('del-modal').style.display = 'flex';
+    }
+
+    function closeDelModal() {
+        document.getElementById('del-modal').style.display = 'none';
+        delTarget = null;
+    }
+
+    document.getElementById('del-modal-close').onclick = closeDelModal;
+    document.getElementById('del-cancel').onclick      = closeDelModal;
+
+    document.getElementById('del-confirm').onclick = async () => {
+        const btn = document.getElementById('del-confirm');
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
+
+        try {
+            const res = await fetch(`/api/pages/${encodeURIComponent(delTarget)}`, { method: 'DELETE' });
+            if (!res.ok) throw new Error(await res.text());
+            closeDelModal();
+            await loadPages();
+        } catch (e) {
+            alert('Erreur lors de la suppression : ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer';
+        }
+    };
+
+    // ── New page: redirect to school selector ──────────────────────────────
+    document.getElementById('btn-new-page').onclick = (e) => {
+        e.preventDefault();
+        window.location.href = 'school-selector.html';
+    };
+
+    // ── Close modals on backdrop click ─────────────────────────────────────
+    document.getElementById('dup-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDupModal(); });
+    document.getElementById('del-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDelModal(); });
+
+    // ── Init ───────────────────────────────────────────────────────────────
+    loadPages();
+    </script>
+</body>
+</html>

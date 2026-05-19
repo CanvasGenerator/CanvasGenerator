@@ -61,6 +61,32 @@ document.addEventListener('DOMContentLoaded', async () => {
     } catch (e) { console.error('Failed to load school config', e); }
 
     initEditor(schoolId);
+
+    // If opened from CMS dashboard with ?project=<fullName>, auto-load that project
+    const projectParam = params.get('project');
+    if (projectParam) {
+        // Wait for GrapesJS to be ready before loading
+        const tryLoad = setInterval(async () => {
+            if (!window.editor) return;
+            clearInterval(tryLoad);
+            try {
+                const res = await fetch(`/api/project/${encodeURIComponent(projectParam)}`);
+                if (!res.ok) return;
+                const project = await res.json();
+                window.editor.loadProjectData(JSON.parse(project.project_data));
+                populateProperties(project.properties || {});
+                currentProjectIsNew = false;
+                localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
+                const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
+                localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
+                // Close the welcome overlay if visible
+                const overlay = document.getElementById('welcome-overlay');
+                if (overlay) overlay.classList.add('hidden');
+                const openModal = document.getElementById('school-open-modal');
+                if (openModal) openModal.classList.add('hidden');
+            } catch (e) { console.error('Auto-load project failed:', e); }
+        }, 200);
+    }
 });
 
 function initEditor(schoolId) {
@@ -108,6 +134,91 @@ function initEditor(schoolId) {
     window.editor = editor;
 }
 
+// ── Page Properties state ───────────────────────────────────────────────────
+let pageProperties = {
+    title: '', description: '',
+    seoTitle: '', seoDescription: '', keywords: '', canonical: '',
+    schemaLd: ''
+};
+
+function initProperties() {
+    // Counter + bar helpers
+    function bindCounter(inputId, counterId, barId, min, max) {
+        const el  = document.getElementById(inputId);
+        const cnt = document.getElementById(counterId);
+        const bar = document.getElementById(barId);
+        if (!el || !cnt || !bar) return;
+        const update = () => {
+            const len = el.value.length;
+            cnt.textContent = `${len} / ${max}`;
+            cnt.className = 'props-counter';
+            const fill = bar.querySelector ? bar : bar;
+            let pct, color;
+            if (len === 0) { pct = 0; color = 'var(--accent)'; }
+            else if (len < min) { pct = (len / min) * 60; color = '#f59e0b'; cnt.classList.add('warn'); }
+            else if (len <= max) { pct = 60 + ((len - min) / (max - min)) * 40; color = '#10b981'; cnt.classList.add('good'); }
+            else { pct = 100; color = '#ef4444'; cnt.classList.add('over'); }
+            bar.style.width = pct + '%';
+            bar.style.background = color;
+        };
+        el.addEventListener('input', update);
+        update();
+    }
+    bindCounter('prop-seo-title', 'seo-title-counter', 'seo-title-bar', 50, 60);
+    bindCounter('prop-seo-desc',  'seo-desc-counter',  'seo-desc-bar',  120, 160);
+
+    // Live JSON-LD validation
+    const schemaEl = document.getElementById('prop-schema');
+    const schemaErr = document.getElementById('prop-schema-error');
+    if (schemaEl && schemaErr) {
+        schemaEl.addEventListener('input', () => {
+            const val = schemaEl.value.trim();
+            if (!val) { schemaErr.classList.add('hidden'); schemaErr.textContent = ''; return; }
+            try { JSON.parse(val); schemaErr.classList.add('hidden'); schemaErr.textContent = ''; }
+            catch (e) { schemaErr.classList.remove('hidden'); schemaErr.textContent = '⚠ ' + e.message; }
+        });
+    }
+}
+
+function collectProperties() {
+    return {
+        title:          (document.getElementById('prop-title')?.value       || '').trim(),
+        description:    (document.getElementById('prop-desc')?.value        || '').trim(),
+        seoTitle:       (document.getElementById('prop-seo-title')?.value   || '').trim(),
+        seoDescription: (document.getElementById('prop-seo-desc')?.value    || '').trim(),
+        keywords:       (document.getElementById('prop-keywords')?.value    || '').trim(),
+        canonical:      (document.getElementById('prop-canonical')?.value   || '').trim(),
+        schemaLd:       (document.getElementById('prop-schema')?.value      || '').trim(),
+    };
+}
+
+function populateProperties(props = {}) {
+    const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+    const currentProjectSimpleName = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`) || 'Nouveau Projet';
+
+    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
+    
+    // Elegant fallbacks using the current project name
+    const pageTitle = (props.title || '').trim() || currentProjectSimpleName;
+    const seoTitle = (props.seoTitle || '').trim() || pageTitle;
+    const defaultDesc = `Page d'atterrissage officielle de l'école ${CURRENT_SCHOOL?.name || 'Reetain'}.`;
+    const defaultSeoDesc = `Découvrez notre nouvelle page ${currentProjectSimpleName} pour l'école ${CURRENT_SCHOOL?.name || 'Reetain'}. Retrouvez toutes les informations.`;
+    const defaultKeywords = `${CURRENT_SCHOOL?.name || 'école'}, formation, JPO, inscription`;
+
+    set('prop-title',     pageTitle);
+    set('prop-desc',      props.description || defaultDesc);
+    set('prop-seo-title', seoTitle);
+    set('prop-seo-desc',  props.seoDescription || defaultSeoDesc);
+    set('prop-keywords',  props.keywords || defaultKeywords);
+    set('prop-canonical', props.canonical);
+    set('prop-schema',    props.schemaLd);
+    
+    // Re-trigger counters
+    ['prop-seo-title', 'prop-seo-desc', 'prop-schema'].forEach(id => {
+        document.getElementById(id)?.dispatchEvent(new Event('input'));
+    });
+}
+
 function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
     const primary = school.color || '#3b82f6';
@@ -147,24 +258,42 @@ function hexToRgb(hex) {
 function filterBlocksBySchool(editor, schoolId) {
     if (!schoolId || schoolId === 'master') return;
     const bm = editor.BlockManager;
-    const allBlocks = bm.getAll().models;
-    const targetSchoolName = schoolId.toUpperCase();
+    const allBlocks = [...bm.getAll().models];
+    const targetSchoolId = schoolId.toLowerCase();
+    
+    // List of all known schools in the ecosystem
+    const allSchoolsList = [
+        'efap', 'brassart', 'icart', 'efj', 'mopa', 'cread', 'esec', '3wa', 'ifa', 'bleue', 'cesine', 'creanavarra', 'miami'
+    ];
+    
+    const otherSchools = allSchoolsList.filter(s => s !== targetSchoolId);
     const blocksToRemove = [];
 
     allBlocks.forEach(block => {
-        const id = block.get('id');
+        const id = block.get('id').toLowerCase();
         const category = block.get('category');
-        const categoryLabel = (typeof category === 'object' ? category.get('id') : category) || '';
-        const isTargetSchool = categoryLabel === `${targetSchoolName} Components`;
-        const isOtherSchool = categoryLabel.includes(' Components') && !isTargetSchool;
-        const isRequiredByDefault = (CURRENT_SCHOOL?.defaultBlocks || []).includes(id);
+        const categoryLabel = ((typeof category === 'object' ? category.get('id') : category) || '').toLowerCase();
+        
+        // 1. Check if the category belongs to another school (e.g. 'brassart components', 'efap components')
+        const belongsToOtherSchoolCategory = otherSchools.some(school => 
+            categoryLabel === `${school} components` || categoryLabel === school
+        );
+        
+        // 2. Check if the block ID is school-specific and belongs to another school (e.g. 'header-brassart', 'footer-efap')
+        const belongsToOtherSchoolId = otherSchools.some(school => {
+            return id.endsWith(`-${school}`) || id.includes(`-${school}-`) || id === school;
+        });
 
-        if (isOtherSchool && !isRequiredByDefault) {
-            blocksToRemove.push(id);
+        const isRequiredByDefault = (CURRENT_SCHOOL?.defaultBlocks || []).includes(block.get('id'));
+
+        if ((belongsToOtherSchoolCategory || belongsToOtherSchoolId) && !isRequiredByDefault) {
+            blocksToRemove.push(block.get('id'));
         }
     });
 
+    // Remove the blocks belonging to other schools
     blocksToRemove.forEach(id => bm.remove(id));
+    
     bm.render();
 }
 
@@ -303,6 +432,9 @@ function initUI(editor) {
     window.showLoading = showLoading;
     window.hideLoading = hideLoading;
 
+    // Init Properties panel
+    initProperties();
+
     // Devices
     document.getElementById('device-desktop').onclick = () => editor.setDevice('Desktop');
     document.getElementById('device-tablet').onclick = () => editor.setDevice('Tablet');
@@ -334,7 +466,10 @@ function initUI(editor) {
         if (name) {
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
+            localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
+            currentProjectIsNew = true;
             loadDefaultTemplate(editor);
+            populateProperties({}); // immediately pre-fill SEO & Properties tab with defaults based on project name
         }
     };
 
@@ -618,11 +753,22 @@ function initUI(editor) {
                 return;
             }
 
+            // Validate JSON-LD before sending
+            const propsToSave = collectProperties();
+            if (propsToSave.schemaLd) {
+                try { JSON.parse(propsToSave.schemaLd); }
+                catch (jsonErr) {
+                    await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                    return;
+                }
+            }
+
             const projectData = { 
                 projectName: fullName, 
                 html: editor.getHtml(), 
                 css: editor.getCss(), 
-                projectData: editor.getProjectData() 
+                projectData: editor.getProjectData(),
+                properties: propsToSave
             };
 
             try {
@@ -682,12 +828,23 @@ function initUI(editor) {
                 
                 const fullName = `school-${schoolId}__${nameInput}__${lang}`;
                 
+                // Validate JSON-LD before sending
+                const propsToSave = collectProperties();
+                if (propsToSave.schemaLd) {
+                    try { JSON.parse(propsToSave.schemaLd); }
+                    catch (jsonErr) {
+                        await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                        return;
+                    }
+                }
+
                 // Need to get project data AFTER updating components to save the translated structure
                 const projectData = { 
                     projectName: fullName, 
                     html: finalHtml, 
                     css: editor.getCss(), 
-                    projectData: editor.getProjectData() 
+                    projectData: editor.getProjectData(),
+                    properties: propsToSave
                 };
 
                 try {
@@ -799,6 +956,8 @@ function initUI(editor) {
             const response = await fetch(`/api/project/${fullName}`);
             const project = await response.json();
             editor.loadProjectData(JSON.parse(project.project_data));
+            // Populate SEO / Properties panel
+            populateProperties(project.properties || {});
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);

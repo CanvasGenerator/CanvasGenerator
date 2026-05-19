@@ -8,34 +8,64 @@ module.exports = async function handler(req, res) {
     }
 
     try {
-        const { projectName, html, css, projectData } = req.body || {};
+        const { projectName, html, css, projectData, properties = {} } = req.body || {};
 
         if (!projectName) {
             return res.status(400).json({ error: 'Project name is required' });
         }
+
+        // ── JSON-LD validation ───────────────────────────────────────────────────
+        if (properties.schemaLd && properties.schemaLd.trim()) {
+            try {
+                JSON.parse(properties.schemaLd.trim());
+            } catch (jsonErr) {
+                return res.status(400).json({ error: 'Invalid JSON-LD schema: ' + jsonErr.message });
+            }
+        }
+
+        // ── Build SEO/meta block ─────────────────────────────────────────────────
+        const seoTitle   = (properties.seoTitle || '').trim()       || (properties.title || '').trim()       || projectName;
+        const seoDesc    = (properties.seoDescription || '').trim() || (properties.description || '').trim() || '';
+        const keywords   = (properties.keywords || '').trim();
+        const schemaLd   = (properties.schemaLd  || '').trim();
+        const canonical  = (properties.canonical || '').trim();
+
+        const seoMeta = [
+            `    <title>${seoTitle}</title>`,
+            `    <meta name="description" content="${seoDesc}">`,
+            keywords  ? `    <meta name="keywords" content="${keywords}">` : '',
+            canonical ? `    <link rel="canonical" href="${canonical}">` : '',
+        ].filter(Boolean).join('\n');
+
+        const schemaScript = schemaLd
+            ? `\n    <script type="application/ld+json">\n${schemaLd}\n    </script>`
+            : '';
 
         const fullHtml = `<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${projectName}</title>
+${seoMeta}
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>${css}</style>
 </head>
-<body>${html}</body>
+<body>${html}${schemaScript}
+</body>
 </html>`;
 
+        // ── Persist to Supabase ──────────────────────────────────────────────────
         // created_at is intentionally not sent: on first insert the DB default
         // sets it; on upsert (merge-duplicates) the existing value is preserved.
         await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
             project_name: projectName,
             html: fullHtml,
             css,
-            project_data: JSON.stringify(projectData)
+            project_data: JSON.stringify(projectData),
+            properties: properties   // stored as JSONB
         });
 
-        // Save project into SFMC Content Builder.
+        // ── Sync to SFMC Content Builder ─────────────────────────────────────────
         let sfmcResult = { skipped: true, action: 'skipped' };
         if (isSfmcConfigured()) {
             try {
