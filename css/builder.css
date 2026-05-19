@@ -2535,6 +2535,8 @@ body {
     display: flex;
     gap: 10px;
     justify-content: flex-end;
+    margin-right: 6px;
+    margin-bottom: 6px;
 }
 
 .cms-btn-confirm {
