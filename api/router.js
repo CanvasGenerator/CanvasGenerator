@@ -39,24 +39,37 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/duplicate') {
-            const { projectName, newProjectName, newLanguage } = req.body || {};
-            if (!projectName || !newProjectName) return res.status(400).json({ error: 'Missing parameters' });
+            const { sourceProjectName, newTitle, newLanguage } = req.body || {};
+            // Backwards compatibility with alternative variable names if used elsewhere
+            const srcName = sourceProjectName || req.body?.projectName;
+            const targetName = newTitle || req.body?.newProjectName;
             
-            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+            if (!srcName || !targetName) return res.status(400).json({ error: 'Missing parameters' });
+            
+            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(srcName)}&limit=1`);
             if (!result || result.length === 0) return res.status(404).json({ error: 'Source project not found' });
             
             const originalProject = result[0];
-            const newProps = { ...originalProject.properties, language: newLanguage };
+            const newProps = { ...originalProject.properties };
+            if (newLanguage) newProps.language = newLanguage;
             
             const insertResult = await supabaseRequest('POST', '/Projects', {
-                project_name: newProjectName,
+                project_name: targetName,
                 html: originalProject.html,
                 css: originalProject.css,
                 project_data: originalProject.project_data,
                 properties: newProps
             }, { 'Prefer': 'return=representation' });
 
-            return res.status(200).json({ message: 'Project duplicated', project: insertResult[0] });
+            if (isSfmcConfigured()) {
+                try {
+                    await syncProjectToSfmc({ projectName: targetName, fullHtml: originalProject.html });
+                } catch (sfmcErr) {
+                    console.error('SFMC duplicate sync failed:', sfmcErr.message);
+                }
+            }
+
+            return res.status(200).json({ message: 'Project duplicated', project: insertResult ? insertResult[0] : null });
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/delete') {
@@ -179,6 +192,46 @@ module.exports = async function handler(req, res) {
             const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${projectName}</title><style>${css}</style></head><body>${html}</body></html>`;
             await supabaseRequest('POST', '/Projects?on_conflict=project_name', { project_name: projectName, html: fullHtml, css, project_data: JSON.stringify(projectData) });
             return res.status(200).json({ message: 'Saved' });
+        }
+
+        // ==========================================
+        // 7. Preview API
+        // ==========================================
+        if (req.method === 'GET' && pathname.startsWith('/preview/')) {
+            const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
+            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+            
+            if (!result || result.length === 0) {
+                return res.status(404).json({ error: 'Project not found' });
+            }
+
+            const project = result[0];
+            let html = project.html;
+
+            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)__/);
+            if (schoolMatch) {
+                const schoolId = schoolMatch[1];
+                let SCHOOLS = [];
+                try { SCHOOLS = require('../schools.json'); } catch(e) {}
+                const school = SCHOOLS.find(s => s.id === schoolId);
+                
+                if (school) {
+                    const primary = school.color || '#3b82f6';
+                    const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
+                    const brandStyles = `
+                        <style id="brand-variables-preview">
+                            :root {
+                                --brand-primary: ${primary};
+                                --brand-secondary: ${secondary};
+                            }
+                        </style>
+                    `;
+                    html = html.replace('</head>', `${brandStyles}</head>`);
+                }
+            }
+
+            res.setHeader('Content-Type', 'text/html');
+            return res.status(200).send(html);
         }
 
         return res.status(404).json({ error: 'API route not found: ' + pathname });
