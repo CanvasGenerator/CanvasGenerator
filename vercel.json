@@ -13,15 +13,11 @@
     "rewrites": [
         {
             "source": "/preview/:name",
-            "destination": "/api/preview?name=:name"
+            "destination": "/api/router?path=/preview/:name"
         },
         {
-            "source": "/api/school/:id",
-            "destination": "/api/school?id=:id"
-        },
-        {
-            "source": "/api/project/:name",
-            "destination": "/api/project?name=:name"
+            "source": "/api/(.*)",
+            "destination": "/api/router?path=/api/$1"
         }
     ]
 }
