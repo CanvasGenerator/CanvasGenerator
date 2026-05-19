@@ -31,6 +31,7 @@ const BLOCK_THUMBNAILS = {
 
 let CURRENT_SCHOOL = null;
 let currentProjectIsNew = true;
+let currentProjectLanguage = 'FR'; 
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
@@ -491,6 +492,63 @@ function initUI(editor) {
     document.getElementById('device-tablet').onclick = () => editor.setDevice('Tablet');
     document.getElementById('device-mobile').onclick = () => editor.setDevice('Mobile');
 
+    // Language Switcher
+    const languageSwitcher = document.getElementById('language-switcher');
+    if (languageSwitcher) {
+        languageSwitcher.addEventListener('change', async (e) => {
+            const newLang = e.target.value;
+            
+            // Only show dialog if language actually changed and project is open
+            if (newLang !== currentProjectLanguage && !currentProjectIsNew) {
+                const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+                const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+                const projectNamePart = fullName.replace(`school-${schoolId}__`, '').split('__')[0];
+                
+                const choice = await new Promise(resolve => {
+                    window.openModal({
+                        title: 'Changement de langue',
+                        body: `<p class="modal-message">Voulez-vous Changer la Langue actuelle en ${newLang}?</p>`,
+                        actions: [
+                            { label: 'Changer', className: 'btn-primary', onClick: () => { window.closeModal(); resolve('new'); } },
+                            { label: 'Annuler', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve('cancel'); } }
+                        ]
+                    });
+                });
+
+                if (choice === 'cancel') {
+                    languageSwitcher.value = currentProjectLanguage;
+                    return;
+                }
+
+                if (choice === 'new') {
+                    // Create new version with different name
+                    const newName = await window.showPrompt({ 
+                        title: 'Nouveau nom pour la version en ' + newLang, 
+                        message: 'Entrez un nom pour la nouvelle version :', 
+                        placeholder: projectNamePart + '-' + newLang.toLowerCase(),
+                        defaultValue: projectNamePart + '-' + newLang.toLowerCase()
+                    });
+                    
+                    if (!newName) {
+                        languageSwitcher.value = currentProjectLanguage;
+                        return;
+                    }
+                    
+                    // This will save as a new project
+                    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, newName);
+                    localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
+                    currentProjectIsNew = true;
+                } else if (choice === 'replace') {
+                    // Replace current version in new language - ensure it's treated as existing project
+                    currentProjectIsNew = false;
+                }
+                
+                // Trigger save with new language
+                document.getElementById('btn-save').click();
+            }
+        });
+    }
+
     // Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
         btn.onclick = () => {
@@ -519,6 +577,8 @@ function initUI(editor) {
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
             localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
             currentProjectIsNew = true;
+            currentProjectLanguage = 'FR';
+            document.getElementById('language-switcher').value = 'FR';
             loadDefaultTemplate(editor);
             populateProperties({}); // immediately pre-fill SEO & Properties tab with defaults based on project name
         }
@@ -829,6 +889,7 @@ function initUI(editor) {
     // Save Project
     document.getElementById('btn-save').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const selectedLanguage = document.getElementById('language-switcher').value || 'FR';
 
         if (!currentProjectIsNew) {
             // Existing project -> Show SEO Modal
@@ -838,39 +899,72 @@ function initUI(editor) {
                 return;
             }
 
-            // Populate the modal fields with the current values of properties panel
-            document.getElementById('modal-seo-title').value = (document.getElementById('prop-title')?.value || '').trim();
-            document.getElementById('modal-seo-meta-title').value = (document.getElementById('prop-seo-title')?.value || '').trim();
-            document.getElementById('modal-seo-meta-desc').value = (document.getElementById('prop-seo-desc')?.value || '').trim();
-            document.getElementById('modal-seo-keywords').value = (document.getElementById('prop-keywords')?.value || '').trim();
+            // Extract original name and language
+            const projectNamePart = fullName.replace(`school-${schoolId}__`, '').split('__')[0];
+            const originalLanguage = fullName.split('__')[2] || 'FR';
+            const newFullName = `school-${schoolId}__${projectNamePart}__${selectedLanguage}`;
 
-            // Trigger counter updates
-            document.getElementById('modal-seo-meta-title').dispatchEvent(new Event('input'));
-            document.getElementById('modal-seo-meta-desc').dispatchEvent(new Event('input'));
+            // Validate JSON-LD before sending
+            const propsToSave = collectProperties();
+            if (propsToSave.schemaLd) {
+                try { JSON.parse(propsToSave.schemaLd); }
+                catch (jsonErr) {
+                    await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                    return;
+                }
+            }
 
-            const seoModal = document.getElementById('save-seo-modal');
-            seoModal.classList.remove('hidden');
+            let finalHtml = editor.getHtml();
 
-            document.getElementById('btn-close-save-seo').onclick = () => seoModal.classList.add('hidden');
+            // If language changed, translate
+            if (selectedLanguage !== originalLanguage && selectedLanguage !== 'FR') {
+                try {
+                    showLoading(`Traduction en cours vers ${selectedLanguage}... Cela peut prendre quelques secondes.`);
+                    const translateRes = await fetch('/api/ai/translate', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ html: finalHtml, targetLang: selectedLanguage })
+                    });
 
-            // "Annuler" -> Just hide the modal
-            document.getElementById('btn-save-seo-cancel').onclick = () => {
-                seoModal.classList.add('hidden');
+                    if (!translateRes.ok) throw new Error(await translateRes.text());
+                    const translateData = await translateRes.json();
+                    finalHtml = translateData.html;
+                    
+                    // Update the canvas to show translated content
+                    editor.setComponents(finalHtml);
+                } catch (e) {
+                    hideLoading();
+                    console.error(e);
+                    await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+                    return;
+                }
+            } else {
+                showLoading('Sauvegarde en cours...');
+            }
+
+            const projectData = { 
+                projectName: newFullName, 
+                html: finalHtml, 
+                css: editor.getCss(), 
+                projectData: editor.getProjectData(),
+                properties: propsToSave
             };
 
-            // "Valider & Sauvegarder" -> Update properties panel inputs from modal inputs, then save
-            document.getElementById('btn-save-seo-confirm').onclick = async () => {
-                seoModal.classList.add('hidden');
+            try {
+                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                if (!res.ok) throw new Error(await res.text());
                 
-                // Copy values back to memory
-                currentProjectProperties.title = document.getElementById('modal-seo-title').value.trim();
-                currentProjectProperties.seoTitle = document.getElementById('modal-seo-meta-title').value.trim();
-                currentProjectProperties.seoDescription = document.getElementById('modal-seo-meta-desc').value.trim();
-                currentProjectProperties.keywords = document.getElementById('modal-seo-keywords').value.trim();
-
-                await performDirectSave(fullName);
-            };
-
+                // Update stored fullName to reflect language change
+                localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, newFullName);
+                currentProjectLanguage = selectedLanguage;
+                
+                hideLoading();
+                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
+            } catch (e) { 
+                hideLoading();
+                console.error(e);
+                await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+            }
         } else {
             // New project -> Show language selection modal first
             const modal = document.getElementById('save-new-project-modal');
@@ -880,7 +974,7 @@ function initUI(editor) {
             document.getElementById('btn-close-save-new').onclick = () => modal.classList.add('hidden');
 
             document.getElementById('btn-confirm-save-new').onclick = async () => {
-                const lang = document.getElementById('select-new-project-lang').value;
+                const lang = selectedLanguage;
                 const nameInput = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`);
                 
                 if (!nameInput || nameInput === 'Nouveau Projet') {
@@ -914,6 +1008,8 @@ function initUI(editor) {
                 const proceedSaveNew = async (shouldUseModalValues) => {
                     seoModal.classList.add('hidden');
                     
+
+
                     if (shouldUseModalValues) {
                         // Copy values back to memory
                         currentProjectProperties.title = document.getElementById('modal-seo-title').value.trim();
@@ -1104,6 +1200,13 @@ function initUI(editor) {
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
+            
+            // Extract and set current language
+            const parts = fullName.replace(`school-${schoolId}__`, '').split('__');
+            const lang = parts[1] || 'FR';
+            currentProjectLanguage = lang;
+            document.getElementById('language-switcher').value = lang;
+            
             const modal = document.getElementById('modal-container');
             modal.querySelector('.modal-content').classList.remove('modal-lg');
             closeModal();
@@ -1130,6 +1233,11 @@ async function showOpeningPopup() {
     if (!modal) return;
     
     modal.classList.remove('hidden');
+    
+    // Close button (X)
+    document.getElementById('btn-close-dashboard').onclick = () => {
+        modal.classList.add('hidden');
+    };
     
     document.getElementById('btn-create-new-project').onclick = () => {
         modal.classList.add('hidden');
