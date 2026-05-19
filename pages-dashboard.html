@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="fr">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -11,9 +12,13 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/builder.css">
     <style>
-        body { overflow: auto; height: auto; }
+        body {
+            overflow: auto;
+            height: auto;
+        }
     </style>
 </head>
+
 <body class="cms-page">
 
     <!-- Header -->
@@ -93,7 +98,8 @@
                 <p style="font-size:13px;color:#6b7280;margin-bottom:16px;" id="dup-source-label">Source : …</p>
                 <label class="cms-modal-label">Nouveau titre de la page</label>
                 <input id="dup-new-title" class="cms-modal-input" type="text" placeholder="Copie de ma-page">
-                <p style="font-size:11px;color:#9ca3af;">Le contenu, les données SEO et le schéma JSON-LD seront copiés automatiquement.</p>
+                <p style="font-size:11px;color:#9ca3af;">Le contenu, les données SEO et le schéma JSON-LD seront copiés
+                    automatiquement.</p>
             </div>
             <div class="cms-modal-footer">
                 <button class="cms-btn-cancel" id="dup-cancel">Annuler</button>
@@ -131,7 +137,8 @@
                 <button class="cms-modal-close" id="del-modal-close">&times;</button>
             </div>
             <div class="cms-modal-body">
-                <p style="font-size:14px;color:#374151;" id="del-source-label">Êtes-vous sûr de vouloir supprimer cette page ? Cette action est irréversible.</p>
+                <p style="font-size:14px;color:#374151;" id="del-source-label">Êtes-vous sûr de vouloir supprimer cette
+                    page ? Cette action est irréversible.</p>
             </div>
             <div class="cms-modal-footer">
                 <button class="cms-btn-cancel" id="del-cancel">Annuler</button>
@@ -143,46 +150,46 @@
     </div>
 
     <script>
-    // ── State ──────────────────────────────────────────────────────────────
-    let allPages = [];
-    let dupTarget = null;
-    let delTarget = null;
+        // ── State ──────────────────────────────────────────────────────────────
+        let allPages = [];
+        let dupTarget = null;
+        let delTarget = null;
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-    function formatDate(iso) {
-        if (!iso) return '—';
-        return new Date(iso).toLocaleDateString('fr-FR', {
-            day: '2-digit', month: 'short', year: 'numeric'
-        });
-    }
+        // ── Helpers ────────────────────────────────────────────────────────────
+        function formatDate(iso) {
+            if (!iso) return '—';
+            return new Date(iso).toLocaleDateString('fr-FR', {
+                day: '2-digit', month: 'short', year: 'numeric'
+            });
+        }
 
-    function getSchoolFromProject(projectName) {
-        const m = (projectName || '').match(/^school-([a-z0-9-]+)__/);
-        return m ? m[1].toUpperCase() : '—';
-    }
+        function getSchoolFromProject(projectName) {
+            const m = (projectName || '').match(/^school-([a-z0-9-]+)__/i);
+            return m ? m[1].toUpperCase() : '—';
+        }
 
-    function getBuilderUrl(projectName) {
-        const m = (projectName || '').match(/^school-([a-z0-9-]+)__/);
-        const school = m ? m[1] : null;
-        if (!school) return `/?school=unknown`;
-        return `/?school=${school}&project=${encodeURIComponent(projectName)}`;
-    }
+        function getBuilderUrl(projectName) {
+            const m = (projectName || '').match(/^school-([a-z0-9-]+)__/i);
+            const school = m ? m[1] : null;
+            if (!school) return `/?school=unknown`;
+            return `/?school=${school}&project=${encodeURIComponent(projectName)}`;
+        }
 
-    // ── Render ─────────────────────────────────────────────────────────────
-    function renderTable(pages) {
-        const tbody = document.getElementById('pages-tbody');
-        if (!pages || pages.length === 0) {
-            tbody.innerHTML = `
+        // ── Render ─────────────────────────────────────────────────────────────
+        function renderTable(pages) {
+            const tbody = document.getElementById('pages-tbody');
+            if (!pages || pages.length === 0) {
+                tbody.innerHTML = `
                 <tr>
                     <td colspan="5" class="cms-empty">
                         <i class="fas fa-file-circle-xmark"></i>
                         Aucune page trouvée.
                     </td>
                 </tr>`;
-            return;
-        }
+                return;
+            }
 
-        tbody.innerHTML = pages.map(p => `
+            tbody.innerHTML = pages.map(p => `
             <tr>
                 <td>
                     <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
@@ -213,147 +220,148 @@
                 </td>
             </tr>
         `).join('');
-    }
+        }
 
-    function escHtml(s) {
-        return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-    }
-    function escAttr(s) {
-        return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
-    }
+        function escHtml(s) {
+            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+        function escAttr(s) {
+            return String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
+        }
 
-    // ── Load pages ─────────────────────────────────────────────────────────
-    async function loadPages() {
-        try {
-            const res = await fetch('/api/pages');
-            allPages = await res.json();
+        // ── Load pages ─────────────────────────────────────────────────────────
+        async function loadPages() {
+            try {
+                const res = await fetch('/api/pages');
+                allPages = await res.json();
 
-            // Populate school filter
-            const schoolSet = new Set(allPages.map(p => p.school).filter(Boolean));
-            const filterEl = document.getElementById('filter-school');
-            schoolSet.forEach(s => {
-                const opt = document.createElement('option');
-                opt.value = s; opt.textContent = s;
-                filterEl.appendChild(opt);
-            });
+                // Populate school filter
+                const schoolSet = new Set(allPages.map(p => p.school).filter(Boolean));
+                const filterEl = document.getElementById('filter-school');
+                schoolSet.forEach(s => {
+                    const opt = document.createElement('option');
+                    opt.value = s; opt.textContent = s;
+                    filterEl.appendChild(opt);
+                });
 
-            renderTable(allPages);
-        } catch (e) {
-            document.getElementById('pages-tbody').innerHTML = `
+                renderTable(allPages);
+            } catch (e) {
+                document.getElementById('pages-tbody').innerHTML = `
                 <tr><td colspan="5" class="cms-empty" style="color:#ef4444;">
                     <i class="fas fa-exclamation-triangle"></i>
                     Erreur de chargement : ${e.message}
                 </td></tr>`;
+            }
         }
-    }
 
-    // ── Search / Filter ────────────────────────────────────────────────────
-    function filterPages() {
-        const q = document.getElementById('search-input').value.toLowerCase();
-        const school = document.getElementById('filter-school').value;
-        const filtered = allPages.filter(p => {
-            const matchQ = !q || (p.title || '').toLowerCase().includes(q) || (p.project_name || '').toLowerCase().includes(q) || (p.seoTitle || '').toLowerCase().includes(q);
-            const matchS = !school || p.school === school;
-            return matchQ && matchS;
-        });
-        renderTable(filtered);
-    }
-
-    document.getElementById('search-input').addEventListener('input', filterPages);
-    document.getElementById('filter-school').addEventListener('change', filterPages);
-
-    // ── Duplicate ──────────────────────────────────────────────────────────
-    function openDuplicate(projectName, title) {
-        dupTarget = projectName;
-        document.getElementById('dup-source-label').textContent = `Source : ${title}`;
-        document.getElementById('dup-new-title').value = '';
-        document.getElementById('dup-modal').style.display = 'flex';
-        setTimeout(() => document.getElementById('dup-new-title').focus(), 50);
-    }
-
-    function closeDupModal() {
-        document.getElementById('dup-modal').style.display = 'none';
-        dupTarget = null;
-    }
-
-    document.getElementById('dup-modal-close').onclick = closeDupModal;
-    document.getElementById('dup-cancel').onclick     = closeDupModal;
-
-    document.getElementById('dup-confirm').onclick = async () => {
-        const newTitle = document.getElementById('dup-new-title').value.trim();
-        if (!newTitle) { document.getElementById('dup-new-title').focus(); return; }
-
-        const btn = document.getElementById('dup-confirm');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Copie…';
-
-        try {
-            const res = await fetch('/api/pages/duplicate', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ sourceProjectName: dupTarget, newTitle })
+        // ── Search / Filter ────────────────────────────────────────────────────
+        function filterPages() {
+            const q = document.getElementById('search-input').value.toLowerCase();
+            const school = document.getElementById('filter-school').value;
+            const filtered = allPages.filter(p => {
+                const matchQ = !q || (p.title || '').toLowerCase().includes(q) || (p.project_name || '').toLowerCase().includes(q) || (p.seoTitle || '').toLowerCase().includes(q);
+                const matchS = !school || p.school === school;
+                return matchQ && matchS;
             });
-            if (!res.ok) throw new Error(await res.text());
-            closeDupModal();
-            await loadPages();
-        } catch (e) {
-            alert('Erreur lors de la duplication : ' + e.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer';
+            renderTable(filtered);
         }
-    };
 
-    // ── Delete ─────────────────────────────────────────────────────────────
-    function openDelete(projectName, title) {
-        delTarget = projectName;
-        document.getElementById('del-source-label').textContent =
-            `Êtes-vous sûr de vouloir supprimer « ${title} » ? Cette action est irréversible.`;
-        document.getElementById('del-modal').style.display = 'flex';
-    }
+        document.getElementById('search-input').addEventListener('input', filterPages);
+        document.getElementById('filter-school').addEventListener('change', filterPages);
 
-    function closeDelModal() {
-        document.getElementById('del-modal').style.display = 'none';
-        delTarget = null;
-    }
-
-    document.getElementById('del-modal-close').onclick = closeDelModal;
-    document.getElementById('del-cancel').onclick      = closeDelModal;
-
-    document.getElementById('del-confirm').onclick = async () => {
-        const btn = document.getElementById('del-confirm');
-        btn.disabled = true;
-        btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
-
-        try {
-            const res = await fetch(`/api/pages/delete`, { 
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ projectName: delTarget })
-            });
-            if (!res.ok) throw new Error(await res.text());
-            closeDelModal();
-            await loadPages();
-        } catch (e) {
-            alert('Erreur lors de la suppression : ' + e.message);
-        } finally {
-            btn.disabled = false;
-            btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer';
+        // ── Duplicate ──────────────────────────────────────────────────────────
+        function openDuplicate(projectName, title) {
+            dupTarget = projectName;
+            document.getElementById('dup-source-label').textContent = `Source : ${title}`;
+            document.getElementById('dup-new-title').value = '';
+            document.getElementById('dup-modal').style.display = 'flex';
+            setTimeout(() => document.getElementById('dup-new-title').focus(), 50);
         }
-    };
 
-    // ── New page: redirect to school selector ──────────────────────────────
-    document.getElementById('btn-new-page').onclick = (e) => {
-        e.preventDefault();
-        window.location.href = 'school-selector.html';
-    };
+        function closeDupModal() {
+            document.getElementById('dup-modal').style.display = 'none';
+            dupTarget = null;
+        }
 
-    // ── Close modals on backdrop click ─────────────────────────────────────
-    document.getElementById('dup-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDupModal(); });
-    document.getElementById('del-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDelModal(); });
+        document.getElementById('dup-modal-close').onclick = closeDupModal;
+        document.getElementById('dup-cancel').onclick = closeDupModal;
 
-    // ── Init ───────────────────────────────────────────────────────────────
-    loadPages();
+        document.getElementById('dup-confirm').onclick = async () => {
+            const newTitle = document.getElementById('dup-new-title').value.trim();
+            if (!newTitle) { document.getElementById('dup-new-title').focus(); return; }
+
+            const btn = document.getElementById('dup-confirm');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Copie…';
+
+            try {
+                const res = await fetch('/api/pages/duplicate', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sourceProjectName: dupTarget, newTitle })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                closeDupModal();
+                await loadPages();
+            } catch (e) {
+                alert('Erreur lors de la duplication : ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer';
+            }
+        };
+
+        // ── Delete ─────────────────────────────────────────────────────────────
+        function openDelete(projectName, title) {
+            delTarget = projectName;
+            document.getElementById('del-source-label').textContent =
+                `Êtes-vous sûr de vouloir supprimer « ${title} » ? Cette action est irréversible.`;
+            document.getElementById('del-modal').style.display = 'flex';
+        }
+
+        function closeDelModal() {
+            document.getElementById('del-modal').style.display = 'none';
+            delTarget = null;
+        }
+
+        document.getElementById('del-modal-close').onclick = closeDelModal;
+        document.getElementById('del-cancel').onclick = closeDelModal;
+
+        document.getElementById('del-confirm').onclick = async () => {
+            const btn = document.getElementById('del-confirm');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
+
+            try {
+                const res = await fetch(`/api/pages/delete`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ projectName: delTarget })
+                });
+                if (!res.ok) throw new Error(await res.text());
+                closeDelModal();
+                await loadPages();
+            } catch (e) {
+                alert('Erreur lors de la suppression : ' + e.message);
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer';
+            }
+        };
+
+        // ── New page: redirect to school selector ──────────────────────────────
+        document.getElementById('btn-new-page').onclick = (e) => {
+            e.preventDefault();
+            window.location.href = 'school-selector.html';
+        };
+
+        // ── Close modals on backdrop click ─────────────────────────────────────
+        document.getElementById('dup-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDupModal(); });
+        document.getElementById('del-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDelModal(); });
+
+        // ── Init ───────────────────────────────────────────────────────────────
+        loadPages();
     </script>
 </body>
+
 </html>

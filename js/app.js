@@ -128,7 +128,10 @@ function initEditor(schoolId) {
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
-        showOpeningPopup();
+        const params = new URLSearchParams(window.location.search);
+        if (!params.get('project')) {
+            showOpeningPopup();
+        }
     });
 
     if (schoolId === 'icart') initIcartSpecifics(editor);
@@ -942,9 +945,12 @@ function initUI(editor) {
                 showLoading('Sauvegarde en cours...');
             }
 
+            // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
+            finalHtml = buildFinalHtml(finalHtml, editor.getCss(), propsToSave);
+
             const projectData = { 
                 projectName: newFullName, 
-                html: finalHtml, 
+                html: finalHtml,           // full HTML with SEO meta tags
                 css: editor.getCss(), 
                 projectData: editor.getProjectData(),
                 properties: propsToSave

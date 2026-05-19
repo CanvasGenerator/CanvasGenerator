@@ -23,9 +23,9 @@ module.exports = async function handler(req, res) {
             const result = await supabaseRequest('GET', '/Projects?select=project_name,properties,created_at&order=created_at.desc');
             const pages = (result || []).map(p => {
                 const props = p.properties || {};
-                const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)__/);
+                const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
                 const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
-                const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+__/, '').split('__');
+                const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+_+/i, '').split(/_+/);
                 return {
                     project_name: p.project_name,
                     title:        props.title || parts[0] || p.project_name,
@@ -188,9 +188,25 @@ module.exports = async function handler(req, res) {
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html, css, projectData } = req.body || {};
-            const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${projectName}</title><style>${css}</style></head><body>${html}</body></html>`;
-            await supabaseRequest('POST', '/Projects?on_conflict=project_name', { project_name: projectName, html: fullHtml, css, project_data: JSON.stringify(projectData) });
+            const { projectName, html, css, projectData, properties } = req.body || {};
+            
+            const seoTags = properties ? `
+                <meta name="description" content="${properties.seoDescription || ''}">
+                <meta name="keywords" content="${properties.keywords || ''}">
+                <link rel="canonical" href="${properties.canonical || ''}">
+                ${properties.schemaLd ? `<script type="application/ld+json">${properties.schemaLd}</script>` : ''}
+            ` : '';
+
+            const title = properties?.seoTitle || properties?.title || projectName;
+            const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title>${seoTags}<style>${css}</style></head><body>${html}</body></html>`;
+            
+            await supabaseRequest('POST', '/Projects?on_conflict=project_name', { 
+                project_name: projectName, 
+                html: fullHtml, 
+                css, 
+                project_data: JSON.stringify(projectData),
+                properties: properties || {}
+            });
             return res.status(200).json({ message: 'Saved' });
         }
 
@@ -208,7 +224,7 @@ module.exports = async function handler(req, res) {
             const project = result[0];
             let html = project.html;
 
-            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)__/);
+            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);
             if (schoolMatch) {
                 const schoolId = schoolMatch[1];
                 let SCHOOLS = [];
