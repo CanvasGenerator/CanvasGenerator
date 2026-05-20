@@ -1,6 +1,11 @@
 {
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "npm run check",
+    "check": "node --check api/router.js && node --check api/schools.js && node --check api/content.js && node --check lib/api-shared.js && node --check server.js && node --check js/app.js"
+  },
   "dependencies": {
-    "dotenv": "^17.4.2",
-    "mongodb": "^7.2.0"
+    "dotenv": "^17.4.2"
   }
 }

@@ -32,6 +32,7 @@ const BLOCK_THUMBNAILS = {
 let CURRENT_SCHOOL = null;
 let currentProjectIsNew = true;
 let currentProjectLanguage = 'FR'; 
+let currentStructuredPageId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
@@ -63,20 +64,28 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     initEditor(schoolId);
 
-    // If opened from CMS dashboard with ?project=<fullName>, auto-load that project
+    // If opened from CMS dashboard with ?pageId=<id>, load the structured page first.
+    // Fallback to ?project=<fullName> keeps the legacy flow working during migration.
+    const pageIdParam = params.get('pageId');
     const projectParam = params.get('project');
-    if (projectParam) {
+    if (pageIdParam || projectParam) {
         // Wait for GrapesJS to be ready before loading
         const tryLoad = setInterval(async () => {
             if (!window.editor) return;
             clearInterval(tryLoad);
             try {
+                if (pageIdParam) {
+                    await loadStructuredPageIntoEditor(pageIdParam, schoolId);
+                    return;
+                }
+
                 const res = await fetch(`/api/project/${encodeURIComponent(projectParam)}`);
                 if (!res.ok) return;
                 const project = await res.json();
-                window.editor.loadProjectData(JSON.parse(project.project_data));
+                window.editor.loadProjectData(parseProjectData(project.project_data));
                 populateProperties(project.properties || {});
                 currentProjectIsNew = false;
+                currentStructuredPageId = project.page_id || null;
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
@@ -89,6 +98,70 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 200);
     }
 });
+
+function parseProjectData(value) {
+    if (!value) return {};
+    if (typeof value === 'object') return value;
+    try { return JSON.parse(value); }
+    catch { return {}; }
+}
+
+function propertiesFromStructuredPage(page = {}) {
+    const seo = page.seo || {};
+    return {
+        title: page.title || '',
+        description: page.description || '',
+        seoTitle: seo.title || '',
+        seoDescription: seo.description || '',
+        keywords: seo.keywords || '',
+        canonical: seo.canonical || '',
+        schemaLd: seo.schemaLd || ''
+    };
+}
+
+function getCurrentVersion(page, versions = []) {
+    if (!Array.isArray(versions) || versions.length === 0) return null;
+    return versions.find(version => version.id === page.current_version_id) || versions[0];
+}
+
+async function loadStructuredPageIntoEditor(pageId, schoolId) {
+    const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}`);
+    if (!res.ok) throw new Error(await res.text());
+
+    const { page, versions = [] } = await res.json();
+    const version = getCurrentVersion(page, versions);
+    if (!version) throw new Error('Aucune version disponible pour cette page.');
+
+    const projectData = parseProjectData(version.project_data);
+    if (Object.keys(projectData).length) {
+        window.editor.loadProjectData(projectData);
+    } else {
+        window.editor.setComponents(extractBodyHtml(version.html || ''));
+        window.editor.setStyle(version.css || '');
+    }
+
+    const legacyProjectName = page.metadata?.legacyProjectName || '';
+    const displayName = page.title || legacyProjectName || 'Projet';
+    const language = page.language || 'FR';
+
+    populateProperties(propertiesFromStructuredPage(page));
+    currentProjectIsNew = false;
+    currentStructuredPageId = page.id;
+    currentProjectLanguage = language;
+    document.getElementById('language-switcher').value = language;
+
+    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
+    if (legacyProjectName) {
+        localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, legacyProjectName);
+    } else {
+        localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
+    }
+
+    const overlay = document.getElementById('welcome-overlay');
+    if (overlay) overlay.classList.add('hidden');
+    const openModal = document.getElementById('school-open-modal');
+    if (openModal) openModal.classList.add('hidden');
+}
 
 function initEditor(schoolId) {
     const editor = grapesjs.init({
@@ -243,6 +316,8 @@ function populateProperties(props = {}) {
 // This ensures SFMC receives a full HTML document with all SEO metadata,
 // instead of raw GrapesJS body HTML without any <head> or meta tags.
 function buildFinalHtml(bodyHtml, css, properties = {}) {
+    bodyHtml = extractBodyHtml(bodyHtml);
+
     const title      = escapeHtml(properties.seoTitle || properties.title || '');
     const metaDesc   = escapeHtml(properties.seoDescription || '');
     const keywords   = escapeHtml(properties.keywords || '');
@@ -272,6 +347,12 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
 ${bodyHtml}
 </body>
 </html>`;
+}
+
+function extractBodyHtml(html = '') {
+    const value = String(html || '');
+    const bodyMatch = value.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    return bodyMatch ? bodyMatch[1] : value;
 }
 
 function injectBrandVariables(editor, school, intoMainDoc = false) {
@@ -889,6 +970,52 @@ function initUI(editor) {
         }
     }
 
+    async function saveStructuredVersionOnly(pageId, selectedLanguage) {
+        const propsToSave = collectProperties();
+        if (propsToSave.schemaLd) {
+            try { JSON.parse(propsToSave.schemaLd); }
+            catch (jsonErr) {
+                await showAlert({ title: 'JSON-LD invalide', message: 'Le champ Schema.org contient du JSON invalide.\n' + jsonErr.message });
+                return;
+            }
+        }
+
+        const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+        showLoading('Sauvegarde en cours...');
+        try {
+            const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    html: finalHtml,
+                    css: editor.getCss(),
+                    project_data: editor.getProjectData(),
+                    status: 'draft',
+                    change_summary: `Saved from structured editor (${selectedLanguage || 'FR'})`,
+                    metadata: { source: 'structured-editor' },
+                    page: {
+                        title: propsToSave.title || localStorage.getItem(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentProject`) || 'Page',
+                        language: selectedLanguage || 'FR',
+                        seo: {
+                            title: propsToSave.seoTitle || '',
+                            description: propsToSave.seoDescription || '',
+                            keywords: propsToSave.keywords || '',
+                            canonical: propsToSave.canonical || '',
+                            schemaLd: propsToSave.schemaLd || ''
+                        }
+                    }
+                })
+            });
+            if (!res.ok) throw new Error(await res.text());
+            hideLoading();
+            await showAlert({ title: 'Succès', message: 'Page sauvegardée avec succès.' });
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder la page. ' + e.message });
+        }
+    }
+
     // Save Project
     document.getElementById('btn-save').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
@@ -898,7 +1025,11 @@ function initUI(editor) {
             // Existing project -> Show SEO Modal
             const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
             if (!fullName) {
-                await showAlert({ title: 'Erreur', message: 'Nom du projet introuvable. Veuillez utiliser le Dashboard pour ouvrir un projet.' });
+                if (currentStructuredPageId) {
+                    await saveStructuredVersionOnly(currentStructuredPageId, selectedLanguage);
+                    return;
+                }
+                await showAlert({ title: 'Erreur', message: 'Projet introuvable. Veuillez utiliser le Dashboard pour ouvrir une page.' });
                 return;
             }
 
@@ -975,12 +1106,13 @@ function initUI(editor) {
             // New project -> Show language selection modal first
             const modal = document.getElementById('save-new-project-modal');
             if (!modal) return;
+            document.getElementById('select-new-project-lang').value = selectedLanguage;
             modal.classList.remove('hidden');
 
             document.getElementById('btn-close-save-new').onclick = () => modal.classList.add('hidden');
 
             document.getElementById('btn-confirm-save-new').onclick = async () => {
-                const lang = selectedLanguage;
+                const lang = document.getElementById('select-new-project-lang')?.value || selectedLanguage;
                 const nameInput = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`);
                 
                 if (!nameInput || nameInput === 'Nouveau Projet') {
@@ -1084,6 +1216,8 @@ function initUI(editor) {
                         if (!res.ok) throw new Error(await res.text());
                         
                         currentProjectIsNew = false;
+                        currentProjectLanguage = lang;
+                        document.getElementById('language-switcher').value = lang;
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
                         
@@ -1122,12 +1256,21 @@ function initUI(editor) {
         if (!name) return;
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
 
-        // ── CHANGED: preview also sends full HTML with current SEO properties ──
+        const currentFullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+        const selectedLanguage = document.getElementById('language-switcher')?.value || currentProjectLanguage || 'FR';
+        const previewProjectName = currentFullName || `school-${schoolId}__${name}__${selectedLanguage}`;
+
+        if (!currentProjectIsNew && currentFullName) {
+            window.open(`/preview/${encodeURIComponent(previewProjectName)}`, '_blank');
+            return;
+        }
+
+        // New pages still need a temporary save before preview can resolve a URL.
         const propsToSave = collectProperties();
         const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
 
         const projectData = { 
-            projectName: `school-${schoolId}__${name}`, 
+            projectName: previewProjectName,
             html: finalHtml,           // full HTML with SEO meta tags
             css: editor.getCss(), 
             projectData: editor.getProjectData() 
@@ -1135,7 +1278,7 @@ function initUI(editor) {
         try {
             const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
             if (!res.ok) throw new Error(await res.text());
-            window.open(`/preview/school-${schoolId}__${name}`, '_blank');
+            window.open(`/preview/${encodeURIComponent(previewProjectName)}`, '_blank');
         } catch (e) { 
             console.error(e);
             await showAlert({ title: 'Erreur Preview', message: 'Impossible de générer l\'aperçu. La sauvegarde a échoué. ' + e.message });
@@ -1200,12 +1343,13 @@ function initUI(editor) {
         try {
             const response = await fetch(`/api/project/${fullName}`);
             const project = await response.json();
-            editor.loadProjectData(JSON.parse(project.project_data));
+            editor.loadProjectData(parseProjectData(project.project_data));
             // Populate SEO / Properties panel
             populateProperties(project.properties || {});
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
+            currentStructuredPageId = project.page_id || null;
             
             // Extract and set current language
             const parts = fullName.replace(`school-${schoolId}__`, '').split('__');
