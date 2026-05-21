@@ -1,6 +1,7 @@
 const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
+const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const {
     handleContentRoute,
     syncLegacyProjectToContent,
@@ -27,6 +28,13 @@ module.exports = async function handler(req, res) {
     try {
         if (await handleSchoolsRoute(req, res, pathname)) return;
         if (await handleContentRoute(req, res, pathname)) return;
+
+        if (req.method === 'GET' && pathname === '/api/blocks') {
+            return res.status(200).json({
+                blocks: listBlocks({ schoolId: req.query.schoolId }),
+                defaultBlockIds: getDefaultBlockIds()
+            });
+        }
 
         // ==========================================
         // 1. Pages API (Dashboard)

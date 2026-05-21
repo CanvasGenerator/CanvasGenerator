@@ -537,10 +537,20 @@ async function handleSchoolsRoute(req, res, pathname) {
 }
 
 async function schoolsApiModule(req, res) {
-    const pathname = req.query?.path || req.url.split('?')[0];
-    const normalizedPath = pathname === '/' || pathname === '' ? '/api/schools' : pathname;
-    if (await handleSchoolsRoute(req, res, normalizedPath)) return;
-    res.status(404).json({ error: 'Schools API route not found' });
+    try {
+        const pathname = req.query?.path || req.url.split('?')[0];
+        const normalizedPath = pathname === '/' || pathname === '' ? '/api/schools' : pathname;
+        if (await handleSchoolsRoute(req, res, normalizedPath)) return;
+        res.status(404).json({ error: 'Schools API route not found' });
+    } catch (e) {
+        console.error('Schools API error:', e);
+        res.status(e.status || 500).json({
+            error: e.message || 'Schools API failed',
+            code: e.code || 'SCHOOLS_API_ERROR',
+            status: e.status || 500,
+            details: e.payload || null
+        });
+    }
 }
 
 schoolsApiModule.handleSchoolsRoute = handleSchoolsRoute;
