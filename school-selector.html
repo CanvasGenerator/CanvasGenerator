@@ -308,6 +308,141 @@
             border-top: 1px solid var(--border-color);
         }
 
+        .school-actions {
+            display: flex;
+            gap: 8px;
+        }
+
+        .school-action-btn {
+            width: 28px;
+            height: 28px;
+            border: 1px solid var(--border-color);
+            background: #fff;
+            border-radius: 6px;
+            color: var(--text-secondary);
+            cursor: pointer;
+        }
+
+        .school-action-btn:hover {
+            border-color: var(--accent);
+            color: var(--accent);
+            background: var(--accent-soft);
+        }
+
+        .admin-modal-overlay {
+            position: fixed;
+            inset: 0;
+            background: rgba(15, 22, 33, 0.42);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+            padding: 20px;
+        }
+
+        .admin-modal {
+            width: min(720px, 100%);
+            max-height: 90vh;
+            overflow: auto;
+            background: #fff;
+            border-radius: 10px;
+            border: 1px solid var(--border-color);
+            box-shadow: 0 24px 60px rgba(15, 22, 33, 0.22);
+        }
+
+        .admin-modal-header,
+        .admin-modal-footer {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 18px 22px;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .admin-modal-footer {
+            border-top: 1px solid var(--border-color);
+            border-bottom: 0;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+
+        .admin-modal-body {
+            padding: 22px;
+        }
+
+        .admin-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 14px;
+        }
+
+        .admin-field {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+        }
+
+        .admin-field.full {
+            grid-column: 1 / -1;
+        }
+
+        .admin-field label {
+            font-size: 12px;
+            color: var(--text-secondary);
+            font-weight: 500;
+        }
+
+        .admin-field input,
+        .admin-field textarea,
+        .admin-field select {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 9px 11px;
+            font: inherit;
+            font-size: 13px;
+            outline: none;
+        }
+
+        .admin-field textarea {
+            min-height: 78px;
+            resize: vertical;
+        }
+
+        .admin-btn {
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            padding: 9px 14px;
+            font: inherit;
+            font-size: 13px;
+            font-weight: 500;
+            cursor: pointer;
+            background: #fff;
+            color: var(--text-main);
+        }
+
+        .admin-btn.primary {
+            background: var(--accent);
+            border-color: var(--accent);
+            color: #fff;
+        }
+
+        .admin-btn.danger {
+            background: #be123c;
+            border-color: #be123c;
+            color: #fff;
+        }
+
+        .admin-error {
+            display: none;
+            margin-bottom: 14px;
+            padding: 10px 12px;
+            background: #fee2e2;
+            color: #991b1b;
+            border: 1px solid #fecaca;
+            border-radius: 8px;
+            font-size: 13px;
+        }
+
         .school-stats {
             display: flex;
             align-items: center;
@@ -348,6 +483,7 @@
             .summary-item:not(:last-child)::after { display: none; }
             .master-banner { flex-direction: column; align-items: stretch; text-align: center; }
             .master-banner-left { flex-direction: column; }
+            .admin-grid { grid-template-columns: 1fr; }
         }
     </style>
 </head>
@@ -368,6 +504,9 @@
         " onmouseover="this.style.background='#d4efe5'" onmouseout="this.style.background='#EAF6F1'">
             <i class="fas fa-table-list"></i> Pages Dashboard
         </a>
+        <button id="btn-manage-schools" class="admin-btn" style="margin-right:10px;">
+            <i class="fas fa-school"></i> Gestion écoles
+        </button>
         <div class="header-meta">
             Multi-écoles
         </div>
@@ -382,7 +521,7 @@
 
         <div class="stats-summary">
             <div class="summary-item">
-                <span class="summary-val">10</span>
+                <span class="summary-val" id="stat-active-schools">—</span>
                 <span class="summary-lbl">Écoles Actives</span>
             </div>
             <div class="summary-item">
@@ -416,14 +555,113 @@
         </div>
     </main>
 
+    <div id="school-admin-modal" class="admin-modal-overlay">
+        <div class="admin-modal">
+            <div class="admin-modal-header">
+                <h3 id="school-admin-title">Ajouter une école</h3>
+                <button class="admin-btn" id="btn-close-school-admin">&times;</button>
+            </div>
+            <div class="admin-modal-body">
+                <div id="school-admin-error" class="admin-error"></div>
+                <div class="admin-grid" id="school-form">
+                    <div class="admin-field">
+                        <label for="school-id">Identifiant</label>
+                        <input id="school-id" type="text" placeholder="ex: efj">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-name">Nom court</label>
+                        <input id="school-name" type="text" placeholder="EFJ">
+                    </div>
+                    <div class="admin-field full">
+                        <label for="school-full-name">Nom complet</label>
+                        <input id="school-full-name" type="text" placeholder="Nom officiel de l'école">
+                    </div>
+                    <div class="admin-field full">
+                        <label for="school-description">Description</label>
+                        <textarea id="school-description" placeholder="Domaine, positionnement, formations..."></textarea>
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-contact">Contact</label>
+                        <input id="school-contact" type="text" placeholder="contact@ecole.fr">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-base-url">Adresse web de base</label>
+                        <input id="school-base-url" type="url" placeholder="https://www.ecole.fr">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-color">Couleur principale</label>
+                        <input id="school-color" type="color" value="#3b82f6">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-secondary-color">Couleur secondaire</label>
+                        <input id="school-secondary-color" type="color" value="#1a1a1a">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-emoji">Emoji</label>
+                        <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-default-blocks">Blocs par défaut</label>
+                        <input id="school-default-blocks" type="text" placeholder="hero,programme-list,form-sfmc">
+                    </div>
+                </div>
+            </div>
+            <div class="admin-modal-footer">
+                <button class="admin-btn danger" id="btn-delete-school" style="display:none;">Supprimer</button>
+                <button class="admin-btn" id="btn-cancel-school-admin">Annuler</button>
+                <button class="admin-btn primary" id="btn-save-school">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <div id="school-delete-modal" class="admin-modal-overlay">
+        <div class="admin-modal" style="max-width:480px;">
+            <div class="admin-modal-header">
+                <h3>Supprimer l'école</h3>
+                <button class="admin-btn" id="btn-close-delete-school">&times;</button>
+            </div>
+            <div class="admin-modal-body">
+                <div id="school-delete-error" class="admin-error"></div>
+                <p style="font-size:14px;color:var(--text-secondary);line-height:1.5;margin-bottom:16px;">
+                    Les pages de cette école seront transférées vers l'école sélectionnée avant suppression.
+                </p>
+                <div class="admin-field">
+                    <label for="school-transfer-target">Transférer les pages vers</label>
+                    <select id="school-transfer-target"></select>
+                </div>
+            </div>
+            <div class="admin-modal-footer">
+                <button class="admin-btn" id="btn-cancel-delete-school">Annuler</button>
+                <button class="admin-btn danger" id="btn-confirm-delete-school">Transférer et supprimer</button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        let currentSchools = [];
+        let currentProjectsMap = {};
+        let editingSchoolId = null;
+        let deletingSchoolId = null;
+
         async function fetchJSON(url) {
             const r = await fetch(url);
             if (!r.ok) throw new Error(r.statusText);
             return r.json();
         }
 
+        function escHtml(s) {
+            return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function showAdminError(id, message) {
+            const el = document.getElementById(id);
+            el.textContent = message;
+            el.style.display = message ? 'block' : 'none';
+        }
+
         async function buildGrid(schools, projectsMap) {
+            currentSchools = schools;
+            currentProjectsMap = projectsMap;
             const grid = document.getElementById('school-grid');
             grid.innerHTML = '';
 
@@ -454,12 +692,12 @@
                 card.innerHTML = `
                     <div class="school-card-body">
                         <div class="school-card-top">
-                            <div class="school-emoji-box">${school.emoji}</div>
-                            <span class="school-badge" style="background:${colors.bg}; color:${colors.text}">${school.name}</span>
+                            <div class="school-emoji-box">${escHtml(school.emoji || '🏫')}</div>
+                            <span class="school-badge" style="background:${colors.bg}; color:${colors.text}">${escHtml(school.name)}</span>
                         </div>
-                        <div class="school-card-name">${school.name}</div>
-                        <div class="school-card-full">${school.fullName}</div>
-                        <div class="school-card-desc">${school.description}</div>
+                        <div class="school-card-name">${escHtml(school.name)}</div>
+                        <div class="school-card-full">${escHtml(school.fullName || '')}</div>
+                        <div class="school-card-desc">${escHtml(school.description || '')}</div>
                         <div class="school-card-footer">
                             <div class="school-stats">
                                 <div class="stat-group">
@@ -467,10 +705,18 @@
                                     <strong>${projects.length}</strong>
                                 </div>
                             </div>
-                            <div class="school-arrow"><i class="fas fa-chevron-right"></i></div>
+                            <div class="school-actions">
+                                <button class="school-action-btn" title="Modifier" data-action="edit"><i class="fas fa-pen"></i></button>
+                                <div class="school-arrow"><i class="fas fa-chevron-right"></i></div>
+                            </div>
                         </div>
                     </div>
                 `;
+
+                card.querySelector('[data-action="edit"]').addEventListener('click', (event) => {
+                    event.stopPropagation();
+                    openSchoolModal(school);
+                });
 
                 card.addEventListener('click', () => {
                     window.location.href = `index.html?school=${encodeURIComponent(school.id)}`;
@@ -479,6 +725,7 @@
                 grid.appendChild(card);
             });
 
+            document.getElementById('stat-active-schools').textContent = schools.length;
             document.getElementById('stat-total-projects').textContent = totalProjects;
             document.getElementById('stat-last-edit').textContent = lastDate
                 ? lastDate.toLocaleDateString('fr-FR', { day: '2-digit', month: 'short' })
@@ -488,6 +735,139 @@
         document.getElementById('btn-open-master').addEventListener('click', () => {
             window.location.href = `index.html?school=master`;
         });
+
+        document.getElementById('btn-manage-schools').addEventListener('click', () => openSchoolModal());
+        document.getElementById('btn-close-school-admin').onclick = closeSchoolModal;
+        document.getElementById('btn-cancel-school-admin').onclick = closeSchoolModal;
+        document.getElementById('btn-save-school').onclick = saveSchool;
+        document.getElementById('btn-delete-school').onclick = openDeleteSchoolModal;
+        document.getElementById('btn-close-delete-school').onclick = closeDeleteSchoolModal;
+        document.getElementById('btn-cancel-delete-school').onclick = closeDeleteSchoolModal;
+        document.getElementById('btn-confirm-delete-school').onclick = deleteSchool;
+
+        function setValue(id, value) {
+            document.getElementById(id).value = value || '';
+        }
+
+        function openSchoolModal(school = null) {
+            editingSchoolId = school?.id || null;
+            showAdminError('school-admin-error', '');
+            document.getElementById('school-admin-title').textContent = school ? `Modifier ${school.name}` : 'Ajouter une école';
+            document.getElementById('btn-delete-school').style.display = school ? 'inline-flex' : 'none';
+            document.getElementById('school-id').disabled = Boolean(school);
+            setValue('school-id', school?.id || '');
+            setValue('school-name', school?.name || '');
+            setValue('school-full-name', school?.fullName || '');
+            setValue('school-description', school?.description || '');
+            setValue('school-contact', school?.contact || '');
+            setValue('school-base-url', school?.baseUrl || '');
+            setValue('school-color', school?.color || '#3b82f6');
+            setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
+            setValue('school-emoji', school?.emoji || '🏫');
+            setValue('school-default-blocks', (school?.defaultBlocks || ['hero', 'programme-list', 'form-sfmc', 'cta-button']).join(','));
+            document.getElementById('school-admin-modal').style.display = 'flex';
+        }
+
+        function closeSchoolModal() {
+            document.getElementById('school-admin-modal').style.display = 'none';
+            editingSchoolId = null;
+        }
+
+        function collectSchoolForm() {
+            const id = document.getElementById('school-id').value.trim().toLowerCase();
+            const baseUrl = document.getElementById('school-base-url').value.trim();
+            if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+                throw new Error('Adresse web de base invalide. Utilisez http:// ou https://.');
+            }
+            return {
+                id,
+                name: document.getElementById('school-name').value.trim(),
+                fullName: document.getElementById('school-full-name').value.trim(),
+                description: document.getElementById('school-description').value.trim(),
+                contact: document.getElementById('school-contact').value.trim(),
+                baseUrl,
+                color: document.getElementById('school-color').value,
+                secondaryColor: document.getElementById('school-secondary-color').value,
+                emoji: document.getElementById('school-emoji').value.trim() || '🏫',
+                defaultBlocks: document.getElementById('school-default-blocks').value
+                    .split(',')
+                    .map(v => v.trim())
+                    .filter(Boolean)
+            };
+        }
+
+        async function saveSchool() {
+            const btn = document.getElementById('btn-save-school');
+            btn.disabled = true;
+            btn.textContent = 'Enregistrement...';
+            try {
+                const school = collectSchoolForm();
+                const url = editingSchoolId ? `/api/school/${encodeURIComponent(editingSchoolId)}` : '/api/schools';
+                const method = editingSchoolId ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(school)
+                });
+                if (!res.ok) {
+                    const payload = await res.json().catch(() => null);
+                    throw new Error(payload?.error || await res.text());
+                }
+                closeSchoolModal();
+                await init();
+            } catch (e) {
+                showAdminError('school-admin-error', e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Enregistrer';
+            }
+        }
+
+        function openDeleteSchoolModal() {
+            deletingSchoolId = editingSchoolId;
+            showAdminError('school-delete-error', '');
+            const select = document.getElementById('school-transfer-target');
+            select.innerHTML = currentSchools
+                .filter(s => s.id !== deletingSchoolId)
+                .map(s => `<option value="${escHtml(s.id)}">${escHtml(s.name)} (${currentProjectsMap[s.id]?.length || 0} pages)</option>`)
+                .join('');
+            if (!select.innerHTML) {
+                showAdminError('school-admin-error', 'Impossible de supprimer la seule école existante.');
+                return;
+            }
+            document.getElementById('school-delete-modal').style.display = 'flex';
+        }
+
+        function closeDeleteSchoolModal() {
+            document.getElementById('school-delete-modal').style.display = 'none';
+            deletingSchoolId = null;
+        }
+
+        async function deleteSchool() {
+            const transferToSchoolId = document.getElementById('school-transfer-target').value;
+            const btn = document.getElementById('btn-confirm-delete-school');
+            btn.disabled = true;
+            btn.textContent = 'Transfert...';
+            try {
+                const res = await fetch(`/api/school/${encodeURIComponent(deletingSchoolId)}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transferToSchoolId })
+                });
+                if (!res.ok) {
+                    const payload = await res.json().catch(() => null);
+                    throw new Error(payload?.error || await res.text());
+                }
+                closeDeleteSchoolModal();
+                closeSchoolModal();
+                await init();
+            } catch (e) {
+                showAdminError('school-delete-error', e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Transférer et supprimer';
+            }
+        }
 
         async function init() {
             try {
@@ -514,9 +894,6 @@
                 buildGrid(schools, projectsMap);
             } catch (err) {
                 console.error(err);
-                document.getElementById('server-status').textContent = 'Erreur serveur';
-                document.getElementById('server-status').style.color = '#e16a5a';
-                
                 const debugEl = document.getElementById('debug-error');
                 debugEl.style.display = 'block';
                 debugEl.innerHTML = `<strong>Erreur d'initialisation:</strong> ${err.message}<br><small>${err.stack || ''}</small>`;

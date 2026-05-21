@@ -1,11 +1,20 @@
-const { supabaseRequest } = require('../lib/supabase');
 const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
-const { readSchools, findSchoolById } = require('../lib/schools');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require('../lib/api-shared');
+const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
+const {
+    handleContentRoute,
+    syncLegacyProjectToContent,
+    listMigratedDashboardPages,
+    getCurrentVersionForLegacyProject,
+    getStructuredProjectForLegacyProject,
+    updatePageLifecycle,
+    isMissingContentSchemaError
+} = require('./content');
 
 module.exports = async function handler(req, res) {
     // Ensure CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
@@ -16,12 +25,15 @@ module.exports = async function handler(req, res) {
     const pathname = req.query.path || req.url.split('?')[0];
 
     try {
+        if (await handleSchoolsRoute(req, res, pathname)) return;
+        if (await handleContentRoute(req, res, pathname)) return;
+
         // ==========================================
         // 1. Pages API (Dashboard)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/pages') {
             const result = await supabaseRequest('GET', '/Projects?select=project_name,properties,created_at&order=created_at.desc');
-            const pages = (result || []).map(p => {
+            const legacyPages = (result || []).map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
                 const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
@@ -32,17 +44,36 @@ module.exports = async function handler(req, res) {
                     school,
                     lang:         parts[1] || 'FR',
                     seoTitle:     props.seoTitle || '',
-                    updated_at:   p.created_at
+                    updated_at:   p.created_at,
+                    source:       'legacy',
+                    status:       props.status || 'draft'
                 };
             });
-            return res.status(200).json(pages);
+            let structuredPages = [];
+            try {
+                structuredPages = await listMigratedDashboardPages();
+            } catch (e) {
+                if (isMissingContentSchemaError(e)) {
+                    console.info('Structured content schema not installed yet; dashboard is using legacy Projects only.');
+                } else {
+                    console.warn('Structured dashboard pages unavailable, using legacy only:', e.message);
+                }
+            }
+
+            const merged = new Map();
+            legacyPages.forEach(page => merged.set(page.project_name, page));
+            structuredPages.forEach(page => merged.set(page.project_name, page));
+
+            return res.status(200).json([...merged.values()].sort((a, b) => {
+                return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+            }));
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/duplicate') {
             const { sourceProjectName, newTitle, newLanguage } = req.body || {};
             // Backwards compatibility with alternative variable names if used elsewhere
             const srcName = sourceProjectName || req.body?.projectName;
-            const targetName = newTitle || req.body?.newProjectName;
+            const targetName = buildProjectNameFromSource(srcName, newTitle || req.body?.newProjectName, newLanguage);
             
             if (!srcName || !targetName) return res.status(400).json({ error: 'Missing parameters' });
             
@@ -53,13 +84,13 @@ module.exports = async function handler(req, res) {
             const newProps = { ...originalProject.properties };
             if (newLanguage) newProps.language = newLanguage;
             
-            const insertResult = await supabaseRequest('POST', '/Projects', {
+            const insertResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                 project_name: targetName,
                 html: originalProject.html,
                 css: originalProject.css,
                 project_data: originalProject.project_data,
                 properties: newProps
-            }, { 'Prefer': 'return=representation' });
+            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
 
             if (isSfmcConfigured()) {
                 try {
@@ -73,10 +104,11 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/delete') {
-            const { projectName } = req.body || {};
+            const { projectName, action = 'trash', reason = '' } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
-            await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`);
-            return res.status(200).json({ message: 'Page deleted' });
+            const result = await updatePageLifecycle(projectName, action, reason);
+            if (!result) return res.status(404).json({ error: 'Page not found' });
+            return res.status(200).json(result);
         }
 
         // ==========================================
@@ -91,7 +123,19 @@ module.exports = async function handler(req, res) {
             const newComponent = Array.isArray(supaResult) ? supaResult[0] : (supaResult || { id: Date.now(), school_id, name, content, category });
             let sfmcResult = { skipped: true };
             if (isSfmcConfigured()) {
-                try { sfmcResult = await syncComponentToSfmc({ schoolId: school_id, name, content }); } catch (e) {}
+                try {
+                    sfmcResult = await syncComponentToSfmc({ schoolId: school_id, name, content });
+                } catch (e) {
+                    console.error('SFMC component sync failed:', e.message);
+                    sfmcResult = {
+                        skipped: false,
+                        action: 'failed',
+                        error: e.message,
+                        code: e.code,
+                        status: e.status,
+                        details: e.payload
+                    };
+                }
             }
             return res.status(200).json({ message: 'Component saved', sfmc: sfmcResult, component: newComponent });
         }
@@ -171,43 +215,61 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 6. General API (School, Project, Save)
+        // 6. General API (Project, Save)
         // ==========================================
-        if (req.method === 'GET' && pathname === '/api/schools') {
-            return res.status(200).json(readSchools());
-        }
-        if (req.method === 'GET' && pathname.startsWith('/api/school/')) {
-            const s = findSchoolById(pathname.replace('/api/school/', ''));
-            return s ? res.status(200).json(s) : res.status(404).json({ error: 'Not found' });
-        }
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
         }
         if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
-            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(pathname.replace('/api/project/', ''))}&limit=1`);
+            const projectName = pathname.replace('/api/project/', '');
+            const structured = await getStructuredProjectForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
+                return null;
+            });
+            if (structured) return res.status(200).json(structured);
+
+            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
         if (req.method === 'POST' && pathname === '/api/save') {
             const { projectName, html, css, projectData, properties } = req.body || {};
-            
-            const seoTags = properties ? `
-                <meta name="description" content="${properties.seoDescription || ''}">
-                <meta name="keywords" content="${properties.keywords || ''}">
-                <link rel="canonical" href="${properties.canonical || ''}">
-                ${properties.schemaLd ? `<script type="application/ld+json">${properties.schemaLd}</script>` : ''}
-            ` : '';
-
-            const title = properties?.seoTitle || properties?.title || projectName;
-            const fullHtml = `<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>${title}</title>${seoTags}<style>${css}</style></head><body>${html}</body></html>`;
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            const fullHtml = buildStoredHtml({ projectName, html, css, properties });
             
             await supabaseRequest('POST', '/Projects?on_conflict=project_name', { 
                 project_name: projectName, 
                 html: fullHtml, 
                 css, 
-                project_data: JSON.stringify(projectData),
+                project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
                 properties: properties || {}
             });
-            return res.status(200).json({ message: 'Saved' });
+
+            const contentSync = await syncLegacyProjectToContent({
+                projectName,
+                html: fullHtml,
+                css,
+                projectData,
+                properties
+            });
+
+            let sfmcResult = { skipped: true, action: 'skipped' };
+            if (isSfmcConfigured()) {
+                try {
+                    sfmcResult = await syncProjectToSfmc({ projectName, fullHtml });
+                } catch (e) {
+                    console.error('SFMC project sync failed:', e.message);
+                    sfmcResult = {
+                        skipped: false,
+                        action: 'failed',
+                        error: e.message,
+                        code: e.code,
+                        status: e.status,
+                        details: e.payload
+                    };
+                }
+            }
+
+            return res.status(200).json({ message: 'Saved', sfmc: sfmcResult, content: contentSync });
         }
 
         // ==========================================
@@ -215,21 +277,28 @@ module.exports = async function handler(req, res) {
         // ==========================================
         if (req.method === 'GET' && pathname.startsWith('/preview/')) {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
-            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-            
-            if (!result || result.length === 0) {
-                return res.status(404).json({ error: 'Project not found' });
-            }
+            let html = '';
 
-            const project = result[0];
-            let html = project.html;
+            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                return null;
+            });
+
+            if (structured?.version?.html) {
+                html = structured.version.html;
+            } else {
+                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                if (!result || result.length === 0) {
+                    return res.status(404).json({ error: 'Project not found' });
+                }
+                html = result[0].html;
+            }
 
             const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);
             if (schoolMatch) {
                 const schoolId = schoolMatch[1];
-                let SCHOOLS = [];
-                try { SCHOOLS = require('../schools.json'); } catch(e) {}
-                const school = SCHOOLS.find(s => s.id === schoolId);
+                const schools = await readSchoolsForApi();
+                const school = schools.find(s => s.id === schoolId);
                 
                 if (school) {
                     const primary = school.color || '#3b82f6';

@@ -4,13 +4,23 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
+const {
+    handleContentRoute,
+    syncLegacyProjectToContent,
+    listMigratedDashboardPages,
+    getCurrentVersionForLegacyProject,
+    getStructuredProjectForLegacyProject,
+    updatePageLifecycle,
+    isMissingContentSchemaError
+} = require('./api/content');
+const { handleSchoolsRoute } = require('./api/schools');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_KEY = process.env.SUPABASE_KEY;
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_KEY;
 
 if (!SUPABASE_URL || !SUPABASE_KEY) {
-    console.error('❌ Variables SUPABASE_URL ou SUPABASE_KEY manquantes dans .env');
+    console.error('❌ Variables SUPABASE_URL et SUPABASE_SERVICE_ROLE_KEY/SUPABASE_KEY manquantes dans .env');
     process.exit(1);
 }
 
@@ -35,6 +45,167 @@ const mimeTypes = {
     '.svg': 'image/svg+xml',
     '.json': 'application/json',
 };
+
+function escapeHtml(value = '') {
+    return String(value)
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+}
+
+function isFullHtmlDocument(html = '') {
+    return /^\s*(<!doctype\s+html[^>]*>\s*)?<html[\s>]/i.test(String(html || ''));
+}
+
+function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
+    if (isFullHtmlDocument(html)) return html;
+
+    const title = properties?.seoTitle || properties?.title || projectName || '';
+    const seoTags = properties ? `
+    <meta name="description" content="${escapeHtml(properties.seoDescription || '')}">
+    <meta name="keywords" content="${escapeHtml(properties.keywords || '')}">
+    ${properties.canonical ? `<link rel="canonical" href="${escapeHtml(properties.canonical)}">` : ''}
+    ${properties.schemaLd ? `<script type="application/ld+json">${properties.schemaLd}</script>` : ''}
+` : '';
+
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>${escapeHtml(title)}</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    ${seoTags}
+    <style>${css}</style>
+</head>
+<body>${html}</body>
+</html>`;
+}
+
+function normalizeSchool(school = {}) {
+    return {
+        id: school.id,
+        name: school.name || '',
+        fullName: school.fullName || school.full_name || school.name || '',
+        description: school.description || '',
+        contact: school.contact || '',
+        baseUrl: school.baseUrl || school.base_url || '',
+        color: school.color || '#3b82f6',
+        secondaryColor: school.secondaryColor || school.secondary_color || '#1a1a1a',
+        colorLight: school.colorLight || school.color_light || '',
+        emoji: school.emoji || '🏫',
+        deleted: Boolean(school.deleted),
+        defaultBlocks: Array.isArray(school.defaultBlocks)
+            ? school.defaultBlocks
+            : Array.isArray(school.default_blocks)
+                ? school.default_blocks
+                : []
+    };
+}
+
+function schoolPayload(input = {}) {
+    const school = normalizeSchool(input);
+    if (!school.id || !/^[a-z0-9-]+$/.test(school.id)) {
+        const err = new Error('School id must contain only lowercase letters, numbers and dashes');
+        err.status = 400;
+        throw err;
+    }
+    if (!school.name.trim()) {
+        const err = new Error('School name is required');
+        err.status = 400;
+        throw err;
+    }
+    return { ...school, deleted: false };
+}
+
+function schoolDbPayload(school) {
+    return {
+        id: school.id,
+        name: school.name,
+        full_name: school.fullName,
+        description: school.description,
+        contact: school.contact,
+        base_url: school.baseUrl,
+        color: school.color,
+        secondary_color: school.secondaryColor,
+        color_light: school.colorLight,
+        emoji: school.emoji,
+        default_blocks: school.defaultBlocks,
+        deleted: school.deleted
+    };
+}
+
+async function readSchoolsForApi() {
+    const baseSchools = SCHOOLS.map(normalizeSchool);
+    try {
+        const schools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
+        if (Array.isArray(schools)) {
+            const merged = new Map(baseSchools.map(school => [school.id, school]));
+            schools.map(normalizeSchool).forEach(school => {
+                if (school.deleted) merged.delete(school.id);
+                else merged.set(school.id, school);
+            });
+            return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
+        }
+    } catch (e) {
+        console.warn('Schools DB read failed, falling back to schools.json:', e.message);
+    }
+    return baseSchools;
+}
+
+function renameProjectForSchool(projectName, fromSchoolId, toSchoolId) {
+    return String(projectName || '').replace(
+        new RegExp(`^school-${fromSchoolId}__`, 'i'),
+        `school-${toSchoolId}__`
+    );
+}
+
+function uniqueTransferredProjectName(baseName, existingNames) {
+    if (!existingNames.has(baseName)) return baseName;
+
+    const match = baseName.match(/^(school-[a-z0-9-]+__)(.*?)(__[A-Z]{2})$/i);
+    const prefix = match ? match[1] : '';
+    const title = match ? match[2] : baseName;
+    const suffix = match ? match[3] : '';
+
+    let index = 1;
+    let candidate = `${prefix}${title}-transferred${suffix}`;
+    while (existingNames.has(candidate)) {
+        index += 1;
+        candidate = `${prefix}${title}-transferred-${index}${suffix}`;
+    }
+    return candidate;
+}
+
+async function transferSchoolPages(fromSchoolId, toSchoolId) {
+    const sourcePrefix = `school-${fromSchoolId}__`;
+    const targetPrefix = `school-${toSchoolId}__`;
+    const result = await supabaseRequest(
+        'GET',
+        `/Projects?project_name=like.${encodeURIComponent(sourcePrefix + '*')}&select=*`
+    );
+    const targetResult = await supabaseRequest(
+        'GET',
+        `/Projects?project_name=like.${encodeURIComponent(targetPrefix + '*')}&select=project_name`
+    );
+    const projects = Array.isArray(result) ? result : [];
+    const existingNames = new Set((Array.isArray(targetResult) ? targetResult : []).map(p => p.project_name));
+
+    for (const project of projects) {
+        const baseName = renameProjectForSchool(project.project_name, fromSchoolId, toSchoolId);
+        const newName = uniqueTransferredProjectName(baseName, existingNames);
+        await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+            ...project,
+            project_name: newName
+        });
+        existingNames.add(newName);
+        await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(project.project_name)}`);
+    }
+
+    return projects.length;
+}
 
 async function supabaseRequest(method, endpoint, body = null, extraHeaders = {}) {
     const url = `${SUPABASE_URL}/rest/v1${endpoint}`;
@@ -76,10 +247,36 @@ function parseUrl(reqUrl) {
     return { pathname, params };
 }
 
+function readJsonBody(req) {
+    return new Promise((resolve, reject) => {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', () => {
+            if (!body) return resolve({});
+            try { resolve(JSON.parse(body)); }
+            catch (e) { reject(e); }
+        });
+    });
+}
+
+function createApiResponse(res) {
+    let statusCode = 200;
+    return {
+        status(code) {
+            statusCode = code;
+            return this;
+        },
+        json(payload) {
+            res.writeHead(statusCode, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(payload));
+        }
+    };
+}
+
 http.createServer(async (req, res) => {
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
@@ -89,22 +286,129 @@ http.createServer(async (req, res) => {
 
     const { pathname, params } = parseUrl(req.url);
 
+    if (pathname === '/api/schools' || pathname.startsWith('/api/schools/') || pathname.startsWith('/api/school/')) {
+        try {
+            req.body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+                ? await readJsonBody(req)
+                : {};
+            const handled = await handleSchoolsRoute(req, createApiResponse(res), pathname);
+            if (handled) return;
+        } catch (e) {
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    if (
+        pathname === '/api/organizations' ||
+        pathname === '/api/entities' ||
+        pathname === '/api/folders' ||
+        pathname === '/api/activity' ||
+        pathname.startsWith('/api/content/')
+    ) {
+        try {
+            req.body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+                ? await readJsonBody(req)
+                : {};
+            const handled = await handleContentRoute(req, createApiResponse(res), pathname);
+            if (handled) return;
+        } catch (e) {
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
     // ── API: List schools ────────────────────────────────────────────
     if (req.method === 'GET' && pathname === '/api/schools') {
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        return res.end(JSON.stringify(SCHOOLS));
+        return res.end(JSON.stringify(await readSchoolsForApi()));
+    }
+
+    // ── API: Create school ───────────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/schools') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const school = schoolPayload(JSON.parse(body || '{}'));
+                const result = await supabaseRequest('POST', '/Schools?on_conflict=id', schoolDbPayload(school), {
+                    'Prefer': 'resolution=merge-duplicates,return=representation'
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'School saved', school: Array.isArray(result) ? result[0] : result }));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
     }
 
     // ── API: Get a single school config ──────────────────────────────
     if (req.method === 'GET' && pathname.startsWith('/api/school/')) {
         const schoolId = decodeURIComponent(pathname.replace('/api/school/', ''));
-        const school = SCHOOLS.find(s => s.id === schoolId);
+        const schools = await readSchoolsForApi();
+        const school = schools.find(s => s.id === schoolId);
         if (!school) {
             res.writeHead(404, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: 'School not found' }));
         }
         res.writeHead(200, { 'Content-Type': 'application/json' });
         return res.end(JSON.stringify(school));
+    }
+
+    // ── API: Update school ───────────────────────────────────────────
+    if (req.method === 'PUT' && pathname.startsWith('/api/school/')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const schoolId = decodeURIComponent(pathname.replace('/api/school/', ''));
+                const school = schoolPayload({ ...JSON.parse(body || '{}'), id: schoolId });
+                const result = await supabaseRequest('POST', '/Schools?on_conflict=id', schoolDbPayload(school), {
+                    'Prefer': 'resolution=merge-duplicates,return=representation'
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'School updated', school: Array.isArray(result) ? result[0] : result }));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Delete school and transfer pages ────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/school/')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const schoolId = decodeURIComponent(pathname.replace('/api/school/', ''));
+                const { transferToSchoolId } = JSON.parse(body || '{}');
+                if (!transferToSchoolId || transferToSchoolId === schoolId) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'A different transferToSchoolId is required' }));
+                }
+                const schools = await readSchoolsForApi();
+                if (!schools.some(s => s.id === transferToSchoolId)) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'Transfer target school not found' }));
+                }
+                const transferredPages = await transferSchoolPages(schoolId, transferToSchoolId);
+                await supabaseRequest('POST', '/Schools?on_conflict=id', {
+                    id: schoolId,
+                    name: schoolId,
+                    deleted: true
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'School deleted', transferredPages }));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
     }
 
     // ── API: Save project ────────────────────────────────────────────
@@ -114,7 +418,7 @@ http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const data = JSON.parse(body);
-                const { projectName, html, css, projectData } = data;
+                const { projectName, html, css, projectData, properties } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
@@ -123,23 +427,14 @@ http.createServer(async (req, res) => {
                     return res.end('Project name is required');
                 }
 
-                const fullHtml = `<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>${projectName}</title>
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
-    <style>${css}</style>
-</head>
-<body>${html}</body>
-</html>`;
+                const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
                 const supaResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                     project_name: projectName,
                     html: fullHtml,
                     css: css,
-                    project_data: JSON.stringify(projectData)
+                    project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
+                    properties: properties || {}
                 });
 
                 if (supaResult && supaResult.code) {
@@ -149,6 +444,14 @@ http.createServer(async (req, res) => {
                 }
 
                 console.log(`✅ Projet "${projectName}" sauvegardé avec succès!`);
+
+                const contentSync = await syncLegacyProjectToContent({
+                    projectName,
+                    html: fullHtml,
+                    css,
+                    projectData,
+                    properties
+                });
 
                 // Save project into SFMC Content
                 let sfmcResult = { skipped: true, action: 'skipped' };
@@ -176,7 +479,7 @@ http.createServer(async (req, res) => {
                 }
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: 'Project saved!', projectName, sfmc: sfmcResult }));
+                res.end(JSON.stringify({ message: 'Project saved!', projectName, sfmc: sfmcResult, content: contentSync }));
 
             } catch (e) {
                 console.log(`❌ Erreur catch:`, e.message);
@@ -286,6 +589,16 @@ http.createServer(async (req, res) => {
         try {
             const projectName = decodeURIComponent(pathname.replace('/api/project/', ''));
             console.log(`\n🔍 Récupération projet: "${projectName}"`);
+            const structured = await getStructuredProjectForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
+                return null;
+            });
+            if (structured) {
+                console.log(`✅ Projet structuré trouvé!`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(structured));
+            }
+
             const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
             if (!result || result.length === 0) {
                 console.log(`❌ Projet non trouvé`);
@@ -530,7 +843,7 @@ Règles importantes :
                 return res.end(JSON.stringify({ error: result.message || 'Failed to fetch pages' }));
             }
 
-            const pages = result.map(p => {
+            const legacyPages = result.map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)__/);
                 const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
@@ -543,9 +856,29 @@ Règles importantes :
                     school,
                     lang,
                     seoTitle:     props.seoTitle || '',
-                    updated_at:   p.created_at
+                    updated_at:   p.created_at,
+                    source:       'legacy',
+                    status:       props.status || 'draft'
                 };
             });
+            let structuredPages = [];
+            try {
+                structuredPages = await listMigratedDashboardPages();
+            } catch (structuredErr) {
+                if (isMissingContentSchemaError(structuredErr)) {
+                    console.info('Structured content schema not installed yet; dashboard is using legacy Projects only.');
+                } else {
+                    console.warn('Structured dashboard pages unavailable, using legacy only:', structuredErr.message);
+                }
+            }
+
+            const merged = new Map();
+            legacyPages.forEach(page => merged.set(page.project_name, page));
+            structuredPages.forEach(page => merged.set(page.project_name, page));
+            const pages = [...merged.values()].sort((a, b) => {
+                return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
+            });
+
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify(pages));
         } catch (e) {
@@ -621,9 +954,13 @@ Règles importantes :
         req.on('end', async () => {
             try {
                 let projectName = '';
+                let action = 'trash';
+                let reason = '';
                 if (req.method === 'POST') {
                     const parsed = JSON.parse(body || '{}');
                     projectName = parsed.projectName;
+                    action = parsed.action || 'trash';
+                    reason = parsed.reason || '';
                 } else {
                     projectName = decodeURIComponent(pathname.replace('/api/pages/', ''));
                 }
@@ -633,10 +970,14 @@ Règles importantes :
                     return res.end('projectName is required');
                 }
 
-                console.log(`\n🗑️ Suppression page: "${projectName}"`);
-                await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`);
+                console.log(`\n🗑️ Cycle de vie page (${action}): "${projectName}"`);
+                const result = await updatePageLifecycle(projectName, action, reason);
+                if (!result) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'Page not found' }));
+                }
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify({ message: 'Page deleted' }));
+                return res.end(JSON.stringify(result));
             } catch (e) {
                 console.error('❌ /api/pages delete error:', e.message);
                 res.writeHead(500);
@@ -706,16 +1047,22 @@ ${html}`;
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
             console.log(`\n👁️ Aperçu projet: "${projectName}"`);
 
-            // Fetch project
-            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-            
-            if (!result || result.length === 0) {
-                res.writeHead(404);
-                return res.end('Project not found');
-            }
+            let html = '';
+            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                return null;
+            });
 
-            const project = result[0];
-            let html = project.html;
+            if (structured?.version?.html) {
+                html = structured.version.html;
+            } else {
+                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                if (!result || result.length === 0) {
+                    res.writeHead(404);
+                    return res.end('Project not found');
+                }
+                html = result[0].html;
+            }
 
             // Extract school ID from project name (school-xxx__name)
             const schoolMatch = projectName.match(/^school-([a-z0-9-]+)__/);
