@@ -250,19 +250,41 @@ async function transferSchoolPages(fromSchoolId, toSchoolId) {
     );
     const projects = Array.isArray(result) ? result : [];
     const existingNames = new Set((Array.isArray(targetResult) ? targetResult : []).map(p => p.project_name));
+    const transferred = [];
 
     for (const project of projects) {
         const baseName = renameProjectForSchool(project.project_name, fromSchoolId, toSchoolId);
         const newName = uniqueTransferredProjectName(baseName, existingNames);
-        await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-            ...project,
-            project_name: newName
+        const currentProperties = project.properties && typeof project.properties === 'object'
+            ? project.properties
+            : {};
+        const transferMetadata = {
+            ...(currentProperties.lifecycle || {}),
+            transferredFromSchoolId: fromSchoolId,
+            transferredToSchoolId: toSchoolId,
+            transferredAt: new Date().toISOString(),
+            previousProjectName: project.project_name
+        };
+        const filter = project.id !== undefined && project.id !== null
+            ? `id=eq.${encodeURIComponent(project.id)}`
+            : `project_name=eq.${encodeURIComponent(project.project_name)}`;
+
+        await supabaseRequest('PATCH', `/Projects?${filter}`, {
+            project_name: newName,
+            properties: {
+                ...currentProperties,
+                lifecycle: transferMetadata
+            }
         });
         existingNames.add(newName);
-        await supabaseRequest('DELETE', `/Projects?project_name=eq.${encodeURIComponent(project.project_name)}`);
+        transferred.push({
+            id: project.id || null,
+            previousProjectName: project.project_name,
+            newProjectName: newName
+        });
     }
 
-    return projects.length;
+    return { count: projects.length, pages: transferred };
 }
 
 async function transferStructuredSchoolPages(fromSchoolId, toSchool) {
@@ -289,6 +311,7 @@ async function transferStructuredSchoolPages(fromSchoolId, toSchool) {
         `/pages?entity_id=eq.${encodeURIComponent(sourceEntity.id)}&select=*`
     );
     const pages = Array.isArray(sourcePages) ? sourcePages : [];
+    const transferred = [];
 
     for (const page of pages) {
         const legacyProjectName = page.metadata?.legacyProjectName;
@@ -310,6 +333,13 @@ async function transferStructuredSchoolPages(fromSchoolId, toSchool) {
             },
             updated_at: new Date().toISOString()
         });
+
+        transferred.push({
+            id: page.id,
+            title: page.title,
+            previousLegacyProjectName: legacyProjectName || null,
+            newLegacyProjectName
+        });
     }
 
     await patchById('entities', sourceEntity.id, {
@@ -322,10 +352,104 @@ async function transferStructuredSchoolPages(fromSchoolId, toSchool) {
         }
     });
 
-    return pages.length;
+    return { count: pages.length, pages: transferred };
+}
+
+async function logSchoolTransfer({ schoolId, targetSchool, legacyTransfer, structuredTransfer }) {
+    const transferredAt = new Date().toISOString();
+    await insert('activity_logs', {
+        action: 'school.deleted_transferred',
+        before_state: {
+            schoolId
+        },
+        after_state: {
+            deleted: true,
+            transferToSchoolId: targetSchool.id
+        },
+        metadata: {
+            source: 'school-admin',
+            deletedSchoolId: schoolId,
+            transferToSchoolId: targetSchool.id,
+            transferToSchoolName: targetSchool.name,
+            transferredAt,
+            transferredPages: legacyTransfer.count,
+            transferredStructuredPages: structuredTransfer.count,
+            totalTransferredPages: legacyTransfer.count + structuredTransfer.count,
+            legacyProjects: legacyTransfer.pages,
+            structuredPages: structuredTransfer.pages
+        }
+    });
+}
+
+async function listSchoolActivity(req, res) {
+    const params = new URLSearchParams((req.url || '').split('?')[1] || '');
+    const limit = Math.min(Number(req.query?.limit || params.get('limit') || 25), 100);
+    const logs = await supabaseRequest(
+        'GET',
+        `/activity_logs?action=eq.school.deleted_transferred&select=*&order=created_at.desc&limit=${limit}`
+    ).catch(() => []);
+    const transferredPages = await supabaseRequest(
+        'GET',
+        '/pages?select=id,title,metadata,updated_at&order=updated_at.desc&limit=200'
+    ).catch(() => []);
+    const loggedStructuredPageIds = new Set(
+        (Array.isArray(logs) ? logs : [])
+            .flatMap(log => Array.isArray(log.metadata?.structuredPages) ? log.metadata.structuredPages : [])
+            .map(page => page.id)
+            .filter(Boolean)
+    );
+
+    const derivedLogs = new Map();
+    (Array.isArray(transferredPages) ? transferredPages : [])
+        .filter(page => page.metadata?.transferredFromSchoolId && page.metadata?.transferredToSchoolId)
+        .filter(page => !loggedStructuredPageIds.has(page.id))
+        .forEach(page => {
+            const metadata = page.metadata || {};
+            const key = [
+                metadata.transferredFromSchoolId,
+                metadata.transferredToSchoolId,
+                metadata.transferredAt || page.updated_at
+            ].join('|');
+            const existing = derivedLogs.get(key) || {
+                id: `derived-${key}`,
+                action: 'school.deleted_transferred',
+                created_at: metadata.transferredAt || page.updated_at,
+                metadata: {
+                    source: 'page-metadata',
+                    deletedSchoolId: metadata.transferredFromSchoolId,
+                    transferToSchoolId: metadata.transferredToSchoolId,
+                    transferToSchoolName: metadata.transferredToSchoolId,
+                    transferredPages: 0,
+                    transferredStructuredPages: 0,
+                    totalTransferredPages: 0,
+                    legacyProjects: [],
+                    structuredPages: []
+                }
+            };
+            existing.metadata.structuredPages.push({
+                id: page.id,
+                title: page.title,
+                newLegacyProjectName: metadata.legacyProjectName || null
+            });
+            existing.metadata.transferredStructuredPages += 1;
+            existing.metadata.totalTransferredPages += 1;
+            derivedLogs.set(key, existing);
+        });
+
+    const merged = [
+        ...(Array.isArray(logs) ? logs : []),
+        ...[...derivedLogs.values()]
+    ].sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+
+    res.status(200).json(merged.slice(0, limit));
 }
 
 async function handleSchoolsRoute(req, res, pathname) {
+    if (req.method === 'GET' && pathname === '/api/schools/activity') {
+        await listSchoolActivity(req, res);
+        return true;
+    }
+
     if (req.method === 'GET' && pathname === '/api/schools') {
         res.status(200).json(await readSchoolsForApi());
         return true;
@@ -381,14 +505,31 @@ async function handleSchoolsRoute(req, res, pathname) {
             return true;
         }
 
-        const transferredPages = await transferSchoolPages(schoolId, transferToSchoolId);
-        const transferredStructuredPages = await transferStructuredSchoolPages(schoolId, targetSchool);
+        const legacyTransfer = await transferSchoolPages(schoolId, transferToSchoolId);
+        const structuredTransfer = await transferStructuredSchoolPages(schoolId, targetSchool);
         await supabaseRequest('POST', '/Schools?on_conflict=id', {
             id: schoolId,
             name: schoolId,
             deleted: true
         });
-        res.status(200).json({ message: 'School deleted', transferredPages, transferredStructuredPages });
+
+        await logSchoolTransfer({
+            schoolId,
+            targetSchool,
+            legacyTransfer,
+            structuredTransfer
+        }).catch(e => {
+            console.warn('School transfer activity log failed:', e.message);
+        });
+
+        res.status(200).json({
+            message: 'School deleted',
+            deletedSchoolId: schoolId,
+            transferToSchoolId,
+            transferredPages: legacyTransfer.count,
+            transferredStructuredPages: structuredTransfer.count,
+            totalTransferredPages: legacyTransfer.count + structuredTransfer.count
+        });
         return true;
     }
 

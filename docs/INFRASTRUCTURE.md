@@ -103,6 +103,8 @@ integration_targets
 
 The app may publish to Supabase, SFMC, both, or neither depending on workflow. The canonical editorial state should remain in the database.
 
+Current implementation prepares this through `integration_jobs`: publishing a page creates a pending `sfmc/publish_page` job. Processing that job is intentionally left to a future worker or integration service.
+
 ## VPS Readiness
 
 For a future VPS deployment:

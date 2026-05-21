@@ -2643,6 +2643,18 @@ body {
     border: 1px solid #e2e8f0;
 }
 
+.cms-badge-status-review {
+    background: #eff6ff;
+    color: #1d4ed8;
+    border: 1px solid #bfdbfe;
+}
+
+.cms-badge-status-approved {
+    background: #f0fdf4;
+    color: #15803d;
+    border: 1px solid #bbf7d0;
+}
+
 .cms-badge-status-published {
     background: #ecfdf5;
     color: #047857;

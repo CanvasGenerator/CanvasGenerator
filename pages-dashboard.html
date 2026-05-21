@@ -65,6 +65,8 @@
                 <select id="filter-status" class="cms-filter">
                     <option value="">Pages actives</option>
                     <option value="draft">Brouillons</option>
+                    <option value="review">En revue</option>
+                    <option value="approved">Validées</option>
                     <option value="published">Publiées</option>
                     <option value="archived">Archivées</option>
                     <option value="all">Tout afficher</option>
@@ -305,6 +307,36 @@
         </div>
     </div>
 
+    <!-- Status Modal -->
+    <div id="status-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-flag" style="color:#1a7a5e;margin-right:8px;"></i>Changer le statut</h3>
+                <button class="cms-modal-close" id="status-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p class="cms-modal-copy" id="status-page-label">—</p>
+                <label class="cms-modal-label" for="status-value">Statut</label>
+                <select id="status-value" class="cms-modal-input">
+                    <option value="draft">Brouillon</option>
+                    <option value="review">En revue</option>
+                    <option value="approved">Validé</option>
+                    <option value="published">Publié</option>
+                    <option value="archived">Archivé</option>
+                </select>
+                <label class="cms-modal-label" for="status-note">Note interne</label>
+                <input id="status-note" class="cms-modal-input" type="text" placeholder="Optionnel">
+                <div class="cms-inline-error" id="status-error" style="display:none;"></div>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="status-cancel">Annuler</button>
+                <button class="cms-btn-confirm" id="status-confirm">
+                    <i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // ── State ──────────────────────────────────────────────────────────────
         let allPages = [];
@@ -317,6 +349,7 @@
         let selectedEntityId = '';
         let selectedFolderId = '';
         let moveTarget = null;
+        let statusTarget = null;
 
         // ── Helpers ────────────────────────────────────────────────────────────
         function formatDate(iso) {
@@ -342,6 +375,8 @@
 
         function getStatusLabel(page) {
             const status = page.status || 'draft';
+            if (status === 'review') return 'En revue';
+            if (status === 'approved') return 'Validé';
             if (status === 'published') return 'Publié';
             if (status === 'archived') return 'Archivé';
             if (status === 'deleted') return 'Corbeille';
@@ -350,6 +385,8 @@
 
         function getStatusClass(page) {
             const status = page.status || 'draft';
+            if (status === 'review') return 'cms-badge-status-review';
+            if (status === 'approved') return 'cms-badge-status-approved';
             if (status === 'published') return 'cms-badge-status-published';
             if (status === 'archived') return 'cms-badge-status-archived';
             if (status === 'deleted') return 'cms-badge-status-deleted';
@@ -536,6 +573,9 @@
                         </button>`}
                         ${p.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}')">
                             <i class="fas fa-clock-rotate-left"></i>
+                        </button>` : ''}
+                        ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.status || 'draft')}')">
+                            <i class="fas fa-flag"></i>
                         </button>` : ''}
                         ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.entity_id || '')}')">
                             <i class="fas fa-folder-open"></i>
@@ -744,6 +784,55 @@
         document.getElementById('move-modal-close').onclick = closeMoveModal;
         document.getElementById('move-cancel').onclick = closeMoveModal;
         document.getElementById('move-confirm').onclick = movePage;
+
+        // ── Status workflow ───────────────────────────────────────────────────
+        function openStatusModal(pageId, title, status) {
+            statusTarget = { pageId };
+            document.getElementById('status-page-label').textContent = title;
+            document.getElementById('status-value').value = status || 'draft';
+            document.getElementById('status-note').value = '';
+            document.getElementById('status-error').style.display = 'none';
+            document.getElementById('status-error').textContent = '';
+            document.getElementById('status-modal').style.display = 'flex';
+        }
+
+        function closeStatusModal() {
+            document.getElementById('status-modal').style.display = 'none';
+            statusTarget = null;
+        }
+
+        async function updatePageStatus() {
+            if (!statusTarget) return;
+            const status = document.getElementById('status-value').value;
+            const note = document.getElementById('status-note').value.trim();
+            const errorEl = document.getElementById('status-error');
+            const btn = document.getElementById('status-confirm');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Mise à jour…';
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            try {
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(statusTarget.pageId)}/status`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ status, note })
+                });
+                if (!res.ok) throw new Error(await readErrorMessage(res));
+                closeStatusModal();
+                await loadPages();
+            } catch (e) {
+                errorEl.textContent = e.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour';
+            }
+        }
+
+        document.getElementById('status-modal-close').onclick = closeStatusModal;
+        document.getElementById('status-cancel').onclick = closeStatusModal;
+        document.getElementById('status-confirm').onclick = updatePageStatus;
 
         // ── Versions ───────────────────────────────────────────────────────────
         async function openVersions(pageId, title) {
@@ -999,6 +1088,7 @@
         document.getElementById('restore-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRestoreModal(); });
         document.getElementById('folder-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeFolderModal(); });
         document.getElementById('move-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeMoveModal(); });
+        document.getElementById('status-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeStatusModal(); });
 
         // ── Init ───────────────────────────────────────────────────────────────
         loadPages();
