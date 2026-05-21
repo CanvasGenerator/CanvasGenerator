@@ -54,6 +54,19 @@ function isMissingContentSchemaError(error) {
         || /could not find the table|does not exist|schema cache/i.test(message);
 }
 
+function isMissingColumnError(error, columnName) {
+    const message = [
+        error?.payload?.code,
+        error?.payload?.message,
+        error?.payload?.details,
+        error?.message
+    ].filter(Boolean).join(' ');
+
+    return error?.status === 400
+        && new RegExp(`\\b${columnName}\\b`, 'i').test(message)
+        && /column|schema cache|could not find/i.test(message);
+}
+
 async function findOne(table, filters = {}) {
     const params = new URLSearchParams({ select: '*', limit: '1' });
     Object.entries(filters).forEach(([key, value]) => {
@@ -352,7 +365,8 @@ async function getContentSchemaStatus() {
         ['entities', '/entities?select=id&limit=1'],
         ['folders', '/folders?select=id&limit=1'],
         ['pages', '/pages?select=id&limit=1'],
-        ['page_versions', '/page_versions?select=id&limit=1']
+        ['page_versions', '/page_versions?select=id&limit=1'],
+        ['integration_jobs', '/integration_jobs?select=id&limit=1']
     ];
     const tables = {};
 
@@ -527,6 +541,144 @@ async function movePage(req, res, pageId) {
     });
 
     res.status(200).json({ page: Array.isArray(result) ? result[0] : result });
+}
+
+async function updatePageStatus(req, res, pageId) {
+    const body = req.body || {};
+    const status = requireField(body, 'status');
+    const allowedStatuses = new Set(['draft', 'review', 'approved', 'published', 'archived']);
+    if (!allowedStatuses.has(status)) {
+        return res.status(400).json({ error: 'Unsupported page status' });
+    }
+
+    const pageResult = await supabaseRequest(
+        'GET',
+        `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`
+    );
+    if (!pageResult?.length) return res.status(404).json({ error: 'Page not found' });
+
+    const page = pageResult[0];
+    if (page.status === 'deleted') {
+        return res.status(400).json({ error: 'Restore the page before changing its status' });
+    }
+
+    const now = new Date().toISOString();
+    const metadata = { ...(page.metadata || {}) };
+    const workflow = Array.isArray(metadata.workflow) ? metadata.workflow : [];
+    workflow.push({
+        from: page.status || 'draft',
+        to: status,
+        at: now,
+        note: body.note || '',
+        source: 'dashboard'
+    });
+
+    const patch = {
+        status,
+        metadata: {
+            ...metadata,
+            workflow,
+            lastWorkflowTransitionAt: now
+        },
+        updated_at: now
+    };
+
+    if (status === 'published') patch.published_at = now;
+
+    let result;
+    try {
+        result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, patch, {
+            'Prefer': 'return=representation'
+        });
+    } catch (e) {
+        if (!patch.published_at || !isMissingColumnError(e, 'published_at')) throw e;
+
+        const fallbackPatch = { ...patch };
+        delete fallbackPatch.published_at;
+        fallbackPatch.metadata = {
+            ...fallbackPatch.metadata,
+            publishedAt: now
+        };
+
+        result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, fallbackPatch, {
+            'Prefer': 'return=representation'
+        });
+    }
+
+    if (status === 'published') {
+        await createPublishIntegrationJob({
+            page: Array.isArray(result) ? result[0] : { ...page, ...patch },
+            versionId: page.current_version_id,
+            note: body.note || ''
+        }).catch(e => {
+            console.warn('Publish integration job creation failed:', e.message);
+        });
+    }
+
+    res.status(200).json({ page: Array.isArray(result) ? result[0] : result });
+}
+
+async function createPublishIntegrationJob({ page, versionId, note = '' }) {
+    if (!page?.id || !versionId) return null;
+
+    const versionResult = await supabaseRequest(
+        'GET',
+        `/page_versions?id=eq.${encodeURIComponent(versionId)}&select=id,version_number,html,metadata&limit=1`
+    );
+    const version = Array.isArray(versionResult) && versionResult.length ? versionResult[0] : null;
+    if (!version) return null;
+
+    return insert('integration_jobs', {
+        organization_id: null,
+        entity_id: page.entity_id || null,
+        page_id: page.id,
+        page_version_id: version.id,
+        target: 'sfmc',
+        action: 'publish_page',
+        status: 'pending',
+        payload: {
+            pageId: page.id,
+            versionId: version.id,
+            versionNumber: version.version_number,
+            title: page.title,
+            language: page.language,
+            htmlLength: (version.html || '').length
+        },
+        metadata: {
+            source: 'editorial-workflow',
+            note,
+            legacyProjectName: page.metadata?.legacyProjectName || null
+        }
+    });
+}
+
+async function listIntegrationJobs(req, res) {
+    const status = getQueryParam(req, 'status');
+    const pageId = getQueryParam(req, 'pageId');
+    const endpoint = selectEndpoint('integration_jobs', {
+        status: status ? `eq.${status}` : undefined,
+        page_id: pageId ? `eq.${pageId}` : undefined,
+        order: 'created_at.desc'
+    });
+    const result = await supabaseRequest('GET', endpoint);
+    res.status(200).json(result || []);
+}
+
+async function createIntegrationJob(req, res) {
+    const body = req.body || {};
+    const job = await insert('integration_jobs', {
+        organization_id: body.organization_id || null,
+        entity_id: body.entity_id || null,
+        page_id: body.page_id || null,
+        page_version_id: body.page_version_id || null,
+        target: requireField(body, 'target'),
+        action: requireField(body, 'action'),
+        status: body.status || 'pending',
+        payload: body.payload || {},
+        metadata: body.metadata || {},
+        scheduled_at: body.scheduled_at || new Date().toISOString()
+    });
+    res.status(200).json({ job });
 }
 
 async function getPage(req, res, pageId) {
@@ -841,6 +993,17 @@ async function handleContentRoute(req, res, pathname) {
         }
     }
 
+    if (pathname === '/api/integration-jobs') {
+        if (req.method === 'GET') {
+            await listIntegrationJobs(req, res);
+            return true;
+        }
+        if (req.method === 'POST') {
+            await createIntegrationJob(req, res);
+            return true;
+        }
+    }
+
     if (pathname === '/api/content/pages') {
         if (req.method === 'GET') {
             await listPages(req, res);
@@ -861,6 +1024,12 @@ async function handleContentRoute(req, res, pathname) {
     const moveMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/move$/);
     if (moveMatch && req.method === 'POST') {
         await movePage(req, res, moveMatch[1]);
+        return true;
+    }
+
+    const statusMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/status$/);
+    if (statusMatch && req.method === 'POST') {
+        await updatePageStatus(req, res, statusMatch[1]);
         return true;
     }
 

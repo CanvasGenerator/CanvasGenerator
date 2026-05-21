@@ -61,6 +61,7 @@ create table if not exists pages (
   current_version_id uuid,
   seo jsonb not null default '{}'::jsonb,
   metadata jsonb not null default '{}'::jsonb,
+  published_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   unique (entity_id, folder_id, slug, language)
@@ -132,6 +133,27 @@ create table if not exists activity_logs (
   created_at timestamptz not null default now()
 );
 
+create table if not exists integration_jobs (
+  id uuid primary key default gen_random_uuid(),
+  organization_id uuid references organizations(id) on delete set null,
+  entity_id uuid references entities(id) on delete set null,
+  page_id uuid references pages(id) on delete set null,
+  page_version_id uuid references page_versions(id) on delete set null,
+  target text not null,
+  action text not null,
+  status text not null default 'pending',
+  payload jsonb not null default '{}'::jsonb,
+  result jsonb not null default '{}'::jsonb,
+  error text,
+  attempts integer not null default 0,
+  scheduled_at timestamptz not null default now(),
+  processed_at timestamptz,
+  created_by uuid,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+
 create table if not exists "Schools" (
   id text primary key,
   name text not null,
@@ -153,3 +175,5 @@ create index if not exists idx_pages_entity_folder on pages(entity_id, folder_id
 create index if not exists idx_page_versions_page on page_versions(page_id, version_number desc);
 create index if not exists idx_page_drafts_page_user on page_drafts(page_id, user_id);
 create index if not exists idx_activity_logs_scope on activity_logs(organization_id, entity_id, page_id, created_at desc);
+create index if not exists idx_integration_jobs_status on integration_jobs(status, scheduled_at);
+create index if not exists idx_integration_jobs_page on integration_jobs(page_id, created_at desc);
