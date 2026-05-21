@@ -403,6 +403,30 @@
             outline: none;
         }
 
+        .admin-field input.is-invalid,
+        .admin-field textarea.is-invalid,
+        .admin-field select.is-invalid {
+            border-color: #fca5a5;
+            background: #fff7f7;
+        }
+
+        .admin-field input.is-valid,
+        .admin-field textarea.is-valid,
+        .admin-field select.is-valid {
+            border-color: #86efac;
+        }
+
+        .field-feedback {
+            min-height: 15px;
+            color: #991b1b;
+            font-size: 11px;
+            line-height: 1.35;
+        }
+
+        .field-feedback.is-info {
+            color: var(--text-muted);
+        }
+
         .admin-field textarea {
             min-height: 78px;
             resize: vertical;
@@ -458,6 +482,49 @@
         .admin-notice strong {
             color: #0F3D31;
             font-weight: 600;
+        }
+
+        .block-picker {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 8px;
+            padding: 10px;
+            border: 1px solid var(--border-color);
+            border-radius: 8px;
+            background: #FBFCFD;
+            max-height: 188px;
+            overflow: auto;
+        }
+
+        .block-option {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 9px;
+            border: 1px solid var(--border-color);
+            border-radius: 7px;
+            background: #fff;
+            color: var(--text-main);
+            font-size: 12px;
+            cursor: pointer;
+        }
+
+        .block-option input {
+            width: 14px;
+            height: 14px;
+            accent-color: var(--accent);
+        }
+
+        .block-option:has(input:checked) {
+            border-color: var(--accent-border);
+            background: var(--accent-soft);
+            color: #145C47;
+        }
+
+        .block-picker-meta {
+            margin-top: 6px;
+            color: var(--text-muted);
+            font-size: 12px;
         }
 
         .history-list {
@@ -640,10 +707,12 @@
                     <div class="admin-field">
                         <label for="school-id">Identifiant</label>
                         <input id="school-id" type="text" placeholder="ex: efj">
+                        <div id="school-id-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field">
                         <label for="school-name">Nom court</label>
                         <input id="school-name" type="text" placeholder="EFJ">
+                        <div id="school-name-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field full">
                         <label for="school-full-name">Nom complet</label>
@@ -656,10 +725,12 @@
                     <div class="admin-field">
                         <label for="school-contact">Contact</label>
                         <input id="school-contact" type="text" placeholder="contact@ecole.fr">
+                        <div id="school-contact-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field">
                         <label for="school-base-url">Adresse web de base</label>
                         <input id="school-base-url" type="url" placeholder="https://www.ecole.fr">
+                        <div id="school-base-url-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field">
                         <label for="school-color">Couleur principale</label>
@@ -673,9 +744,11 @@
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
                     </div>
-                    <div class="admin-field">
-                        <label for="school-default-blocks">Blocs par défaut</label>
-                        <input id="school-default-blocks" type="text" placeholder="hero,programme-list,form-sfmc">
+                    <div class="admin-field full">
+                        <label>Blocs par défaut</label>
+                        <div id="school-default-blocks" class="block-picker"></div>
+                        <div id="school-default-blocks-meta" class="block-picker-meta">0 bloc sélectionné</div>
+                        <div id="school-default-blocks-feedback" class="field-feedback"></div>
                     </div>
                 </div>
             </div>
@@ -734,6 +807,8 @@
         let currentProjectsMap = {};
         let editingSchoolId = null;
         let deletingSchoolId = null;
+        let blockCatalog = [];
+        let fallbackDefaultBlocks = ['hero', 'programme-list', 'form-sfmc', 'cta-button'];
 
         async function fetchJSON(url) {
             const r = await fetch(url);
@@ -744,8 +819,36 @@
             return r.json();
         }
 
+        async function readErrorMessage(res) {
+            const text = await res.text().catch(() => '');
+            if (!text) return `${res.status} ${res.statusText}`;
+            try {
+                const payload = JSON.parse(text);
+                const message = payload?.error || payload?.message || text;
+                if (res.status === 401 && /supabase/i.test(message)) {
+                    return "Écriture Supabase refusée. Vérifiez que SUPABASE_SERVICE_ROLE_KEY est bien configurée dans .env puis redémarrez le serveur.";
+                }
+                return message;
+            } catch {
+                if (res.status === 401 && /supabase/i.test(text)) {
+                    return "Écriture Supabase refusée. Vérifiez que SUPABASE_SERVICE_ROLE_KEY est bien configurée dans .env puis redémarrez le serveur.";
+                }
+                return text;
+            }
+        }
+
         function escHtml(s) {
             return String(s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+        }
+
+        function slugifyId(value = '') {
+            return String(value)
+                .normalize('NFKD')
+                .replace(/[\u0300-\u036f]/g, '')
+                .toLowerCase()
+                .replace(/[^a-z0-9]+/g, '-')
+                .replace(/-{2,}/g, '-')
+                .replace(/^-|-$/g, '');
         }
 
         function showAdminError(id, message) {
@@ -850,14 +953,80 @@
         document.getElementById('btn-close-school-history').onclick = closeSchoolHistoryModal;
         document.getElementById('btn-done-school-history').onclick = closeSchoolHistoryModal;
         document.getElementById('btn-refresh-school-history').onclick = loadSchoolHistory;
+        ['school-id', 'school-name', 'school-contact', 'school-base-url'].forEach(id => {
+            document.getElementById(id).addEventListener('input', () => validateSchoolForm({ showEmpty: true }));
+            document.getElementById(id).addEventListener('blur', () => {
+                if (id === 'school-id' && !editingSchoolId) {
+                    document.getElementById(id).value = slugifyId(document.getElementById(id).value);
+                }
+                validateSchoolForm({ showEmpty: true });
+            });
+        });
 
         function setValue(id, value) {
             document.getElementById(id).value = value || '';
         }
 
+        function setFieldState(id, { error = '', info = '', valid = false } = {}) {
+            const input = document.getElementById(id);
+            const feedback = document.getElementById(`${id}-feedback`);
+            if (input) {
+                input.classList.toggle('is-invalid', Boolean(error));
+                input.classList.toggle('is-valid', !error && valid);
+            }
+            if (feedback) {
+                feedback.textContent = error || info || '';
+                feedback.classList.toggle('is-info', !error && Boolean(info));
+            }
+        }
+
+        function clearSchoolValidation() {
+            ['school-id', 'school-name', 'school-contact', 'school-base-url', 'school-default-blocks'].forEach(id => {
+                setFieldState(id);
+            });
+            const blocksFeedback = document.getElementById('school-default-blocks-feedback');
+            if (blocksFeedback) {
+                blocksFeedback.textContent = '';
+                blocksFeedback.classList.remove('is-info');
+            }
+        }
+
+        function setDefaultBlocksSelection(blocks = []) {
+            const selected = new Set(blocks.length ? blocks : fallbackDefaultBlocks);
+            document.querySelectorAll('[data-default-block]').forEach(input => {
+                input.checked = selected.has(input.value);
+            });
+            updateDefaultBlocksMeta();
+        }
+
+        function getDefaultBlocksSelection() {
+            return [...document.querySelectorAll('[data-default-block]:checked')].map(input => input.value);
+        }
+
+        function updateDefaultBlocksMeta() {
+            const count = getDefaultBlocksSelection().length;
+            document.getElementById('school-default-blocks-meta').textContent =
+                `${count} bloc${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}`;
+            validateSchoolForm({ showEmpty: true });
+        }
+
+        function renderDefaultBlockPicker() {
+            const picker = document.getElementById('school-default-blocks');
+            picker.innerHTML = blockCatalog.map(block => `
+                <label class="block-option">
+                    <input type="checkbox" value="${escHtml(block.id)}" data-default-block>
+                    <span>${escHtml(block.label)}</span>
+                </label>
+            `).join('');
+            picker.querySelectorAll('[data-default-block]').forEach(input => {
+                input.addEventListener('change', updateDefaultBlocksMeta);
+            });
+        }
+
         function openSchoolModal(school = null) {
             editingSchoolId = school?.id || null;
             showAdminError('school-admin-error', '');
+            clearSchoolValidation();
             document.getElementById('school-admin-title').textContent = school ? `Modifier ${school.name}` : 'Ajouter une école';
             document.getElementById('btn-delete-school').style.display = school ? 'inline-flex' : 'none';
             document.getElementById('school-id').disabled = Boolean(school);
@@ -870,8 +1039,9 @@
             setValue('school-color', school?.color || '#3b82f6');
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
             setValue('school-emoji', school?.emoji || '🏫');
-            setValue('school-default-blocks', (school?.defaultBlocks || ['hero', 'programme-list', 'form-sfmc', 'cta-button']).join(','));
+            setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
             document.getElementById('school-admin-modal').style.display = 'flex';
+            validateSchoolForm({ showEmpty: false });
         }
 
         function closeSchoolModal() {
@@ -879,9 +1049,74 @@
             editingSchoolId = null;
         }
 
-        function collectSchoolForm() {
-            const id = document.getElementById('school-id').value.trim().toLowerCase();
+        function validateSchoolForm({ showEmpty = true } = {}) {
+            const rawId = document.getElementById('school-id').value;
+            const slugId = slugifyId(rawId);
+            const name = document.getElementById('school-name').value.trim();
+            const contact = document.getElementById('school-contact').value.trim();
             const baseUrl = document.getElementById('school-base-url').value.trim();
+            const selectedBlocks = getDefaultBlocksSelection();
+            const errors = {};
+
+            if (!slugId && showEmpty) errors.id = 'Identifiant requis.';
+            else if (rawId && rawId !== slugId && !editingSchoolId) {
+                setFieldState('school-id', { info: `Sera enregistré comme "${slugId}".` });
+            } else if (slugId) {
+                setFieldState('school-id', { valid: true });
+            } else {
+                setFieldState('school-id');
+            }
+
+            if (!name && showEmpty) errors.name = 'Nom court requis.';
+            if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+                errors.contact = 'Contact invalide. Exemple: contact@ecole.fr.';
+            }
+            if (baseUrl && !/^https?:\/\/[^\s]+\.[^\s]+/i.test(baseUrl)) {
+                errors.baseUrl = 'URL invalide. Exemple: https://www.ecole.fr.';
+            }
+            if (!selectedBlocks.length) {
+                errors.defaultBlocks = 'Sélectionnez au moins un bloc.';
+            }
+
+            if (errors.id) setFieldState('school-id', { error: errors.id });
+            else if (!rawId || rawId === slugId || editingSchoolId) {
+                if (slugId) setFieldState('school-id', { valid: true });
+                else setFieldState('school-id');
+            }
+            if (errors.name) setFieldState('school-name', { error: errors.name });
+            else if (name) setFieldState('school-name', { valid: true });
+            else setFieldState('school-name');
+
+            if (errors.contact) setFieldState('school-contact', { error: errors.contact });
+            else if (contact) setFieldState('school-contact', { valid: true });
+            else setFieldState('school-contact');
+
+            if (errors.baseUrl) setFieldState('school-base-url', { error: errors.baseUrl });
+            else if (baseUrl) setFieldState('school-base-url', { valid: true });
+            else setFieldState('school-base-url');
+
+            const blockFeedback = document.getElementById('school-default-blocks-feedback');
+            if (blockFeedback) {
+                blockFeedback.textContent = errors.defaultBlocks || '';
+                blockFeedback.classList.toggle('is-info', false);
+            }
+
+            const hasErrors = Object.keys(errors).length > 0;
+            document.getElementById('btn-save-school').disabled = hasErrors;
+            return { valid: !hasErrors, errors, slugId };
+        }
+
+        function collectSchoolForm() {
+            const validation = validateSchoolForm({ showEmpty: true });
+            if (!validation.valid) {
+                throw new Error('Corrigez les champs signalés avant d’enregistrer.');
+            }
+            const id = slugifyId(document.getElementById('school-id').value);
+            document.getElementById('school-id').value = id;
+            const baseUrl = document.getElementById('school-base-url').value.trim();
+            if (!/^[a-z0-9-]+$/.test(id)) {
+                throw new Error("Identifiant invalide. Utilisez uniquement des minuscules, chiffres et tirets, par exemple mon-ecole.");
+            }
             if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
                 throw new Error('Adresse web de base invalide. Utilisez http:// ou https://.');
             }
@@ -895,14 +1130,16 @@
                 color: document.getElementById('school-color').value,
                 secondaryColor: document.getElementById('school-secondary-color').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
-                defaultBlocks: document.getElementById('school-default-blocks').value
-                    .split(',')
-                    .map(v => v.trim())
-                    .filter(Boolean)
+                defaultBlocks: getDefaultBlocksSelection()
             };
         }
 
         async function saveSchool() {
+            const validation = validateSchoolForm({ showEmpty: true });
+            if (!validation.valid) {
+                showAdminError('school-admin-error', 'Corrigez les champs signalés avant d’enregistrer.');
+                return;
+            }
             const btn = document.getElementById('btn-save-school');
             btn.disabled = true;
             btn.textContent = 'Enregistrement...';
@@ -916,15 +1153,14 @@
                     body: JSON.stringify(school)
                 });
                 if (!res.ok) {
-                    const payload = await res.json().catch(() => null);
-                    throw new Error(payload?.error || await res.text());
+                    throw new Error(await readErrorMessage(res));
                 }
                 closeSchoolModal();
                 await init();
             } catch (e) {
                 showAdminError('school-admin-error', e.message);
             } finally {
-                btn.disabled = false;
+                btn.disabled = !validateSchoolForm({ showEmpty: true }).valid;
                 btn.textContent = 'Enregistrer';
             }
         }
@@ -1040,8 +1276,7 @@
                     body: JSON.stringify({ transferToSchoolId })
                 });
                 if (!res.ok) {
-                    const payload = await res.json().catch(() => null);
-                    throw new Error(payload?.error || await res.text());
+                    throw new Error(await readErrorMessage(res));
                 }
                 const payload = await res.json();
                 const targetSchool = currentSchools.find(s => s.id === transferToSchoolId);
@@ -1068,15 +1303,26 @@
 
         async function init() {
             try {
-                const [schools, projects] = await Promise.all([
+                const [schools, projects, blocksPayload] = await Promise.all([
                     fetchJSON('/api/schools'),
                     fetchJSON('/api/projects').catch(err => {
                         console.warn("Erreur chargement projets:", err);
                         return [];
+                    }),
+                    fetchJSON('/api/blocks').catch(err => {
+                        console.warn("Erreur chargement blocs:", err);
+                        return null;
                     })
                 ]);
 
                 if (!Array.isArray(schools)) throw new Error("Format de données invalide pour les écoles");
+                if (blocksPayload?.blocks?.length) {
+                    blockCatalog = blocksPayload.blocks;
+                    fallbackDefaultBlocks = blocksPayload.defaultBlockIds?.length
+                        ? blocksPayload.defaultBlockIds
+                        : fallbackDefaultBlocks;
+                    renderDefaultBlockPicker();
+                }
 
                 const projectsMap = {};
                 schools.forEach(s => { projectsMap[s.id] = []; });

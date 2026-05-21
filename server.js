@@ -14,6 +14,7 @@ const {
     isMissingContentSchemaError
 } = require('./api/content');
 const { handleSchoolsRoute } = require('./api/schools');
+const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -304,12 +305,20 @@ http.createServer(async (req, res) => {
         pathname === '/api/entities' ||
         pathname === '/api/folders' ||
         pathname === '/api/activity' ||
+        pathname === '/api/blocks' ||
         pathname.startsWith('/api/content/')
     ) {
         try {
             req.body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
                 ? await readJsonBody(req)
                 : {};
+            if (req.method === 'GET' && pathname === '/api/blocks') {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({
+                    blocks: listBlocks({ schoolId: params.get('schoolId') }),
+                    defaultBlockIds: getDefaultBlockIds()
+                }));
+            }
             const handled = await handleContentRoute(req, createApiResponse(res), pathname);
             if (handled) return;
         } catch (e) {
