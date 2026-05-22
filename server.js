@@ -537,19 +537,9 @@ http.createServer(async (req, res) => {
                     newComponent = Array.isArray(supaResult) ? supaResult[0] : supaResult;
                 }
 
-                // ☁️ SYNC TO SFMC
-                const { syncComponentToSfmc, isSfmcConfigured } = require('./lib/sfmc');
-                let sfmcResult = { skipped: true };
+                // SFMC sync disabled for component saves
+                const sfmcResult = { skipped: true, action: 'disabled' };
                 
-                if (isSfmcConfigured()) {
-                    try {
-                        sfmcResult = await syncComponentToSfmc({ schoolId: school_id, name, content });
-                        console.log(`☁️ SFMC Component sync: ${sfmcResult.action} → ${name}`);
-                    } catch (sfmcErr) {
-                        console.error(`⚠️ SFMC Component sync failed:`, sfmcErr.message);
-                    }
-                }
-
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ message: 'Component saved successfully', sfmc: sfmcResult, component: newComponent }));
             } catch (e) {

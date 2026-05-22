@@ -129,22 +129,7 @@ module.exports = async function handler(req, res) {
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
             
             const newComponent = Array.isArray(supaResult) ? supaResult[0] : (supaResult || { id: Date.now(), school_id, name, content, category });
-            let sfmcResult = { skipped: true };
-            if (isSfmcConfigured()) {
-                try {
-                    sfmcResult = await syncComponentToSfmc({ schoolId: school_id, name, content });
-                } catch (e) {
-                    console.error('SFMC component sync failed:', e.message);
-                    sfmcResult = {
-                        skipped: false,
-                        action: 'failed',
-                        error: e.message,
-                        code: e.code,
-                        status: e.status,
-                        details: e.payload
-                    };
-                }
-            }
+            const sfmcResult = { skipped: true, action: 'disabled' };
             return res.status(200).json({ message: 'Component saved', sfmc: sfmcResult, component: newComponent });
         }
 

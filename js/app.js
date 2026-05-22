@@ -928,7 +928,7 @@ function initUI(editor) {
             if (category) category.set('open', true);
             bm.render();
 
-            await showAlert({ title: 'Succès', message: 'Composant sauvegardé dans Supabase et Salesforce ! Il est maintenant synchronisé avec la base de données.' });
+            await showAlert({ title: 'Succès', message: 'Composant sauvegardé dans Supabase uniquement.' });
         } catch (e) {
             console.error(e);
             await showAlert({ title: 'Erreur', message: 'Impossible de sauvegarder le composant. ' + e.message });
