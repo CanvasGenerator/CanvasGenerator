@@ -265,9 +265,8 @@ module.exports = async function handler(req, res) {
                 properties
             });
 
-            // Instead of synchronously calling SFMC (which blocks the user),
-            // enqueue an integration job so a background worker can post-process
-            // and send the OPTIMIZED `fullHtml` to SFMC. This keeps the save fast.
+            // Enqueue an integration job so a background worker (Cron) can post-process
+            // and send the OPTIMIZED `fullHtml` to SFMC. This keeps the save fast and non-blocking.
             let sfmcResult = { skipped: true, action: 'skipped' };
             if (isSfmcConfigured()) {
                 try {
