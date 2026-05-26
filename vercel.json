@@ -1,11 +1,5 @@
 {
     "outputDirectory": ".",
-    "crons": [
-        {
-            "path": "/api/cron",
-            "schedule": "* * * * *"
-        }
-    ],
     "headers": [
         {
             "source": "/(.*)",
