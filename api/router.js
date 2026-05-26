@@ -11,6 +11,7 @@ const {
     updatePageLifecycle,
     isMissingContentSchemaError
 } = require('./content');
+const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 
 module.exports = async function handler(req, res) {
     // Ensure CORS
@@ -52,6 +53,7 @@ module.exports = async function handler(req, res) {
                     school,
                     lang:         parts[1] || 'FR',
                     seoTitle:     props.seoTitle || '',
+                    seoDescription: props.seoDescription || '',
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       props.status || 'draft'
@@ -123,19 +125,25 @@ module.exports = async function handler(req, res) {
         // 2. Components API
         // ==========================================
         if (req.method === 'POST' && pathname === '/api/components') {
-            const { school_id, name, content, category } = req.body || {};
-            const supaResult = await supabaseRequest('POST', '/components', {
-                school_id, name, content, category: category || 'Custom Components'
+            const { school_id, name, content, category, properties } = req.body || {};
+            const normalizedSchoolId = String(school_id || '').toLowerCase();
+
+            const supaResult = await supabaseRequest('POST', '/Component', {
+                school_id: normalizedSchoolId,
+                name,
+                content,
+                category: category || 'Custom Components',
+                properties: properties || {}
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-            
-            const newComponent = Array.isArray(supaResult) ? supaResult[0] : (supaResult || { id: Date.now(), school_id, name, content, category });
+
+            const newComponent = Array.isArray(supaResult) ? supaResult[0] : (supaResult || { id: Date.now(), school_id: normalizedSchoolId, name, content, category });
             const sfmcResult = { skipped: true, action: 'disabled' };
             return res.status(200).json({ message: 'Component saved', sfmc: sfmcResult, component: newComponent });
         }
 
         if (req.method === 'GET' && pathname.startsWith('/api/components/')) {
-            const schoolId = decodeURIComponent(pathname.replace('/api/components/', ''));
-            const result = await supabaseRequest('GET', `/components?school_id=eq.${encodeURIComponent(schoolId)}`);
+            const schoolId = decodeURIComponent(pathname.replace('/api/components/', '')).toLowerCase();
+            const result = await supabaseRequest('GET', `/Component?school_id=eq.${encodeURIComponent(schoolId)}`);
             return res.status(200).json(result || []);
         }
 
@@ -225,13 +233,24 @@ module.exports = async function handler(req, res) {
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html, css, projectData, properties } = req.body || {};
+            const { projectName, html, css, projectData, properties: rawProperties } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+            // Keep the raw editor HTML for auditing/rollback/post-processing
+            const properties = Object.assign({}, rawProperties || {});
+            properties.rawHtml = html;
+
+            // Build the stored/optimized HTML (includes SEO tags, CSS inlined, etc.)
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
-            
+
+            console.log(`\n🧹 [SEO] Nettoyage du HTML pour SFMC (Vercel Route)...`);
+            const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
+            console.log(`✅ [SEO] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
+
             await supabaseRequest('POST', '/Projects?on_conflict=project_name', { 
                 project_name: projectName, 
                 html: fullHtml, 
+                html_sfmc: cleanedHtmlForSfmc,
                 css, 
                 project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
                 properties: properties || {}
@@ -240,29 +259,120 @@ module.exports = async function handler(req, res) {
             const contentSync = await syncLegacyProjectToContent({
                 projectName,
                 html: fullHtml,
+                html_sfmc: cleanedHtmlForSfmc,
                 css,
                 projectData,
                 properties
             });
 
+            // Instead of synchronously calling SFMC (which blocks the user),
+            // enqueue an integration job so a background worker can post-process
+            // and send the OPTIMIZED `fullHtml` to SFMC. This keeps the save fast.
             let sfmcResult = { skipped: true, action: 'skipped' };
             if (isSfmcConfigured()) {
                 try {
-                    sfmcResult = await syncProjectToSfmc({ projectName, fullHtml });
+                    await supabaseRequest('POST', '/integration_jobs', {
+                        target: 'sfmc',
+                        action: 'sync_project',
+                        status: 'pending',
+                        payload: { projectName },
+                        metadata: { source: 'save-api', enqueuedBy: 'router.js' },
+                        scheduled_at: new Date().toISOString()
+                    });
+                    sfmcResult = { skipped: false, action: 'queued' };
                 } catch (e) {
-                    console.error('SFMC project sync failed:', e.message);
-                    sfmcResult = {
-                        skipped: false,
-                        action: 'failed',
-                        error: e.message,
-                        code: e.code,
-                        status: e.status,
-                        details: e.payload
-                    };
+                    console.error('Failed to create SFMC integration job:', e.message);
+                    sfmcResult = { skipped: false, action: 'job_failed', error: e.message };
                 }
             }
 
             return res.status(200).json({ message: 'Saved', sfmc: sfmcResult, content: contentSync });
+        }
+
+        if (req.method === 'POST' && pathname === '/api/save-seo') {
+            const { projectName, properties: rawProperties } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+            console.log(`\n🔧 [SEO-SETTINGS] Mise à jour SEO pour "${projectName}" (Vercel Route)`);
+
+            let project = await getStructuredProjectForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
+                return null;
+            });
+
+            if (!project) {
+                const existing = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                if (!existing || existing.length === 0) {
+                    return res.status(404).json({ error: 'Projet introuvable' });
+                }
+                project = existing[0];
+            }
+
+            const mergedProperties = { ...(project.properties || {}), ...(rawProperties || {}) };
+
+            try {
+                await supabaseRequest('POST', '/seo_history', {
+                    project_name: projectName,
+                    properties: mergedProperties,
+                    saved_by: req.headers['x-user'] || null
+                });
+                console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
+            } catch (histErr) {
+                console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
+            }
+
+            const baseHtml = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
+            const freshHtml = buildStoredHtml({
+                projectName,
+                html: baseHtml,
+                css: project.css || '',
+                properties: mergedProperties
+            });
+
+            const cleanedHtml = cleanHtmlForSfmc(freshHtml);
+
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                html: freshHtml,
+                html_sfmc: cleanedHtml,
+                properties: mergedProperties
+            });
+
+            const contentSync = await syncLegacyProjectToContent({
+                projectName,
+                html: freshHtml,
+                html_sfmc: cleanedHtml,
+                css: project.css || '',
+                projectData: project.project_data,
+                properties: mergedProperties
+            });
+
+            let sfmcResult = { skipped: true, action: 'skipped' };
+            if (isSfmcConfigured()) {
+                try {
+                    await supabaseRequest('POST', '/integration_jobs', {
+                        target: 'sfmc',
+                        action: 'sync_project',
+                        status: 'pending',
+                        payload: { projectName },
+                        metadata: { source: 'save-seo-api', enqueuedBy: 'router.js' },
+                        scheduled_at: new Date().toISOString()
+                    });
+                    sfmcResult = { skipped: false, action: 'queued' };
+                } catch (e) {
+                    console.error('Failed to create SFMC integration job:', e.message);
+                    sfmcResult = { skipped: false, action: 'job_failed', error: e.message };
+                }
+            }
+
+            return res.status(200).json({ message: 'SEO saved', sfmc: sfmcResult, content: contentSync, projectName });
+        }
+
+        if (req.method === 'GET' && pathname === '/api/seo-history') {
+            const projectName = req.query.projectName;
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+            const result = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc&limit=5`);
+            return res.status(200).json(result || []);
         }
 
         // ==========================================

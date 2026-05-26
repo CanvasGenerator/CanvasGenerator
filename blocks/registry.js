@@ -13,10 +13,10 @@ const BLOCK_REGISTRY = [
     { id: 'form-salesforce-core', label: 'Formulaire Salesforce Core', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'salesforce'], enabled: true },
     { id: 'chiffres-cles', label: 'Chiffres clés', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/chiffres-cles.svg', tags: ['stats'], enabled: true },
     { id: 'cta-button', label: 'CTA bouton', category: 'Conversion', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/cta-button.svg', tags: ['cta'], enabled: true, defaultForNewSchools: true },
-    { id: 'rich-text', label: 'Texte riche', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/rich-text.svg', tags: ['text'], enabled: true },
-    { id: 'two-column', label: 'Deux colonnes', category: 'Structure', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/two-column.svg', tags: ['layout'], enabled: true },
+    { id: 'rich-text', label: 'Texte riche', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/rich-text.svg', tags: ['text'], enabled: false },
+    { id: 'two-column', label: 'Deux colonnes', category: 'Structure', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/two-column.svg', tags: ['layout'], enabled: false },
     { id: 'image-caption', label: 'Image avec légende', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/image-caption.svg', tags: ['image'], enabled: true },
-    { id: 'spacer', label: 'Espacement', category: 'Structure', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/spacer.svg', tags: ['layout'], enabled: true },
+    { id: 'spacer', label: 'Espacement', category: 'Structure', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/spacer.svg', tags: ['layout'], enabled: false },
     { id: 'Carrousel', label: 'Carrousel', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel.svg', tags: ['carousel'], enabled: true },
     { id: 'CarrouselTemoignages', label: 'Carrousel témoignages', category: 'Social Proof', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel-temoignages.svg', tags: ['carousel', 'testimonials'], enabled: true },
     { id: 'CarrouselCampus', label: 'Carrousel campus', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel-campus.svg', tags: ['carousel', 'campus'], enabled: true }

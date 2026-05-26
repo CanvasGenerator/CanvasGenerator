@@ -12,58 +12,27 @@ export default function (editor) {
 
     // ── Layout ─────────────────────────────────────────────────────────
     const catLayout = 'Layout';
-    addBlock('b-section', 'Section', catLayout, 'fa-solid fa-square', {
-        type: 'default', tagName: 'section', style: { padding: '50px 20px', width: '100%', 'min-height': '100px', 'box-sizing': 'border-box' }
-    });
-    addBlock('b-container', 'Container', catLayout, 'fa-solid fa-box', {
-        type: 'default', style: { 'max-width': '1200px', margin: '0 auto', padding: '0 20px', width: '100%', 'min-height': '50px', 'box-sizing': 'border-box' }
-    });
-    addBlock('b-grid', 'Grid', catLayout, 'fa-solid fa-border-all', {
-        type: 'default', style: { display: 'grid', 'grid-template-columns': 'repeat(3, 1fr)', gap: '20px', 'min-height': '50px', width: '100%' },
-        components: [{ type: 'default', style: { 'min-height': '50px', 'background-color': '#f9f9f9' } }, { type: 'default', style: { 'min-height': '50px', 'background-color': '#f9f9f9' } }, { type: 'default', style: { 'min-height': '50px', 'background-color': '#f9f9f9' } }]
-    });
-    addBlock('b-flex-row', 'Flex Row', catLayout, 'fa-solid fa-arrows-left-right', {
-        type: 'default', style: { display: 'flex', 'flex-direction': 'row', gap: '20px', 'min-height': '50px', width: '100%' },
-        components: [{ type: 'default', style: { flex: '1', 'min-height': '50px', 'background-color': '#f9f9f9' } }, { type: 'default', style: { flex: '1', 'min-height': '50px', 'background-color': '#f9f9f9' } }]
-    });
-    addBlock('b-flex-col', 'Flex Column', catLayout, 'fa-solid fa-arrows-up-down', {
-        type: 'default', style: { display: 'flex', 'flex-direction': 'column', gap: '20px', 'min-height': '50px', width: '100%' },
-        components: [{ type: 'default', style: { 'min-height': '50px', 'background-color': '#f9f9f9' } }, { type: 'default', style: { 'min-height': '50px', 'background-color': '#f9f9f9' } }]
-    });
-    addBlock('b-spacer', 'Spacer', catLayout, 'fa-solid fa-up-down', {
-        type: 'default', style: { height: '50px', width: '100%' }
-    });
-    addBlock('b-divider', 'Divider', catLayout, 'fa-solid fa-minus', {
-        type: 'default', tagName: 'hr', style: { width: '100%', border: 'none', 'border-top': '1px solid #e5e7eb', margin: '20px 0' }
-    });
+    /* Les blocs Layout ont été déplacés vers le Component Builder
+    addBlock('b-section', 'Section', catLayout, 'fa-solid fa-square', { ... });
+    addBlock('b-container', 'Container', catLayout, 'fa-solid fa-box', { ... });
+    addBlock('b-grid', 'Grid', catLayout, 'fa-solid fa-border-all', { ... });
+    addBlock('b-flex-row', 'Flex Row', catLayout, 'fa-solid fa-arrows-left-right', { ... });
+    addBlock('b-flex-col', 'Flex Column', catLayout, 'fa-solid fa-arrows-up-down', { ... });
+    addBlock('b-spacer', 'Spacer', catLayout, 'fa-solid fa-up-down', { ... });
+    addBlock('b-divider', 'Divider', catLayout, 'fa-solid fa-minus', { ... });
+    */
 
     // ── Typography ─────────────────────────────────────────────────────
     const catTypo = 'Typography';
-    addBlock('b-heading', 'Heading', catTypo, 'fa-solid fa-heading', {
-        type: 'text', tagName: 'h2', content: 'Ceci est un grand titre', style: { 'font-size': '32px', 'font-weight': 'bold', 'margin-bottom': '16px', color: '#1a1a1a' }
-    });
-    addBlock('b-subheading', 'Subheading', catTypo, 'fa-solid fa-h2', {
-        type: 'text', tagName: 'h3', content: 'Ceci est un sous-titre', style: { 'font-size': '24px', 'font-weight': '600', 'margin-bottom': '12px', color: '#333' }
-    });
-    addBlock('b-paragraph', 'Paragraph', catTypo, 'fa-solid fa-paragraph', {
-        type: 'text', tagName: 'p', content: 'Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.', style: { 'font-size': '16px', 'line-height': '1.5', 'margin-bottom': '16px', color: '#4b5563' }
-    });
-    addBlock('b-text', 'Text', catTypo, 'fa-solid fa-font', {
-        type: 'text', tagName: 'span', content: 'Texte simple', style: { 'font-size': '16px', color: '#4b5563' }
-    });
-    addBlock('b-quote', 'Quote', catTypo, 'fa-solid fa-quote-left', {
-        type: 'text', tagName: 'blockquote', content: 'Ceci est une citation inspirante.', style: { 'font-size': '20px', 'font-style': 'italic', 'border-left': '4px solid var(--brand-primary)', padding: '10px 20px', margin: '20px 0', color: '#4b5563', 'background-color': '#f9fafb' }
-    });
-    addBlock('b-list', 'List', catTypo, 'fa-solid fa-list-ul', `
-        <ul style="padding-left: 20px; margin-bottom: 16px; color: #4b5563; font-size: 16px;">
-            <li>Élément de liste 1</li>
-            <li>Élément de liste 2</li>
-            <li>Élément de liste 3</li>
-        </ul>
-    `);
-    addBlock('b-badge', 'Badge', catTypo, 'fa-solid fa-tag', {
-        type: 'text', tagName: 'span', content: 'Nouveau', style: { display: 'inline-block', padding: '4px 8px', 'background-color': 'var(--brand-primary)', color: '#fff', 'border-radius': '9999px', 'font-size': '12px', 'font-weight': 'bold', 'text-transform': 'uppercase' }
-    });
+    /* Les blocs Typography ont été déplacés vers le Component Builder
+    addBlock('b-heading', 'Heading', catTypo, 'fa-solid fa-heading', { ... });
+    addBlock('b-subheading', 'Subheading', catTypo, 'fa-solid fa-h2', { ... });
+    addBlock('b-paragraph', 'Paragraph', catTypo, 'fa-solid fa-paragraph', { ... });
+    addBlock('b-text', 'Text', catTypo, 'fa-solid fa-font', { ... });
+    addBlock('b-quote', 'Quote', catTypo, 'fa-solid fa-quote-left', { ... });
+    addBlock('b-list', 'List', catTypo, 'fa-solid fa-list-ul', { ... });
+    addBlock('b-badge', 'Badge', catTypo, 'fa-solid fa-tag', { ... });
+    */
 
     // ── Actions ────────────────────────────────────────────────────────
     const catActions = 'Actions';
