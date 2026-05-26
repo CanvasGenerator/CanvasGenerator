@@ -2473,6 +2473,12 @@ body {
     color: #6b7280;
 }
 
+.cms-nav-actions {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+
 .cms-icon-btn {
     width: 28px;
     height: 28px;
@@ -2614,6 +2620,45 @@ body {
     overflow: hidden;
     text-overflow: ellipsis;
     max-width: 220px;
+}
+
+.cms-page-seotitle a {
+    color: #64748b;
+    text-decoration: none;
+}
+
+.cms-page-seotitle a:hover {
+    color: #1d4ed8;
+    text-decoration: underline;
+}
+
+.cms-domain-list {
+    display: grid;
+    gap: 12px;
+    margin-top: 16px;
+}
+
+.cms-domain-row {
+    border: 1px solid #e5e7eb;
+    border-radius: 8px;
+    padding: 12px;
+    background: #fbfcfd;
+}
+
+.cms-domain-row-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    margin-bottom: 8px;
+    font-size: 12px;
+}
+
+.cms-domain-row-head span {
+    color: #64748b;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .cms-badge {

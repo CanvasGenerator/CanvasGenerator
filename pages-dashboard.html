@@ -107,9 +107,14 @@
             <aside class="cms-nav-panel">
                 <div class="cms-nav-head">
                     <div class="cms-nav-title">Organisation</div>
-                    <button class="cms-icon-btn" id="btn-create-folder" type="button" title="Créer un dossier">
-                        <i class="fas fa-folder-plus"></i>
-                    </button>
+                    <div class="cms-nav-actions">
+                        <button class="cms-icon-btn" id="btn-create-folder" type="button" title="Créer un dossier">
+                            <i class="fas fa-folder-plus"></i>
+                        </button>
+                        <button class="cms-icon-btn" id="btn-config-domains" type="button" title="Configurer les domaines">
+                            <i class="fas fa-link"></i>
+                        </button>
+                    </div>
                 </div>
                 <button class="cms-nav-item active" id="nav-all-pages" type="button">
                     <span><i class="fas fa-layer-group"></i> Toutes les pages</span>
@@ -386,6 +391,56 @@
         </div>
     </div>
 
+    <!-- Publication Activation Modal -->
+    <div id="activation-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-power-off" style="color:#1a7a5e;margin-right:8px;"></i>Diffusion de la page</h3>
+                <button class="cms-modal-close" id="activation-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p class="cms-modal-copy" id="activation-page-label">—</p>
+                <label class="cms-modal-label" for="activation-value">État public</label>
+                <select id="activation-value" class="cms-modal-input">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive avec redirection</option>
+                </select>
+                <label class="cms-modal-label" for="activation-redirect-url">Adresse de redirection</label>
+                <input id="activation-redirect-url" class="cms-modal-input" type="url" placeholder="https://www.exemple.fr/page-remplacement">
+                <label class="cms-modal-label" for="activation-note">Note interne</label>
+                <input id="activation-note" class="cms-modal-input" type="text" placeholder="Optionnel">
+                <div class="cms-inline-error" id="activation-error" style="display:none;"></div>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="activation-cancel">Annuler</button>
+                <button class="cms-btn-confirm" id="activation-confirm">
+                    <i class="fas fa-power-off" style="margin-right:6px;"></i>Mettre à jour
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Domain Config Modal -->
+    <div id="domain-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal cms-modal-wide">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-link" style="color:#1d4ed8;margin-right:8px;"></i>Domaines des écoles</h3>
+                <button class="cms-modal-close" id="domain-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p class="cms-modal-copy">Configurez l'adresse de départ utilisée pour construire automatiquement les liens publics des pages.</p>
+                <div id="domain-list" class="cms-domain-list"></div>
+                <div class="cms-inline-error" id="domain-error" style="display:none;"></div>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="domain-cancel">Annuler</button>
+                <button class="cms-btn-confirm" id="domain-confirm">
+                    <i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
         // Custom Toast notification system to replace native alert popups
         window.alert = function (message) {
@@ -485,6 +540,7 @@
         let selectedFolderId = '';
         let moveTarget = null;
         let statusTarget = null;
+        let activationTarget = null;
 
         // ── Helpers ────────────────────────────────────────────────────────────
         function formatDate(iso) {
@@ -508,11 +564,24 @@
             return `/?school=${school}${pageIdParam}&project=${encodeURIComponent(projectName)}`;
         }
 
+        function getPublicUrlLabel(page) {
+            if (page.public_url) return page.public_url;
+            if (page.public_path) return `Domaine école à configurer · ${page.public_path}`;
+            return '';
+        }
+
+        function buildPublicUrlPreview(entity, slug = 'ma-page') {
+            const baseUrl = String(entity.base_url || '').replace(/\/+$/, '');
+            return baseUrl ? `${baseUrl}/${slug}` : `/${slug}`;
+        }
+
         function getStatusLabel(page) {
             const status = page.status || 'draft';
             if (status === 'review') return 'En revue';
             if (status === 'approved') return 'Validé';
-            if (status === 'published') return 'Publié';
+            if (status === 'published') {
+                return page.publication?.active === false ? 'Publié · inactif' : 'Publié · actif';
+            }
             if (status === 'archived') return 'Archivé';
             if (status === 'deleted') return 'Corbeille';
             return 'Brouillon';
@@ -651,6 +720,78 @@
             refreshNavActiveState();
         }
 
+        function renderDomainList() {
+            const list = document.getElementById('domain-list');
+            const entities = allEntities.filter(entity => !entity.deleted);
+            if (!entities.length) {
+                list.innerHTML = '<div class="cms-empty" style="padding:20px;">Aucune école disponible.</div>';
+                return;
+            }
+            list.innerHTML = entities.map(entity => `
+                <div class="cms-domain-row" data-entity-id="${escAttr(entity.id)}">
+                    <div class="cms-domain-row-head">
+                        <strong>${escHtml(entity.name)}</strong>
+                        <span>${escHtml(buildPublicUrlPreview(entity))}</span>
+                    </div>
+                    <input class="cms-modal-input cms-domain-input" type="url" value="${escAttr(entity.base_url || '')}" placeholder="https://lp.${escAttr(entity.slug || 'ecole')}.fr">
+                </div>
+            `).join('');
+        }
+
+        function openDomainModal() {
+            document.getElementById('domain-error').style.display = 'none';
+            document.getElementById('domain-error').textContent = '';
+            renderDomainList();
+            document.getElementById('domain-modal').style.display = 'flex';
+        }
+
+        function closeDomainModal() {
+            document.getElementById('domain-modal').style.display = 'none';
+        }
+
+        async function saveDomainConfig() {
+            const rows = [...document.querySelectorAll('.cms-domain-row')];
+            const errorEl = document.getElementById('domain-error');
+            const btn = document.getElementById('domain-confirm');
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            const updates = rows.map(row => {
+                const entity = allEntities.find(item => item.id === row.dataset.entityId);
+                const input = row.querySelector('.cms-domain-input');
+                const baseUrl = input.value.trim().replace(/\/+$/, '');
+                if (baseUrl && !/^https?:\/\/[^\s]+/i.test(baseUrl)) {
+                    throw new Error(`URL invalide pour ${entity?.name || 'école'}. Exemple: https://lp.ecole.fr`);
+                }
+                return { entity, baseUrl };
+            });
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enregistrement…';
+            try {
+                for (const { entity, baseUrl } of updates) {
+                    if (!entity || baseUrl === (entity.base_url || '')) continue;
+                    const res = await fetch('/api/entities', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            ...entity,
+                            base_url: baseUrl
+                        })
+                    });
+                    if (!res.ok) throw new Error(await readErrorMessage(res));
+                }
+                closeDomainModal();
+                await loadPages();
+            } catch (e) {
+                errorEl.textContent = e.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer';
+            }
+        }
+
         function folderOptionsHtml({ entityId = '', includeEmpty = false } = {}) {
             const folders = allFolders.filter(folder => !entityId || folder.entity_id === entityId);
             const options = folders.map(folder => {
@@ -690,6 +831,7 @@
                 <td>
                     <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
                     ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
+                    ${getPublicUrlLabel(p) ? `<div class="cms-page-seotitle"><i class="fas fa-link" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${p.public_url ? `<a href="${escAttr(p.public_url)}" target="_blank" rel="noopener">${escHtml(p.public_url)}</a>` : escHtml(getPublicUrlLabel(p))}</div>` : ''}
                 </td>
                 <td>
                     <span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span>
@@ -722,6 +864,9 @@
                         </button>` : ''}
                         ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.status || 'draft')}')">
                             <i class="fas fa-flag"></i>
+                        </button>` : ''}
+                        ${!isDeleted && p.page_id && (p.status || 'draft') === 'published' ? `<button class="cms-btn cms-btn-history" title="Activer / désactiver" onclick="openActivationModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', ${p.publication?.active === false ? 'false' : 'true'}, '${escAttr(p.publication?.redirectUrl || '')}')">
+                            <i class="fas fa-power-off"></i>
                         </button>` : ''}
                         ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.entity_id || '')}')">
                             <i class="fas fa-folder-open"></i>
@@ -1002,6 +1147,81 @@
         document.getElementById('status-modal-close').onclick = closeStatusModal;
         document.getElementById('status-cancel').onclick = closeStatusModal;
         document.getElementById('status-confirm').onclick = updatePageStatus;
+
+        // ── Publication activation ────────────────────────────────────────────
+        function updateActivationRedirectState() {
+            const isInactive = document.getElementById('activation-value').value === 'inactive';
+            document.getElementById('activation-redirect-url').disabled = !isInactive;
+            if (!isInactive) document.getElementById('activation-redirect-url').value = '';
+        }
+
+        function openActivationModal(pageId, title, active, redirectUrl = '') {
+            activationTarget = { pageId };
+            document.getElementById('activation-page-label').textContent = title;
+            document.getElementById('activation-value').value = active ? 'active' : 'inactive';
+            document.getElementById('activation-redirect-url').value = redirectUrl || '';
+            document.getElementById('activation-note').value = '';
+            document.getElementById('activation-error').style.display = 'none';
+            document.getElementById('activation-error').textContent = '';
+            updateActivationRedirectState();
+            document.getElementById('activation-modal').style.display = 'flex';
+        }
+
+        function closeActivationModal() {
+            document.getElementById('activation-modal').style.display = 'none';
+            activationTarget = null;
+        }
+
+        async function updatePageActivation() {
+            if (!activationTarget) return;
+            const active = document.getElementById('activation-value').value === 'active';
+            const redirectUrl = document.getElementById('activation-redirect-url').value.trim();
+            const note = document.getElementById('activation-note').value.trim();
+            const errorEl = document.getElementById('activation-error');
+            const btn = document.getElementById('activation-confirm');
+
+            if (!active && !redirectUrl) {
+                errorEl.textContent = 'Adresse de redirection obligatoire pour désactiver une page publiée.';
+                errorEl.style.display = 'block';
+                return;
+            }
+            if (!active && !/^https?:\/\/[^\s]+/i.test(redirectUrl)) {
+                errorEl.textContent = 'Adresse de redirection invalide. Utilisez http:// ou https://.';
+                errorEl.style.display = 'block';
+                return;
+            }
+
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Mise à jour…';
+            errorEl.style.display = 'none';
+            errorEl.textContent = '';
+
+            try {
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(activationTarget.pageId)}/activation`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ active, redirectUrl, note })
+                });
+                if (!res.ok) throw new Error(await readErrorMessage(res));
+                closeActivationModal();
+                await loadPages();
+            } catch (e) {
+                errorEl.textContent = e.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-power-off" style="margin-right:6px;"></i>Mettre à jour';
+            }
+        }
+
+        document.getElementById('activation-value').addEventListener('change', updateActivationRedirectState);
+        document.getElementById('activation-modal-close').onclick = closeActivationModal;
+        document.getElementById('activation-cancel').onclick = closeActivationModal;
+        document.getElementById('activation-confirm').onclick = updatePageActivation;
+        document.getElementById('btn-config-domains').onclick = openDomainModal;
+        document.getElementById('domain-modal-close').onclick = closeDomainModal;
+        document.getElementById('domain-cancel').onclick = closeDomainModal;
+        document.getElementById('domain-confirm').onclick = saveDomainConfig;
 
         // ── Versions ───────────────────────────────────────────────────────────
         async function openVersions(pageId, title) {
@@ -1403,6 +1623,8 @@
                 btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer';
             }
         };
+        document.getElementById('activation-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeActivationModal(); });
+        document.getElementById('domain-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDomainModal(); });
 
         // ── Init ───────────────────────────────────────────────────────────────
         loadPages();

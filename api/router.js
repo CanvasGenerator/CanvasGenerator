@@ -9,7 +9,9 @@ const {
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
     updatePageLifecycle,
-    isMissingContentSchemaError
+    isMissingContentSchemaError,
+    getPublicationSettings,
+    resolvePublicPageByHostPath
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 
@@ -56,7 +58,8 @@ module.exports = async function handler(req, res) {
                     seoDescription: props.seoDescription || '',
                     updated_at:   p.created_at,
                     source:       'legacy',
-                    status:       props.status || 'draft'
+                    status:       props.status || 'draft',
+                    publication:  props.publication || { active: true, redirectUrl: '' }
                 };
             });
             let structuredPages = [];
@@ -419,6 +422,34 @@ module.exports = async function handler(req, res) {
 
             res.setHeader('Content-Type', 'text/html');
             return res.status(200).send(html);
+        }
+
+        if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
+            const resolved = await resolvePublicPageByHostPath({
+                host: req.headers.host,
+                path: pathname
+            });
+            if (resolved?.page) {
+                if (resolved.page.status !== 'published') {
+                    return res.status(404).send('Page not found');
+                }
+
+                const publication = getPublicationSettings(resolved.page);
+                if (publication.active === false) {
+                    if (publication.redirectUrl) {
+                        res.writeHead(302, { Location: publication.redirectUrl });
+                        return res.end();
+                    }
+                    return res.status(410).send('Page temporarily unavailable');
+                }
+
+                if (!resolved.version?.html) {
+                    return res.status(404).send('Page version not found');
+                }
+
+                res.setHeader('Content-Type', 'text/html');
+                return res.status(200).send(resolved.version.html);
+            }
         }
 
         return res.status(404).json({ error: 'API route not found: ' + pathname });
