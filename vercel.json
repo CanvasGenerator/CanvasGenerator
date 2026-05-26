@@ -1,5 +1,11 @@
 {
     "outputDirectory": ".",
+    "crons": [
+        {
+            "path": "/api/cron",
+            "schedule": "* * * * *"
+        }
+    ],
     "headers": [
         {
             "source": "/(.*)",
@@ -12,6 +18,10 @@
         }
     ],
     "rewrites": [
+        {
+            "source": "/api/cron",
+            "destination": "/api/cron"
+        },
         {
             "source": "/preview/:name",
             "destination": "/api/router?path=/preview/:name"
