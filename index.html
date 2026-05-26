@@ -17,6 +17,7 @@
     <!-- Custom UI Styles -->
     <link rel="stylesheet" href="css/builder.css">
     <link rel="stylesheet" href="css/form-generator.css">
+    <link rel="stylesheet" href="css/component-builder.css">
     
     <!-- External Libraries -->
     <script src="https://unpkg.com/grapesjs"></script>
@@ -83,10 +84,15 @@
                         <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                     </button>
                 </div>
-                <button class="btn-outline" id="btn-save-component" title="Save Selected Component" style="margin-right: 8px;">Save Component</button>
-                <button class="btn-outline" id="btn-form-builder" style="margin-right: 8px; border-color: #3b82f6; color: #3b82f6;">
-                    <i class="fas fa-wpforms"></i> Form Builder
-                </button>
+                <div class="dropdown" style="margin-right: 8px;">
+                    <button class="btn-outline" style="border-color: #6b7280; color: #4b5563;">
+                        <i class="fas fa-tools"></i> Builders ▼
+                    </button>
+                    <div class="dropdown-content">
+                        <a href="#" id="btn-component-builder"><i class="fas fa-puzzle-piece" style="color: #8b5cf6; margin-right: 8px; width: 16px;"></i> Component Builder</a>
+                        <a href="#" id="btn-form-builder"><i class="fas fa-wpforms" style="color: #3b82f6; margin-right: 8px; width: 16px;"></i> Form Builder</a>
+                    </div>
+                </div>
                 <select id="language-switcher" style="
                     padding: 8px 12px;
                     border: 1px solid #EAECF0;
@@ -271,6 +277,94 @@
         </div>
     </div>
 
+    <!-- Modal SEO Settings depuis le Dashboard -->
+    <div id="seo-settings-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 520px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fas fa-sliders-h" style="color: #1A7A5E; margin-right: 8px;"></i> Paramètres SEO</h3>
+                <button class="close-modal" id="btn-close-seo-settings">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 24px; max-height: 75vh; overflow-y: auto;">
+                <!-- Status banner -->
+                <div id="seo-settings-status" style="display:none; margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;"></div>
+
+                <input type="hidden" id="seo-settings-project-name">
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-heading" style="color: #6B7280; margin-right: 4px;"></i> Titre de la page
+                    </label>
+                    <input type="text" id="seo-settings-title" class="modal-input" placeholder="ex: Journée Portes Ouvertes – Mon École" style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-globe" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Title</span>
+                        <span id="seo-settings-title-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 60</span>
+                    </label>
+                    <input type="text" id="seo-settings-meta-title" class="modal-input" placeholder="Titre accrocheur · 50-60 car." style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-paragraph" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Description</span>
+                        <span id="seo-settings-desc-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 160</span>
+                    </label>
+                    <textarea id="seo-settings-meta-desc" class="modal-input" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." style="margin-bottom: 0; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+
+                <!-- Google Search Preview -->
+                <div class="google-preview-card" id="seo-settings-google-preview">
+                    <div class="google-preview-label">
+                        <i class="fab fa-google" style="color: #4285F4;"></i> Aperçu Google Search (Temps réel)
+                    </div>
+                    <div class="google-preview-header">
+                        <div class="google-preview-favicon">
+                            <img id="seo-settings-preview-fav" src="assets/LogoReetain.png" alt="">
+                        </div>
+                        <div class="google-preview-url-container">
+                            <span class="google-preview-site-name" id="seo-settings-preview-sitename">Reetain</span>
+                            <span class="google-preview-url" id="seo-settings-preview-url">https://www.reetain.com &gt; page</span>
+                        </div>
+                    </div>
+                    <div class="google-preview-title" id="seo-settings-preview-title">Titre de la page</div>
+                    <div class="google-preview-snippet">
+                        <span class="google-preview-date" id="seo-settings-preview-date">23 mai 2026 — </span>
+                        <span id="seo-settings-preview-desc">Description de la page...</span>
+                    </div>
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-key" style="color: #6B7280; margin-right: 4px;"></i> Mots-clés (Keywords)
+                    </label>
+                    <input type="text" id="seo-settings-keywords" class="modal-input" placeholder="ex: JPO, formation, inscription" style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-link" style="color: #6B7280; margin-right: 4px;"></i> URL Canonique
+                    </label>
+                    <input type="text" id="seo-settings-canonical" class="modal-input" placeholder="https://mon-ecole.fr/page" style="margin-bottom: 0;">
+                </div>
+
+
+
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button id="btn-seo-settings-cancel" class="btn-outline" style="flex: 1; padding: 12px; border-color: #D1D5DB; color: #4B5563; font-weight: 500;">
+                        Annuler
+                    </button>
+                    <button id="btn-seo-settings-save" class="btn-primary" style="flex: 1; padding: 12px; background: #1A7A5E; font-weight: 600;">
+                        <i class="fas fa-save" style="margin-right: 6px;"></i> Sauvegarder le SEO
+                    </button>
+                </div>
+                <p style="margin-top: 12px; font-size: 11px; color: #9CA3AF; text-align: center;">
+                    <i class="fas fa-bolt"></i> La sauvegarde est instantanée. L'envoi vers SFMC se fait en arrière-plan.
+                </p>
+            </div>
+        </div>
+    </div>
+
     <!-- Modal Validation & Edition SEO avant Sauvegarde -->
     <div id="save-seo-modal" class="modal-overlay hidden">
         <div class="modal-content" style="max-width: 500px; width: 90%;">
@@ -304,6 +398,27 @@
                         <span id="modal-seo-desc-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 160</span>
                     </label>
                     <textarea id="modal-seo-meta-desc" class="modal-input" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." style="margin-bottom: 0; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+
+                <!-- Google Search Preview -->
+                <div class="google-preview-card" id="save-seo-google-preview">
+                    <div class="google-preview-label">
+                        <i class="fab fa-google" style="color: #4285F4;"></i> Aperçu Google Search (Temps réel)
+                    </div>
+                    <div class="google-preview-header">
+                        <div class="google-preview-favicon">
+                            <img id="save-seo-preview-fav" src="assets/LogoReetain.png" alt="">
+                        </div>
+                        <div class="google-preview-url-container">
+                            <span class="google-preview-site-name" id="save-seo-preview-sitename">Reetain</span>
+                            <span class="google-preview-url" id="save-seo-preview-url">https://www.reetain.com &gt; page</span>
+                        </div>
+                    </div>
+                    <div class="google-preview-title" id="save-seo-preview-title">Titre de la page</div>
+                    <div class="google-preview-snippet">
+                        <span class="google-preview-date" id="save-seo-preview-date">23 mai 2026 — </span>
+                        <span id="save-seo-preview-desc">Description de la page...</span>
+                    </div>
                 </div>
 
                 <div class="props-field" style="margin-bottom: 24px;">

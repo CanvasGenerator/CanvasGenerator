@@ -175,6 +175,7 @@ async function createVersionForPage(page, legacyProject, versionNumber = null) {
         page_id: page.id,
         version_number: nextVersionNumber,
         html: legacyProject.html || '',
+        html_sfmc: legacyProject.html_sfmc || '',
         css: legacyProject.css || '',
         project_data: projectData,
         change_summary: legacyProject.change_summary || 'Legacy project snapshot',
@@ -262,11 +263,12 @@ async function migrateLegacyProject(legacyProject, options = {}) {
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, html, css, projectData, properties }) {
+async function syncLegacyProjectToContent({ projectName, html, html_sfmc, css, projectData, properties }) {
     try {
         return await migrateLegacyProject({
             project_name: projectName,
             html,
+            html_sfmc,
             css,
             project_data: projectData,
             properties: properties || {},
@@ -336,6 +338,7 @@ function projectResponseFromStructuredPage(projectName, page, version) {
     return {
         project_name: projectName,
         html: version.html || '',
+        html_sfmc: version.html_sfmc || '',
         css: version.css || '',
         project_data: version.project_data || {},
         properties: {

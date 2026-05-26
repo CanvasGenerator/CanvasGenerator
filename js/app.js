@@ -3,6 +3,93 @@ import { initExport } from './export.js';
 import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
 import { FormGenerator } from './form-generator.js';
+import { ComponentBuilder } from './component-builder.js';
+
+// Custom Toast notification system to replace native alert popups
+window.alert = function (message) {
+    let container = document.getElementById('custom-toast-container');
+    if (!container) {
+        container = document.createElement('div');
+        container.id = 'custom-toast-container';
+        container.style.cssText = `
+            position: fixed;
+            top: 24px;
+            right: 24px;
+            z-index: 999999;
+            display: flex;
+            flex-direction: column;
+            gap: 12px;
+            max-width: 420px;
+            width: calc(100% - 48px);
+            pointer-events: none;
+        `;
+        document.body.appendChild(container);
+    }
+
+    const toast = document.createElement('div');
+    toast.style.cssText = `
+        background: #ffffff;
+        color: #374151;
+        padding: 16px;
+        border-radius: 12px;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+        display: flex;
+        align-items: start;
+        gap: 14px;
+        transform: translateX(120%);
+        opacity: 0;
+        transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+        pointer-events: auto;
+        font-family: 'Inter', -apple-system, sans-serif;
+        font-size: 14px;
+        line-height: 1.5;
+        border-left: 4px solid #1a7a5e;
+    `;
+
+    const isError = message.toLowerCase().includes('erreur') || 
+                    message.toLowerCase().includes('failed') || 
+                    message.toLowerCase().includes('impossible') || 
+                    message.toLowerCase().includes('vide') || 
+                    message.toLowerCase().includes('veuillez') ||
+                    message.toLowerCase().includes('ajoutez');
+
+    let iconHtml = '<i class="fas fa-check-circle" style="color: #1a7a5e; font-size: 20px;"></i>';
+    let title = 'Succès';
+    
+    if (isError) {
+        toast.style.borderLeftColor = '#ef4444';
+        iconHtml = '<i class="fas fa-exclamation-circle" style="color: #ef4444; font-size: 20px;"></i>';
+        title = 'Attention';
+    }
+
+    toast.innerHTML = `
+        <div style="display: flex; align-items: center; justify-content: center; height: 20px; width: 20px; flex-shrink: 0;">
+            ${iconHtml}
+        </div>
+        <div style="flex: 1; padding-top: 1px;">
+            <div style="font-weight: 600; color: #111827; font-size: 14px; margin-bottom: 3px;">${title}</div>
+            <div style="color: #4b5563; font-size: 13px; font-weight: 400;">${message}</div>
+        </div>
+        <button style="background: none; border: none; padding: 2px; color: #9ca3af; cursor: pointer; display: flex; align-items: center; justify-content: center; outline: none; margin-top: 2px; transition: color 0.2s;" onmouseover="this.style.color='#4b5563'" onmouseout="this.style.color='#9ca3af'" onclick="const p = this.parentElement; p.style.opacity='0'; p.style.transform='translateX(120%)'; setTimeout(() => p.remove(), 400)">
+            <i class="fas fa-times" style="font-size: 14px;"></i>
+        </button>
+    `;
+
+    container.prepend(toast);
+
+    requestAnimationFrame(() => {
+        toast.style.transform = 'translateX(0)';
+        toast.style.opacity = '1';
+    });
+
+    setTimeout(() => {
+        if (toast.parentElement) {
+            toast.style.opacity = '0';
+            toast.style.transform = 'translateX(120%)';
+            setTimeout(() => toast.remove(), 400);
+        }
+    }, 6000);
+};
 
 const BLOCK_THUMBNAILS = {
     'header-efap': 'assets/block-thumbnails/header-efap.svg',
@@ -36,7 +123,7 @@ let currentStructuredPageId = null;
 
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
-    const schoolId = params.get('school');
+    const schoolId = params.get('school')?.toLowerCase();
     if (!schoolId) { window.location.href = 'school-selector.html'; return; }
 
     try {
@@ -218,6 +305,152 @@ let currentProjectProperties = {
     schemaLd: ''
 };
 
+// Helper to parse site name and url paths for preview
+function getGooglePreviewData(canonicalUrl, schoolId, schoolName, pageTitle) {
+    let favicon = 'assets/LogoReetain.png';
+    if (schoolId === 'efap') favicon = 'assets/efap-logo.png';
+    else if (schoolId === 'brassart') favicon = 'assets/brassart-logo.png';
+
+    let domain = 'Reetain';
+    let breadcrumb = 'https://www.reetain.com';
+
+    if (schoolId && schoolId !== 'unknown') {
+        domain = schoolName || schoolId.toUpperCase();
+        breadcrumb = `https://www.${schoolId}.fr`;
+    }
+
+    if (canonicalUrl) {
+        try {
+            let urlStr = canonicalUrl.trim();
+            if (!/^https?:\/\//i.test(urlStr)) {
+                urlStr = 'https://' + urlStr;
+            }
+            const url = new URL(urlStr);
+            const hostnameObj = url.hostname.replace('www.', '');
+            domain = hostnameObj.split('.')[0];
+            domain = domain.charAt(0).toUpperCase() + domain.slice(1);
+            
+            const paths = url.pathname.split('/').filter(p => p);
+            breadcrumb = url.origin;
+            if (paths.length > 0) {
+                breadcrumb += ' › ' + paths.join(' › ');
+            }
+        } catch (err) {
+            const parts = canonicalUrl.replace(/^https?:\/\//, '').replace('www.', '').split('/');
+            if (parts[0]) {
+                const domPart = parts[0].split('.')[0];
+                domain = domPart.charAt(0).toUpperCase() + domPart.slice(1);
+            }
+            breadcrumb = canonicalUrl;
+        }
+    } else {
+        const slug = pageTitle ? pageTitle.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') : 'page';
+        breadcrumb += ` › ${slug}`;
+    }
+
+    return { favicon, domain, breadcrumb };
+}
+
+// Helper to format/style character counter and input border
+function updateFieldStatus(inputEl, counterEl, min, max) {
+    if (!inputEl || !counterEl) return;
+    const len = inputEl.value.length;
+    counterEl.textContent = `${len} / ${max}`;
+    
+    let colorText, colorBg, colorBorder;
+    if (len === 0 || len < min) {
+        // Too short (orange)
+        colorText = '#d97706';
+        colorBg = '#fffbeb';
+        colorBorder = '#fde68a';
+    } else if (len <= max) {
+        // Optimal (green)
+        colorText = '#16a34a';
+        colorBg = '#f0fdf4';
+        colorBorder = '#bbf7d0';
+    } else {
+        // Too long (red)
+        colorText = '#dc2626';
+        colorBg = '#fef2f2';
+        colorBorder = '#fecaca';
+    }
+    
+    // Counter styling
+    counterEl.style.color = colorText;
+    counterEl.style.backgroundColor = colorBg;
+    counterEl.style.borderColor = colorBorder;
+    counterEl.style.borderWidth = '1px';
+    counterEl.style.borderStyle = 'solid';
+    counterEl.style.padding = '2px 8px';
+    counterEl.style.borderRadius = '99px';
+    counterEl.style.fontSize = '11px';
+    counterEl.style.fontWeight = '600';
+    
+    // Input styling
+    inputEl.style.borderColor = colorText;
+    inputEl.style.boxShadow = `0 0 0 2px ${colorBg}`;
+}
+
+// Live update of Google Search Preview
+function updateGooglePreview(type) {
+    let metaTitleEl, metaDescEl, internalTitleEl, canonicalEl;
+    let previewTitleEl, previewDescEl, previewDateEl, previewFavEl, previewSitenameEl, previewUrlEl;
+
+    const schoolId = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id || 'unknown';
+    const schoolName = CURRENT_SCHOOL?.name || window.CURRENT_SCHOOL?.name || '';
+
+    if (type === 'seo-settings') {
+        metaTitleEl = document.getElementById('seo-settings-meta-title');
+        metaDescEl = document.getElementById('seo-settings-meta-desc');
+        internalTitleEl = document.getElementById('seo-settings-title');
+        canonicalEl = document.getElementById('seo-settings-canonical');
+
+        previewTitleEl = document.getElementById('seo-settings-preview-title');
+        previewDescEl = document.getElementById('seo-settings-preview-desc');
+        previewDateEl = document.getElementById('seo-settings-preview-date');
+        previewFavEl = document.getElementById('seo-settings-preview-fav');
+        previewSitenameEl = document.getElementById('seo-settings-preview-sitename');
+        previewUrlEl = document.getElementById('seo-settings-preview-url');
+    } else {
+        metaTitleEl = document.getElementById('modal-seo-meta-title');
+        metaDescEl = document.getElementById('modal-seo-meta-desc');
+        internalTitleEl = document.getElementById('modal-seo-title');
+        canonicalEl = null;
+
+        previewTitleEl = document.getElementById('save-seo-preview-title');
+        previewDescEl = document.getElementById('save-seo-preview-desc');
+        previewDateEl = document.getElementById('save-seo-preview-date');
+        previewFavEl = document.getElementById('save-seo-preview-fav');
+        previewSitenameEl = document.getElementById('save-seo-preview-sitename');
+        previewUrlEl = document.getElementById('save-seo-preview-url');
+    }
+
+    if (!metaTitleEl || !metaDescEl || !previewTitleEl || !previewDescEl) return;
+
+    // 1. Title Text (truncated to 60 characters)
+    const rawTitle = metaTitleEl.value.trim() || internalTitleEl?.value.trim() || 'Titre de la page';
+    previewTitleEl.textContent = rawTitle.length > 60 ? rawTitle.slice(0, 60) + '...' : rawTitle;
+
+    // 2. Description Text (truncated to 160 characters)
+    const rawDesc = metaDescEl.value.trim() || 'Description de la page...';
+    previewDescEl.textContent = rawDesc.length > 160 ? rawDesc.slice(0, 160) + '...' : rawDesc;
+
+    // 3. Date
+    const today = new Date().toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: 'numeric' });
+    if (previewDateEl) {
+        previewDateEl.textContent = today + ' — ';
+    }
+
+    // 4. Favicon & URL & Site name
+    const canonicalVal = canonicalEl?.value.trim() || '';
+    const pageTitle = internalTitleEl?.value.trim() || '';
+    const previewData = getGooglePreviewData(canonicalVal, schoolId, schoolName, pageTitle);
+
+    if (previewFavEl) previewFavEl.src = previewData.favicon;
+    if (previewSitenameEl) previewSitenameEl.textContent = previewData.domain;
+    if (previewUrlEl) previewUrlEl.textContent = previewData.breadcrumb;
+}
+
 function initProperties() {
     // Counter + bar helpers
     function bindCounter(inputId, counterId, barId, min, max) {
@@ -256,21 +489,31 @@ function initProperties() {
         });
     }
 
-    // Modal SEO Counters
-    const bindModalCounter = (inputId, counterId, min, max) => {
+    // Modal SEO Counters & Real-Time Preview
+    const bindModalCounter = (inputId, counterId, min, max, type) => {
         const el = document.getElementById(inputId);
         const cnt = document.getElementById(counterId);
         if (!el || !cnt) return;
         const update = () => {
-            const len = el.value.length;
-            cnt.textContent = `${len} / ${max}`;
-            cnt.style.color = len > max ? '#ef4444' : len >= min ? '#10b981' : '#6b7280';
+            updateFieldStatus(el, cnt, min, max);
+            updateGooglePreview(type);
         };
-        el.addEventListener('input', update);
+        ['input', 'change', 'keyup'].forEach(event => {
+            el.addEventListener(event, update);
+        });
+        
+        // Also listen to internal title to update preview
+        const internalTitleId = type === 'seo-settings' ? 'seo-settings-title' : 'modal-seo-title';
+        const internalTitleEl = document.getElementById(internalTitleId);
+        if (internalTitleEl) {
+            ['input', 'change', 'keyup'].forEach(event => {
+                internalTitleEl.addEventListener(event, () => updateGooglePreview(type));
+            });
+        }
         update();
     };
-    bindModalCounter('modal-seo-meta-title', 'modal-seo-title-counter', 50, 60);
-    bindModalCounter('modal-seo-meta-desc', 'modal-seo-desc-counter', 120, 160);
+    bindModalCounter('modal-seo-meta-title', 'modal-seo-title-counter', 50, 60, 'save-seo');
+    bindModalCounter('modal-seo-meta-desc', 'modal-seo-desc-counter', 120, 160, 'save-seo');
 }
 
 function collectProperties() {
@@ -318,8 +561,37 @@ function populateProperties(props = {}) {
 function buildFinalHtml(bodyHtml, css, properties = {}) {
     bodyHtml = extractBodyHtml(bodyHtml);
 
-    const title      = escapeHtml(properties.seoTitle || properties.title || '');
-    const metaDesc   = escapeHtml(properties.seoDescription || '');
+    // If SEO fields are empty, try to derive sensible defaults from the body
+    function stripTags(input) {
+        return String(input || '').replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+    }
+
+    function deriveFromBody(html) {
+        const out = { title: '', desc: '' };
+        try {
+            const h1 = html.match(/<h1[^>]*>([\s\S]*?)<\/h1>/i);
+            if (h1 && h1[1]) out.title = stripTags(h1[1]);
+
+            if (!out.title) {
+                const h2 = html.match(/<h2[^>]*>([\s\S]*?)<\/h2>/i);
+                if (h2 && h2[1]) out.title = stripTags(h2[1]);
+            }
+
+            const p = html.match(/<p[^>]*>([\s\S]*?)<\/p>/i);
+            if (p && p[1]) {
+                const text = stripTags(p[1]);
+                out.desc = text.length > 160 ? text.slice(0, 157) + '...' : text;
+            }
+        } catch (e) {
+            // ignore extraction errors
+        }
+        return out;
+    }
+
+    const derived = deriveFromBody(bodyHtml);
+
+    const title      = escapeHtml(properties.seoTitle || properties.title || derived.title || '');
+    const metaDesc   = escapeHtml(properties.seoDescription || derived.desc || '');
     const keywords   = escapeHtml(properties.keywords || '');
     const canonical  = (properties.canonical || '').trim();
     const schemaLd   = (properties.schemaLd || '').trim();
@@ -450,6 +722,7 @@ async function loadCustomComponents(editor, schoolId) {
                 media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(comp.name)}"></div></div>`
             });
         });
+        editor.BlockManager.render();
     } catch (e) {
         console.error('Failed to load custom components:', e);
     }
@@ -760,6 +1033,22 @@ function initUI(editor) {
             }
         };
     }
+    // Component Builder
+    const btnComponentBuilder = document.getElementById('btn-component-builder');
+    if (btnComponentBuilder) {
+        btnComponentBuilder.onclick = async () => {
+            const schoolId = CURRENT_SCHOOL?.id || 'global';
+            let allSchools = [];
+            try {
+                const response = await fetch('/api/schools');
+                allSchools = await response.json();
+            } catch (e) {
+                console.error("Impossible de récupérer la liste des écoles", e);
+            }
+            const builder = new ComponentBuilder(editor, schoolId, allSchools);
+            builder.open();
+        };
+    }
 
     // Form Builder
     document.getElementById('btn-form-builder').onclick = async () => {
@@ -874,66 +1163,7 @@ function initUI(editor) {
         });
     }
 
-    // Save Component
-    document.getElementById('btn-save-component').onclick = async () => {
-        const html = editor.getHtml();
-        const css = editor.getCss();
-        
-        if (!html || !html.trim()) {
-            await showAlert({ title: 'Attention', message: 'Le canevas est vide. Veuillez ajouter des éléments avant de sauvegarder.' });
-            return;
-        }
-
-        const name = await showPrompt({ title: 'Sauvegarder la page entière comme composant', message: 'Nom du composant :', placeholder: 'Mon Layout Complet' });
-        if (!name) return;
-
-        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const contentStr = `<style>${css}</style>${html}`;
-
-        const componentData = {
-            school_id: schoolId,
-            name: name,
-            category: `${CURRENT_SCHOOL?.name || 'Custom'} Components`,
-            content: contentStr
-        };
-
-        try {
-            const res = await fetch('/api/components', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(componentData) 
-            });
-            if (!res.ok) throw new Error(await res.text());
-
-            const resData = await res.json();
-            const comp = resData.component;
-            
-            if (!comp) throw new Error("Données du composant manquantes dans la réponse.");
-
-            // Add dynamically to block manager using the real Database ID
-            const blockId = comp.id.toString().startsWith('db-') ? comp.id : `db-comp-${comp.id}`;
-            const schoolName = (CURRENT_SCHOOL?.name || 'Custom').toUpperCase();
-            const targetCategory = comp.category || `${schoolName} Components`;
-
-            editor.BlockManager.add(blockId, {
-                label: comp.name,
-                category: targetCategory,
-                content: comp.content, // HTML/CSS string
-                media: `<div class="block-thumbnail"><div class="block-thumbnail__frame"><img class="block-thumbnail__image" src="assets/block-thumbnails/default.svg" alt="${escapeHtml(comp.name)}"></div></div>`
-            });
-
-            // Focus and open category
-            const bm = editor.BlockManager;
-            const category = bm.getCategories().find(c => c.get('id') === targetCategory);
-            if (category) category.set('open', true);
-            bm.render();
-
-            await showAlert({ title: 'Succès', message: 'Composant sauvegardé dans Supabase uniquement.' });
-        } catch (e) {
-            console.error(e);
-            await showAlert({ title: 'Erreur', message: 'Impossible de sauvegarder le composant. ' + e.message });
-        }
-    };
+    // Save Component removed as per user request
 
     async function performDirectSave(fullName) {
         // Validate JSON-LD before sending
@@ -1424,6 +1654,9 @@ async function showOpeningPopup() {
                             <div class="form-list-item-meta" style="font-size: 12px;">Modifié le ${date}</div>
                         </div>
                         <div style="display: flex; gap: 8px;">
+                            <button class="btn-outline" title="Paramètres SEO" style="padding: 6px 10px; font-size: 12px; color: #374151; border-color: #D1D5DB;" onclick="window.openSeoSettings('${p.project_name}')">
+                                <i class="fas fa-sliders-h"></i>
+                            </button>
                             <button class="btn-outline" style="padding: 6px 12px; font-size: 12px;" onclick="window.editProject('${p.project_name}', '${displayName}')">
                                 <i class="fas fa-pen"></i> Modifier
                             </button>
@@ -1595,4 +1828,176 @@ window.duplicateProject = (fullName) => {
             }
         }
     };
+};
+// ── SEO Settings from Dashboard ─────────────────────────────────────────────
+const _seoModal   = document.getElementById('seo-settings-modal');
+const _seoStatus  = document.getElementById('seo-settings-status');
+
+document.getElementById('btn-close-seo-settings').onclick = () => _seoModal.classList.add('hidden');
+document.getElementById('btn-seo-settings-cancel').onclick = () => _seoModal.classList.add('hidden');
+
+// Character counters and live preview setup
+const setupSeoSettingsListeners = () => {
+    const titleInput = document.getElementById('seo-settings-meta-title');
+    const descInput = document.getElementById('seo-settings-meta-desc');
+    const canonicalInput = document.getElementById('seo-settings-canonical');
+    const internalTitleInput = document.getElementById('seo-settings-title');
+
+    if (titleInput && descInput) {
+        ['input', 'change', 'keyup'].forEach(event => {
+            titleInput.addEventListener(event, () => {
+                updateFieldStatus(titleInput, document.getElementById('seo-settings-title-counter'), 50, 60);
+                updateGooglePreview('seo-settings');
+            });
+            descInput.addEventListener(event, () => {
+                updateFieldStatus(descInput, document.getElementById('seo-settings-desc-counter'), 120, 160);
+                updateGooglePreview('seo-settings');
+            });
+            if (canonicalInput) {
+                canonicalInput.addEventListener(event, () => updateGooglePreview('seo-settings'));
+            }
+            if (internalTitleInput) {
+                internalTitleInput.addEventListener(event, () => updateGooglePreview('seo-settings'));
+            }
+        });
+    }
+};
+setupSeoSettingsListeners();
+
+function _seoShowStatus(msg, type) {
+    _seoStatus.style.display = 'block';
+    _seoStatus.textContent = msg;
+    if (type === 'success') {
+        _seoStatus.style.background = '#D1FAE5';
+        _seoStatus.style.color = '#065F46';
+        _seoStatus.style.border = '1px solid #6EE7B7';
+    } else if (type === 'error') {
+        _seoStatus.style.background = '#FEE2E2';
+        _seoStatus.style.color = '#991B1B';
+        _seoStatus.style.border = '1px solid #FCA5A5';
+    } else {
+        _seoStatus.style.background = '#EFF6FF';
+        _seoStatus.style.color = '#1D4ED8';
+        _seoStatus.style.border = '1px solid #BFDBFE';
+    }
+}
+
+window.openSeoSettings = async (projectName) => {
+    // Reset
+    _seoStatus.style.display = 'none';
+    document.getElementById('seo-settings-title').value = '';
+    document.getElementById('seo-settings-meta-title').value = '';
+    document.getElementById('seo-settings-meta-desc').value = '';
+    document.getElementById('seo-settings-keywords').value = '';
+    document.getElementById('seo-settings-canonical').value = '';
+    document.getElementById('seo-settings-title-counter').textContent = '0 / 60';
+    document.getElementById('seo-settings-desc-counter').textContent = '0 / 160';
+    document.getElementById('seo-settings-project-name').value = projectName;
+    document.getElementById('btn-seo-settings-save').disabled = false;
+    document.getElementById('btn-seo-settings-save').innerHTML = '<i class="fas fa-save" style="margin-right: 6px;"></i> Sauvegarder le SEO';
+
+    _seoModal.classList.remove('hidden');
+    _seoShowStatus('Chargement des données...', 'info');
+
+    try {
+        const res = await fetch(`/api/project/${encodeURIComponent(projectName)}`);
+        if (!res.ok) throw new Error('Projet introuvable');
+        const project = await res.json();
+        const props = project.properties || {};
+
+        // Extract display name from full project name (e.g., school-efap__MyProject__FR -> MyProject)
+        const nameParts = projectName.split('__');
+        const displayName = nameParts.length > 1 ? nameParts[1] : projectName;
+
+        document.getElementById('seo-settings-title').value       = props.title || displayName;
+        document.getElementById('seo-settings-meta-title').value  = props.seoTitle || props.title || displayName;
+        document.getElementById('seo-settings-meta-desc').value   = props.seoDescription || '';
+        document.getElementById('seo-settings-keywords').value    = props.keywords || '';
+        document.getElementById('seo-settings-canonical').value   = props.canonical || '';
+
+        updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
+        updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
+        updateGooglePreview('seo-settings');
+
+        _seoStatus.style.display = 'none';
+
+        // Load previous SEO values (most recent history) and display them to help editing
+        (async () => {
+            try {
+                const histRes = await fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`);
+                if (!histRes.ok) return;
+                
+                // Read as text first to avoid JSON parse errors if the server returns HTML (e.g., index.html fallback)
+                const text = await histRes.text();
+                if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
+                    console.warn('Le serveur a retourné une page HTML au lieu de JSON. Veuillez redémarrer votre serveur Node.js.');
+                    return;
+                }
+                
+                const hist = JSON.parse(text);
+                if (hist && hist.length > 0) {
+                    const prev = hist[0].properties || {};
+                    // Only overwrite if the current DB properties were genuinely empty
+                    if (!props.seoTitle && prev.seoTitle) {
+                        document.getElementById('seo-settings-meta-title').value = prev.seoTitle;
+                    }
+                    if (!props.seoDescription && prev.seoDescription) {
+                        document.getElementById('seo-settings-meta-desc').value = prev.seoDescription;
+                    }
+                    if (!props.keywords && prev.keywords) {
+                        document.getElementById('seo-settings-keywords').value = prev.keywords;
+                    }
+                    
+                    updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
+                    updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
+                    updateGooglePreview('seo-settings');
+                }
+            } catch (e) {
+                console.warn('Unable to load SEO history:', e.message || e);
+            }
+        })();
+    } catch(e) {
+        _seoShowStatus('Erreur lors du chargement : ' + e.message, 'error');
+    }
+};
+
+document.getElementById('btn-seo-settings-save').onclick = async () => {
+    const projectName = document.getElementById('seo-settings-project-name').value;
+    if (!projectName) return;
+
+    const newProps = {
+        title:          document.getElementById('seo-settings-title').value.trim(),
+        seoTitle:       document.getElementById('seo-settings-meta-title').value.trim(),
+        seoDescription: document.getElementById('seo-settings-meta-desc').value.trim(),
+        keywords:       document.getElementById('seo-settings-keywords').value.trim(),
+        canonical:      document.getElementById('seo-settings-canonical').value.trim(),
+    };
+
+    const btn = document.getElementById('btn-seo-settings-save');
+    btn.disabled = true;
+    btn.innerHTML = '<i class="fas fa-spinner fa-spin" style="margin-right: 6px;"></i> Sauvegarde...';
+    _seoShowStatus('Sauvegarde en cours...', 'info');
+
+    try {
+        const res = await fetch('/api/save-seo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectName, properties: newProps })
+        });
+        if (!res.ok) throw new Error(await res.text());
+
+        _seoShowStatus('✅ SEO sauvegardé ! L\'envoi vers SFMC se fait en arrière-plan.', 'success');
+        btn.innerHTML = '<i class="fas fa-check" style="margin-right: 6px;"></i> Sauvegardé !';
+        btn.style.background = '#059669';
+        setTimeout(() => {
+            _seoModal.classList.add('hidden');
+            btn.disabled = false;
+            btn.innerHTML = '<i class="fas fa-save" style="margin-right: 6px;"></i> Sauvegarder le SEO';
+            btn.style.background = '';
+        }, 2000);
+    } catch(e) {
+        _seoShowStatus('❌ Erreur : ' + e.message, 'error');
+        btn.disabled = false;
+        btn.innerHTML = '<i class="fas fa-save" style="margin-right: 6px;"></i> Sauvegarder le SEO';
+    }
 };

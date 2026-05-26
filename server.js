@@ -3,6 +3,7 @@ require('dotenv').config();
 const http = require('http');
 const path = require('path');
 const fs = require('fs');
+const cheerio = require('cheerio');
 const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
 const {
     handleContentRoute,
@@ -15,6 +16,7 @@ const {
 } = require('./api/content');
 const { handleSchoolsRoute } = require('./api/schools');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
+const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -61,14 +63,48 @@ function isFullHtmlDocument(html = '') {
 }
 
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
-    if (isFullHtmlDocument(html)) return html;
-
     const title = properties?.seoTitle || properties?.title || projectName || '';
+    const desc = properties?.seoDescription || '';
+    const keywords = properties?.keywords || '';
+    const canonical = properties?.canonical || '';
+    const schemaLd = properties?.schemaLd || '';
+
+    if (isFullHtmlDocument(html)) {
+        // Parse with Cheerio to update the head without losing the body
+        const $ = cheerio.load(html);
+        
+        $('title').text(title);
+        
+        if ($('meta[name="description"]').length) {
+            $('meta[name="description"]').attr('content', desc);
+        } else {
+            $('head').append(`\n    <meta name="description" content="${escapeHtml(desc)}">`);
+        }
+        
+        if ($('meta[name="keywords"]').length) {
+            $('meta[name="keywords"]').attr('content', keywords);
+        } else {
+            $('head').append(`\n    <meta name="keywords" content="${escapeHtml(keywords)}">`);
+        }
+        
+        $('link[rel="canonical"]').remove();
+        if (canonical) {
+            $('head').append(`\n    <link rel="canonical" href="${escapeHtml(canonical)}">`);
+        }
+        
+        $('script[type="application/ld+json"]').remove();
+        if (schemaLd) {
+            $('head').append(`\n    <script type="application/ld+json">${schemaLd}</script>`);
+        }
+        
+        return $.html();
+    }
+
     const seoTags = properties ? `
-    <meta name="description" content="${escapeHtml(properties.seoDescription || '')}">
-    <meta name="keywords" content="${escapeHtml(properties.keywords || '')}">
-    ${properties.canonical ? `<link rel="canonical" href="${escapeHtml(properties.canonical)}">` : ''}
-    ${properties.schemaLd ? `<script type="application/ld+json">${properties.schemaLd}</script>` : ''}
+    <meta name="description" content="${escapeHtml(desc)}">
+    <meta name="keywords" content="${escapeHtml(keywords)}">
+    ${canonical ? `<link rel="canonical" href="${escapeHtml(canonical)}">` : ''}
+    ${schemaLd ? `<script type="application/ld+json">${schemaLd}</script>` : ''}
 ` : '';
 
     return `<!DOCTYPE html>
@@ -437,7 +473,8 @@ http.createServer(async (req, res) => {
                 }
 
                 const fullHtml = buildStoredHtml({ projectName, html, css, properties });
-
+                
+                // 1. Sauvegarde du HTML brut (sans html_sfmc pour l'instant)
                 const supaResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                     project_name: projectName,
                     html: fullHtml,
@@ -452,7 +489,18 @@ http.createServer(async (req, res) => {
                     return res.end('Erreur Supabase: ' + JSON.stringify(supaResult));
                 }
 
-                console.log(`✅ Projet "${projectName}" sauvegardé avec succès!`);
+                console.log(`✅ Projet "${projectName}" sauvegardé avec succès dans Supabase (Legacy)!`);
+
+                // Log into seo_history
+                try {
+                    await supabaseRequest('POST', '/seo_history', {
+                        project_name: projectName,
+                        properties: properties || {},
+                        saved_by: req.headers['x-user'] || null
+                    });
+                } catch (histErr) {
+                    console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
+                }
 
                 const contentSync = await syncLegacyProjectToContent({
                     projectName,
@@ -462,33 +510,49 @@ http.createServer(async (req, res) => {
                     properties
                 });
 
-                // Save project into SFMC Content
-                let sfmcResult = { skipped: true, action: 'skipped' };
-                if (isSfmcConfigured()) {
-                    try {
-                        sfmcResult = await syncProjectToSfmc({ projectName, fullHtml });
-                        console.log(
-                            `☁️  SFMC sync: ${sfmcResult.action}` +
-                            (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
-                            (sfmcResult.id ? ` (id=${sfmcResult.id})` : '')
-                        );
-                    } catch (sfmcErr) {
-                        console.error('⚠️  SFMC sync failed:', sfmcErr.code || '', sfmcErr.message, sfmcErr.payload || '');
-                        sfmcResult = {
-                            skipped: false,
-                            action: 'failed',
-                            error: sfmcErr.message,
-                            code: sfmcErr.code,
-                            status: sfmcErr.status,
-                            details: sfmcErr.payload
-                        };
-                    }
-                } else {
-                    console.log('⏭️  SFMC sync skipped (env vars not configured).');
-                }
-
+                // 2. On libère l'utilisateur immédiatement (réponse 200)
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: 'Project saved!', projectName, sfmc: sfmcResult, content: contentSync }));
+                res.end(JSON.stringify({ 
+                    message: 'Project saved! Background tasks started.', 
+                    projectName, 
+                    sfmc: { action: 'pending_background' }, 
+                    content: contentSync 
+                }));
+
+                // 3. Tâche en arrière-plan (non-bloquante) pour le nettoyage et l'envoi SFMC
+                (async () => {
+                    try {
+                        console.log(`\n🧹 [BACKGROUND] Nettoyage du HTML pour SFMC...`);
+                        const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
+                        console.log(`✅ [BACKGROUND] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
+
+                        // Mise à jour de Supabase (Projects) avec html_sfmc
+                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                            html_sfmc: cleanedHtmlForSfmc
+                        });
+
+                        // Mise à jour de page_versions avec html_sfmc
+                        if (contentSync && contentSync.versionId) {
+                            await supabaseRequest('PATCH', `/page_versions?id=eq.${encodeURIComponent(contentSync.versionId)}`, {
+                                html_sfmc: cleanedHtmlForSfmc
+                            });
+                        }
+
+                        if (isSfmcConfigured()) {
+                            console.log(`☁️  [BACKGROUND] Envoi de la version HTML nettoyée à SFMC...`);
+                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtmlForSfmc });
+                            console.log(
+                                `☁️  [BACKGROUND] SFMC sync: ${sfmcResult.action}` +
+                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
+                                (sfmcResult.id ? ` (id=${sfmcResult.id})` : '')
+                            );
+                        } else {
+                            console.log('⏭️  [BACKGROUND] SFMC sync skipped (env vars not configured).');
+                        }
+                    } catch (bgError) {
+                        console.error(`❌ [BACKGROUND] Erreur lors de la tâche asynchrone:`, bgError);
+                    }
+                })();
 
             } catch (e) {
                 console.log(`❌ Erreur catch:`, e.message);
@@ -499,6 +563,136 @@ http.createServer(async (req, res) => {
         return;
     }
 
+    // ── API: Save SEO only (from dashboard settings button) ──────────
+    if (req.method === 'POST' && pathname === '/api/save-seo') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const data = JSON.parse(body);
+                const { projectName, properties } = data;
+
+                if (!projectName) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'projectName required' }));
+                }
+
+                console.log(`\n🔧 [SEO-SETTINGS] Mise à jour SEO pour "${projectName}"`);
+
+                // 1. Charger le projet existant : d'abord via content API structurée, puis legacy
+                let project = await getStructuredProjectForLegacyProject(projectName).catch(e => {
+                    if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
+                    return null;
+                });
+
+                if (!project) {
+                    const existing = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                    if (!existing || existing.length === 0) {
+                        res.writeHead(404, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: 'Projet introuvable' }));
+                    }
+                    project = existing[0];
+                }
+
+                const mergedProperties = { ...(project.properties || {}), ...properties };
+
+                // Save new properties to seo_history for auditing / revert
+                try {
+                    await supabaseRequest('POST', '/seo_history', {
+                        project_name: projectName,
+                        properties: mergedProperties,
+                        saved_by: req.headers['x-user'] || null
+                    });
+                    console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
+                } catch (histErr) {
+                    console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
+                }
+
+                // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
+                const baseHtml = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
+                const freshHtml = buildStoredHtml({
+                    projectName,
+                    html: baseHtml,
+                    css: project.css || '',
+                    properties: mergedProperties
+                });
+
+                // 3. Sauvegarder immédiatement → puis répondre à l'utilisateur
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    html: freshHtml,
+                    properties: mergedProperties
+                });
+
+                console.log(`✅ [SEO-SETTINGS] Propriétés SEO de "${projectName}" mises à jour dans Supabase!`);
+
+                // 4. Réponse immédiate au navigateur (la popup peut se fermer)
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: 'SEO saved! Background sync started.', projectName }));
+
+                // 5. Tâche en arrière-plan : nettoyage + SFMC + page_versions
+                (async () => {
+                    try {
+                        console.log(`\n🧹 [BACKGROUND/SEO] Nettoyage HTML pour SFMC...`);
+                        const cleanedHtml = cleanHtmlForSfmc(freshHtml);
+                        console.log(`✅ [BACKGROUND/SEO] Nettoyage terminé (${freshHtml.length} → ${cleanedHtml.length} octets)`);
+
+                        // Mise à jour html_sfmc dans Projects
+                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                            html_sfmc: cleanedHtml
+                        });
+
+                        // Synchronisation avec la table page_versions (Content API)
+                        const contentSync = await syncLegacyProjectToContent({
+                            projectName,
+                            html: freshHtml,
+                            html_sfmc: cleanedHtml,
+                            css: project.css || '',
+                            projectData: project.project_data,
+                            properties: mergedProperties
+                        });
+
+                        if (isSfmcConfigured()) {
+                            console.log(`☁️  [BACKGROUND/SEO] Envoi vers SFMC...`);
+                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtml });
+                            console.log(`☁️  [BACKGROUND/SEO] SFMC sync: ${sfmcResult.action}` +
+                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
+                                (sfmcResult.id   ? ` (id=${sfmcResult.id})`  : ''));
+                        } else {
+                            console.log('⏭️  [BACKGROUND/SEO] SFMC skipped (non configuré).');
+                        }
+                    } catch (bgErr) {
+                        console.error(`❌ [BACKGROUND/SEO] Erreur:`, bgErr.message);
+                    }
+                })();
+
+            } catch (e) {
+                console.error('❌ [SEO-SETTINGS] Erreur:', e.message);
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Get SEO history ─────────────────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/seo-history') {
+        try {
+            const projectName = params.get('projectName');
+            if (!projectName) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'projectName required' }));
+            }
+            const result = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc&limit=5`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result || []));
+        } catch (e) {
+            console.error('❌ Erreur API seo-history:', e.message);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: e.message }));
+        }
+        return;
+    }
+
     // ── API: Save component ──────────────────────────────────────────
     if (req.method === 'POST' && pathname === '/api/components') {
         let body = '';
@@ -506,19 +700,22 @@ http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const data = JSON.parse(body);
-                const { school_id, name, category, content } = data;
+                const { school_id, name, category, content, properties } = data;
 
                 if (!school_id || !name || !content) {
                     res.writeHead(400);
                     return res.end('Missing required fields');
                 }
 
+                const normalizedSchoolId = String(school_id).toLowerCase();
+
                 // Use a custom request to get the inserted data (representation)
-                const supaResult = await supabaseRequest('POST', '/components', {
-                    school_id,
+                const supaResult = await supabaseRequest('POST', '/Component', {
+                    school_id: normalizedSchoolId,
                     name,
                     category: category || 'Custom Components',
-                    content
+                    content,
+                    properties: properties || {}
                 }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
 
                 console.log('📡 Résultat Supabase (Save Component):', JSON.stringify(supaResult));
@@ -528,9 +725,9 @@ http.createServer(async (req, res) => {
                     console.warn('⚠️ Supabase did not return representation. Using fallback.');
                     newComponent = {
                         id: Date.now(), // Fallback ID if DB doesn't return one
-                        school_id,
+                        school_id: normalizedSchoolId,
                         name,
-                        category: category || `${school_id.toUpperCase()} Components`,
+                        category: category || `${normalizedSchoolId.toUpperCase()} Components`,
                         content
                     };
                 } else {
@@ -554,8 +751,8 @@ http.createServer(async (req, res) => {
     // ── API: Get components by school ────────────────────────────────
     if (req.method === 'GET' && pathname.startsWith('/api/components/')) {
         try {
-            const schoolId = decodeURIComponent(pathname.replace('/api/components/', ''));
-            const result = await supabaseRequest('GET', `/components?school_id=eq.${encodeURIComponent(schoolId)}`);
+            const schoolId = decodeURIComponent(pathname.replace('/api/components/', '')).toLowerCase();
+            const result = await supabaseRequest('GET', `/Component?school_id=eq.${encodeURIComponent(schoolId)}`);
             
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result || []));
@@ -777,6 +974,8 @@ Règles importantes :
                 }
 
                 const generatedText = data.candidates[0].content.parts[0].text;
+
+
                 console.log(`✨ [AI] Réponse générée avec succès (${generatedText.length} caractères)`);
 
                 // Sauvegarde de la réponse du bot dans Supabase
@@ -799,6 +998,43 @@ Règles importantes :
                 res.end(JSON.stringify({ text: `Désolé, j'ai rencontré une erreur : ${e.message}` }));
             }
         });
+        return;
+    }
+
+    // ── API: Get single project by project_name ──────────────────────
+    if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
+        try {
+            const projectName = decodeURIComponent(pathname.replace('/api/project/', ''));
+            const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=project_name,properties,created_at&limit=1`);
+            if (!result || result.length === 0) {
+                res.writeHead(404, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'Project not found' }));
+            }
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(result[0]));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: Get SEO history for a project ──────────────────────────
+    if (req.method === 'GET' && pathname === '/api/seo-history') {
+        try {
+            const projectName = params.get('projectName');
+            if (!projectName) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'projectName required' }));
+            }
+
+            const records = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(records || []));
+        } catch (err) {
+            console.error('❌ [SEO-HISTORY] Error:', err.message || err);
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: err.message || 'unknown' }));
+        }
         return;
     }
 
@@ -854,7 +1090,8 @@ Règles importantes :
                     title:        props.title || displayName,
                     school,
                     lang,
-                    seoTitle:     props.seoTitle || '',
+                    seoTitle:       props.seoTitle || '',
+                    seoDescription: props.seoDescription || '',
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       props.status || 'draft'

@@ -35,7 +35,6 @@ export function registerBlocks(editor) {
 
     // Load all blocks
     [
-        basics,
         headerEfap, footerEfap, icartBlocks,
         headerBrassart, footerBrassart,
         hero, twoColumn, richText, ctaButton, imageCaption, spacer,

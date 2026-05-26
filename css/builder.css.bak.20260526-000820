@@ -148,37 +148,92 @@ body {
     display: inline-block;
 }
 
-.dropdown-content {
+/* ── File menu dropdown (toolbar-menu) — stays hover-based ── */
+.toolbar-menu .dropdown-content {
     display: none;
     position: absolute;
     background: #FFFFFF;
     min-width: 180px;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.05);
-    z-index: 1000;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
+    z-index: 10000;
     border: 1px solid #EAECF0;
-    border-radius: 8px;
-    top: 100%;
-    padding: 6px;
+    border-radius: 10px;
+    top: calc(100% + 4px);
+    left: 0;
+    padding: 5px;
 }
 
-.dropdown-content a {
+.toolbar-menu .dropdown:hover .dropdown-content {
+    display: block;
+    animation: dropdownFadeIn 0.15s ease;
+}
+
+.toolbar-menu .dropdown-content a {
     color: #6B7280;
     padding: 8px 12px;
     text-decoration: none;
-    display: block;
+    display: flex;
+    align-items: center;
+    gap: 8px;
     font-size: 13px;
     font-weight: 500;
     border-radius: 4px;
     transition: all var(--transition);
 }
 
-.dropdown-content a:hover {
+.toolbar-menu .dropdown-content a:hover {
     background-color: #F7F8FA;
     color: #0F1621;
 }
 
-.dropdown:hover .dropdown-content {
+/* ── Main Menu dropdown (#main-dropdown) — click-based ── */
+#main-dropdown .dropdown-content {
+    display: none;
+    position: absolute;
+    background: #FFFFFF;
+    min-width: 210px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.10), 0 1px 4px rgba(0,0,0,0.06);
+    z-index: 10000;
+    border: 1px solid #EAECF0;
+    border-radius: 10px;
+    top: calc(100% + 6px);
+    right: 0;
+    left: auto;
+    padding: 5px;
+}
+
+#main-dropdown .dropdown-content button {
+    color: #6B7280;
+    padding: 8px 12px;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    border-radius: 4px;
+    transition: all var(--transition);
+    background: none;
+    border: none;
+    width: 100%;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+}
+
+#main-dropdown .dropdown-content button:hover {
+    background-color: #F7F8FA;
+    color: #0F1621;
+}
+
+#main-dropdown .dropdown-content.open {
     display: block;
+    animation: dropdownFadeIn 0.15s ease;
+}
+
+@keyframes dropdownFadeIn {
+    from { opacity: 0; transform: translateY(-6px); }
+    to   { opacity: 1; transform: translateY(0); }
 }
 
 /* ═══════════════════════════════════════
@@ -250,6 +305,83 @@ body {
 .toolbar-icon-btn:hover svg {
     fill: var(--text-secondary);
 }
+
+.toolbar-icon-btn.btn-clear:hover {
+    background: #FEF2F2;
+}
+.toolbar-icon-btn.btn-clear:hover svg {
+    fill: #EF4444;
+}
+
+.history-btns {
+    display: flex;
+    align-items: center;
+    background: var(--bg-surface-soft);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 2px;
+    gap: 2px;
+}
+
+.tools-group, .action-group {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.btn-tool {
+    background: var(--bg-surface);
+    border: 1px solid var(--border-color);
+    color: var(--text-main);
+    padding: 8px 12px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: all var(--transition);
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+}
+
+.btn-tool i {
+    color: var(--text-muted);
+    font-size: 14px;
+    transition: color var(--transition);
+}
+
+.btn-tool:hover {
+    border-color: #1A7A5E;
+    color: #1A7A5E;
+    background: #EAF6F1;
+}
+
+.btn-tool:hover i {
+    color: #1A7A5E;
+}
+
+.toolbar-select {
+    padding: 8px 30px 8px 12px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-surface) url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%236B7280' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 12px center;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--text-main);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.03);
+    transition: all var(--transition);
+}
+
+.toolbar-select:hover, .toolbar-select:focus {
+    border-color: #1A7A5E;
+    outline: none;
+}
+
 
 .btn-primary {
     background: #1A7A5E;

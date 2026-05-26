@@ -337,7 +337,142 @@
         </div>
     </div>
 
+    <!-- SEO Modal -->
+    <div id="seo-modal" class="cms-modal-overlay" style="display:none;">
+        <div class="cms-modal" style="max-width:560px;">
+            <div class="cms-modal-header">
+                <h3><i class="fas fa-magnifying-glass-chart" style="color:#1a7a5e;margin-right:8px;"></i>SEO — Aperçu Google</h3>
+                <button class="cms-modal-close" id="seo-modal-close">&times;</button>
+            </div>
+            <div class="cms-modal-body">
+                <p class="cms-modal-copy" id="seo-page-label" style="font-weight:600;">—</p>
+
+                <label class="cms-modal-label" for="seo-modal-title">Titre SEO</label>
+                <div style="position:relative;">
+                    <input id="seo-modal-title" class="cms-modal-input" type="text" placeholder="Titre SEO de la page" maxlength="120">
+                    <span id="seo-modal-title-count" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);font-size:11px;color:#9ca3af;"></span>
+                </div>
+
+                <label class="cms-modal-label" for="seo-modal-desc">Meta description</label>
+                <div style="position:relative;">
+                    <textarea id="seo-modal-desc" class="cms-modal-input" rows="3" placeholder="Description SEO de la page" maxlength="320" style="resize:vertical;"></textarea>
+                    <span id="seo-modal-desc-count" style="position:absolute;right:10px;bottom:10px;font-size:11px;color:#9ca3af;"></span>
+                </div>
+
+                <!-- Google Preview -->
+                <div class="google-preview-card" style="margin-top:16px;">
+                    <div class="google-preview-label"><i class="fab fa-google" style="margin-right:4px;"></i> Aperçu dans les résultats Google</div>
+                    <div class="google-preview-header">
+                        <div class="google-preview-favicon"><img src="/assets/favicon.png" alt="Favicon" onerror="this.style.display='none'"></div>
+                        <div class="google-preview-url-container">
+                            <div class="google-preview-site-name" id="seo-preview-school">site.com</div>
+                            <div class="google-preview-url" id="seo-preview-url">page-name</div>
+                        </div>
+                    </div>
+                    <div class="google-preview-title" id="seo-preview-title">Titre de la page</div>
+                    <div class="google-preview-snippet"><span class="google-preview-date" id="seo-preview-date"></span><span id="seo-preview-desc">Description de la page…</span></div>
+                </div>
+
+
+
+                <div class="cms-inline-error" id="seo-error" style="display:none;"></div>
+            </div>
+            <div class="cms-modal-footer">
+                <button class="cms-btn-cancel" id="seo-cancel">Fermer</button>
+                <button class="cms-btn-confirm" id="seo-save">
+                    <i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer
+                </button>
+            </div>
+        </div>
+    </div>
+
     <script>
+        // Custom Toast notification system to replace native alert popups
+        window.alert = function (message) {
+            let container = document.getElementById('custom-toast-container');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'custom-toast-container';
+                container.style.cssText = `
+                    position: fixed;
+                    top: 24px;
+                    right: 24px;
+                    z-index: 999999;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    max-width: 420px;
+                    width: calc(100% - 48px);
+                    pointer-events: none;
+                `;
+                document.body.appendChild(container);
+            }
+
+            const toast = document.createElement('div');
+            toast.style.cssText = `
+                background: #ffffff;
+                color: #374151;
+                padding: 16px;
+                border-radius: 12px;
+                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
+                display: flex;
+                align-items: start;
+                gap: 14px;
+                transform: translateX(120%);
+                opacity: 0;
+                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+                pointer-events: auto;
+                font-family: 'Inter', -apple-system, sans-serif;
+                font-size: 14px;
+                line-height: 1.5;
+                border-left: 4px solid #1a7a5e;
+            `;
+
+            const isError = message.toLowerCase().includes('erreur') || 
+                            message.toLowerCase().includes('failed') || 
+                            message.toLowerCase().includes('impossible') || 
+                            message.toLowerCase().includes('vide') || 
+                            message.toLowerCase().includes('veuillez') ||
+                            message.toLowerCase().includes('ajoutez');
+
+            let iconHtml = '<i class="fas fa-check-circle" style="color: #1a7a5e; font-size: 20px;"></i>';
+            let title = 'Succès';
+            
+            if (isError) {
+                toast.style.borderLeftColor = '#ef4444';
+                iconHtml = '<i class="fas fa-exclamation-circle" style="color: #ef4444; font-size: 20px;"></i>';
+                title = 'Attention';
+            }
+
+            toast.innerHTML = `
+                <div style="display: flex; align-items: center; justify-content: center; height: 20px; width: 20px; flex-shrink: 0;">
+                    ${iconHtml}
+                </div>
+                <div style="flex: 1; padding-top: 1px;">
+                    <div style="font-weight: 600; color: #111827; font-size: 14px; margin-bottom: 3px;">${title}</div>
+                    <div style="color: #4b5563; font-size: 13px; font-weight: 400;">${message}</div>
+                </div>
+                <button style="background: none; border: none; padding: 2px; color: #9ca3af; cursor: pointer; display: flex; align-items: center; justify-content: center; outline: none; margin-top: 2px; transition: color 0.2s;" onmouseover="this.style.color='#4b5563'" onmouseout="this.style.color='#9ca3af'" onclick="const p = this.parentElement; p.style.opacity='0'; p.style.transform='translateX(120%)'; setTimeout(() => p.remove(), 400)">
+                    <i class="fas fa-times" style="font-size: 14px;"></i>
+                </button>
+            `;
+
+            container.prepend(toast);
+
+            requestAnimationFrame(() => {
+                toast.style.transform = 'translateX(0)';
+                toast.style.opacity = '1';
+            });
+
+            setTimeout(() => {
+                if (toast.parentElement) {
+                    toast.style.opacity = '0';
+                    toast.style.transform = 'translateX(120%)';
+                    setTimeout(() => toast.remove(), 400);
+                }
+            }, 6000);
+        };
+
         // ── State ──────────────────────────────────────────────────────────────
         let allPages = [];
         let dupTarget = null;
@@ -527,8 +662,14 @@
         }
 
         // ── Render ─────────────────────────────────────────────────────────────
+        let currentTablePage = 0;
+        const PAGE_SIZE = 20;
+        let lastFilteredPages = [];
+
         function renderTable(pages) {
+            lastFilteredPages = pages;
             const tbody = document.getElementById('pages-tbody');
+
             if (!pages || pages.length === 0) {
                 tbody.innerHTML = `
                 <tr>
@@ -537,10 +678,12 @@
                         ${currentView === 'trash' ? 'La corbeille est vide.' : 'Aucune page trouvée.'}
                     </td>
                 </tr>`;
+                renderPagination(0);
                 return;
             }
 
-            tbody.innerHTML = pages.map(p => {
+            const slice = pages.slice(currentTablePage * PAGE_SIZE, (currentTablePage + 1) * PAGE_SIZE);
+            tbody.innerHTML = slice.map(p => {
                 const isDeleted = (p.status || 'draft') === 'deleted';
                 return `
             <tr>
@@ -570,6 +713,9 @@
                         </a>
                         <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}')">
                             <i class="fas fa-copy"></i>
+                        </button>
+                        <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.seoTitle || '')}', '${escAttr(p.seoDescription || '')}', '${escAttr(p.school || 'site.com')}')">
+                            <i class="fas fa-magnifying-glass-chart"></i>
                         </button>`}
                         ${p.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}')">
                             <i class="fas fa-clock-rotate-left"></i>
@@ -585,8 +731,31 @@
                         </button>`}
                     </div>
                 </td>
-            </tr>
-        `; }).join('');
+            </tr>`;
+            }).join('');
+
+            renderPagination(pages.length);
+        }
+
+        function renderPagination(totalCount) {
+            let container = document.getElementById('dashboard-pagination');
+            if (!container) {
+                container = document.createElement('div');
+                container.id = 'dashboard-pagination';
+                container.className = 'cms-pagination';
+                document.querySelector('.cms-table-wrap').appendChild(container);
+            }
+            const totalPages = Math.ceil(totalCount / PAGE_SIZE);
+            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            const page = currentTablePage + 1;
+            container.innerHTML = `
+                <button class="cms-btn cms-btn-preview" ${page <= 1 ? 'disabled' : ''} onclick="currentTablePage--;renderTable(lastFilteredPages)">
+                    <i class="fas fa-chevron-left"></i> Précédent
+                </button>
+                <span style="color:#9ca3af;font-size:13px;">Page ${page} / ${totalPages}  ·  ${totalCount} pages</span>
+                <button class="cms-btn cms-btn-preview" ${page >= totalPages ? 'disabled' : ''} onclick="currentTablePage++;renderTable(lastFilteredPages)">
+                    Suivant <i class="fas fa-chevron-right"></i>
+                </button>`;
         }
 
         function escHtml(s) {
@@ -1089,6 +1258,151 @@
         document.getElementById('folder-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeFolderModal(); });
         document.getElementById('move-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeMoveModal(); });
         document.getElementById('status-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeStatusModal(); });
+        document.getElementById('seo-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSeoModal(); });
+
+        // ── SEO Modal ──────────────────────────────────────────────────────────
+        let seoTarget = null;
+
+        function openSeoModal(projectName, title, seoTitle, seoDesc, school) {
+            seoTarget = projectName;
+            document.getElementById('seo-page-label').textContent = title;
+            
+            // Show loading while we fetch fresh data
+            document.getElementById('seo-modal-title').value = '';
+            document.getElementById('seo-modal-desc').value = '';
+            document.getElementById('seo-modal-title').placeholder = 'Chargement...';
+            document.getElementById('seo-modal-desc').placeholder = 'Chargement...';
+            
+            document.getElementById('seo-preview-school').textContent = school;
+            document.getElementById('seo-preview-url').textContent = projectName;
+            document.getElementById('seo-preview-date').textContent = new Date().toLocaleDateString('fr-FR') + ' — ';
+            document.getElementById('seo-error').style.display = 'none';
+            updateSeoPreview();
+            document.getElementById('seo-modal').style.display = 'flex';
+
+            // Always fetch fresh data from the server
+            (async () => {
+                try {
+                    let foundTitle = '';
+                    let foundDesc = '';
+
+                    // 1. Fetch current project properties directly from Supabase
+                    console.log('[SEO] Fetching project:', projectName);
+                    const projRes = await fetch(`/api/project/${encodeURIComponent(projectName)}`);
+                    console.log('[SEO] /api/project response status:', projRes.status);
+                    if (projRes.ok) {
+                        const project = await projRes.json();
+                        console.log('[SEO] Project properties:', JSON.stringify(project.properties));
+                        const props = project.properties || {};
+                        foundTitle = props.seoTitle || '';
+                        foundDesc  = props.seoDescription || '';
+                    }
+
+                    // 2. If still empty, look through seo_history for non-empty values
+                    if (!foundTitle || !foundDesc) {
+                        console.log('[SEO] Fetching history...');
+                        const histRes = await fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`);
+                        if (histRes.ok) {
+                            const hist = await histRes.json();
+                            console.log('[SEO] History records:', hist.length);
+                            for (const entry of hist) {
+                                const prev = entry.properties || {};
+                                if (!foundTitle && prev.seoTitle)       foundTitle = prev.seoTitle;
+                                if (!foundDesc  && prev.seoDescription) foundDesc  = prev.seoDescription;
+                                if (foundTitle && foundDesc) break;
+                            }
+                        }
+                    }
+
+                    // 3. If STILL empty, use the page title as a sensible default
+                    if (!foundTitle) foundTitle = title || '';
+
+                    console.log('[SEO] Final values — title:', foundTitle, '| desc:', foundDesc);
+
+                    const titleEl = document.getElementById('seo-modal-title');
+                    const descEl  = document.getElementById('seo-modal-desc');
+                    titleEl.value = foundTitle;
+                    descEl.value  = foundDesc;
+                    titleEl.placeholder = 'Titre SEO de la page';
+                    descEl.placeholder  = 'Description SEO de la page';
+                    updateSeoPreview();
+                    setTimeout(() => titleEl.focus(), 50);
+                } catch (e) {
+                    console.warn('[SEO] Error loading SEO data:', e.message || e);
+                    // Fallback: use title at minimum
+                    document.getElementById('seo-modal-title').value = title || '';
+                    document.getElementById('seo-modal-title').placeholder = 'Titre SEO de la page';
+                    document.getElementById('seo-modal-desc').placeholder  = 'Description SEO de la page';
+                    updateSeoPreview();
+                    setTimeout(() => document.getElementById('seo-modal-title').focus(), 50);
+                }
+            })();
+        }
+
+
+        function closeSeoModal() {
+            document.getElementById('seo-modal').style.display = 'none';
+            seoTarget = null;
+        }
+
+        function updateSeoPreview() {
+            const titleInput = document.getElementById('seo-modal-title');
+            const descInput = document.getElementById('seo-modal-desc');
+            
+            const titleVal = titleInput.value;
+            const descVal = descInput.value;
+            
+            // Preview
+            document.getElementById('seo-preview-title').textContent = titleVal.substring(0, 60) || 'Titre de la page';
+            document.getElementById('seo-preview-desc').textContent = descVal.substring(0, 160) || 'Description de la page…';
+            // Counters with color
+            const titleLen = titleVal.length;
+            const descLen = descVal.length;
+            const titleColor = titleLen === 0 ? '#9ca3af' : titleLen <= 30 ? '#f59e0b' : titleLen <= 60 ? '#22c55e' : '#ef4444';
+            const descColor = descLen === 0 ? '#9ca3af' : descLen <= 70 ? '#f59e0b' : descLen <= 160 ? '#22c55e' : '#ef4444';
+            document.getElementById('seo-modal-title-count').textContent = titleLen + '/60';
+            document.getElementById('seo-modal-title-count').style.color = titleColor;
+            document.getElementById('seo-modal-desc-count').textContent = descLen + '/160';
+            document.getElementById('seo-modal-desc-count').style.color = descColor;
+        }
+
+        document.getElementById('seo-modal-title').addEventListener('input', updateSeoPreview);
+        document.getElementById('seo-modal-desc').addEventListener('input', updateSeoPreview);
+        document.getElementById('seo-modal-close').onclick = closeSeoModal;
+        document.getElementById('seo-cancel').onclick = closeSeoModal;
+
+        document.getElementById('seo-save').onclick = async () => {
+            if (!seoTarget) return;
+            const btn = document.getElementById('seo-save');
+            const errorEl = document.getElementById('seo-error');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enregistrement…';
+            errorEl.style.display = 'none';
+            try {
+                // /api/save-seo : met à jour UNIQUEMENT les balises SEO dans le <head>
+                // sans modifier le contenu HTML de la page
+                const res = await fetch('/api/save-seo', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectName: seoTarget,
+                        properties: {
+                            seoTitle: document.getElementById('seo-modal-title').value,
+                            seoDescription: document.getElementById('seo-modal-desc').value
+                        }
+                    })
+                });
+                if (!res.ok) throw new Error(await readErrorMessage(res));
+                closeSeoModal();
+                await loadPages();
+            } catch (e) {
+                errorEl.textContent = e.message;
+                errorEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer';
+            }
+        };
 
         // ── Init ───────────────────────────────────────────────────────────────
         loadPages();
