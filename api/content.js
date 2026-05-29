@@ -67,6 +67,56 @@ function isMissingColumnError(error, columnName) {
         && /column|schema cache|could not find/i.test(message);
 }
 
+function isValidRedirectUrl(value = '') {
+    if (!value) return true;
+    try {
+        const url = new URL(value);
+        return ['http:', 'https:'].includes(url.protocol);
+    } catch {
+        return false;
+    }
+}
+
+function getPublicationSettings(page = {}) {
+    const publication = page.metadata?.publication || {};
+    return {
+        active: publication.active !== false,
+        redirectUrl: publication.redirectUrl || '',
+        updatedAt: publication.updatedAt || null,
+        note: publication.note || ''
+    };
+}
+
+function normalizeBaseUrl(value = '') {
+    return String(value || '').trim().replace(/\/+$/, '');
+}
+
+function buildPublicPagePath({ slug = '', language = 'FR' } = {}) {
+    const cleanSlug = slugify(slug) || 'page';
+    const lang = String(language || 'FR').toLowerCase();
+    return lang && lang !== 'fr' ? `/${lang}/${cleanSlug}` : `/${cleanSlug}`;
+}
+
+function buildPublicPageUrl({ baseUrl = '', slug = '', language = 'FR' } = {}) {
+    const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
+    if (!normalizedBaseUrl) return '';
+    return `${normalizedBaseUrl}${buildPublicPagePath({ slug, language })}`;
+}
+
+function parsePublicBaseUrl(baseUrl = '') {
+    const normalized = normalizeBaseUrl(baseUrl);
+    if (!normalized) return null;
+    try {
+        const url = new URL(normalized);
+        return {
+            host: url.host.toLowerCase(),
+            pathPrefix: url.pathname.replace(/\/+$/, '')
+        };
+    } catch {
+        return null;
+    }
+}
+
 async function findOne(table, filters = {}) {
     const params = new URLSearchParams({ select: '*', limit: '1' });
     Object.entries(filters).forEach(([key, value]) => {
@@ -292,7 +342,7 @@ async function listMigratedDashboardPages() {
     );
     const entities = await supabaseRequest(
         'GET',
-        '/entities?select=id,name,slug,metadata'
+        '/entities?select=id,name,slug,base_url,metadata'
     );
     const entityMap = new Map((Array.isArray(entities) ? entities : []).map(entity => [entity.id, entity]));
 
@@ -302,19 +352,31 @@ async function listMigratedDashboardPages() {
             const entity = entityMap.get(page.entity_id) || {};
             const legacyProjectName = page.metadata.legacyProjectName;
             const parsed = parseLegacyProjectName(legacyProjectName);
+            const language = page.language || parsed?.language || 'FR';
+            const publicPath = buildPublicPagePath({ slug: page.slug, language });
+            const publicUrl = buildPublicPageUrl({
+                baseUrl: entity.base_url || '',
+                slug: page.slug,
+                language
+            });
 
             return {
                 project_name: legacyProjectName,
                 title: page.title || parsed?.title || legacyProjectName,
                 school: (entity.metadata?.legacySchoolId || parsed?.schoolId || entity.slug || entity.name || '—').toUpperCase(),
-                lang: page.language || parsed?.language || 'FR',
+                lang: language,
                 seoTitle: page.seo?.title || '',
                 updated_at: page.updated_at || page.created_at,
                 source: 'content',
                 page_id: page.id,
                 entity_id: page.entity_id,
                 folder_id: page.folder_id,
-                status: page.status
+                slug: page.slug,
+                public_path: publicPath,
+                public_url: publicUrl,
+                base_url: entity.base_url || '',
+                status: page.status,
+                publication: getPublicationSettings(page)
             };
         });
 }
@@ -433,6 +495,10 @@ async function saveEntity(req, res) {
     const body = req.body || {};
     const name = requireField(body, 'name');
     const organizationId = requireField(body, 'organization_id');
+    const baseUrl = body.base_url || body.baseUrl || '';
+    if (baseUrl && !isValidRedirectUrl(baseUrl)) {
+        return res.status(400).json({ error: 'Base URL must start with http:// or https://' });
+    }
     const payload = {
         id: body.id,
         organization_id: organizationId,
@@ -441,7 +507,7 @@ async function saveEntity(req, res) {
         type: body.type || 'entity',
         description: body.description || '',
         contact: body.contact || '',
-        base_url: body.base_url || body.baseUrl || '',
+        base_url: normalizeBaseUrl(baseUrl),
         brand: body.brand || {},
         metadata: body.metadata || {},
         deleted: Boolean(body.deleted)
@@ -621,6 +687,91 @@ async function updatePageStatus(req, res, pageId) {
     res.status(200).json({ page: Array.isArray(result) ? result[0] : result });
 }
 
+async function updatePageActivation(req, res, pageId) {
+    const body = req.body || {};
+    if (typeof body.active !== 'boolean') {
+        return res.status(400).json({ error: 'active must be a boolean' });
+    }
+    if (!body.active && !body.redirectUrl) {
+        return res.status(400).json({ error: 'Redirect URL is required when deactivating a published page' });
+    }
+    if (!body.active && !isValidRedirectUrl(body.redirectUrl)) {
+        return res.status(400).json({ error: 'Redirect URL must start with http:// or https://' });
+    }
+
+    const pageResult = await supabaseRequest(
+        'GET',
+        `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`
+    );
+    if (!pageResult?.length) return res.status(404).json({ error: 'Page not found' });
+
+    const page = pageResult[0];
+    if (page.status !== 'published') {
+        return res.status(400).json({ error: 'Only published pages can be activated or deactivated' });
+    }
+
+    const now = new Date().toISOString();
+    const metadata = { ...(page.metadata || {}) };
+    const publicationHistory = Array.isArray(metadata.publicationHistory) ? metadata.publicationHistory : [];
+    const publication = {
+        ...(metadata.publication || {}),
+        active: body.active,
+        redirectUrl: body.active ? '' : (body.redirectUrl || ''),
+        note: body.note || '',
+        updatedAt: now,
+        updatedFrom: 'dashboard'
+    };
+
+    if (body.active) {
+        publication.activatedAt = now;
+        delete publication.deactivatedAt;
+    } else {
+        publication.deactivatedAt = now;
+    }
+
+    publicationHistory.push({
+        active: body.active,
+        redirectUrl: publication.redirectUrl,
+        note: body.note || '',
+        at: now,
+        source: 'dashboard'
+    });
+
+    const result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, {
+        metadata: {
+            ...metadata,
+            publication,
+            publicationHistory
+        },
+        updated_at: now
+    }, {
+        'Prefer': 'return=representation'
+    });
+
+    const updatedPage = Array.isArray(result) ? result[0] : result;
+    const legacyProjectName = updatedPage?.metadata?.legacyProjectName || page.metadata?.legacyProjectName;
+    if (legacyProjectName) {
+        await (async () => {
+            const legacyResult = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(legacyProjectName)}&select=properties&limit=1`
+            );
+            const currentProperties = legacyResult?.[0]?.properties || {};
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(legacyProjectName)}`, {
+                properties: {
+                    ...currentProperties,
+                    publication,
+                    publicationHistory
+                }
+            });
+        })().catch(e => {
+            console.warn('Legacy publication sync failed:', e.message);
+        });
+    }
+
+    res.status(200).json({ page: updatedPage, publication });
+}
+
 async function createPublishIntegrationJob({ page, versionId, note = '' }) {
     if (!page?.id || !versionId) return null;
 
@@ -690,6 +841,68 @@ async function getPage(req, res, pageId) {
     const versions = await supabaseRequest('GET', `/page_versions?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=version_number.desc`);
     const drafts = await supabaseRequest('GET', `/page_drafts?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=updated_at.desc`);
     return res.status(200).json({ page: result[0], versions: versions || [], drafts: drafts || [] });
+}
+
+async function resolvePublicPageByHostPath({ host, path = '/' } = {}) {
+    if (!host) return null;
+    const normalizedHost = String(host).replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+    const cleanPath = `/${String(path).replace(/^\/+/, '')}`.replace(/\/+$/, '') || '/';
+
+    const entities = await supabaseRequest('GET', '/entities?select=id,name,slug,base_url,metadata');
+    const entity = (Array.isArray(entities) ? entities : []).find(item => {
+        const parsedBaseUrl = parsePublicBaseUrl(item.base_url || '');
+        if (!parsedBaseUrl || parsedBaseUrl.host !== normalizedHost) return false;
+        return !parsedBaseUrl.pathPrefix || cleanPath === parsedBaseUrl.pathPrefix || cleanPath.startsWith(`${parsedBaseUrl.pathPrefix}/`);
+    });
+    if (!entity) return null;
+
+    const parsedBaseUrl = parsePublicBaseUrl(entity.base_url || '');
+    const pathWithoutBase = parsedBaseUrl?.pathPrefix
+        ? cleanPath.replace(new RegExp(`^${parsedBaseUrl.pathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), '') || '/'
+        : cleanPath;
+    const segments = pathWithoutBase.split('/').filter(Boolean);
+    const language = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]) ? segments[0].toUpperCase() : 'FR';
+    const slug = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]) ? segments.slice(1).join('-') : segments.join('-');
+    if (!slug) return null;
+
+    const pages = await supabaseRequest(
+        'GET',
+        `/pages?entity_id=eq.${encodeURIComponent(entity.id)}&slug=eq.${encodeURIComponent(slug)}&language=eq.${encodeURIComponent(language)}&select=*&limit=1`
+    );
+    if (!pages?.length) return null;
+
+    const page = pages[0];
+    let version = null;
+    if (page.current_version_id) {
+        const versionResult = await supabaseRequest(
+            'GET',
+            `/page_versions?id=eq.${encodeURIComponent(page.current_version_id)}&select=*&limit=1`
+        );
+        version = Array.isArray(versionResult) && versionResult.length ? versionResult[0] : null;
+    }
+
+    return {
+        entity,
+        page,
+        version,
+        public_url: buildPublicPageUrl({ baseUrl: entity.base_url, slug: page.slug, language: page.language })
+    };
+}
+
+async function getPublicPageByPath(req, res) {
+    const host = getQueryParam(req, 'host');
+    const path = getQueryParam(req, 'path') || '/';
+    if (!host) return res.status(400).json({ error: 'host is required' });
+
+    const resolved = await resolvePublicPageByHostPath({ host, path });
+    if (!resolved) return res.status(404).json({ error: 'Page not found for this domain and path' });
+
+    res.status(200).json({
+        entity: resolved.entity,
+        page: resolved.page,
+        version: resolved.version,
+        public_url: resolved.public_url
+    });
 }
 
 async function createPageVersion(req, res, pageId) {
@@ -1024,6 +1237,11 @@ async function handleContentRoute(req, res, pathname) {
         return true;
     }
 
+    if (pathname === '/api/content/public-page' && req.method === 'GET') {
+        await getPublicPageByPath(req, res);
+        return true;
+    }
+
     const moveMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/move$/);
     if (moveMatch && req.method === 'POST') {
         await movePage(req, res, moveMatch[1]);
@@ -1033,6 +1251,12 @@ async function handleContentRoute(req, res, pathname) {
     const statusMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/status$/);
     if (statusMatch && req.method === 'POST') {
         await updatePageStatus(req, res, statusMatch[1]);
+        return true;
+    }
+
+    const activationMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/activation$/);
+    if (activationMatch && req.method === 'POST') {
+        await updatePageActivation(req, res, activationMatch[1]);
         return true;
     }
 
@@ -1087,5 +1311,9 @@ contentApiModule.getStructuredProjectForLegacyProject = getStructuredProjectForL
 contentApiModule.updatePageLifecycle = updatePageLifecycle;
 contentApiModule.getContentSchemaStatus = getContentSchemaStatus;
 contentApiModule.isMissingContentSchemaError = isMissingContentSchemaError;
+contentApiModule.getPublicationSettings = getPublicationSettings;
+contentApiModule.buildPublicPageUrl = buildPublicPageUrl;
+contentApiModule.buildPublicPagePath = buildPublicPagePath;
+contentApiModule.resolvePublicPageByHostPath = resolvePublicPageByHostPath;
 
 module.exports = contentApiModule;

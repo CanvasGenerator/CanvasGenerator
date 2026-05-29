@@ -23,6 +23,10 @@
         {
             "source": "/api/(.*)",
             "destination": "/api/router?path=/api/$1"
+        },
+        {
+            "source": "/:path((?!api/|preview/|.*\\.).+)",
+            "destination": "/api/router?path=/:path"
         }
     ]
 }

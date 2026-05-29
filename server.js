@@ -12,7 +12,9 @@ const {
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
     updatePageLifecycle,
-    isMissingContentSchemaError
+    isMissingContentSchemaError,
+    getPublicationSettings,
+    resolvePublicPageByHostPath
 } = require('./api/content');
 const { handleSchoolsRoute } = require('./api/schools');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
@@ -1177,6 +1179,8 @@ Règles importantes :
                     status:               props.status || 'draft',
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
+                    publication:  props.publication || { active: true, redirectUrl: '' }
+
                 };
             });
             let structuredPages = [];
@@ -1431,6 +1435,45 @@ ${html}`;
             res.end('Error: ' + e.message);
         }
         return;
+    }
+
+    // ── Public landing URLs: school domain + page slug ────────────────
+    if (req.method === 'GET' && pathname !== '/' && !path.extname(pathname)) {
+        try {
+            const resolved = await resolvePublicPageByHostPath({
+                host: req.headers.host,
+                path: pathname
+            });
+
+            if (resolved?.page) {
+                if (resolved.page.status !== 'published') {
+                    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+                    return res.end('Page not found');
+                }
+
+                const publication = getPublicationSettings(resolved.page);
+                if (publication.active === false) {
+                    if (publication.redirectUrl) {
+                        res.writeHead(302, { Location: publication.redirectUrl });
+                        return res.end();
+                    }
+                    res.writeHead(410, { 'Content-Type': 'text/plain; charset=utf-8' });
+                    return res.end('Page temporairement indisponible');
+                }
+
+                if (!resolved.version?.html) {
+                    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+                    return res.end('Page version not found');
+                }
+
+                res.writeHead(200, { 'Content-Type': 'text/html' });
+                return res.end(resolved.version.html);
+            }
+        } catch (e) {
+            if (!isMissingContentSchemaError(e)) {
+                console.warn('Public landing route unavailable:', e.message);
+            }
+        }
     }
 
     // ── Routing: root → school selector, /?school=xxx → builder ──────

@@ -9,7 +9,9 @@ const {
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
     updatePageLifecycle,
-    isMissingContentSchemaError
+    isMissingContentSchemaError,
+    getPublicationSettings,
+    resolvePublicPageByHostPath
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 
@@ -86,15 +88,16 @@ module.exports = async function handler(req, res) {
                     project_name:        p.project_name,
                     title:               props.title || parts[0] || p.project_name,
                     school,
-                    lang:                parts[1] || 'FR',
-                    seoTitle:            props.seoTitle || '',
-                    seoDescription:      props.seoDescription || '',
-                    updated_at:          p.created_at,
-                    source:              'legacy',
-                    status:              props.status || 'draft',
-                    // ── NEW fields ────────────────────────────────────────────
+
+                    lang:         parts[1] || 'FR',
+                    seoTitle:     props.seoTitle || '',
+                    seoDescription: props.seoDescription || '',
+                    updated_at:   p.created_at,
+                    source:       'legacy',
+                    status:       props.status || 'draft',
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
+                    publication:  props.publication || { active: true, redirectUrl: '' }
                 };
             });
 
@@ -520,6 +523,34 @@ module.exports = async function handler(req, res) {
 
             res.setHeader('Content-Type', 'text/html');
             return res.status(200).send(html);
+        }
+
+        if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
+            const resolved = await resolvePublicPageByHostPath({
+                host: req.headers.host,
+                path: pathname
+            });
+            if (resolved?.page) {
+                if (resolved.page.status !== 'published') {
+                    return res.status(404).send('Page not found');
+                }
+
+                const publication = getPublicationSettings(resolved.page);
+                if (publication.active === false) {
+                    if (publication.redirectUrl) {
+                        res.writeHead(302, { Location: publication.redirectUrl });
+                        return res.end();
+                    }
+                    return res.status(410).send('Page temporarily unavailable');
+                }
+
+                if (!resolved.version?.html) {
+                    return res.status(404).send('Page version not found');
+                }
+
+                res.setHeader('Content-Type', 'text/html');
+                return res.status(200).send(resolved.version.html);
+            }
         }
 
         return res.status(404).json({ error: 'API route not found: ' + pathname });
