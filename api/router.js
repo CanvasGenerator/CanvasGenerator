@@ -13,6 +13,36 @@ const {
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 
+// ── Translation group ID ──────────────────────────────────────────────────
+function generateGroupId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+async function resolveOrCreateGroupId(projectName) {
+    try {
+        const existing = await supabaseRequest(
+            'GET',
+            `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=page_group_id&limit=1`
+        );
+        if (existing?.[0]?.page_group_id) return existing[0].page_group_id;
+    } catch (e) {
+        console.warn('resolveOrCreateGroupId fetch failed:', e.message);
+    }
+    const groupId = generateGroupId();
+    try {
+        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+            page_group_id:        groupId,
+            is_original_language: true
+        });
+    } catch (e) {
+        console.warn('resolveOrCreateGroupId patch failed:', e.message);
+    }
+    return groupId;
+}
+
 module.exports = async function handler(req, res) {
     // Ensure CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -41,24 +71,33 @@ module.exports = async function handler(req, res) {
         // 1. Pages API (Dashboard)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/pages') {
-            const result = await supabaseRequest('GET', '/Projects?select=project_name,properties,created_at&order=created_at.desc');
+            const result = await supabaseRequest('GET',     '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
             const legacyPages = (result || []).map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
                 const school = schoolMatch ? schoolMatch[1].toUpperCase() : '—';
                 const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+_+/i, '').split(/_+/);
+
+                // ── Translation tracking from properties ──────────────────────
+                const isOriginal = p.is_original_language !== false; // default true if not set
+                const pageGroupId = p.page_group_id || null;
+
                 return {
-                    project_name: p.project_name,
-                    title:        props.title || parts[0] || p.project_name,
+                    project_name:        p.project_name,
+                    title:               props.title || parts[0] || p.project_name,
                     school,
-                    lang:         parts[1] || 'FR',
-                    seoTitle:     props.seoTitle || '',
-                    seoDescription: props.seoDescription || '',
-                    updated_at:   p.created_at,
-                    source:       'legacy',
-                    status:       props.status || 'draft'
+                    lang:                parts[1] || 'FR',
+                    seoTitle:            props.seoTitle || '',
+                    seoDescription:      props.seoDescription || '',
+                    updated_at:          p.created_at,
+                    source:              'legacy',
+                    status:              props.status || 'draft',
+                    // ── NEW fields ────────────────────────────────────────────
+                    is_original_language: isOriginal,
+                    page_group_id:        pageGroupId,
                 };
             });
+
             let structuredPages = [];
             try {
                 structuredPages = await listMigratedDashboardPages();
@@ -72,35 +111,65 @@ module.exports = async function handler(req, res) {
 
             const merged = new Map();
             legacyPages.forEach(page => merged.set(page.project_name, page));
-            structuredPages.forEach(page => merged.set(page.project_name, page));
+            structuredPages.forEach(page => {
+                const existing = merged.get(page.project_name);
+                merged.set(page.project_name, {
+                    ...page,
+                    // Préserver les champs de traduction du legacy qui ne sont pas dans structured
+                    is_original_language: page.is_original_language !== undefined
+                        ? page.is_original_language
+                        : existing?.is_original_language,
+                    page_group_id: page.page_group_id !== undefined
+                        ? page.page_group_id
+                        : existing?.page_group_id
+                });
+            });
 
-            return res.status(200).json([...merged.values()].sort((a, b) => {
+            const pages = [...merged.values()].sort((a, b) => {
                 return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
-            }));
+            });
+
+            // ── DEBUG: log the full payload so it shows in Network tab ────────
+            console.log('[/api/pages] returning', pages.length, 'pages');
+            console.log('[/api/pages] sample:', JSON.stringify(pages.slice(0, 2), null, 2));
+
+            return res.status(200).json(pages);
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/duplicate') {
             const { sourceProjectName, newTitle, newLanguage } = req.body || {};
-            // Backwards compatibility with alternative variable names if used elsewhere
-            const srcName = sourceProjectName || req.body?.projectName;
+            const srcName  = sourceProjectName || req.body?.projectName;
             const targetName = buildProjectNameFromSource(srcName, newTitle || req.body?.newProjectName, newLanguage);
-            
+
             if (!srcName || !targetName) return res.status(400).json({ error: 'Missing parameters' });
-            
+
             const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(srcName)}&limit=1`);
             if (!result || result.length === 0) return res.status(404).json({ error: 'Source project not found' });
-            
+
             const originalProject = result[0];
-            const newProps = { ...originalProject.properties };
+
+            // Récupérer ou générer le group_id de la source
+            const groupId = await resolveOrCreateGroupId(srcName);
+
+            // Build props for the translated copy
+            const newProps = {
+                ...(originalProject.properties || {}),
+                is_original_language: false,
+                page_group_id:        groupId,
+            };
             if (newLanguage) newProps.language = newLanguage;
-            
+
             const insertResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                 project_name: targetName,
-                html: originalProject.html,
-                css: originalProject.css,
+                html:         originalProject.html,
+                css:          originalProject.css,
                 project_data: originalProject.project_data,
-                properties: newProps
+                properties:   newProps,
+                page_group_id:  groupId
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            if (lang === 'FR') {
+                localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
+            }
 
             if (isSfmcConfigured()) {
                 try {
@@ -110,7 +179,18 @@ module.exports = async function handler(req, res) {
                 }
             }
 
-            return res.status(200).json({ message: 'Project duplicated', project: insertResult ? insertResult[0] : null });
+            return res.status(200).json({
+                message:  'Project duplicated',
+                project:  insertResult ? insertResult[0] : null,
+                // ── NEW: expose translation metadata in the response ──────────
+                translation_info: {
+                    source_project_name: srcName,
+                    new_project_name:    targetName,
+                    is_original_language: false,
+                    page_group_id:       groupId,
+                    target_language:     newLanguage || null,
+                }
+            });
         }
 
         if (req.method === 'POST' && pathname === '/api/pages/delete') {
@@ -180,14 +260,13 @@ module.exports = async function handler(req, res) {
         // 5. AI API
         // ==========================================
         if (req.method === 'POST' && pathname === '/api/ai/generate') {
-            // Re-using logic from generate.js
             let SCHOOLS = [];
             try { SCHOOLS = require('../schools.json'); } catch(e) {}
             const { prompt, schoolId, projectId } = req.body || {};
             const school = SCHOOLS.find(s => s.id === schoolId) || {};
-            
+
             try { await supabaseRequest('POST', '/chat_history', { sender: 'user', message: prompt, school_id: schoolId, project_id: projectId }); } catch(e) {}
-            
+
             const systemPrompt = `Tu es l'Assistant IA expert de Reetain... Ecole: ${school.name || 'notre établissement'}. Domaine: ${school.description || ''}. Donne des recos courtes.`;
             const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY}`, {
                 method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -221,6 +300,7 @@ module.exports = async function handler(req, res) {
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
         }
+
         if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
             const projectName = pathname.replace('/api/project/', '');
             const structured = await getStructuredProjectForLegacyProject(projectName).catch(e => {
@@ -232,50 +312,69 @@ module.exports = async function handler(req, res) {
             const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
+
         if (req.method === 'POST' && pathname === '/api/save') {
             const { projectName, html, css, projectData, properties: rawProperties } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
-            // Keep the raw editor HTML for auditing/rollback/post-processing
             const properties = Object.assign({}, rawProperties || {});
             properties.rawHtml = html;
 
-            // Build the stored/optimized HTML (includes SEO tags, CSS inlined, etc.)
+            // ── Résoudre les flags de traduction ──────────────────────────────
+            const existingRow = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=is_original_language,page_group_id&limit=1`
+            ).catch(() => null);
+            const existingRecord = existingRow?.[0];
+
+            if (properties.is_original_language === false) {
+                // Traduction : récupérer le group_id de la page source
+                if (existingRecord?.page_group_id) {
+                    properties.page_group_id = existingRecord.page_group_id;
+                } else if (properties.page_group_id) {
+                    properties.page_group_id = await resolveOrCreateGroupId(properties.page_group_id);
+                }
+            } else {
+                // Page originale : conserver ou générer un group_id
+                properties.is_original_language = true;
+                properties.page_group_id = existingRecord?.page_group_id || generateGroupId();
+            }
+
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
             console.log(`\n🧹 [SEO] Nettoyage du HTML pour SFMC (Vercel Route)...`);
             const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
             console.log(`✅ [SEO] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
 
-            await supabaseRequest('POST', '/Projects?on_conflict=project_name', { 
-                project_name: projectName, 
-                html: fullHtml, 
-                html_sfmc: cleanedHtmlForSfmc,
-                css, 
+            await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                project_name: projectName,
+                html:         fullHtml,
+                html_sfmc:    cleanedHtmlForSfmc,
+                css,
                 project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
-                properties: properties || {}
+                properties:   properties,
+                is_original_language: properties.is_original_language !== false,
+                page_group_id:        properties.page_group_id || null
             });
 
             const contentSync = await syncLegacyProjectToContent({
                 projectName,
-                html: fullHtml,
-                html_sfmc: cleanedHtmlForSfmc,
+                html:        fullHtml,
+                html_sfmc:   cleanedHtmlForSfmc,
                 css,
                 projectData,
                 properties
             });
 
-            // Enqueue an integration job so a background worker (Cron) can post-process
-            // and send the OPTIMIZED `fullHtml` to SFMC. This keeps the save fast and non-blocking.
             let sfmcResult = { skipped: true, action: 'skipped' };
             if (isSfmcConfigured()) {
                 try {
                     await supabaseRequest('POST', '/integration_jobs', {
-                        target: 'sfmc',
-                        action: 'sync_project',
-                        status: 'pending',
-                        payload: { projectName },
-                        metadata: { source: 'save-api', enqueuedBy: 'router.js' },
+                        target:       'sfmc',
+                        action:       'sync_project',
+                        status:       'pending',
+                        payload:      { projectName },
+                        metadata:     { source: 'save-api', enqueuedBy: 'router.js' },
                         scheduled_at: new Date().toISOString()
                     });
                     sfmcResult = { skipped: false, action: 'queued' };
@@ -285,7 +384,16 @@ module.exports = async function handler(req, res) {
                 }
             }
 
-            return res.status(200).json({ message: 'Saved', sfmc: sfmcResult, content: contentSync });
+            return res.status(200).json({
+                message: 'Saved',
+                sfmc:    sfmcResult,
+                content: contentSync,
+                // ── NEW: echo back translation metadata ───────────────────────
+                translation_info: {
+                    is_original_language: properties.is_original_language,
+                    page_group_id:        properties.page_group_id || null,
+                }
+            });
         }
 
         if (req.method === 'POST' && pathname === '/api/save-seo') {
@@ -312,48 +420,42 @@ module.exports = async function handler(req, res) {
             try {
                 await supabaseRequest('POST', '/seo_history', {
                     project_name: projectName,
-                    properties: mergedProperties,
-                    saved_by: req.headers['x-user'] || null
+                    properties:   mergedProperties,
+                    saved_by:     req.headers['x-user'] || null
                 });
                 console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
             } catch (histErr) {
                 console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
             }
 
-            const baseHtml = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
-            const freshHtml = buildStoredHtml({
-                projectName,
-                html: baseHtml,
-                css: project.css || '',
-                properties: mergedProperties
-            });
-
+            const baseHtml  = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
+            const freshHtml = buildStoredHtml({ projectName, html: baseHtml, css: project.css || '', properties: mergedProperties });
             const cleanedHtml = cleanHtmlForSfmc(freshHtml);
 
             await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                html: freshHtml,
-                html_sfmc: cleanedHtml,
+                html:       freshHtml,
+                html_sfmc:  cleanedHtml,
                 properties: mergedProperties
             });
 
             const contentSync = await syncLegacyProjectToContent({
                 projectName,
-                html: freshHtml,
-                html_sfmc: cleanedHtml,
-                css: project.css || '',
+                html:        freshHtml,
+                html_sfmc:   cleanedHtml,
+                css:         project.css || '',
                 projectData: project.project_data,
-                properties: mergedProperties
+                properties:  mergedProperties
             });
 
             let sfmcResult = { skipped: true, action: 'skipped' };
             if (isSfmcConfigured()) {
                 try {
                     await supabaseRequest('POST', '/integration_jobs', {
-                        target: 'sfmc',
-                        action: 'sync_project',
-                        status: 'pending',
-                        payload: { projectName },
-                        metadata: { source: 'save-seo-api', enqueuedBy: 'router.js' },
+                        target:       'sfmc',
+                        action:       'sync_project',
+                        status:       'pending',
+                        payload:      { projectName },
+                        metadata:     { source: 'save-seo-api', enqueuedBy: 'router.js' },
                         scheduled_at: new Date().toISOString()
                     });
                     sfmcResult = { skipped: false, action: 'queued' };
@@ -369,7 +471,6 @@ module.exports = async function handler(req, res) {
         if (req.method === 'GET' && pathname === '/api/seo-history') {
             const projectName = req.query.projectName;
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
-
             const result = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc&limit=5`);
             return res.status(200).json(result || []);
         }
@@ -399,11 +500,11 @@ module.exports = async function handler(req, res) {
             const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);
             if (schoolMatch) {
                 const schoolId = schoolMatch[1];
-                const schools = await readSchoolsForApi();
-                const school = schools.find(s => s.id === schoolId);
-                
+                const schools  = await readSchoolsForApi();
+                const school   = schools.find(s => s.id === schoolId);
+
                 if (school) {
-                    const primary = school.color || '#3b82f6';
+                    const primary   = school.color || '#3b82f6';
                     const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
                     const brandStyles = `
                         <style id="brand-variables-preview">
@@ -424,7 +525,7 @@ module.exports = async function handler(req, res) {
         return res.status(404).json({ error: 'API route not found: ' + pathname });
 
     } catch (e) {
-        console.error('?O API Router Error:', e);
+        console.error('API Router Error:', e);
         return res.status(500).json({ error: e.message });
     }
 };

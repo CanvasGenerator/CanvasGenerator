@@ -61,6 +61,8 @@ create table if not exists pages (
   current_version_id uuid,
   seo jsonb not null default '{}'::jsonb,
   metadata jsonb not null default '{}'::jsonb,
+  is_original_language boolean not null default true,
+  page_group_id uuid references pages(id) on delete set null,
   published_at timestamptz,
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),

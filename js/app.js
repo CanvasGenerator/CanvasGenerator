@@ -1254,6 +1254,8 @@ function initUI(editor) {
         if (!currentProjectIsNew) {
             // Existing project -> Show SEO Modal
             const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+            const originalFullName = localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`) || fullName;
+
             if (!fullName) {
                 if (currentStructuredPageId) {
                     await saveStructuredVersionOnly(currentStructuredPageId, selectedLanguage);
@@ -1267,6 +1269,7 @@ function initUI(editor) {
             const projectNamePart = fullName.replace(`school-${schoolId}__`, '').split('__')[0];
             const originalLanguage = fullName.split('__')[2] || 'FR';
             const newFullName = `school-${schoolId}__${projectNamePart}__${selectedLanguage}`;
+            const originalPageFullName = originalLanguage === 'FR' ? fullName : null;
 
             // Validate JSON-LD before sending
             const propsToSave = collectProperties();
@@ -1309,21 +1312,38 @@ function initUI(editor) {
             // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
             finalHtml = buildFinalHtml(finalHtml, editor.getCss(), propsToSave);
 
+            const isTranslation = selectedLanguage !== originalLanguage;
             const projectData = { 
                 projectName: newFullName, 
-                html: finalHtml,           // full HTML with SEO meta tags
+                html: finalHtml,
                 css: editor.getCss(), 
                 projectData: editor.getProjectData(),
-                properties: propsToSave
+                properties: propsToSave,
+                is_original_language: !isTranslation,
+                // Envoyer le nom de la page source — le serveur résoudra/créera le group_id
+                source_project_name: isTranslation ? fullName : null
             };
 
             try {
                 const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
                 if (!res.ok) throw new Error(await res.text());
                 
+                const saveData = await res.json();
+                const savedPageId = saveData.page_id || saveData.content?.pageId || null;
+                
+                // Si c'est la page originale (même langue), stocker son page_id
+                if (selectedLanguage === originalLanguage) {
+                    localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
+                }
+
                 // Update stored fullName to reflect language change
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, newFullName);
-                currentProjectLanguage = selectedLanguage;
+                // Conserver la référence à la page originale FR pour les traductions futures
+                if (selectedLanguage === 'FR') {
+                    localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, newFullName);
+                } else if (!localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`)) {
+                    localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
+                }                currentProjectLanguage = selectedLanguage;
                 
                 hideLoading();
                 await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
@@ -1432,13 +1452,18 @@ function initUI(editor) {
 
                     // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
                     const finalHtml = buildFinalHtml(finalBodyHtml, editor.getCss(), propsToSave);
+                    const originalPageId = localStorage.getItem(`reetain-builder__${schoolId}__currentPageId`) || null;
 
+                    const isTranslation = lang !== 'FR';
+                    const originalPageName = localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`) || null;
                     const projectData = { 
                         projectName: fullName, 
-                        html: finalHtml,           // full HTML with SEO meta tags
+                        html: finalHtml,
                         css: editor.getCss(), 
                         projectData: editor.getProjectData(),
-                        properties: propsToSave
+                        properties: propsToSave,
+                        is_original_language: !isTranslation,
+                        source_project_name: isTranslation ? originalPageName : null
                     };
 
                     try {
@@ -1743,8 +1768,12 @@ window.duplicateProject = (fullName) => {
                     projectName: newFullName, 
                     html: finalHtml,           // full HTML with SEO meta tags
                     css: sourceProject.css, 
-                    projectData: sourceProject.project_data 
+                    projectData: sourceProject.project_data,
+                    is_original_language: false,
+                    page_group_id: fullName
                 };
+
+                console.log('🔴 projectData envoyé:', JSON.stringify(projectData).substring(0, 300));
 
                 const saveRes = await fetch('/api/save', { 
                     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 

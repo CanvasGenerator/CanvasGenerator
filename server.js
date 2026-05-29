@@ -275,6 +275,39 @@ async function supabaseRequest(method, endpoint, body = null, extraHeaders = {})
     return result;
 }
 
+// ── Translation group ID ──────────────────────────────────────────────────
+function generateGroupId() {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
+        const r = Math.random() * 16 | 0;
+        return (c === 'x' ? r : (r & 0x3 | 0x8)).toString(16);
+    });
+}
+
+async function resolveOrCreateGroupId(projectName) {
+    // 1. Chercher si la page source a déjà un group_id en DB
+    try {
+        const existing = await supabaseRequest(
+            'GET',
+            `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=page_group_id&limit=1`
+        );
+        if (existing?.[0]?.page_group_id) return existing[0].page_group_id;
+    } catch (e) {
+        console.warn('resolveOrCreateGroupId fetch failed:', e.message);
+    }
+    // 2. Pas de group_id → en générer un et l'attribuer à la source
+    const groupId = generateGroupId();
+    try {
+        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+            page_group_id:        groupId,
+            is_original_language: true
+        });
+        console.log(`🔑 group_id généré pour "${projectName}": ${groupId}`);
+    } catch (e) {
+        console.warn('resolveOrCreateGroupId patch failed:', e.message);
+    }
+    return groupId;
+}
+
 // ── Parse URL helper ─────────────────────────────────────────────────
 function parseUrl(reqUrl) {
     const qIdx = reqUrl.indexOf('?');
@@ -463,7 +496,11 @@ http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const data = JSON.parse(body);
-                const { projectName, html, css, projectData, properties } = data;
+                console.log('🔴 FULL BODY KEYS:', Object.keys(data));
+                console.log('🔴 is_original_language:', data.is_original_language);
+                console.log('🔴 page_group_id:', data.page_group_id);
+
+                const { projectName, html, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
@@ -473,14 +510,52 @@ http.createServer(async (req, res) => {
                 }
 
                 const fullHtml = buildStoredHtml({ projectName, html, css, properties });
-                
+
+                // ── Résoudre les flags de traduction + group_id ───────────────────────────
+                let saveIsOriginal, savePageGroupId;
+
+                // Chercher l'état actuel en DB (pour les saves successifs)
+                const existingRow = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=is_original_language,page_group_id&limit=1`
+                ).catch(() => null);
+                const existingRecord = existingRow?.[0];
+
+                if (is_original_language === false) {
+
+                    saveIsOriginal = false;
+                    if (existingRecord?.page_group_id) {
+                        savePageGroupId = existingRecord.page_group_id;
+                    } else if (source_project_name) {
+                        savePageGroupId = await resolveOrCreateGroupId(source_project_name);
+                    } else if (page_group_id) {
+                        savePageGroupId = await resolveOrCreateGroupId(page_group_id);
+                    } else {
+
+                        savePageGroupId = null;
+                    }
+                } else {
+                    // ── Page originale : conserver ou générer un group_id ─────────────────
+                    saveIsOriginal = true;
+                    if (existingRecord?.page_group_id) {
+                        // Déjà un group_id → le conserver
+                        savePageGroupId = existingRecord.page_group_id;
+                    } else {
+                        // Nouvelle page originale → générer un group_id unique
+                        savePageGroupId = generateGroupId();
+                        console.log(`🔑 Nouveau group_id pour "${projectName}": ${savePageGroupId}`);
+                    }
+                }
+
                 // 1. Sauvegarde du HTML brut (sans html_sfmc pour l'instant)
                 const supaResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                    project_name: projectName,
-                    html: fullHtml,
-                    css: css,
-                    project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
-                    properties: properties || {}
+                    project_name:         projectName,
+                    html:                 fullHtml,
+                    css:                  css,
+                    project_data:         typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
+                    properties:           properties || {},
+                    is_original_language: saveIsOriginal,
+                    page_group_id:        savePageGroupId
                 });
 
                 if (supaResult && supaResult.code) {
@@ -515,6 +590,7 @@ http.createServer(async (req, res) => {
                 res.end(JSON.stringify({ 
                     message: 'Project saved! Background tasks started.', 
                     projectName, 
+                    page_id: contentSync?.pageId || null,
                     sfmc: { action: 'pending_background' }, 
                     content: contentSync 
                 }));
@@ -1069,7 +1145,7 @@ Règles importantes :
             console.log(`\n📋 CMS: Récupération de toutes les pages`);
             const result = await supabaseRequest(
                 'GET',
-                '/Projects?select=project_name,properties,created_at&order=created_at.desc'
+                '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
             );
             
             if (!Array.isArray(result)) {
@@ -1085,16 +1161,22 @@ Règles importantes :
                 const parts  = (p.project_name || '').replace(/^school-[a-z0-9-]+__/, '').split('__');
                 const displayName = parts[0] || p.project_name;
                 const lang = parts[1] || 'FR';
+
+                const isOriginal  = p.is_original_language !== false;
+                const pageGroupId = p.page_group_id || null;
+
                 return {
-                    project_name: p.project_name,
-                    title:        props.title || displayName,
+                    project_name:         p.project_name,
+                    title:                props.title || displayName,
                     school,
                     lang,
-                    seoTitle:       props.seoTitle || '',
-                    seoDescription: props.seoDescription || '',
-                    updated_at:   p.created_at,
-                    source:       'legacy',
-                    status:       props.status || 'draft'
+                    seoTitle:             props.seoTitle || '',
+                    seoDescription:       props.seoDescription || '',
+                    updated_at:           p.created_at,
+                    source:               'legacy',
+                    status:               props.status || 'draft',
+                    is_original_language: isOriginal,
+                    page_group_id:        pageGroupId,
                 };
             });
             let structuredPages = [];
@@ -1110,7 +1192,19 @@ Règles importantes :
 
             const merged = new Map();
             legacyPages.forEach(page => merged.set(page.project_name, page));
-            structuredPages.forEach(page => merged.set(page.project_name, page));
+            structuredPages.forEach(page => {
+                const existing = merged.get(page.project_name);
+                merged.set(page.project_name, {
+                    ...page,
+                    // Préserver les champs de traduction du legacy qui ne sont pas dans structured
+                    is_original_language: page.is_original_language !== undefined
+                        ? page.is_original_language
+                        : existing?.is_original_language,
+                    page_group_id: page.page_group_id !== undefined
+                        ? page.page_group_id
+                        : existing?.page_group_id
+                });
+            });
             const pages = [...merged.values()].sort((a, b) => {
                 return new Date(b.updated_at || 0) - new Date(a.updated_at || 0);
             });
@@ -1156,13 +1250,19 @@ Règles importantes :
                 const sourceProps = source.properties || {};
                 const newProps = { ...sourceProps, title: newTitle };
 
+                // Récupérer ou générer le group_id de la source
+                const groupId = await resolveOrCreateGroupId(sourceProjectName);
+
                 await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                    project_name: newProjectName,
-                    html:         source.html,
-                    css:          source.css,
-                    project_data: source.project_data,
-                    properties:   newProps
+                    project_name:         newProjectName,
+                    html:                 source.html,
+                    css:                  source.css,
+                    project_data:         source.project_data,
+                    properties:           newProps,
+                    is_original_language: false,
+                    page_group_id:        groupId
                 });
+
 
                 if (isSfmcConfigured()) {
                     try {
