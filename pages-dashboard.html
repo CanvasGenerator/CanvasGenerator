@@ -11,12 +11,6 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/builder.css">
-    <style>
-        body {
-            overflow: auto;
-            height: auto;
-        }
-    </style>
 </head>
 
 <body class="cms-page">
@@ -61,6 +55,11 @@
                 </div>
                 <select id="filter-school" class="cms-filter">
                     <option value="">Toutes les écoles</option>
+                </select>
+                <select id="filter-type" class="cms-filter">
+                    <option value="">Tous les types</option>
+                    <option value="original">Originales</option>
+                    <option value="translated">Traductions</option>
                 </select>
                 <select id="filter-status" class="cms-filter">
                     <option value="">Pages actives</option>
@@ -120,6 +119,10 @@
                     <span><i class="fas fa-layer-group"></i> Toutes les pages</span>
                     <small id="nav-all-count">—</small>
                 </button>
+                <button class="cms-nav-item" id="nav-translation-groups" type="button" data-mode="translations">
+                    <span><i class="fas fa-language"></i> Pages par traduction</span>
+                    <small id="nav-translation-count">—</small>
+                </button>
                 <div id="entity-nav-list" class="cms-nav-list">
                     <div class="cms-nav-loading">Chargement…</div>
                 </div>
@@ -133,6 +136,7 @@
                             <th>Titre de la page</th>
                             <th>Organisation</th>
                             <th>Langue</th>
+                            <th>Type</th>
                             <th>Statut</th>
                             <th>Dernière mise à jour</th>
                             <th style="text-align:right;">Actions</th>
@@ -140,7 +144,7 @@
                     </thead>
                     <tbody id="pages-tbody">
                         <tr>
-                            <td colspan="6" class="cms-empty">
+                            <td colspan="7" class="cms-empty">
                                 <i class="fas fa-circle-notch fa-spin"></i>
                                 Chargement des pages…
                             </td>
@@ -163,8 +167,7 @@
                 <p style="font-size:13px;color:#6b7280;margin-bottom:16px;" id="dup-source-label">Source : …</p>
                 <label class="cms-modal-label">Nouveau titre de la page</label>
                 <input id="dup-new-title" class="cms-modal-input" type="text" placeholder="Copie de ma-page">
-                <p style="font-size:11px;color:#9ca3af;">Le contenu, les données SEO et le schéma JSON-LD seront copiés
-                    automatiquement.</p>
+                <p style="font-size:11px;color:#9ca3af;">Le contenu, les données SEO et le schéma JSON-LD seront copiés automatiquement.</p>
                 <div class="cms-inline-error" id="dup-error" style="display:none;"></div>
             </div>
             <div class="cms-modal-footer">
@@ -203,8 +206,7 @@
                 <button class="cms-modal-close" id="del-modal-close">&times;</button>
             </div>
             <div class="cms-modal-body">
-                <p style="font-size:14px;color:#374151;" id="del-source-label">Êtes-vous sûr de vouloir supprimer cette
-                    page ? Cette action est irréversible.</p>
+                <p style="font-size:14px;color:#374151;" id="del-source-label">Êtes-vous sûr de vouloir supprimer cette page ? Cette action est irréversible.</p>
                 <label class="cms-modal-label" for="delete-action">Traitement</label>
                 <select id="delete-action" class="cms-modal-input">
                     <option value="trash">Mettre à la corbeille</option>
@@ -378,8 +380,6 @@
                     <div class="google-preview-snippet"><span class="google-preview-date" id="seo-preview-date"></span><span id="seo-preview-desc">Description de la page…</span></div>
                 </div>
 
-
-
                 <div class="cms-inline-error" id="seo-error" style="display:none;"></div>
             </div>
             <div class="cms-modal-footer">
@@ -442,90 +442,22 @@
     </div>
 
     <script>
-        // Custom Toast notification system to replace native alert popups
+        // ── Custom Toast ───────────────────────────────────────────────────────
         window.alert = function (message) {
             let container = document.getElementById('custom-toast-container');
             if (!container) {
                 container = document.createElement('div');
                 container.id = 'custom-toast-container';
-                container.style.cssText = `
-                    position: fixed;
-                    top: 24px;
-                    right: 24px;
-                    z-index: 999999;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 12px;
-                    max-width: 420px;
-                    width: calc(100% - 48px);
-                    pointer-events: none;
-                `;
+                container.style.cssText = `position:fixed;top:24px;right:24px;z-index:999999;display:flex;flex-direction:column;gap:12px;max-width:420px;width:calc(100% - 48px);pointer-events:none;`;
                 document.body.appendChild(container);
             }
-
             const toast = document.createElement('div');
-            toast.style.cssText = `
-                background: #ffffff;
-                color: #374151;
-                padding: 16px;
-                border-radius: 12px;
-                box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.1), 0 8px 10px -6px rgba(0, 0, 0, 0.1);
-                display: flex;
-                align-items: start;
-                gap: 14px;
-                transform: translateX(120%);
-                opacity: 0;
-                transition: all 0.4s cubic-bezier(0.175, 0.885, 0.32, 1.275);
-                pointer-events: auto;
-                font-family: 'Inter', -apple-system, sans-serif;
-                font-size: 14px;
-                line-height: 1.5;
-                border-left: 4px solid #1a7a5e;
-            `;
-
-            const isError = message.toLowerCase().includes('erreur') || 
-                            message.toLowerCase().includes('failed') || 
-                            message.toLowerCase().includes('impossible') || 
-                            message.toLowerCase().includes('vide') || 
-                            message.toLowerCase().includes('veuillez') ||
-                            message.toLowerCase().includes('ajoutez');
-
-            let iconHtml = '<i class="fas fa-check-circle" style="color: #1a7a5e; font-size: 20px;"></i>';
-            let title = 'Succès';
-            
-            if (isError) {
-                toast.style.borderLeftColor = '#ef4444';
-                iconHtml = '<i class="fas fa-exclamation-circle" style="color: #ef4444; font-size: 20px;"></i>';
-                title = 'Attention';
-            }
-
-            toast.innerHTML = `
-                <div style="display: flex; align-items: center; justify-content: center; height: 20px; width: 20px; flex-shrink: 0;">
-                    ${iconHtml}
-                </div>
-                <div style="flex: 1; padding-top: 1px;">
-                    <div style="font-weight: 600; color: #111827; font-size: 14px; margin-bottom: 3px;">${title}</div>
-                    <div style="color: #4b5563; font-size: 13px; font-weight: 400;">${message}</div>
-                </div>
-                <button style="background: none; border: none; padding: 2px; color: #9ca3af; cursor: pointer; display: flex; align-items: center; justify-content: center; outline: none; margin-top: 2px; transition: color 0.2s;" onmouseover="this.style.color='#4b5563'" onmouseout="this.style.color='#9ca3af'" onclick="const p = this.parentElement; p.style.opacity='0'; p.style.transform='translateX(120%)'; setTimeout(() => p.remove(), 400)">
-                    <i class="fas fa-times" style="font-size: 14px;"></i>
-                </button>
-            `;
-
+            const isError = /erreur|failed|impossible|vide|veuillez|ajoutez/i.test(message);
+            toast.style.cssText = `background:#fff;color:#374151;padding:16px;border-radius:12px;box-shadow:0 10px 25px -5px rgba(0,0,0,.1),0 8px 10px -6px rgba(0,0,0,.1);display:flex;align-items:start;gap:14px;transform:translateX(120%);opacity:0;transition:all .4s cubic-bezier(.175,.885,.32,1.275);pointer-events:auto;font-family:'Inter',-apple-system,sans-serif;font-size:14px;line-height:1.5;border-left:4px solid ${isError ? '#ef4444' : '#1a7a5e'};`;
+            toast.innerHTML = `<div style="display:flex;align-items:center;justify-content:center;height:20px;width:20px;flex-shrink:0;"><i class="fas ${isError ? 'fa-exclamation-circle' : 'fa-check-circle'}" style="color:${isError ? '#ef4444' : '#1a7a5e'};font-size:20px;"></i></div><div style="flex:1;padding-top:1px;"><div style="font-weight:600;color:#111827;font-size:14px;margin-bottom:3px;">${isError ? 'Attention' : 'Succès'}</div><div style="color:#4b5563;font-size:13px;">${message}</div></div><button style="background:none;border:none;padding:2px;color:#9ca3af;cursor:pointer;" onclick="const p=this.parentElement;p.style.opacity='0';p.style.transform='translateX(120%)';setTimeout(()=>p.remove(),400)"><i class="fas fa-times" style="font-size:14px;"></i></button>`;
             container.prepend(toast);
-
-            requestAnimationFrame(() => {
-                toast.style.transform = 'translateX(0)';
-                toast.style.opacity = '1';
-            });
-
-            setTimeout(() => {
-                if (toast.parentElement) {
-                    toast.style.opacity = '0';
-                    toast.style.transform = 'translateX(120%)';
-                    setTimeout(() => toast.remove(), 400);
-                }
-            }, 6000);
+            requestAnimationFrame(() => { toast.style.transform = 'translateX(0)'; toast.style.opacity = '1'; });
+            setTimeout(() => { if (toast.parentElement) { toast.style.opacity = '0'; toast.style.transform = 'translateX(120%)'; setTimeout(() => toast.remove(), 400); } }, 6000);
         };
 
         // ── State ──────────────────────────────────────────────────────────────
@@ -540,19 +472,13 @@
         let selectedFolderId = '';
         let moveTarget = null;
         let statusTarget = null;
+        let currentSidebarMode = 'all';
         let activationTarget = null;
 
         // ── Helpers ────────────────────────────────────────────────────────────
         function formatDate(iso) {
             if (!iso) return '—';
-            return new Date(iso).toLocaleDateString('fr-FR', {
-                day: '2-digit', month: 'short', year: 'numeric'
-            });
-        }
-
-        function getSchoolFromProject(projectName) {
-            const m = (projectName || '').match(/^school-([a-z0-9-]+)__/i);
-            return m ? m[1].toUpperCase() : '—';
+            return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
         }
 
         function getBuilderUrl(page) {
@@ -588,24 +514,35 @@
         }
 
         function getStatusClass(page) {
-            const status = page.status || 'draft';
-            if (status === 'review') return 'cms-badge-status-review';
-            if (status === 'approved') return 'cms-badge-status-approved';
-            if (status === 'published') return 'cms-badge-status-published';
-            if (status === 'archived') return 'cms-badge-status-archived';
-            if (status === 'deleted') return 'cms-badge-status-deleted';
+            const s = page.status || 'draft';
+            if (s === 'review')    return 'cms-badge-status-review';
+            if (s === 'approved')  return 'cms-badge-status-approved';
+            if (s === 'published') return 'cms-badge-status-published';
+            if (s === 'archived')  return 'cms-badge-status-archived';
+            if (s === 'deleted')   return 'cms-badge-status-deleted';
             return 'cms-badge-status-draft';
+        }
+
+        // ── NEW: type badge helpers ────────────────────────────────────────────
+        function getTypeBadge(page) {
+            const isOriginal = String(page.is_original_language) !== 'false';
+            if (isOriginal) {
+                return `<span class="cms-badge-type-original" title="Page originale">
+                    <i class="fas fa-star"></i> Originale
+                </span>`;
+            }
+            // Show tooltip with the group id (= source project name)
+            const groupTip = page.page_group_id
+                ? `Source : ${page.page_group_id}`
+                : 'Traduction';
+            return `<span class="cms-badge-type-translated" data-group-tip="${escAttr(groupTip)}" title="${escAttr(groupTip)}">
+                <i class="fas fa-language"></i> Traduite
+            </span>`;
         }
 
         function formatDateTime(iso) {
             if (!iso) return '—';
-            return new Date(iso).toLocaleString('fr-FR', {
-                day: '2-digit',
-                month: 'short',
-                year: 'numeric',
-                hour: '2-digit',
-                minute: '2-digit'
-            });
+            return new Date(iso).toLocaleString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         }
 
         function formatBytes(value) {
@@ -618,35 +555,27 @@
         async function readErrorMessage(res) {
             const text = await res.text();
             if (!text) return `Erreur HTTP ${res.status}`;
-            try {
-                const payload = JSON.parse(text);
-                return payload.error || payload.message || text;
-            } catch {
-                return text;
-            }
+            try { const p = JSON.parse(text); return p.error || p.message || text; }
+            catch { return text; }
         }
 
         function updateSummary(pages) {
-            const activePages = pages.filter(p => (p.status || 'draft') !== 'deleted');
-            const trashPages = pages.filter(p => (p.status || 'draft') === 'deleted');
+            const activePages  = pages.filter(p => (p.status || 'draft') !== 'deleted');
+            const trashPages   = pages.filter(p => (p.status || 'draft') === 'deleted');
             const visiblePages = currentView === 'trash' ? trashPages : activePages;
-            const schoolSet = new Set(visiblePages.map(p => p.school).filter(Boolean).filter(s => s !== '—'));
-            const draftCount = visiblePages.filter(p => (p.status || 'draft') === 'draft').length;
-            const latest = visiblePages
-                .map(p => p.updated_at)
-                .filter(Boolean)
-                .sort((a, b) => new Date(b) - new Date(a))[0];
-
-            document.getElementById('stat-total-pages').textContent = visiblePages.length;
-            document.getElementById('stat-school-count').textContent = schoolSet.size;
-            document.getElementById('stat-draft-pages').textContent = draftCount;
+            const schoolSet    = new Set(visiblePages.map(p => p.school).filter(Boolean).filter(s => s !== '—'));
+            const draftCount   = visiblePages.filter(p => (p.status || 'draft') === 'draft').length;
+            const latest       = visiblePages.map(p => p.updated_at).filter(Boolean).sort((a, b) => new Date(b) - new Date(a))[0];
+            document.getElementById('stat-total-pages').textContent   = visiblePages.length;
+            document.getElementById('stat-school-count').textContent  = schoolSet.size;
+            document.getElementById('stat-draft-pages').textContent   = draftCount;
             document.getElementById('stat-latest-update').textContent = latest ? formatDate(latest) : '—';
         }
 
         function pageCountFor({ entityId = '', folderId = '' } = {}) {
             return allPages.filter(page => {
-                const pageStatus = page.status || 'draft';
-                const matchView = currentView === 'trash' ? pageStatus === 'deleted' : pageStatus !== 'deleted';
+                const ps = page.status || 'draft';
+                const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
                 const matchEntity = !entityId || page.entity_id === entityId;
                 const matchFolder = !folderId || page.folder_id === folderId;
                 return matchView && matchEntity && matchFolder;
@@ -654,69 +583,74 @@
         }
 
         function setNavSelection(entityId = '', folderId = '') {
-            selectedEntityId = entityId;
-            selectedFolderId = folderId;
-            document.querySelectorAll('.cms-nav-item').forEach(item => item.classList.remove('active'));
-            const target = [...document.querySelectorAll('.cms-nav-item')].find(item => {
-                if (!entityId && !folderId) return item.id === 'nav-all-pages';
-                if (folderId) return item.dataset.folderId === folderId;
-                return item.dataset.entityId === entityId && !item.dataset.folderId;
+            currentSidebarMode = 'all';
+            selectedEntityId = entityId; selectedFolderId = folderId;
+            document.querySelectorAll('.cms-nav-item').forEach(i => i.classList.remove('active'));
+            const target = [...document.querySelectorAll('.cms-nav-item')].find(i => {
+                if (!entityId && !folderId) return i.id === 'nav-all-pages';
+                if (folderId) return i.dataset.folderId === folderId;
+                return i.dataset.entityId === entityId && !i.dataset.folderId;
             });
             target?.classList.add('active');
             filterPages();
         }
 
         function refreshNavActiveState() {
-            document.querySelectorAll('.cms-nav-item').forEach(item => item.classList.remove('active'));
-            const target = [...document.querySelectorAll('.cms-nav-item')].find(item => {
-                if (!selectedEntityId && !selectedFolderId) return item.id === 'nav-all-pages';
-                if (selectedFolderId) return item.dataset.folderId === selectedFolderId;
-                return item.dataset.entityId === selectedEntityId && !item.dataset.folderId;
+            document.querySelectorAll('.cms-nav-item').forEach(i => i.classList.remove('active'));
+
+            if (currentSidebarMode === 'translations') {
+                document.getElementById('nav-translation-groups').classList.add('active');
+                return;
+            }
+
+            const target = [...document.querySelectorAll('.cms-nav-item')].find(i => {
+                if (!selectedEntityId && !selectedFolderId) return i.id === 'nav-all-pages';
+                if (selectedFolderId) return i.dataset.folderId === selectedFolderId;
+                return i.dataset.entityId === selectedEntityId && !i.dataset.folderId;
             });
             target?.classList.add('active');
+        }
+
+
+        function generateActionButtons(page, isDeleted = false) {
+            if (isDeleted) {
+                return `<button class="cms-btn cms-btn-history" onclick="restorePage('${escAttr(page.project_name)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>`;
+            }
+
+            return `
+                <a href="${getBuilderUrl(page)}" class="cms-btn cms-btn-edit" title="Éditer"><i class="fas fa-pen"></i></a>
+                <a href="/preview/${encodeURIComponent(page.project_name)}" target="_blank" class="cms-btn cms-btn-preview" title="Prévisualiser"><i class="fas fa-eye"></i></a>
+                <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-copy"></i></button>
+                <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.seoTitle || '')}', '${escAttr(page.seoDescription || '')}', '${escAttr(page.school || 'site.com')}')"><i class="fas fa-magnifying-glass-chart"></i></button>
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-clock-rotate-left"></i></button>` : ''}
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.status || 'draft')}')"><i class="fas fa-flag"></i></button>` : ''}
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.entity_id || '')}')"><i class="fas fa-folder-open"></i></button>` : ''}
+                <button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-trash-alt"></i></button>
+            `;
         }
 
         function renderEntityNavigation() {
             document.getElementById('nav-all-count').textContent = pageCountFor();
             const list = document.getElementById('entity-nav-list');
-            if (!allEntities.length) {
-                list.innerHTML = '<div class="cms-nav-loading">Aucune organisation.</div>';
-                return;
-            }
-
+            if (!allEntities.length) { list.innerHTML = '<div class="cms-nav-loading">Aucune organisation.</div>'; return; }
             const foldersByEntity = new Map();
-            allFolders.forEach(folder => {
-                const group = foldersByEntity.get(folder.entity_id) || [];
-                group.push(folder);
-                foldersByEntity.set(folder.entity_id, group);
-            });
-
-            list.innerHTML = allEntities.filter(entity => !entity.deleted).map(entity => {
+            allFolders.forEach(f => { const g = foldersByEntity.get(f.entity_id) || []; g.push(f); foldersByEntity.set(f.entity_id, g); });
+            list.innerHTML = allEntities.filter(e => !e.deleted).map(entity => {
                 const folders = foldersByEntity.get(entity.id) || [];
-                const folderHtml = folders.map(folder => `
-                    <button class="cms-nav-item cms-nav-subitem" type="button" data-entity-id="${escAttr(entity.id)}" data-folder-id="${escAttr(folder.id)}">
-                        <span><i class="fas fa-folder"></i> ${escHtml(folder.name)}</span>
-                        <small>${pageCountFor({ entityId: entity.id, folderId: folder.id })}</small>
-                    </button>
-                `).join('');
-
-                return `
-                    <div class="cms-nav-group">
-                        <button class="cms-nav-item" type="button" data-entity-id="${escAttr(entity.id)}">
-                            <span><i class="fas fa-school"></i> ${escHtml(entity.name)}</span>
-                            <small>${pageCountFor({ entityId: entity.id })}</small>
-                        </button>
-                        ${folderHtml}
-                    </div>
-                `;
+                const folderHtml = folders.map(f => `
+                    <button class="cms-nav-item cms-nav-subitem" type="button" data-entity-id="${escAttr(entity.id)}" data-folder-id="${escAttr(f.id)}">
+                        <span><i class="fas fa-folder"></i> ${escHtml(f.name)}</span>
+                        <small>${pageCountFor({ entityId: entity.id, folderId: f.id })}</small>
+                    </button>`).join('');
+                return `<div class="cms-nav-group">
+                    <button class="cms-nav-item" type="button" data-entity-id="${escAttr(entity.id)}">
+                        <span><i class="fas fa-school"></i> ${escHtml(entity.name)}</span>
+                        <small>${pageCountFor({ entityId: entity.id })}</small>
+                    </button>${folderHtml}</div>`;
             }).join('');
-
             list.querySelectorAll('.cms-nav-item').forEach(item => {
-                item.addEventListener('click', () => {
-                    setNavSelection(item.dataset.entityId || '', item.dataset.folderId || '');
-                });
+                item.addEventListener('click', () => setNavSelection(item.dataset.entityId || '', item.dataset.folderId || ''));
             });
-
             refreshNavActiveState();
         }
 
@@ -793,93 +727,139 @@
         }
 
         function folderOptionsHtml({ entityId = '', includeEmpty = false } = {}) {
-            const folders = allFolders.filter(folder => !entityId || folder.entity_id === entityId);
-            const options = folders.map(folder => {
-                const entity = allEntities.find(item => item.id === folder.entity_id);
-                const label = entity ? `${entity.name} / ${folder.name}` : folder.name;
-                return `<option value="${escAttr(folder.id)}">${escHtml(label)}</option>`;
+            const folders = allFolders.filter(f => !entityId || f.entity_id === entityId);
+            const options = folders.map(f => {
+                const entity = allEntities.find(e => e.id === f.entity_id);
+                const label  = entity ? `${entity.name} / ${f.name}` : f.name;
+                return `<option value="${escAttr(f.id)}">${escHtml(label)}</option>`;
             }).join('');
             return `${includeEmpty ? '<option value="">Aucun</option>' : ''}${options}`;
         }
 
-        // ── Render ─────────────────────────────────────────────────────────────
+        // ── Render table ───────────────────────────────────────────────────────
         let currentTablePage = 0;
         const PAGE_SIZE = 20;
         let lastFilteredPages = [];
 
-        function renderTable(pages) {
-            lastFilteredPages = pages;
+        // ====================== RENDU NORMAL (PLAT) ======================
+        function renderFlatTable(pages) {
             const tbody = document.getElementById('pages-tbody');
 
             if (!pages || pages.length === 0) {
-                tbody.innerHTML = `
-                <tr>
-                    <td colspan="6" class="cms-empty">
-                        <i class="fas fa-file-circle-xmark"></i>
-                        ${currentView === 'trash' ? 'La corbeille est vide.' : 'Aucune page trouvée.'}
-                    </td>
-                </tr>`;
-                renderPagination(0);
+                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-file-circle-xmark"></i> Aucune page trouvée.</td></tr>`;
                 return;
             }
 
             const slice = pages.slice(currentTablePage * PAGE_SIZE, (currentTablePage + 1) * PAGE_SIZE);
+
             tbody.innerHTML = slice.map(p => {
                 const isDeleted = (p.status || 'draft') === 'deleted';
-                return `
-            <tr>
-                <td>
-                    <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
-                    ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
-                    ${getPublicUrlLabel(p) ? `<div class="cms-page-seotitle"><i class="fas fa-link" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${p.public_url ? `<a href="${escAttr(p.public_url)}" target="_blank" rel="noopener">${escHtml(p.public_url)}</a>` : escHtml(getPublicUrlLabel(p))}</div>` : ''}
-                </td>
-                <td>
-                    <span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span>
-                </td>
-                <td>
-                    <span class="cms-badge cms-badge-lang">${escHtml(p.lang || 'FR')}</span>
-                </td>
-                <td>
-                    <span class="cms-badge ${getStatusClass(p)}">${getStatusLabel(p)}</span>
-                </td>
-                <td style="color:#9ca3af;font-size:12px;">${formatDate(p.updated_at)}</td>
-                <td>
-                    <div class="cms-actions" style="justify-content:flex-end;">
-                        ${isDeleted ? `<button class="cms-btn cms-btn-history" title="Restaurer" onclick="restorePage('${escAttr(p.project_name)}')">
-                            <i class="fas fa-rotate-left"></i> Restaurer
-                        </button>` : `<a href="${getBuilderUrl(p)}" class="cms-btn cms-btn-edit" title="Éditer">
-                            <i class="fas fa-pen"></i> Éditer
-                        </a>`}
-                        ${isDeleted ? '' : `<a href="/preview/${encodeURIComponent(p.project_name)}" target="_blank" class="cms-btn cms-btn-preview" title="Prévisualiser">
-                            <i class="fas fa-eye"></i>
-                        </a>
-                        <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}')">
-                            <i class="fas fa-copy"></i>
-                        </button>
-                        <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.seoTitle || '')}', '${escAttr(p.seoDescription || '')}', '${escAttr(p.school || 'site.com')}')">
-                            <i class="fas fa-magnifying-glass-chart"></i>
-                        </button>`}
-                        ${p.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}')">
-                            <i class="fas fa-clock-rotate-left"></i>
-                        </button>` : ''}
-                        ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.status || 'draft')}')">
-                            <i class="fas fa-flag"></i>
-                        </button>` : ''}
-                        ${!isDeleted && p.page_id && (p.status || 'draft') === 'published' ? `<button class="cms-btn cms-btn-history" title="Activer / désactiver" onclick="openActivationModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', ${p.publication?.active === false ? 'false' : 'true'}, '${escAttr(p.publication?.redirectUrl || '')}')">
-                            <i class="fas fa-power-off"></i>
-                        </button>` : ''}
-                        ${!isDeleted && p.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escAttr(p.page_id)}', '${escAttr(p.title || p.project_name)}', '${escAttr(p.entity_id || '')}')">
-                            <i class="fas fa-folder-open"></i>
-                        </button>` : ''}
-                        ${isDeleted ? '' : `<button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escAttr(p.project_name)}', '${escAttr(p.title || p.project_name)}')">
-                            <i class="fas fa-trash-alt"></i>
-                        </button>`}
-                    </div>
-                </td>
-            </tr>`;
+                 return `<tr>
+                    <td>
+                        <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
+                        ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
+                        ${getPublicUrlLabel(p) ? `<div class="cms-page-seotitle"><i class="fas fa-link" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${p.public_url ? `<a href="${escAttr(p.public_url)}" target="_blank" rel="noopener">${escHtml(p.public_url)}</a>` : escHtml(getPublicUrlLabel(p))}</div>` : ''}
+                    </td>
+                    <td><span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span></td>
+                    <td><span class="cms-badge cms-badge-lang">${escHtml(p.lang || 'FR')}</span></td>
+                    <td>${getTypeBadge(p)}</td>
+                    <td><span class="cms-badge ${getStatusClass(p)}">${getStatusLabel(p)}</span></td>
+                    <td style="color:#9ca3af;font-size:12px;">${formatDate(p.updated_at)}</td>
+                    <td>
+                        <div class="cms-actions" style="justify-content:flex-end;">
+                            ${generateActionButtons(p, isDeleted)}
+                        </div>
+                    </td>
+                </tr>`;
             }).join('');
+        }
 
-            renderPagination(pages.length);
+        // ====================== RENDU GROUPÉ ======================
+        function renderGroupedTable(pages) {
+            const tbody = document.getElementById('pages-tbody');
+            const activePages = pages.filter(p => (p.status || 'draft') !== 'deleted');
+
+            const originals = activePages.filter(p => String(p.is_original_language) !== 'false');
+
+            if (!originals.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-language"></i> Aucun groupe de traduction trouvé.</td></tr>`;
+                return;
+            }
+
+            const slice = originals.slice(currentTablePage * PAGE_SIZE, (currentTablePage + 1) * PAGE_SIZE);
+
+            let html = '';
+
+            slice.forEach(original => {
+                const translations = activePages.filter(p =>
+                    p.page_group_id &&
+                    p.page_group_id === original.page_group_id &&
+                    String(p.is_original_language) === 'false'
+                );
+
+                // ==================== PAGE ORIGINALE ====================
+                html += `
+                <tr class="group-header">
+                    <td>
+                        <div class="cms-page-title">
+                            <i style="color:#eab308;margin-right:6px;"></i>
+                            ${escHtml(original.title || original.project_name)}
+                        </div>
+                        ${original.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(original.seoTitle)}</div>` : ''}
+                    </td>
+                    <td><span class="cms-badge cms-badge-school">${escHtml(original.school || '—')}</span></td>
+                    <td><span class="cms-badge cms-badge-lang">${escHtml(original.lang || 'FR')}</span></td>
+                    <td>${getTypeBadge(original)}</td>
+                    <td><span class="cms-badge ${getStatusClass(original)}">${getStatusLabel(original)}</span></td>
+                    <td style="color:#9ca3af;font-size:12px;">${formatDate(original.updated_at)}</td>
+                    <td>
+                        <div class="cms-actions" style="justify-content:flex-end;">
+                            ${generateActionButtons(original, false)}
+                        </div>
+                    </td>
+                </tr>`;
+
+                // ==================== TRADUCTIONS ====================
+                translations.forEach(t => {
+                    html += `
+                    <tr class="group-translation">
+                        <td style="padding-left: 48px;">
+                            <div class="cms-page-title">
+                                <i class="fas fa-language" style="color:#8b5cf6;margin-right:6px;"></i>
+                                ${escHtml(t.title || t.project_name)}
+                            </div>
+                            ${t.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(t.seoTitle)}</div>` : ''}
+                        </td>
+                        <td><span class="cms-badge cms-badge-school">${escHtml(t.school || '—')}</span></td>
+                        <td><span class="cms-badge cms-badge-lang">${escHtml(t.lang || '—')}</span></td>
+                        <td>${getTypeBadge(t)}</td>
+                        <td><span class="cms-badge ${getStatusClass(t)}">${getStatusLabel(t)}</span></td>
+                        <td style="color:#9ca3af;font-size:12px;">${formatDate(t.updated_at)}</td>
+                        <td>
+                            <div class="cms-actions" style="justify-content:flex-end;">
+                                ${generateActionButtons(t, false)}
+                            </div>
+                        </td>
+                    </tr>`;
+                });
+            });
+
+            tbody.innerHTML = html;
+        }
+
+        // ====================== FONCTION PRINCIPALE ======================
+        function renderTable(pages) {
+            lastFilteredPages = pages;
+
+            if (currentSidebarMode === 'translations') {
+                renderGroupedTable(pages);
+                const activePages = pages.filter(p => (p.status || 'draft') !== 'deleted');
+                const originalsCount = activePages.filter(p => String(p.is_original_language) !== 'false').length;
+                renderPagination(originalsCount);
+            } else {
+                renderFlatTable(pages);
+                renderPagination(pages.length);
+            }
         }
 
         function renderPagination(totalCount) {
@@ -891,24 +871,27 @@
                 document.querySelector('.cms-table-wrap').appendChild(container);
             }
             const totalPages = Math.ceil(totalCount / PAGE_SIZE);
-            if (totalPages <= 1) { container.innerHTML = ''; return; }
+            if (totalPages <= 1) { 
+                container.innerHTML = ''; 
+                return; 
+            }
             const page = currentTablePage + 1;
             container.innerHTML = `
-                <button class="cms-btn cms-btn-preview" ${page <= 1 ? 'disabled' : ''} onclick="currentTablePage--;renderTable(lastFilteredPages)">
+                <button class="cms-btn cms-btn-preview" ${page <= 1 ? 'disabled' : ''} onclick="changeDashboardPage(-1)">
                     <i class="fas fa-chevron-left"></i> Précédent
                 </button>
-                <span style="color:#9ca3af;font-size:13px;">Page ${page} / ${totalPages}  ·  ${totalCount} pages</span>
-                <button class="cms-btn cms-btn-preview" ${page >= totalPages ? 'disabled' : ''} onclick="currentTablePage++;renderTable(lastFilteredPages)">
+                <span style="color:#9ca3af;font-size:13px;">
+                    ${currentSidebarMode === 'translations' ? `Page ${page} / ${totalPages} · ${totalCount} groupes` : `Page ${page} / ${totalPages} · ${totalCount} pages`}
+                </span>
+                <button class="cms-btn cms-btn-preview" ${page >= totalPages ? 'disabled' : ''} onclick="changeDashboardPage(1)">
                     Suivant <i class="fas fa-chevron-right"></i>
-                </button>`;
+                </button>
+            `;
         }
+        
+        function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+        function escAttr(s) { return String(s).replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
 
-        function escHtml(s) {
-            return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-        }
-        function escAttr(s) {
-            return String(s).replace(/'/g, '&#39;').replace(/"/g, '&quot;');
-        }
 
         // ── Load pages ─────────────────────────────────────────────────────────
         async function loadPages() {
@@ -918,13 +901,28 @@
                     fetch('/api/entities'),
                     fetch('/api/folders')
                 ]);
-                allPages = await pagesRes.json();
+
+                allPages    = await pagesRes.json();
                 allEntities = entitiesRes.ok ? await entitiesRes.json() : [];
-                allFolders = foldersRes.ok ? await foldersRes.json() : [];
+                allFolders  = foldersRes.ok  ? await foldersRes.json()  : [];
+
+                // ── DEBUG: log full /api/pages payload in DevTools Network ─────
+                console.group('%c[/api/pages] Response payload', 'color:#1a7a5e;font-weight:bold;');
+                console.log('Total pages returned:', allPages.length);
+                console.table(allPages.map(p => ({
+                    project_name:        p.project_name,
+                    title:               p.title,
+                    lang:                p.lang,
+                    status:              p.status,
+                    is_original_language: p.is_original_language,
+                    page_group_id:        p.page_group_id || '—',
+                    source:              p.source,
+                })));
+                console.groupEnd();
 
                 // Populate school filter
                 const schoolSet = new Set(allPages.map(p => p.school).filter(Boolean));
-                const filterEl = document.getElementById('filter-school');
+                const filterEl  = document.getElementById('filter-school');
                 filterEl.innerHTML = '<option value="">Toutes les écoles</option>';
                 schoolSet.forEach(s => {
                     const opt = document.createElement('option');
@@ -933,67 +931,100 @@
                 });
 
                 filterPages();
+                document.getElementById('nav-translation-count').textContent =
+                    allPages.filter(p => String(p.is_original_language) !== 'false').length;
             } catch (e) {
-                document.getElementById('pages-tbody').innerHTML = `
-                <tr><td colspan="6" class="cms-empty" style="color:#ef4444;">
-                    <i class="fas fa-exclamation-triangle"></i>
-                    Erreur de chargement : ${e.message}
-                </td></tr>`;
+                document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="7" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
             }
         }
 
         // ── Search / Filter ────────────────────────────────────────────────────
         function filterPages() {
-            const q = document.getElementById('search-input').value.toLowerCase();
+            const q      = document.getElementById('search-input').value.toLowerCase();
             const school = document.getElementById('filter-school').value;
             const status = document.getElementById('filter-status').value;
+            const type   = document.getElementById('filter-type').value;
+
             const filtered = allPages.filter(p => {
-                const matchQ = !q || (p.title || '').toLowerCase().includes(q) || (p.project_name || '').toLowerCase().includes(q) || (p.seoTitle || '').toLowerCase().includes(q);
-                const matchS = !school || p.school === school;
-                const pageStatus = p.status || 'draft';
-                const matchView = currentView === 'trash' ? pageStatus === 'deleted' : pageStatus !== 'deleted';
+                const matchQ      = !q || (p.title || '').toLowerCase().includes(q) || 
+                                (p.project_name || '').toLowerCase().includes(q) || 
+                                (p.seoTitle || '').toLowerCase().includes(q);
+                
+                const matchS      = !school || p.school === school;
+                
+                const ps          = p.status || 'draft';
+                const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
+                
                 const matchEntity = !selectedEntityId || p.entity_id === selectedEntityId;
                 const matchFolder = !selectedFolderId || p.folder_id === selectedFolderId;
-                const matchStatus = currentView === 'trash'
+                
+                const matchStatus = currentView === 'trash' ? true : 
+                                status === 'all' ? true : 
+                                status ? ps === status : true;
+
+                // Type filter
+                const isOriginal = String(p.is_original_language) !== 'false';
+                const matchType  = !type
                     ? true
-                    : status === 'all'
-                        ? true
-                        : status
-                            ? pageStatus === status
-                            : true;
-                return matchQ && matchS && matchView && matchEntity && matchFolder && matchStatus;
+                    : type === 'original'   ? isOriginal
+                    : type === 'translated' ? !isOriginal
+                    : true;
+
+                return matchQ && matchS && matchView && matchEntity && matchFolder && matchStatus && matchType;
             });
+
             updateSummary(allPages);
             renderEntityNavigation();
+            currentTablePage = 0;
+
+            // Toujours passer par renderTable (qui gère le mode actuel)
             renderTable(filtered);
+
         }
 
-        document.getElementById('search-input').addEventListener('input', filterPages);
+        function changeDashboardPage(delta) {
+            currentTablePage += delta;
+            if (currentTablePage < 0) currentTablePage = 0;
+            
+            renderTable(lastFilteredPages);
+        }
+
+        document.getElementById('search-input').addEventListener('input',  filterPages);
         document.getElementById('filter-school').addEventListener('change', filterPages);
         document.getElementById('filter-status').addEventListener('change', filterPages);
+        document.getElementById('filter-type').addEventListener('change',   filterPages);
 
         function setDashboardView(view) {
             currentView = view;
             const isTrash = view === 'trash';
-            document.getElementById('trash-banner').style.display = isTrash ? 'flex' : 'none';
-            document.getElementById('btn-trash-view').style.display = isTrash ? 'none' : 'inline-flex';
-            document.getElementById('btn-new-page').style.display = isTrash ? 'none' : 'inline-flex';
-            document.getElementById('filter-status').disabled = isTrash;
-            document.getElementById('filter-status').value = '';
+            document.getElementById('trash-banner').style.display    = isTrash ? 'flex' : 'none';
+            document.getElementById('btn-trash-view').style.display  = isTrash ? 'none' : 'inline-flex';
+            document.getElementById('btn-new-page').style.display    = isTrash ? 'none' : 'inline-flex';
+            document.getElementById('filter-status').disabled        = isTrash;
+            document.getElementById('filter-status').value           = '';
+            currentTablePage = 0;
             filterPages();
         }
 
-        document.getElementById('nav-all-pages').onclick = () => setNavSelection('', '');
-        document.getElementById('btn-trash-view').onclick = () => setDashboardView('trash');
+        document.getElementById('nav-all-pages').onclick = () => {
+            currentSidebarMode = 'all';
+            setNavSelection('', '');
+        };
+        document.getElementById('nav-translation-groups').onclick = () => {
+            currentSidebarMode = 'translations';
+            selectedEntityId = '';
+            selectedFolderId = '';
+            document.querySelectorAll('.cms-nav-item').forEach(i => i.classList.remove('active'));
+            document.getElementById('nav-translation-groups').classList.add('active');
+            filterPages();
+        };
+        document.getElementById('btn-trash-view').onclick  = () => setDashboardView('trash');
         document.getElementById('btn-active-view').onclick = () => setDashboardView('active');
 
         // ── Folders ────────────────────────────────────────────────────────────
         function openFolderModal() {
             const entitySelect = document.getElementById('folder-entity');
-            entitySelect.innerHTML = allEntities
-                .filter(entity => !entity.deleted)
-                .map(entity => `<option value="${escAttr(entity.id)}">${escHtml(entity.name)}</option>`)
-                .join('');
+            entitySelect.innerHTML = allEntities.filter(e => !e.deleted).map(e => `<option value="${escAttr(e.id)}">${escHtml(e.name)}</option>`).join('');
             entitySelect.value = selectedEntityId || entitySelect.value;
             document.getElementById('folder-name').value = '';
             document.getElementById('folder-error').style.display = 'none';
@@ -1001,152 +1032,87 @@
             document.getElementById('folder-modal').style.display = 'flex';
             setTimeout(() => document.getElementById('folder-name').focus(), 50);
         }
-
         function updateFolderParentOptions() {
-            const entityId = document.getElementById('folder-entity').value;
-            document.getElementById('folder-parent').innerHTML = folderOptionsHtml({ entityId, includeEmpty: true });
+            document.getElementById('folder-parent').innerHTML = folderOptionsHtml({ entityId: document.getElementById('folder-entity').value, includeEmpty: true });
         }
-
-        function closeFolderModal() {
-            document.getElementById('folder-modal').style.display = 'none';
-        }
-
+        function closeFolderModal() { document.getElementById('folder-modal').style.display = 'none'; }
         async function createFolder() {
             const entityId = document.getElementById('folder-entity').value;
-            const name = document.getElementById('folder-name').value.trim();
+            const name     = document.getElementById('folder-name').value.trim();
             const parentId = document.getElementById('folder-parent').value;
-            const errorEl = document.getElementById('folder-error');
-            const btn = document.getElementById('folder-confirm');
-            if (!entityId || !name) {
-                errorEl.textContent = 'École et nom du dossier sont requis.';
-                errorEl.style.display = 'block';
-                return;
-            }
-
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Création…';
+            const errorEl  = document.getElementById('folder-error');
+            const btn      = document.getElementById('folder-confirm');
+            if (!entityId || !name) { errorEl.textContent = 'École et nom du dossier sont requis.'; errorEl.style.display = 'block'; return; }
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Création…';
             try {
-                const res = await fetch('/api/folders', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ entity_id: entityId, parent_id: parentId || null, name })
-                });
+                const res = await fetch('/api/folders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entity_id: entityId, parent_id: parentId || null, name }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeFolderModal();
-                await loadPages();
-            } catch (e) {
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-folder-plus" style="margin-right:6px;"></i>Créer';
-            }
+                closeFolderModal(); await loadPages();
+            } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-folder-plus" style="margin-right:6px;"></i>Créer'; }
         }
-
         document.getElementById('btn-create-folder').onclick = openFolderModal;
-        document.getElementById('folder-entity').onchange = updateFolderParentOptions;
+        document.getElementById('folder-entity').onchange   = updateFolderParentOptions;
         document.getElementById('folder-modal-close').onclick = closeFolderModal;
-        document.getElementById('folder-cancel').onclick = closeFolderModal;
-        document.getElementById('folder-confirm').onclick = createFolder;
+        document.getElementById('folder-cancel').onclick      = closeFolderModal;
+        document.getElementById('folder-confirm').onclick     = createFolder;
 
         // ── Move page ──────────────────────────────────────────────────────────
         function openMoveModal(pageId, title, entityId) {
             moveTarget = { pageId };
-            document.getElementById('move-page-label').textContent = title;
-            document.getElementById('move-folder').innerHTML = folderOptionsHtml({ entityId });
-            document.getElementById('move-error').style.display = 'none';
-            document.getElementById('move-error').textContent = '';
-            document.getElementById('move-modal').style.display = 'flex';
+            document.getElementById('move-page-label').textContent  = title;
+            document.getElementById('move-folder').innerHTML         = folderOptionsHtml({ entityId });
+            document.getElementById('move-error').style.display      = 'none';
+            document.getElementById('move-error').textContent        = '';
+            document.getElementById('move-modal').style.display      = 'flex';
         }
-
-        function closeMoveModal() {
-            document.getElementById('move-modal').style.display = 'none';
-            moveTarget = null;
-        }
-
+        function closeMoveModal() { document.getElementById('move-modal').style.display = 'none'; moveTarget = null; }
         async function movePage() {
             if (!moveTarget) return;
             const folderId = document.getElementById('move-folder').value;
-            const errorEl = document.getElementById('move-error');
-            const btn = document.getElementById('move-confirm');
-            if (!folderId) {
-                errorEl.textContent = 'Sélectionnez un dossier cible.';
-                errorEl.style.display = 'block';
-                return;
-            }
-
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Déplacement…';
+            const errorEl  = document.getElementById('move-error');
+            const btn      = document.getElementById('move-confirm');
+            if (!folderId) { errorEl.textContent = 'Sélectionnez un dossier cible.'; errorEl.style.display = 'block'; return; }
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Déplacement…';
             try {
-                const res = await fetch(`/api/content/pages/${encodeURIComponent(moveTarget.pageId)}/move`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ folder_id: folderId })
-                });
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(moveTarget.pageId)}/move`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ folder_id: folderId }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeMoveModal();
-                await loadPages();
-            } catch (e) {
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-folder-open" style="margin-right:6px;"></i>Déplacer';
-            }
+                closeMoveModal(); await loadPages();
+            } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-folder-open" style="margin-right:6px;"></i>Déplacer'; }
         }
-
         document.getElementById('move-modal-close').onclick = closeMoveModal;
-        document.getElementById('move-cancel').onclick = closeMoveModal;
-        document.getElementById('move-confirm').onclick = movePage;
+        document.getElementById('move-cancel').onclick      = closeMoveModal;
+        document.getElementById('move-confirm').onclick     = movePage;
 
         // ── Status workflow ───────────────────────────────────────────────────
         function openStatusModal(pageId, title, status) {
             statusTarget = { pageId };
             document.getElementById('status-page-label').textContent = title;
-            document.getElementById('status-value').value = status || 'draft';
-            document.getElementById('status-note').value = '';
-            document.getElementById('status-error').style.display = 'none';
-            document.getElementById('status-error').textContent = '';
-            document.getElementById('status-modal').style.display = 'flex';
+            document.getElementById('status-value').value            = status || 'draft';
+            document.getElementById('status-note').value             = '';
+            document.getElementById('status-error').style.display    = 'none';
+            document.getElementById('status-error').textContent      = '';
+            document.getElementById('status-modal').style.display    = 'flex';
         }
-
-        function closeStatusModal() {
-            document.getElementById('status-modal').style.display = 'none';
-            statusTarget = null;
-        }
-
+        function closeStatusModal() { document.getElementById('status-modal').style.display = 'none'; statusTarget = null; }
         async function updatePageStatus() {
             if (!statusTarget) return;
-            const status = document.getElementById('status-value').value;
-            const note = document.getElementById('status-note').value.trim();
+            const status  = document.getElementById('status-value').value;
+            const note    = document.getElementById('status-note').value.trim();
             const errorEl = document.getElementById('status-error');
-            const btn = document.getElementById('status-confirm');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Mise à jour…';
-            errorEl.style.display = 'none';
-            errorEl.textContent = '';
-
+            const btn     = document.getElementById('status-confirm');
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Mise à jour…'; errorEl.style.display = 'none';
             try {
-                const res = await fetch(`/api/content/pages/${encodeURIComponent(statusTarget.pageId)}/status`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status, note })
-                });
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(statusTarget.pageId)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, note }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeStatusModal();
-                await loadPages();
-            } catch (e) {
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour';
-            }
+                closeStatusModal(); await loadPages();
+            } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour'; }
         }
-
         document.getElementById('status-modal-close').onclick = closeStatusModal;
-        document.getElementById('status-cancel').onclick = closeStatusModal;
-        document.getElementById('status-confirm').onclick = updatePageStatus;
+        document.getElementById('status-cancel').onclick      = closeStatusModal;
+        document.getElementById('status-confirm').onclick     = updatePageStatus;
 
         // ── Publication activation ────────────────────────────────────────────
         function updateActivationRedirectState() {
@@ -1226,402 +1192,213 @@
         // ── Versions ───────────────────────────────────────────────────────────
         async function openVersions(pageId, title) {
             document.getElementById('versions-page-label').textContent = title;
-            document.getElementById('versions-list').innerHTML = `
-                <div class="cms-empty" style="padding:30px 20px;">
-                    <i class="fas fa-circle-notch fa-spin"></i>
-                    Chargement des versions…
-                </div>`;
+            document.getElementById('versions-list').innerHTML = `<div class="cms-empty" style="padding:30px 20px;"><i class="fas fa-circle-notch fa-spin"></i> Chargement des versions…</div>`;
             document.getElementById('versions-modal').style.display = 'flex';
-
             try {
                 const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}`);
                 if (!res.ok) throw new Error(await res.text());
-                const payload = await res.json();
-                const page = payload.page || {};
-                const versions = payload.versions || [];
-                if (versions.length === 0) {
-                    document.getElementById('versions-list').innerHTML = `
-                        <div class="cms-empty" style="padding:30px 20px;">
-                            <i class="fas fa-file-circle-xmark"></i>
-                            Aucune version enregistrée.
-                        </div>`;
-                    return;
-                }
-
-                document.getElementById('versions-list').innerHTML = versions.map(version => {
-                    const isCurrent = version.id === page.current_version_id;
-                    const isHidden = Boolean(version.metadata?.deletedAt);
-                    return `
-                        <div class="cms-version-item ${isHidden ? 'is-muted' : ''}">
-                            <div class="cms-version-main">
-                                <div class="cms-version-title">
-                                    Version ${escHtml(version.version_number)}
-                                    ${isCurrent ? '<span class="cms-badge cms-badge-status-published">Courante</span>' : ''}
-                                    ${isHidden ? '<span class="cms-badge cms-badge-status-deleted">Masquée</span>' : ''}
-                                </div>
-                                <div class="cms-version-meta">
-                                    ${formatDateTime(version.created_at)}
-                                    ${version.change_summary ? ` · ${escHtml(version.change_summary)}` : ''}
-                                </div>
-                            </div>
-                            <div class="cms-version-size">
-                                HTML ${formatBytes((version.html || '').length)}
-                            </div>
-                            <div class="cms-version-actions">
-                                ${isCurrent || isHidden ? '' : `<button class="cms-btn cms-btn-history" onclick="openRestoreModal('${escAttr(page.id)}', '${escAttr(version.id)}', '${escAttr(version.version_number)}')">
-                                    <i class="fas fa-rotate-left"></i> Restaurer
-                                </button>
-                                <button class="cms-btn cms-btn-del" onclick="hideVersion('${escAttr(page.id)}', '${escAttr(version.id)}')">
-                                    <i class="fas fa-eye-slash"></i>
-                                </button>`}
-                            </div>
+                const { page = {}, versions = [] } = await res.json();
+                if (!versions.length) { document.getElementById('versions-list').innerHTML = `<div class="cms-empty" style="padding:30px 20px;"><i class="fas fa-file-circle-xmark"></i> Aucune version enregistrée.</div>`; return; }
+                document.getElementById('versions-list').innerHTML = versions.map(v => {
+                    const isCurrent = v.id === page.current_version_id;
+                    const isHidden  = Boolean(v.metadata?.deletedAt);
+                    return `<div class="cms-version-item ${isHidden ? 'is-muted' : ''}">
+                        <div class="cms-version-main">
+                            <div class="cms-version-title">Version ${escHtml(v.version_number)} ${isCurrent ? '<span class="cms-badge cms-badge-status-published">Courante</span>' : ''} ${isHidden ? '<span class="cms-badge cms-badge-status-deleted">Masquée</span>' : ''}</div>
+                            <div class="cms-version-meta">${formatDateTime(v.created_at)}${v.change_summary ? ` · ${escHtml(v.change_summary)}` : ''}</div>
                         </div>
-                    `;
+                        <div class="cms-version-size">HTML ${formatBytes((v.html || '').length)}</div>
+                        <div class="cms-version-actions">
+                            ${isCurrent || isHidden ? '' : `<button class="cms-btn cms-btn-history" onclick="openRestoreModal('${escAttr(page.id)}', '${escAttr(v.id)}', '${escAttr(v.version_number)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>
+                            <button class="cms-btn cms-btn-del" onclick="hideVersion('${escAttr(page.id)}', '${escAttr(v.id)}')"><i class="fas fa-eye-slash"></i></button>`}
+                        </div>
+                    </div>`;
                 }).join('');
             } catch (e) {
-                document.getElementById('versions-list').innerHTML = `
-                    <div class="cms-empty" style="padding:30px 20px;color:#ef4444;">
-                        <i class="fas fa-exclamation-triangle"></i>
-                        Erreur de chargement : ${escHtml(e.message)}
-                    </div>`;
+                document.getElementById('versions-list').innerHTML = `<div class="cms-empty" style="padding:30px 20px;color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur : ${escHtml(e.message)}</div>`;
             }
         }
-
         function openRestoreModal(pageId, versionId, versionNumber) {
             restoreTarget = { pageId, versionId, versionNumber };
             document.getElementById('restore-modal-copy').textContent = `Restaurer la version ${versionNumber} comme version courante ? Les autres versions seront conservées.`;
-            document.getElementById('restore-modal-error').style.display = 'none';
-            document.getElementById('restore-modal-error').textContent = '';
-            document.getElementById('restore-modal').style.display = 'flex';
+            document.getElementById('restore-modal-error').style.display   = 'none';
+            document.getElementById('restore-modal-error').textContent     = '';
+            document.getElementById('restore-modal').style.display         = 'flex';
         }
-
-        function closeRestoreModal() {
-            document.getElementById('restore-modal').style.display = 'none';
-            restoreTarget = null;
-        }
-
+        function closeRestoreModal() { document.getElementById('restore-modal').style.display = 'none'; restoreTarget = null; }
         async function restoreVersion() {
             if (!restoreTarget) return;
             const { pageId, versionId } = restoreTarget;
-            const btn = document.getElementById('restore-confirm');
+            const btn     = document.getElementById('restore-confirm');
             const errorEl = document.getElementById('restore-modal-error');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Restauration…';
-            errorEl.style.display = 'none';
-            errorEl.textContent = '';
-
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Restauration…'; errorEl.style.display = 'none';
             try {
-                const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/restore`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ version_id: versionId })
-                });
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/restore`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ version_id: versionId }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
                 closeRestoreModal();
                 await openVersions(pageId, document.getElementById('versions-page-label').textContent);
                 await loadPages();
             } catch (e) {
-                errorEl.textContent = e.message === 'File not found'
-                    ? 'Route de restauration indisponible. Redémarrez le serveur local puis réessayez.'
-                    : e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-rotate-left" style="margin-right:6px;"></i>Restaurer';
-            }
+                errorEl.textContent = e.message; errorEl.style.display = 'block';
+            } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-rotate-left" style="margin-right:6px;"></i>Restaurer'; }
         }
-
-        function closeVersionsModal() {
-            document.getElementById('versions-modal').style.display = 'none';
-        }
-
+        function closeVersionsModal() { document.getElementById('versions-modal').style.display = 'none'; }
         document.getElementById('versions-modal-close').onclick = closeVersionsModal;
-        document.getElementById('versions-close').onclick = closeVersionsModal;
-        document.getElementById('restore-modal-close').onclick = closeRestoreModal;
-        document.getElementById('restore-cancel').onclick = closeRestoreModal;
-        document.getElementById('restore-confirm').onclick = restoreVersion;
+        document.getElementById('versions-close').onclick       = closeVersionsModal;
+        document.getElementById('restore-modal-close').onclick  = closeRestoreModal;
+        document.getElementById('restore-cancel').onclick       = closeRestoreModal;
+        document.getElementById('restore-confirm').onclick      = restoreVersion;
 
         // ── Duplicate ──────────────────────────────────────────────────────────
         function openDuplicate(projectName, title) {
             dupTarget = projectName;
             document.getElementById('dup-source-label').textContent = `Source : ${title}`;
-            document.getElementById('dup-new-title').value = '';
-            document.getElementById('dup-error').style.display = 'none';
-            document.getElementById('dup-error').textContent = '';
-            document.getElementById('dup-modal').style.display = 'flex';
+            document.getElementById('dup-new-title').value          = '';
+            document.getElementById('dup-error').style.display      = 'none';
+            document.getElementById('dup-error').textContent        = '';
+            document.getElementById('dup-modal').style.display      = 'flex';
             setTimeout(() => document.getElementById('dup-new-title').focus(), 50);
         }
-
-        function closeDupModal() {
-            document.getElementById('dup-modal').style.display = 'none';
-            dupTarget = null;
-        }
-
+        function closeDupModal() { document.getElementById('dup-modal').style.display = 'none'; dupTarget = null; }
         document.getElementById('dup-modal-close').onclick = closeDupModal;
-        document.getElementById('dup-cancel').onclick = closeDupModal;
-
-        document.getElementById('dup-confirm').onclick = async () => {
+        document.getElementById('dup-cancel').onclick      = closeDupModal;
+        document.getElementById('dup-confirm').onclick     = async () => {
             const newTitle = document.getElementById('dup-new-title').value.trim();
             if (!newTitle) { document.getElementById('dup-new-title').focus(); return; }
-
             const btn = document.getElementById('dup-confirm');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Copie…';
-
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Copie…';
             try {
-                const res = await fetch('/api/pages/duplicate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sourceProjectName: dupTarget, newTitle })
-                });
+                const res = await fetch('/api/pages/duplicate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ sourceProjectName: dupTarget, newTitle }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeDupModal();
-                await loadPages();
+
+                // ── DEBUG: log duplication result including translation_info ──
+                const data = await res.json();
+                console.log('%c[/api/pages/duplicate] Response', 'color:#7e22ce;font-weight:bold;', data);
+
+                closeDupModal(); await loadPages();
             } catch (e) {
                 const errorEl = document.getElementById('dup-error');
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer';
-            }
+                errorEl.textContent = e.message; errorEl.style.display = 'block';
+            } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-copy" style="margin-right:6px;"></i>Dupliquer'; }
         };
 
         // ── Delete ─────────────────────────────────────────────────────────────
         function openDelete(projectName, title) {
             delTarget = projectName;
-            document.getElementById('del-source-label').textContent =
-                `Choisissez le traitement pour « ${title} ». Aucun contenu ne sera supprimé définitivement.`;
-            document.getElementById('delete-action').value = 'trash';
-            document.getElementById('delete-reason').value = '';
-            document.getElementById('del-error').style.display = 'none';
-            document.getElementById('del-error').textContent = '';
-            document.getElementById('del-modal').style.display = 'flex';
+            document.getElementById('del-source-label').textContent = `Choisissez le traitement pour « ${title} ». Aucun contenu ne sera supprimé définitivement.`;
+            document.getElementById('delete-action').value           = 'trash';
+            document.getElementById('delete-reason').value           = '';
+            document.getElementById('del-error').style.display       = 'none';
+            document.getElementById('del-error').textContent         = '';
+            document.getElementById('del-modal').style.display       = 'flex';
         }
-
-        function closeDelModal() {
-            document.getElementById('del-modal').style.display = 'none';
-            delTarget = null;
-        }
-
+        function closeDelModal() { document.getElementById('del-modal').style.display = 'none'; delTarget = null; }
         document.getElementById('del-modal-close').onclick = closeDelModal;
-        document.getElementById('del-cancel').onclick = closeDelModal;
-
-        document.getElementById('del-confirm').onclick = async () => {
+        document.getElementById('del-cancel').onclick      = closeDelModal;
+        document.getElementById('del-confirm').onclick     = async () => {
             const btn = document.getElementById('del-confirm');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
-
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
             try {
-                const res = await fetch(`/api/pages/delete`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        projectName: delTarget,
-                        action: document.getElementById('delete-action').value,
-                        reason: document.getElementById('delete-reason').value.trim()
-                    })
-                });
+                const res = await fetch('/api/pages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: delTarget, action: document.getElementById('delete-action').value, reason: document.getElementById('delete-reason').value.trim() }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeDelModal();
-                await loadPages();
+                closeDelModal(); await loadPages();
             } catch (e) {
                 const errorEl = document.getElementById('del-error');
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer';
-            }
+                errorEl.textContent = e.message; errorEl.style.display = 'block';
+            } finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i>Supprimer'; }
         };
-
         async function restorePage(projectName) {
             try {
-                const res = await fetch('/api/pages/delete', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ projectName, action: 'restore' })
-                });
+                const res = await fetch('/api/pages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName, action: 'restore' }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                await loadPages();
-                filterPages();
-            } catch (e) {
-                console.error(e);
-            }
+                await loadPages(); filterPages();
+            } catch (e) { console.error(e); }
         }
-
         async function hideVersion(pageId, versionId) {
             try {
-                const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions/${encodeURIComponent(versionId)}/delete`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({})
-                });
+                const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions/${encodeURIComponent(versionId)}/delete`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
                 await openVersions(pageId, document.getElementById('versions-page-label').textContent);
-            } catch (e) {
-                console.error(e);
-            }
+            } catch (e) { console.error(e); }
         }
 
-        // ── New page: redirect to school selector ──────────────────────────────
-        document.getElementById('btn-new-page').onclick = (e) => {
-            e.preventDefault();
-            window.location.href = 'school-selector.html';
-        };
+        // ── New page redirect ──────────────────────────────────────────────────
+        document.getElementById('btn-new-page').onclick = (e) => { e.preventDefault(); window.location.href = 'school-selector.html'; };
 
-        // ── Close modals on backdrop click ─────────────────────────────────────
-        document.getElementById('dup-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDupModal(); });
-        document.getElementById('del-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDelModal(); });
-        document.getElementById('versions-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeVersionsModal(); });
-        document.getElementById('restore-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRestoreModal(); });
-        document.getElementById('folder-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeFolderModal(); });
-        document.getElementById('move-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeMoveModal(); });
-        document.getElementById('status-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeStatusModal(); });
-        document.getElementById('seo-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSeoModal(); });
+        // ── Close modals on backdrop ───────────────────────────────────────────
+        ['dup-modal','del-modal','versions-modal','restore-modal','folder-modal','move-modal','status-modal','seo-modal'].forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.addEventListener('click', e => { if (e.target === e.currentTarget) el.style.display = 'none'; });
+        });
 
         // ── SEO Modal ──────────────────────────────────────────────────────────
         let seoTarget = null;
-
         function openSeoModal(projectName, title, seoTitle, seoDesc, school) {
             seoTarget = projectName;
-            document.getElementById('seo-page-label').textContent = title;
-            
-            // Show loading while we fetch fresh data
-            document.getElementById('seo-modal-title').value = '';
-            document.getElementById('seo-modal-desc').value = '';
-            document.getElementById('seo-modal-title').placeholder = 'Chargement...';
-            document.getElementById('seo-modal-desc').placeholder = 'Chargement...';
-            
+            document.getElementById('seo-page-label').textContent    = title;
+            document.getElementById('seo-modal-title').value         = '';
+            document.getElementById('seo-modal-desc').value          = '';
+            document.getElementById('seo-modal-title').placeholder   = 'Chargement...';
+            document.getElementById('seo-modal-desc').placeholder    = 'Chargement...';
             document.getElementById('seo-preview-school').textContent = school;
-            document.getElementById('seo-preview-url').textContent = projectName;
-            document.getElementById('seo-preview-date').textContent = new Date().toLocaleDateString('fr-FR') + ' — ';
-            document.getElementById('seo-error').style.display = 'none';
+            document.getElementById('seo-preview-url').textContent   = projectName;
+            document.getElementById('seo-preview-date').textContent  = new Date().toLocaleDateString('fr-FR') + ' — ';
+            document.getElementById('seo-error').style.display       = 'none';
             updateSeoPreview();
             document.getElementById('seo-modal').style.display = 'flex';
-
-            // Always fetch fresh data from the server
             (async () => {
                 try {
-                    let foundTitle = '';
-                    let foundDesc = '';
-
-                    // 1. Fetch current project properties directly from Supabase
-                    console.log('[SEO] Fetching project:', projectName);
+                    let foundTitle = '', foundDesc = '';
                     const projRes = await fetch(`/api/project/${encodeURIComponent(projectName)}`);
-                    console.log('[SEO] /api/project response status:', projRes.status);
-                    if (projRes.ok) {
-                        const project = await projRes.json();
-                        console.log('[SEO] Project properties:', JSON.stringify(project.properties));
-                        const props = project.properties || {};
-                        foundTitle = props.seoTitle || '';
-                        foundDesc  = props.seoDescription || '';
-                    }
-
-                    // 2. If still empty, look through seo_history for non-empty values
+                    if (projRes.ok) { const project = await projRes.json(); foundTitle = project.properties?.seoTitle || ''; foundDesc = project.properties?.seoDescription || ''; }
                     if (!foundTitle || !foundDesc) {
-                        console.log('[SEO] Fetching history...');
                         const histRes = await fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`);
-                        if (histRes.ok) {
-                            const hist = await histRes.json();
-                            console.log('[SEO] History records:', hist.length);
-                            for (const entry of hist) {
-                                const prev = entry.properties || {};
-                                if (!foundTitle && prev.seoTitle)       foundTitle = prev.seoTitle;
-                                if (!foundDesc  && prev.seoDescription) foundDesc  = prev.seoDescription;
-                                if (foundTitle && foundDesc) break;
-                            }
-                        }
+                        if (histRes.ok) { const hist = await histRes.json(); for (const entry of hist) { if (!foundTitle && entry.properties?.seoTitle) foundTitle = entry.properties.seoTitle; if (!foundDesc && entry.properties?.seoDescription) foundDesc = entry.properties.seoDescription; if (foundTitle && foundDesc) break; } }
                     }
-
-                    // 3. If STILL empty, use the page title as a sensible default
                     if (!foundTitle) foundTitle = title || '';
-
-                    console.log('[SEO] Final values — title:', foundTitle, '| desc:', foundDesc);
-
-                    const titleEl = document.getElementById('seo-modal-title');
-                    const descEl  = document.getElementById('seo-modal-desc');
-                    titleEl.value = foundTitle;
-                    descEl.value  = foundDesc;
-                    titleEl.placeholder = 'Titre SEO de la page';
-                    descEl.placeholder  = 'Description SEO de la page';
-                    updateSeoPreview();
-                    setTimeout(() => titleEl.focus(), 50);
-                } catch (e) {
-                    console.warn('[SEO] Error loading SEO data:', e.message || e);
-                    // Fallback: use title at minimum
-                    document.getElementById('seo-modal-title').value = title || '';
+                    document.getElementById('seo-modal-title').value       = foundTitle;
+                    document.getElementById('seo-modal-desc').value        = foundDesc;
                     document.getElementById('seo-modal-title').placeholder = 'Titre SEO de la page';
                     document.getElementById('seo-modal-desc').placeholder  = 'Description SEO de la page';
                     updateSeoPreview();
                     setTimeout(() => document.getElementById('seo-modal-title').focus(), 50);
+                } catch (e) {
+                    document.getElementById('seo-modal-title').value       = title || '';
+                    document.getElementById('seo-modal-title').placeholder = 'Titre SEO de la page';
+                    document.getElementById('seo-modal-desc').placeholder  = 'Description SEO de la page';
+                    updateSeoPreview();
                 }
             })();
         }
-
-
-        function closeSeoModal() {
-            document.getElementById('seo-modal').style.display = 'none';
-            seoTarget = null;
-        }
-
+        function closeSeoModal() { document.getElementById('seo-modal').style.display = 'none'; seoTarget = null; }
         function updateSeoPreview() {
-            const titleInput = document.getElementById('seo-modal-title');
-            const descInput = document.getElementById('seo-modal-desc');
-            
-            const titleVal = titleInput.value;
-            const descVal = descInput.value;
-            
-            // Preview
+            const titleVal = document.getElementById('seo-modal-title').value;
+            const descVal  = document.getElementById('seo-modal-desc').value;
             document.getElementById('seo-preview-title').textContent = titleVal.substring(0, 60) || 'Titre de la page';
-            document.getElementById('seo-preview-desc').textContent = descVal.substring(0, 160) || 'Description de la page…';
-            // Counters with color
-            const titleLen = titleVal.length;
-            const descLen = descVal.length;
-            const titleColor = titleLen === 0 ? '#9ca3af' : titleLen <= 30 ? '#f59e0b' : titleLen <= 60 ? '#22c55e' : '#ef4444';
-            const descColor = descLen === 0 ? '#9ca3af' : descLen <= 70 ? '#f59e0b' : descLen <= 160 ? '#22c55e' : '#ef4444';
-            document.getElementById('seo-modal-title-count').textContent = titleLen + '/60';
-            document.getElementById('seo-modal-title-count').style.color = titleColor;
-            document.getElementById('seo-modal-desc-count').textContent = descLen + '/160';
-            document.getElementById('seo-modal-desc-count').style.color = descColor;
+            document.getElementById('seo-preview-desc').textContent  = descVal.substring(0, 160) || 'Description de la page…';
+            const tLen = titleVal.length, dLen = descVal.length;
+            const tColor = tLen === 0 ? '#9ca3af' : tLen <= 30 ? '#f59e0b' : tLen <= 60 ? '#22c55e' : '#ef4444';
+            const dColor = dLen === 0 ? '#9ca3af' : dLen <= 70 ? '#f59e0b' : dLen <= 160 ? '#22c55e' : '#ef4444';
+            document.getElementById('seo-modal-title-count').textContent = tLen + '/60';
+            document.getElementById('seo-modal-title-count').style.color = tColor;
+            document.getElementById('seo-modal-desc-count').textContent  = dLen + '/160';
+            document.getElementById('seo-modal-desc-count').style.color  = dColor;
         }
-
         document.getElementById('seo-modal-title').addEventListener('input', updateSeoPreview);
-        document.getElementById('seo-modal-desc').addEventListener('input', updateSeoPreview);
+        document.getElementById('seo-modal-desc').addEventListener('input',  updateSeoPreview);
         document.getElementById('seo-modal-close').onclick = closeSeoModal;
-        document.getElementById('seo-cancel').onclick = closeSeoModal;
-
-        document.getElementById('seo-save').onclick = async () => {
+        document.getElementById('seo-cancel').onclick      = closeSeoModal;
+        document.getElementById('seo-save').onclick        = async () => {
             if (!seoTarget) return;
-            const btn = document.getElementById('seo-save');
+            const btn     = document.getElementById('seo-save');
             const errorEl = document.getElementById('seo-error');
-            btn.disabled = true;
-            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enregistrement…';
-            errorEl.style.display = 'none';
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Enregistrement…'; errorEl.style.display = 'none';
             try {
-                // /api/save-seo : met à jour UNIQUEMENT les balises SEO dans le <head>
-                // sans modifier le contenu HTML de la page
-                const res = await fetch('/api/save-seo', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        projectName: seoTarget,
-                        properties: {
-                            seoTitle: document.getElementById('seo-modal-title').value,
-                            seoDescription: document.getElementById('seo-modal-desc').value
-                        }
-                    })
-                });
+                const res = await fetch('/api/save-seo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: seoTarget, properties: { seoTitle: document.getElementById('seo-modal-title').value, seoDescription: document.getElementById('seo-modal-desc').value } }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
-                closeSeoModal();
-                await loadPages();
-            } catch (e) {
-                errorEl.textContent = e.message;
-                errorEl.style.display = 'block';
-            } finally {
-                btn.disabled = false;
-                btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer';
-            }
+                closeSeoModal(); await loadPages();
+            } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
+            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer'; }
         };
         document.getElementById('activation-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeActivationModal(); });
         document.getElementById('domain-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDomainModal(); });
@@ -1630,5 +1407,4 @@
         loadPages();
     </script>
 </body>
-
 </html>
