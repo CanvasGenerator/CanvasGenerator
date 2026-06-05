@@ -372,6 +372,7 @@ body {
 .sidebar-right {
     border-right: none;
     border-left: 1px solid var(--border-subtle);
+    overflow-y: auto;
 }
 
 /* ═══════════════════════════════════════
