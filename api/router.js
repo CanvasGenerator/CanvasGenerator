@@ -404,6 +404,17 @@ module.exports = async function handler(req, res) {
                 page_group_id:        properties.page_group_id || null
             });
 
+            // ── Log into seo_history (matching server.js behavior) ──
+            try {
+                await supabaseRequest('POST', '/seo_history', {
+                    project_name: projectName,
+                    properties: properties || {},
+                    saved_by: req.headers['x-user'] || null
+                });
+            } catch (histErr) {
+                console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
+            }
+
             // ── Mise en file d'attente (ou traitement inline si table absente) ──
             const jobResult = await enqueueOrProcessInline({
                 projectName, fullHtml, css, projectData, properties,
