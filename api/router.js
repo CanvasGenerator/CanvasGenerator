@@ -15,6 +15,52 @@ const {
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 
+/**
+ * Extrait le contenu <body> d'un document HTML complet.
+ * Utile pour pouvoir reconstruire le <head> avec des balises SEO à jour.
+ */
+function extractBodyContent(fullHtml) {
+    const match = String(fullHtml || '').match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    return match ? match[1] : fullHtml;
+}
+
+/**
+ * Tente de créer un job dans integration_jobs.
+ * Si la table n'existe pas (env local), exécute le traitement en ligne directement.
+ */
+async function enqueueOrProcessInline({ projectName, fullHtml, css, projectData, properties, source }) {
+    try {
+        await supabaseRequest('POST', '/integration_jobs', {
+            target:       'sfmc',
+            action:       'sync_project',
+            status:       'pending',
+            payload:      { projectName },
+            metadata:     { source, enqueuedBy: 'router.js' },
+            scheduled_at: new Date().toISOString()
+        });
+        return { skipped: false, action: 'queued' };
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) {
+            console.error('Failed to create integration job:', e.message);
+            return { skipped: false, action: 'job_failed', error: e.message };
+        }
+        // ── Fallback local : table absente, traitement immédiat ──────────────
+        console.warn('⚠️  [FALLBACK] integration_jobs absente — traitement synchrone en cours...');
+        try {
+            const cleaned = cleanHtmlForSfmc(fullHtml);
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                html_sfmc: cleaned
+            });
+            await syncLegacyProjectToContent({ projectName, html: fullHtml, html_sfmc: cleaned, css, projectData, properties });
+            if (isSfmcConfigured()) await syncProjectToSfmc({ projectName, fullHtml: cleaned });
+            return { skipped: false, action: 'processed_inline' };
+        } catch (syncErr) {
+            console.error('Inline processing failed:', syncErr.message);
+            return { skipped: false, action: 'inline_failed', error: syncErr.message };
+        }
+    }
+}
+
 // ── Translation group ID ──────────────────────────────────────────────────
 function generateGroupId() {
     return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, c => {
@@ -343,55 +389,31 @@ module.exports = async function handler(req, res) {
                 properties.page_group_id = existingRecord?.page_group_id || generateGroupId();
             }
 
+            // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
-            console.log(`\n🧹 [SEO] Nettoyage du HTML pour SFMC (Vercel Route)...`);
-            const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
-            console.log(`✅ [SEO] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
-
+            // ── Sauvegarde immédiate en BD (sans nettoyage lourd ni sync structurée) ──
             await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                project_name: projectName,
-                html:         fullHtml,
-                html_sfmc:    cleanedHtmlForSfmc,
+                project_name:         projectName,
+                html:                 fullHtml,
+                html_sfmc:            null, // sera rempli par le cron (ou en ligne si table absente)
                 css,
-                project_data: typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
-                properties:   properties,
+                project_data:         typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
+                properties:           properties,
                 is_original_language: properties.is_original_language !== false,
                 page_group_id:        properties.page_group_id || null
             });
 
-            const contentSync = await syncLegacyProjectToContent({
-                projectName,
-                html:        fullHtml,
-                html_sfmc:   cleanedHtmlForSfmc,
-                css,
-                projectData,
-                properties
+            // ── Mise en file d'attente (ou traitement inline si table absente) ──
+            const jobResult = await enqueueOrProcessInline({
+                projectName, fullHtml, css, projectData, properties,
+                source: 'save-api'
             });
-
-            let sfmcResult = { skipped: true, action: 'skipped' };
-            if (isSfmcConfigured()) {
-                try {
-                    await supabaseRequest('POST', '/integration_jobs', {
-                        target:       'sfmc',
-                        action:       'sync_project',
-                        status:       'pending',
-                        payload:      { projectName },
-                        metadata:     { source: 'save-api', enqueuedBy: 'router.js' },
-                        scheduled_at: new Date().toISOString()
-                    });
-                    sfmcResult = { skipped: false, action: 'queued' };
-                } catch (e) {
-                    console.error('Failed to create SFMC integration job:', e.message);
-                    sfmcResult = { skipped: false, action: 'job_failed', error: e.message };
-                }
-            }
 
             return res.status(200).json({
                 message: 'Saved',
-                sfmc:    sfmcResult,
-                content: contentSync,
-                // ── NEW: echo back translation metadata ───────────────────────
+                sfmc:    jobResult,
+                content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
                 translation_info: {
                     is_original_language: properties.is_original_language,
                     page_group_id:        properties.page_group_id || null,
@@ -403,23 +425,17 @@ module.exports = async function handler(req, res) {
             const { projectName, properties: rawProperties } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
-            console.log(`\n🔧 [SEO-SETTINGS] Mise à jour SEO pour "${projectName}" (Vercel Route)`);
+            console.log(`\n🔧 [SEO-SETTINGS] Mise à jour SEO pour "${projectName}"`);
 
-            let project = await getStructuredProjectForLegacyProject(projectName).catch(e => {
-                if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
-                return null;
-            });
-
-            if (!project) {
-                const existing = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-                if (!existing || existing.length === 0) {
-                    return res.status(404).json({ error: 'Projet introuvable' });
-                }
-                project = existing[0];
+            // ── Récupérer le projet existant ─────────────────────────────────────
+            const existing = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+            if (!existing || existing.length === 0) {
+                return res.status(404).json({ error: 'Projet introuvable' });
             }
-
+            const project = existing[0];
             const mergedProperties = { ...(project.properties || {}), ...(rawProperties || {}) };
 
+            // ── Enregistrer l'historique SEO ─────────────────────────────────
             try {
                 await supabaseRequest('POST', '/seo_history', {
                     project_name: projectName,
@@ -431,44 +447,38 @@ module.exports = async function handler(req, res) {
                 console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
             }
 
-            const baseHtml  = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
-            const freshHtml = buildStoredHtml({ projectName, html: baseHtml, css: project.css || '', properties: mergedProperties });
-            const cleanedHtml = cleanHtmlForSfmc(freshHtml);
-
-            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                html:       freshHtml,
-                html_sfmc:  cleanedHtml,
+            // ── IMPORTANT : extraire le body brut pour forcer la mise à jour des balises SEO ──
+            // Si on passe directement le HTML complet à buildStoredHtml, il le retourne sans
+            // modification car il détecte que c'est déjà un document HTML complet.
+            // Il faut donc extraire le <body> pour forcer la reconstruction du <head> avec
+            // les nouvelles balises SEO.
+            const rawBodyHtml = mergedProperties.rawHtml
+                || extractBodyContent(project.html || '');
+            const freshHtml = buildStoredHtml({
+                projectName,
+                html:       rawBodyHtml,
+                css:        project.css || '',
                 properties: mergedProperties
             });
 
-            const contentSync = await syncLegacyProjectToContent({
-                projectName,
-                html:        freshHtml,
-                html_sfmc:   cleanedHtml,
-                css:         project.css || '',
-                projectData: project.project_data,
-                properties:  mergedProperties
+            // ── Sauvegarde immédiate (sans nettoyage lourd ni sync structurée) ──
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                html:       freshHtml,
+                html_sfmc:  null, // sera recalculé par le cron (ou en ligne si table absente)
+                properties: mergedProperties
             });
 
-            let sfmcResult = { skipped: true, action: 'skipped' };
-            if (isSfmcConfigured()) {
-                try {
-                    await supabaseRequest('POST', '/integration_jobs', {
-                        target:       'sfmc',
-                        action:       'sync_project',
-                        status:       'pending',
-                        payload:      { projectName },
-                        metadata:     { source: 'save-seo-api', enqueuedBy: 'router.js' },
-                        scheduled_at: new Date().toISOString()
-                    });
-                    sfmcResult = { skipped: false, action: 'queued' };
-                } catch (e) {
-                    console.error('Failed to create SFMC integration job:', e.message);
-                    sfmcResult = { skipped: false, action: 'job_failed', error: e.message };
-                }
-            }
+            // ── Mise en file d'attente (ou traitement inline si table absente) ──
+            const jobResult = await enqueueOrProcessInline({
+                projectName,
+                fullHtml:    freshHtml,
+                css:         project.css || '',
+                projectData: project.project_data,
+                properties:  mergedProperties,
+                source:      'save-seo-api'
+            });
 
-            return res.status(200).json({ message: 'SEO saved', sfmc: sfmcResult, content: contentSync, projectName });
+            return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
         }
 
         if (req.method === 'GET' && pathname === '/api/seo-history') {

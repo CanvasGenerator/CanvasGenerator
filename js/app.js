@@ -517,42 +517,29 @@ function initProperties() {
 }
 
 function collectProperties() {
-    return {
-        title:          (document.getElementById('prop-title')?.value       || '').trim(),
-        description:    (document.getElementById('prop-desc')?.value        || '').trim(),
-        seoTitle:       (document.getElementById('prop-seo-title')?.value   || '').trim(),
-        seoDescription: (document.getElementById('prop-seo-desc')?.value    || '').trim(),
-        keywords:       (document.getElementById('prop-keywords')?.value    || '').trim(),
-        canonical:      (document.getElementById('prop-canonical')?.value   || '').trim(),
-        schemaLd:       (document.getElementById('prop-schema')?.value      || '').trim(),
-    };
+    return { ...currentProjectProperties };
 }
 
 function populateProperties(props = {}) {
     const schoolId = CURRENT_SCHOOL?.id || 'unknown';
     const currentProjectSimpleName = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`) || 'Nouveau Projet';
 
-    const set = (id, val) => { const el = document.getElementById(id); if (el) el.value = val || ''; };
-    
-    // Elegant fallbacks using the current project name
     const pageTitle = (props.title || '').trim() || currentProjectSimpleName;
     const seoTitle = (props.seoTitle || '').trim() || pageTitle;
     const defaultDesc = `Page d'atterrissage officielle de l'école ${CURRENT_SCHOOL?.name || 'Reetain'}.`;
     const defaultSeoDesc = `Découvrez notre nouvelle page ${currentProjectSimpleName} pour l'école ${CURRENT_SCHOOL?.name || 'Reetain'}. Retrouvez toutes les informations.`;
     const defaultKeywords = `${CURRENT_SCHOOL?.name || 'école'}, formation, JPO, inscription`;
 
-    set('prop-title',     pageTitle);
-    set('prop-desc',      props.description || defaultDesc);
-    set('prop-seo-title', seoTitle);
-    set('prop-seo-desc',  props.seoDescription || defaultSeoDesc);
-    set('prop-keywords',  props.keywords || defaultKeywords);
-    set('prop-canonical', props.canonical);
-    set('prop-schema',    props.schemaLd);
-    
-    // Re-trigger counters
-    ['prop-seo-title', 'prop-seo-desc', 'prop-schema'].forEach(id => {
-        document.getElementById(id)?.dispatchEvent(new Event('input'));
-    });
+    currentProjectProperties = {
+        title:          pageTitle,
+        description:    props.description || defaultDesc,
+        seoTitle:       seoTitle,
+        seoDescription: props.seoDescription || defaultSeoDesc,
+        keywords:       props.keywords || defaultKeywords,
+        canonical:      props.canonical || '',
+        schemaLd:       props.schemaLd || '',
+        ...props
+    };
 }
 
 // ── NEW: Build complete HTML with SEO meta tags injected into <head> ─────────
@@ -2001,6 +1988,10 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
         keywords:       document.getElementById('seo-settings-keywords').value.trim(),
         canonical:      document.getElementById('seo-settings-canonical').value.trim(),
     };
+
+    // Mettre à jour l'objet en mémoire pour ne pas l'écraser lors d'un "Save" ultérieur
+    Object.assign(currentProjectProperties, newProps);
+
 
     const btn = document.getElementById('btn-seo-settings-save');
     btn.disabled = true;
