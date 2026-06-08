@@ -570,9 +570,14 @@ http.createServer(async (req, res) => {
 
                 // Log into seo_history
                 try {
+                    const seoHistoryProps = { ...properties };
+                    delete seoHistoryProps.rawHtml;
+                    delete seoHistoryProps.page_group_id;
+                    delete seoHistoryProps.is_original_language;
+
                     await supabaseRequest('POST', '/seo_history', {
                         project_name: projectName,
-                        properties: properties || {},
+                        properties: seoHistoryProps,
                         saved_by: req.headers['x-user'] || null
                     });
                 } catch (histErr) {
@@ -676,9 +681,14 @@ http.createServer(async (req, res) => {
 
                 // Save new properties to seo_history for auditing / revert
                 try {
+                    const seoHistoryProps = { ...mergedProperties };
+                    delete seoHistoryProps.rawHtml;
+                    delete seoHistoryProps.page_group_id;
+                    delete seoHistoryProps.is_original_language;
+
                     await supabaseRequest('POST', '/seo_history', {
                         project_name: projectName,
-                        properties: mergedProperties,
+                        properties: seoHistoryProps,
                         saved_by: req.headers['x-user'] || null
                     });
                     console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
