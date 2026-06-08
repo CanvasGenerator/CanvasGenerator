@@ -138,6 +138,9 @@ module.exports = async function handler(req, res) {
                     lang:         parts[1] || 'FR',
                     seoTitle:     props.seoTitle || '',
                     seoDescription: props.seoDescription || '',
+                    keywords:     props.keywords || '',
+                    canonical:    props.canonical || '',
+                    schemaLd:     props.schemaLd || '',
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       props.status || 'draft',
@@ -406,9 +409,14 @@ module.exports = async function handler(req, res) {
 
             // ── Log into seo_history (matching server.js behavior) ──
             try {
+                const seoHistoryProps = { ...properties };
+                delete seoHistoryProps.rawHtml;
+                delete seoHistoryProps.page_group_id;
+                delete seoHistoryProps.is_original_language;
+
                 await supabaseRequest('POST', '/seo_history', {
                     project_name: projectName,
-                    properties: properties || {},
+                    properties: seoHistoryProps,
                     saved_by: req.headers['x-user'] || null
                 });
             } catch (histErr) {
@@ -448,9 +456,14 @@ module.exports = async function handler(req, res) {
 
             // ── Enregistrer l'historique SEO ─────────────────────────────────
             try {
+                const seoHistoryProps = { ...mergedProperties };
+                delete seoHistoryProps.rawHtml;
+                delete seoHistoryProps.page_group_id;
+                delete seoHistoryProps.is_original_language;
+
                 await supabaseRequest('POST', '/seo_history', {
                     project_name: projectName,
-                    properties:   mergedProperties,
+                    properties:   seoHistoryProps,
                     saved_by:     req.headers['x-user'] || null
                 });
                 console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
