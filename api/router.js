@@ -34,7 +34,7 @@ async function enqueueOrProcessInline({ projectName, fullHtml, css, projectData,
             target:       'sfmc',
             action:       'sync_project',
             status:       'pending',
-            payload:      { projectName },
+            payload:      { projectName, html: fullHtml },
             metadata:     { source, enqueuedBy: 'router.js' },
             scheduled_at: new Date().toISOString()
         });
