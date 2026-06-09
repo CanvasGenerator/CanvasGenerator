@@ -34,6 +34,7 @@ module.exports = async function handler(req, res) {
                     const projectName = job.payload?.projectName;
                     if (!projectName) throw new Error('Missing projectName in payload');
 
+                    // Toujours charger le projet pour css/project_data/properties
                     const projectRes = await supabaseRequest(
                         'GET',
                         `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
@@ -41,9 +42,13 @@ module.exports = async function handler(req, res) {
                     const project = projectRes && projectRes[0];
                     if (!project) throw new Error(`Project ${projectName} not found`);
 
+                    // Utiliser le HTML embarqué dans le payload en priorité (évite que la re-lecture
+                    // depuis la BD retourne une version périmée si le PATCH n'est pas encore visible)
+                    const htmlSource = job.payload?.html ? 'payload' : 'db';
+                    const rawHtml = job.payload?.html || project.html || '';
+
                     // ── 3. Nettoyage lourd du HTML pour SFMC (Cheerio) ────────────
-                    const rawHtml = project.html || '';
-                    console.log(`\n🧹 [CRON] Nettoyage HTML pour "${projectName}"...`);
+                    console.log(`\n🧹 [CRON] Nettoyage HTML pour "${projectName}" (source: ${htmlSource})...`);
                     const cleanedHtml = cleanHtmlForSfmc(rawHtml);
                     console.log(`✅ [CRON] Nettoyage terminé (${rawHtml.length} → ${cleanedHtml.length} octets)`);
 
