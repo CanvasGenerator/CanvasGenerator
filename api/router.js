@@ -454,28 +454,22 @@ module.exports = async function handler(req, res) {
             const project = existing[0];
             const mergedProperties = { ...(project.properties || {}), ...(rawProperties || {}) };
 
-            // ── Enregistrer l'historique SEO ─────────────────────────────────
-            try {
-                const seoHistoryProps = { ...mergedProperties };
-                delete seoHistoryProps.rawHtml;
-                delete seoHistoryProps.page_group_id;
-                delete seoHistoryProps.is_original_language;
+            // ── 1. Écrire dans seo_history (source de vérité pour les valeurs SEO) ──
+            // On utilise Prefer: return=representation pour forcer un vrai INSERT (pas de merge-duplicates
+            // car seo_history n'a pas de contrainte unique sur project_name).
+            const seoHistoryProps = { ...mergedProperties };
+            delete seoHistoryProps.rawHtml;
+            delete seoHistoryProps.page_group_id;
+            delete seoHistoryProps.is_original_language;
 
-                await supabaseRequest('POST', '/seo_history', {
-                    project_name: projectName,
-                    properties:   seoHistoryProps,
-                    saved_by:     req.headers['x-user'] || null
-                });
-                console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
-            } catch (histErr) {
-                console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
-            }
+            await supabaseRequest('POST', '/seo_history', {
+                project_name: projectName,
+                properties:   seoHistoryProps,
+                saved_by:     req.headers['x-user'] || null
+            }, { Prefer: 'return=minimal' });
+            console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
-            // ── IMPORTANT : extraire le body brut pour forcer la mise à jour des balises SEO ──
-            // Si on passe directement le HTML complet à buildStoredHtml, il le retourne sans
-            // modification car il détecte que c'est déjà un document HTML complet.
-            // Il faut donc extraire le <body> pour forcer la reconstruction du <head> avec
-            // les nouvelles balises SEO.
+            // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
             const rawBodyHtml = mergedProperties.rawHtml
                 || extractBodyContent(project.html || '');
             const freshHtml = buildStoredHtml({
@@ -485,14 +479,14 @@ module.exports = async function handler(req, res) {
                 properties: mergedProperties
             });
 
-            // ── Sauvegarde immédiate (sans nettoyage lourd ni sync structurée) ──
+            // ── 3. Mettre à jour Projects (html + properties) ─────────────────────
             await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
                 html:       freshHtml,
-                html_sfmc:  null, // sera recalculé par le cron (ou en ligne si table absente)
+                html_sfmc:  null,
                 properties: mergedProperties
             });
 
-            // ── Mise en file d'attente (ou traitement inline si table absente) ──
+            // ── 4. Mise en file d'attente SFMC ────────────────────────────────────
             const jobResult = await enqueueOrProcessInline({
                 projectName,
                 fullHtml:    freshHtml,

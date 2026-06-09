@@ -1916,62 +1916,45 @@ window.openSeoSettings = async (projectName) => {
     _seoShowStatus('Chargement des données...', 'info');
 
     try {
-        const res = await fetch(`/api/project/${encodeURIComponent(projectName)}`);
-        if (!res.ok) throw new Error('Projet introuvable');
-        const project = await res.json();
-        const props = project.properties || {};
-
-        // Extract display name from full project name (e.g., school-efap__MyProject__FR -> MyProject)
         const nameParts = projectName.split('__');
         const displayName = nameParts.length > 1 ? nameParts[1] : projectName;
 
-        document.getElementById('seo-settings-title').value       = props.title || displayName;
-        document.getElementById('seo-settings-meta-title').value  = props.seoTitle || props.title || displayName;
-        document.getElementById('seo-settings-meta-desc').value   = props.seoDescription || '';
-        document.getElementById('seo-settings-keywords').value    = props.keywords || '';
-        document.getElementById('seo-settings-canonical').value   = props.canonical || '';
+        // Charger en parallèle le projet et l'historique SEO
+        const [projRes, histRes] = await Promise.all([
+            fetch(`/api/project/${encodeURIComponent(projectName)}`),
+            fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`)
+        ]);
+
+        if (!projRes.ok) throw new Error('Projet introuvable');
+        const project = await projRes.json();
+        const props = project.properties || {};
+
+        // seo_history est la source de vérité : on l'utilise en priorité
+        let seoProps = {};
+        if (histRes.ok) {
+            const histText = await histRes.text();
+            if (!histText.startsWith('<!DOCTYPE') && !histText.startsWith('<html')) {
+                const hist = JSON.parse(histText);
+                if (hist && hist.length > 0) {
+                    seoProps = hist[0].properties || {};
+                }
+            }
+        }
+
+        // Fusionner : seo_history > project.properties > valeurs par défaut
+        const merged = { ...props, ...seoProps };
+
+        document.getElementById('seo-settings-title').value       = merged.title || displayName;
+        document.getElementById('seo-settings-meta-title').value  = merged.seoTitle || merged.title || displayName;
+        document.getElementById('seo-settings-meta-desc').value   = merged.seoDescription || '';
+        document.getElementById('seo-settings-keywords').value    = merged.keywords || '';
+        document.getElementById('seo-settings-canonical').value   = merged.canonical || '';
 
         updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
         updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
         updateGooglePreview('seo-settings');
 
         _seoStatus.style.display = 'none';
-
-        // Load previous SEO values (most recent history) and display them to help editing
-        (async () => {
-            try {
-                const histRes = await fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`);
-                if (!histRes.ok) return;
-                
-                // Read as text first to avoid JSON parse errors if the server returns HTML (e.g., index.html fallback)
-                const text = await histRes.text();
-                if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
-                    console.warn('Le serveur a retourné une page HTML au lieu de JSON. Veuillez redémarrer votre serveur Node.js.');
-                    return;
-                }
-                
-                const hist = JSON.parse(text);
-                if (hist && hist.length > 0) {
-                    const prev = hist[0].properties || {};
-                    // Only overwrite if the current DB properties were genuinely empty
-                    if (!props.seoTitle && prev.seoTitle) {
-                        document.getElementById('seo-settings-meta-title').value = prev.seoTitle;
-                    }
-                    if (!props.seoDescription && prev.seoDescription) {
-                        document.getElementById('seo-settings-meta-desc').value = prev.seoDescription;
-                    }
-                    if (!props.keywords && prev.keywords) {
-                        document.getElementById('seo-settings-keywords').value = prev.keywords;
-                    }
-                    
-                    updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
-                    updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
-                    updateGooglePreview('seo-settings');
-                }
-            } catch (e) {
-                console.warn('Unable to load SEO history:', e.message || e);
-            }
-        })();
     } catch(e) {
         _seoShowStatus('Erreur lors du chargement : ' + e.message, 'error');
     }
