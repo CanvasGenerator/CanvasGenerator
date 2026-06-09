@@ -530,7 +530,11 @@ function populateProperties(props = {}) {
     const defaultSeoDesc = `Découvrez notre nouvelle page ${currentProjectSimpleName} pour l'école ${CURRENT_SCHOOL?.name || 'Reetain'}. Retrouvez toutes les informations.`;
     const defaultKeywords = `${CURRENT_SCHOOL?.name || 'école'}, formation, JPO, inscription`;
 
+    // On spread props en dernier MAIS on s'assure que les champs SEO critiques
+    // ne sont jamais écrasés par une valeur vide provenant des props brutes.
+    // Exemple : props.keywords = '' → on garde defaultKeywords, pas ''
     currentProjectProperties = {
+        ...props,
         title:          pageTitle,
         description:    props.description || defaultDesc,
         seoTitle:       seoTitle,
@@ -538,7 +542,6 @@ function populateProperties(props = {}) {
         keywords:       props.keywords || defaultKeywords,
         canonical:      props.canonical || '',
         schemaLd:       props.schemaLd || '',
-        ...props
     };
 }
 
@@ -1941,8 +1944,13 @@ window.openSeoSettings = async (projectName) => {
             }
         }
 
-        // Fusionner : seo_history > project.properties > valeurs par défaut
-        const merged = { ...props, ...seoProps };
+        // Fusionner : seo_history prime sur project.properties,
+        // MAIS seulement pour les champs non-vides (une valeur "" dans l'historique
+        // signifie "jamais renseigné", pas "vidé intentionnellement au niveau du modal")
+        const merged = { ...props };
+        Object.entries(seoProps).forEach(([k, v]) => {
+            if (v !== '' && v !== null && v !== undefined) merged[k] = v;
+        });
 
         document.getElementById('seo-settings-title').value       = merged.title || displayName;
         document.getElementById('seo-settings-meta-title').value  = merged.seoTitle || merged.title || displayName;

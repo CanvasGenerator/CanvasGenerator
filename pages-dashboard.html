@@ -1407,8 +1407,13 @@
                         if (hist && hist.length > 0) seoProps = hist[0].properties || {};
                     }
 
-                    // Fusionner : seo_history > project.properties
-                    const merged = { ...props, ...seoProps };
+                    // Fusionner : seo_history prime sur project.properties,
+                    // MAIS seulement pour les champs non-vides (une valeur "" dans l'historique
+                    // signifie "jamais renseigné", pas "vidé intentionnellement au niveau du modal")
+                    const merged = { ...props };
+                    Object.entries(seoProps).forEach(([k, v]) => {
+                        if (v !== '' && v !== null && v !== undefined) merged[k] = v;
+                    });
 
                     document.getElementById('seo-modal-page-title').value         = merged.title          || title || '';
                     document.getElementById('seo-modal-title').value              = merged.seoTitle       || '';
