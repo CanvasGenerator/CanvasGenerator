@@ -64,6 +64,11 @@ function isFullHtmlDocument(html = '') {
     return /^\s*(<!doctype\s+html[^>]*>\s*)?<html[\s>]/i.test(String(html || ''));
 }
 
+function extractBodyContent(fullHtml) {
+    const match = String(fullHtml || '').match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    return match ? match[1] : fullHtml;
+}
+
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
     const title = properties?.seoTitle || properties?.title || projectName || '';
     const desc = properties?.seoDescription || '';
@@ -679,25 +684,21 @@ http.createServer(async (req, res) => {
 
                 const mergedProperties = { ...(project.properties || {}), ...properties };
 
-                // Save new properties to seo_history for auditing / revert
-                try {
-                    const seoHistoryProps = { ...mergedProperties };
-                    delete seoHistoryProps.rawHtml;
-                    delete seoHistoryProps.page_group_id;
-                    delete seoHistoryProps.is_original_language;
+                // 1. Écrire dans seo_history (source de vérité — INSERT obligatoire, pas silencieux)
+                const seoHistoryProps = { ...mergedProperties };
+                delete seoHistoryProps.rawHtml;
+                delete seoHistoryProps.page_group_id;
+                delete seoHistoryProps.is_original_language;
 
-                    await supabaseRequest('POST', '/seo_history', {
-                        project_name: projectName,
-                        properties: seoHistoryProps,
-                        saved_by: req.headers['x-user'] || null
-                    });
-                    console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
-                } catch (histErr) {
-                    console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
-                }
+                await supabaseRequest('POST', '/seo_history', {
+                    project_name: projectName,
+                    properties: seoHistoryProps,
+                    saved_by: req.headers['x-user'] || null
+                }, { Prefer: 'return=minimal' });
+                console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
-                const baseHtml = mergedProperties.rawHtml || project.html_sfmc || project.html || '';
+                const baseHtml = mergedProperties.rawHtml || extractBodyContent(project.html || '') || '';
                 const freshHtml = buildStoredHtml({
                     projectName,
                     html: baseHtml,
@@ -708,6 +709,7 @@ http.createServer(async (req, res) => {
                 // 3. Sauvegarder immédiatement → puis répondre à l'utilisateur
                 await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
                     html: freshHtml,
+                    html_sfmc: null,
                     properties: mergedProperties
                 });
 

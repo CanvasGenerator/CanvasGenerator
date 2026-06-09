@@ -1386,29 +1386,35 @@
             updateSeoPreview();
             document.getElementById('seo-modal').style.display = 'flex';
 
-            // Async: load full properties from project API
+            // Async: charger en parallèle le projet et l'historique SEO
+            // seo_history est la source de vérité : ses valeurs priment sur project.properties
             (async () => {
                 try {
+                    const [projRes, histRes] = await Promise.all([
+                        fetch(`/api/project/${encodeURIComponent(projectName)}`),
+                        fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`)
+                    ]);
+
                     let props = {};
-                    const projRes = await fetch(`/api/project/${encodeURIComponent(projectName)}`);
                     if (projRes.ok) {
                         const project = await projRes.json();
                         props = project.properties || {};
                     }
-                    // Fallback: try seo-history if key fields are empty
-                    if (!props.seoTitle && !props.seoDescription) {
-                        const histRes = await fetch(`/api/seo-history?projectName=${encodeURIComponent(projectName)}`);
-                        if (histRes.ok) {
-                            const hist = await histRes.json();
-                            if (hist && hist.length > 0) props = { ...hist[0].properties, ...props };
-                        }
+
+                    let seoProps = {};
+                    if (histRes.ok) {
+                        const hist = await histRes.json();
+                        if (hist && hist.length > 0) seoProps = hist[0].properties || {};
                     }
 
-                    document.getElementById('seo-modal-page-title').value         = props.title       || title || '';
-                    document.getElementById('seo-modal-title').value              = props.seoTitle    || '';
-                    document.getElementById('seo-modal-desc').value               = props.seoDescription || '';
-                    document.getElementById('seo-modal-keywords').value           = props.keywords    || '';
-                    document.getElementById('seo-modal-canonical').value          = props.canonical   || '';
+                    // Fusionner : seo_history > project.properties
+                    const merged = { ...props, ...seoProps };
+
+                    document.getElementById('seo-modal-page-title').value         = merged.title          || title || '';
+                    document.getElementById('seo-modal-title').value              = merged.seoTitle       || '';
+                    document.getElementById('seo-modal-desc').value               = merged.seoDescription || '';
+                    document.getElementById('seo-modal-keywords').value           = merged.keywords       || '';
+                    document.getElementById('seo-modal-canonical').value          = merged.canonical      || '';
                     document.getElementById('seo-modal-page-title').placeholder   = 'ex: Journée Portes Ouvertes – Mon École';
                     document.getElementById('seo-modal-title').placeholder        = 'Titre accrocheur · 50-60 car.';
                     document.getElementById('seo-modal-desc').placeholder         = 'Description attractive · 120-160 car.';
