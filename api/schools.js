@@ -36,6 +36,8 @@ function normalizeSchool(school = {}) {
         secondaryColor: school.secondaryColor || school.secondary_color || '#1a1a1a',
         colorLight: school.colorLight || school.color_light || '',
         emoji: school.emoji || '🏫',
+        rgpdText: school.rgpdText || school.rgpd_text || '',
+        rgpdUrl: school.rgpdUrl || school.rgpd_url || '',
         deleted: Boolean(school.deleted),
         defaultBlocks: Array.isArray(school.defaultBlocks)
             ? school.defaultBlocks
