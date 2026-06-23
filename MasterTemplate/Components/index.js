@@ -6,6 +6,7 @@ import programme from './Programme/index.js';
 import chiffresCles from './ChiffresCles/index.js';
 import troisRaisons from './TroisRaisons/index.js';
 import carousel from './Carousel/index.js';
+import carouselVariantA from './CarouselVariantA/index.js';
 import carouselVariantB from './CarouselVariantB/index.js';
 import carouselVariantC from './CarouselVariantC/index.js';
 import carouselVariantD from './CarouselVariantD/index.js';
@@ -20,6 +21,7 @@ import modal from './Modal/index.js';
 import carousel2A from './Carousel2A/index.js';
 import carousel2B from './Carousel2B/index.js';
 import carousel2C from './Carousel2C/index.js';
+import carousel3Campus from './Carousel3Campus/index.js';
 
 export function registerMasterComponents(editor) {
     const categories = {
@@ -35,6 +37,7 @@ export function registerMasterComponents(editor) {
         chiffresCles,
         troisRaisons,
         carousel,
+        carouselVariantA,
         carouselVariantB,
         carouselVariantC,
         carouselVariantD,
@@ -48,7 +51,8 @@ export function registerMasterComponents(editor) {
         modal,
         carousel2A,
         carousel2B,
-        carousel2C
+        carousel2C,
+        carousel3Campus
     ].forEach(blockInit => {
         if (typeof blockInit === 'function') {
             blockInit(editor, categories);
