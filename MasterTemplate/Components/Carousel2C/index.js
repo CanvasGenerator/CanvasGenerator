@@ -112,6 +112,7 @@ export default function(editor, categories) {
 
                 /* Mobile */
                 @media(max-width:640px) {
+                    .mc2c-section { padding: 0 16px; }
                     .mc2c-slide { flex-direction: column; min-height: auto; }
                     .mc2c-img-col { flex: 0 0 auto; height: 240px; }
                     .mc2c-text-col { padding: 22px 20px; border-left: none; border-top: 5px solid var(--brand-primary, #374151); }

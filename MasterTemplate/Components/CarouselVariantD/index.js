@@ -67,14 +67,20 @@ export default function(editor, categories) {
 
             styles: `
                 .mcd-section {
-                    padding: 36px 20px;
-                    background: #fff;
+                    padding: 20px 20px 0;
+                    background: transparent;
                     font-family: Arial, sans-serif;
                 }
+                /* Wrapper gris très clair — uniquement autour des cartes */
+                .mcd-colored-zone {
+                    background: #f3f4f6;
+                    width: 100%;
+                    padding: 20px 20px 20px;
+                    box-sizing: border-box;
+                }
                 .mcd-viewport {
-                    max-width: 860px;
-                    margin: 0 auto;
                     overflow: hidden;
+                    width: 100%;
                 }
                 .mcd-track {
                     display: flex;
@@ -84,8 +90,9 @@ export default function(editor, categories) {
                 /* ── Card ── */
                 .mcd-card {
                     flex: 0 0 calc(100% / 3);
+                    max-width: calc(100% / 3);
                     box-sizing: border-box;
-                    padding: 0 6px;
+                    padding: 20px;
                     display: flex;
                     flex-direction: column;
                 }
@@ -159,17 +166,14 @@ export default function(editor, categories) {
                 }
                 .mcd-prev:hover,
                 .mcd-next:hover {
-                    background: #1f2937;
-                    color: #e5e7eb;
-                    border-color: #1f2937;
+                    background: #fff;
+                    color: var(--brand-primary, #374151);
+                    border-color: #fff;
                 }
 
                 /* ── Responsive ── */
-                @media (max-width: 1024px) and (min-width: 581px) {
-                    .mcd-card { flex: 0 0 50%; }
-                }
-                @media (max-width: 580px) {
-                    .mcd-card { flex: 0 0 100%; }
+                @media (max-width: 768px) {
+                    .mcd-card { flex: 0 0 100%; padding: 0; }
                     .mcd-img { height: 220px; }
                 }
             `,
@@ -178,43 +182,27 @@ export default function(editor, categories) {
                 tagName: 'section',
                 classes: ['mcd-section'],
                 components: [
-                    /* ── Viewport + Track ── */
+                    // Zone colorée — uniquement autour des cartes
                     {
                         tagName: 'div',
-                        classes: ['mcd-viewport'],
+                        classes: ['mcd-colored-zone'],
                         components: [{
                             tagName: 'div',
-                            classes: ['mcd-track'],
-                            components: [
-                                makeCard(
-                                    'https://placehold.co/380x195/c9c9c9/333?text=Programme+1',
-                                    'COMMUNICATION &amp; MARKETING STRATÉGIQUE',
-                                    ['4 campus disponibles', 'Anglais', 'Alternance possible', 'Double diplôme international'],
-                                    'Devenez un manager complet en vous appuyant sur une double compétence Communication et Marketing.'
-                                ),
-                                makeCard(
-                                    'https://placehold.co/380x195/a0a0c0/111?text=Programme+2',
-                                    'COMMUNICATION &amp; MANAGEMENT ÉVÉNEMENTIEL',
-                                    ['7 campus disponibles', 'Alternance possible'],
-                                    'Devenez un manager complet pour une communication stratégique, riche de sens.'
-                                ),
-                                makeCard(
-                                    'https://placehold.co/380x195/b0b8c0/333?text=Programme+3',
-                                    'CRÉATION &amp; STRATÉGIES PUBLICITAIRES',
-                                    ['7 campus disponibles', 'Alternance possible', 'Double diplôme international'],
-                                    'Devenez un créatif, porteur de sens et d\'idées, maîtrisant les dynamiques d\'un univers publicitaire en révolution.'
-                                ),
-                                makeCard(
-                                    'https://placehold.co/380x195/c0b8a0/333?text=Programme+4',
-                                    'RELATIONS PUBLIQUES &amp; INFLUENCE',
-                                    ['5 campus disponibles', 'Alternance possible'],
-                                    'Maîtrisez les techniques de relations presse, lobbying et communication d\'influence.'
-                                )
-                            ]
+                            classes: ['mcd-viewport'],
+                            components: [{
+                                tagName: 'div',
+                                classes: ['mcd-track'],
+                                components: [
+                                    makeCard('https://placehold.co/380x195/c9c9c9/333?text=Programme+1', 'COMMUNICATION &amp; MARKETING STRATÉGIQUE', ['4 campus disponibles', 'Anglais', 'Alternance possible', 'Double diplôme international'], 'Devenez un manager complet en vous appuyant sur une double compétence Communication et Marketing.'),
+                                    makeCard('https://placehold.co/380x195/a0a0c0/111?text=Programme+2', 'COMMUNICATION &amp; MANAGEMENT ÉVÉNEMENTIEL', ['7 campus disponibles', 'Alternance possible'], 'Devenez un manager complet pour une communication stratégique, riche de sens.'),
+                                    makeCard('https://placehold.co/380x195/b0b8c0/333?text=Programme+3', 'CRÉATION &amp; STRATÉGIES PUBLICITAIRES', ['7 campus disponibles', 'Alternance possible', 'Double diplôme international'], 'Devenez un créatif, porteur de sens et d\'idées, maîtrisant les dynamiques d\'un univers publicitaire en révolution.'),
+                                    makeCard('https://placehold.co/380x195/c0b8a0/333?text=Programme+4', 'RELATIONS PUBLIQUES &amp; INFLUENCE', ['5 campus disponibles', 'Alternance possible'], 'Maîtrisez les techniques de relations presse, lobbying et communication d\'influence.')
+                                ]
+                            }]
                         }]
                     },
 
-                    /* ── Navigation ── */
+                    // Boutons en dehors de la zone colorée
                     {
                         tagName: 'div',
                         classes: ['mcd-nav'],
@@ -241,10 +229,7 @@ export default function(editor, categories) {
                     var idx   = 0;
 
                     function getVisible() {
-                        var w = window.innerWidth;
-                        if (w <= 580)  return 1;
-                        if (w <= 1024) return 2;
-                        return 3;
+                        return window.innerWidth <= 768 ? 1 : 3;
                     }
 
                     function update() {

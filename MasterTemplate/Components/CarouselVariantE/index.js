@@ -59,7 +59,7 @@ export default function(editor, categories) {
             styles: `
                 .mce-section {
                     padding: 36px 20px;
-                    background: #fff;
+                    background: var(--brand-primary, #374151);
                     font-family: Arial, sans-serif;
                 }
                 .mce-viewport {
@@ -167,17 +167,14 @@ export default function(editor, categories) {
                 }
                 .mce-prev:hover,
                 .mce-next:hover {
-                    background: var(--brand-primary, #374151);
-                    color: #fff;
-                    border-color: var(--brand-primary, #374151);
+                    background: #fff;
+                    color: var(--brand-primary, #374151);
+                    border-color: #fff;
                 }
 
                 /* ── Responsive ── */
-                @media (max-width: 1024px) and (min-width: 581px) {
-                    .mce-card { flex: 0 0 50%; }
-                }
-                @media (max-width: 580px) {
-                    .mce-card { flex: 0 0 100%; }
+                @media (max-width: 768px) {
+                    .mce-card { flex: 0 0 100%; padding: 0; }
                     .mce-card-header { font-size: 14px; min-height: 56px; }
                 }
             `,
@@ -253,10 +250,7 @@ export default function(editor, categories) {
                     var idx   = 0;
 
                     function getVisible() {
-                        var w = window.innerWidth;
-                        if (w <= 580)  return 1;
-                        if (w <= 1024) return 2;
-                        return 3;
+                        return window.innerWidth <= 768 ? 1 : 3;
                     }
 
                     function update() {
