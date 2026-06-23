@@ -1,4 +1,5 @@
 import basics from './basics/index.js';
+import { registerMasterComponents } from '../MasterTemplate/Components/index.js';
 import headerEfap from './header-efap/index.js';
 import footerEfap from './footer-efap/index.js';
 import headerBrassart from './header-brassart/index.js';
@@ -50,4 +51,7 @@ export function registerBlocks(editor) {
             console.warn('Block skipped: The block is missing an export default function()');
         }
     });
+
+    // Register Master Template Components
+    registerMasterComponents(editor);
 }
