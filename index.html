@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Landing Page Builder</title>
+    <link rel="icon" type="image/png" href="assets/LogoReetain.png">
+    
+    <!-- GrapesJS Styles -->
+    <link rel="stylesheet" href="https://unpkg.com/grapesjs/dist/css/grapes.min.css">
+    <!-- FontAwesome for Icons -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <!-- Google Fonts: Inter -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Custom UI Styles -->
+    <link rel="stylesheet" href="css/builder.css">
+    <link rel="stylesheet" href="css/form-generator.css">
+    <link rel="stylesheet" href="css/component-builder.css">
+    
+    <!-- External Libraries -->
+    <script src="https://unpkg.com/grapesjs"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+</head>
+<body>
+    <div id="builder-container">
+        <!-- Top Toolbar -->
+        <header class="builder-toolbar">
+            <div class="toolbar-left">
+                <a href="school-selector.html" class="back-dashboard-btn" id="btn-back" title="Retour au tableau de bord">
+                    <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+                </a>
+                <div class="app-logo">
+                 <div class="logo-icon">
+                    <img src="assets/LogoReetain.png" alt="Logo">
+                 </div>                    
+                 <span class="logo-text">Landing Page <span class="text-accent">Builder</span></span>
+                </div>
+                <div class="school-indicator" id="school-indicator" style="display:none">
+                    <span class="school-dot" id="school-dot"></span>
+                    <span class="school-label" id="school-label"></span>
+                </div>
+                <div class="toolbar-divider"></div>
+                <nav class="toolbar-menu">
+                    <button class="menu-btn" id="btn-new">New</button>
+                    <button class="menu-btn" id="btn-open">Open</button>
+                    <div class="dropdown">
+                        <button class="menu-btn" id="btn-export">File ▼</button>
+                        <div class="dropdown-content">
+                            <a href="#" id="export-html">Export HTML</a>
+                            <a href="#" id="export-json">Export JSON</a>
+                            <a href="#" id="export-zip">Export ZIP</a>
+                            <a href="#" id="import-json">Import JSON</a>
+                        </div>
+                    </div>
+                </nav>
+            </div>
+            
+            <div class="toolbar-center">
+                <div class="device-switcher">
+                    <button class="device-btn active" id="device-desktop" title="Desktop (Full)">
+                        <svg viewBox="0 0 24 24"><path d="M21 2H3c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h7v2H8v2h8v-2h-2v-2h7c1.1 0 2-.9 2-2V4c0-1.1-.9-2-2-2zm0 14H3V4h18v12z"/></svg>
+                    </button>
+                    <button class="device-btn" id="device-tablet" title="Tablet (600px)">
+                        <svg viewBox="0 0 24 24"><path d="M18.5 0h-13C3.57 0 2 1.57 2 3.5v17C2 22.43 3.57 24 5.5 24h13c1.93 0 3.5-1.57 3.5-3.5v-17C22 1.57 20.43 0 18.5 0zM12 22c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm8-4H4V3.5C4 2.67 4.67 2 5.5 2h13c.83 0 1.5.67 1.5 1.5V18z"/></svg>
+                    </button>
+                    <button class="device-btn" id="device-mobile" title="Mobile (375px)">
+                        <svg viewBox="0 0 24 24"><path d="M17 1.01L7 1c-1.1 0-2 .9-2 2v18c0 1.1.9 2 2 2h10c1.1 0 2-.9 2-2V3c0-1.1-.9-2-2-2zm0 19H7V4h10v16z"/></svg>
+                    </button>
+                </div>
+            </div>
+            
+            <div class="toolbar-right">
+                <div class="history-btns">
+                    <button class="toolbar-icon-btn" id="btn-undo" title="Undo">
+                        <svg viewBox="0 0 24 24"><path d="M12.5 8c-2.65 0-5.05.99-6.9 2.6L2 7v9h9l-3.62-3.62c1.39-1.16 3.16-1.88 5.12-1.88 3.54 0 6.55 2.31 7.6 5.5l2.37-.78C21.08 11.03 17.15 8 12.5 8z"/></svg>
+                    </button>
+                    <button class="toolbar-icon-btn" id="btn-redo" title="Redo">
+                        <svg viewBox="0 0 24 24"><path d="M18.4 10.6C16.55 8.99 14.15 8 11.5 8c-4.65 0-8.58 3.03-9.96 7.22L3.9 16c1.05-3.19 4.05-5.5 7.6-5.5 1.95 0 3.73.72 5.12 1.88L13 16h9V7l-3.6 3.6z"/></svg>
+                    </button>
+                    <button class="toolbar-icon-btn" id="btn-clear" title="Clear Canvas" style="color: #ef4444; margin-left: 8px;">
+                        <svg viewBox="0 0 24 24" width="20" height="20" fill="currentColor"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                    </button>
+                </div>
+                <div class="dropdown" style="margin-right: 8px;">
+                    <button class="btn-outline" style="border-color: #6b7280; color: #4b5563;">
+                        <i class="fas fa-tools"></i> Builders ▼
+                    </button>
+                    <div class="dropdown-content">
+                        <a href="#" id="btn-component-builder"><i class="fas fa-puzzle-piece" style="color: #8b5cf6; margin-right: 8px; width: 16px;"></i> Component Builder</a>
+                        <a href="#" id="btn-form-builder"><i class="fas fa-wpforms" style="color: #3b82f6; margin-right: 8px; width: 16px;"></i> Form Builder</a>
+                    </div>
+                </div>
+                <select id="language-switcher" style="
+                    padding: 8px 12px;
+                    border: 1px solid #EAECF0;
+                    border-radius: 6px;
+                    background: #fff;
+                    font-size: 13px;
+                    font-family: inherit;
+                    cursor: pointer;
+                    margin-right: 8px;
+                    min-width: 100px;
+                ">
+                    <option value="FR">Français</option>
+                    <option value="EN">English</option>
+                    <option value="ES">Español</option>
+                </select>
+                <button class="btn-primary" id="btn-save">Save Project</button>
+                <button class="btn-outline" id="btn-preview">Preview</button>
+            </div>
+        </header>
+
+        <main class="builder-main">
+            <!-- Left Sidebar -->
+            <aside class="sidebar-left">
+                <div class="sidebar-tabs">
+                    <button class="tab-btn active" data-tab="blocks">Blocks</button>
+                    <button class="tab-btn" data-tab="forms">Forms</button>
+                    <button class="tab-btn" data-tab="layers">Layers</button>
+
+                </div>
+                <div class="tab-content" id="blocks-panel">
+                    <div class="search-box">
+                        <input type="text" placeholder="Search blocks..." id="block-search">
+                    </div>
+                    <div id="blocks"></div>
+                </div>
+                <div class="tab-content hidden" id="forms-panel">
+                    <div class="search-box">
+                        <input type="text" placeholder="Search forms..." id="form-search">
+                    </div>
+                    <div id="forms-list" class="forms-list-container">
+                        <!-- Forms will be loaded here -->
+                    </div>
+                </div>
+                <div class="tab-content hidden" id="layers-panel">
+                    <div id="layers-container"></div>
+                </div>
+            </aside>
+
+            <!-- Canvas Area -->
+            <section class="canvas-wrapper">
+                <div id="gjs"></div>
+            </section>
+
+            <!-- Right Sidebar -->
+            <aside class="sidebar-right">
+                <div class="panel-section">
+                    <div class="section-title">Styles & Properties</div>
+                    <div id="styles-container"></div>
+                </div>
+                <div class="panel-section">
+                    <div class="section-title">Traits</div>
+                    <div id="traits-container"></div>
+                </div>
+            </aside>
+        </main>
+    </div>
+
+    <div id="welcome-overlay" class="welcome-overlay hidden">
+        <div class="welcome-modal">
+            <div class="welcome-badge">Guide rapide</div>
+            <h2 class="welcome-title">Créez votre landing page simplement.</h2>
+            <p class="welcome-subtitle">Glissez, modifiez, prévisualisez. Pas besoin de coder pour construire une page propre et prête à diffuser.</p>
+
+            <div class="welcome-steps">
+                <article class="welcome-step-card">
+                    <span class="welcome-step-tag">Étape 1</span>
+                    <h3>Choisissez une base</h3>
+                    <p>Cliquez sur <strong>New</strong> pour partir d’une structure vierge ou glissez des blocks depuis la bibliothèque.</p>
+                </article>
+                <article class="welcome-step-card">
+                    <span class="welcome-step-tag">Étape 2</span>
+                    <h3>Modifiez librement</h3>
+                    <p>Éditez les textes, remplacez les images et ajustez les styles depuis le panneau de droite.</p>
+                </article>
+                <article class="welcome-step-card">
+                    <span class="welcome-step-tag">Étape 3</span>
+                    <h3>Prévisualisez et livrez</h3>
+                    <p>Utilisez <strong>Save</strong> puis <strong>Preview</strong> pour vérifier le rendu final avant diffusion.</p>
+                </article>
+            </div>
+
+            <div class="welcome-actions">
+                <button id="welcome-start" class="btn-primary welcome-start-btn">Compris — on démarre</button>
+                <label class="welcome-dismiss">
+                    <input id="welcome-dismiss-toggle" type="checkbox">
+                    <span>Ne plus afficher</span>
+                </label>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modals -->
+    <!-- Modal Ouverture École (Dashboard) -->
+    <div id="school-open-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 600px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+            <div class="modal-header">
+                <h3>Tableau de bord de l'école</h3>
+                <button class="close-modal" id="btn-close-dashboard">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px; overflow-y: auto;">
+                <button id="btn-create-new-project" class="btn-primary" style="width: 100%; padding: 16px; font-size: 15px; margin-bottom: 24px;">
+                    <i class="fas fa-plus" style="margin-right: 8px;"></i> Créer un nouveau projet
+                </button>
+
+                <h4 style="margin-bottom: 12px; color: #6B7280; font-size: 13px; text-transform: uppercase; letter-spacing: 0.05em;">Projets récents</h4>
+                <div id="dashboard-projects-list" style="display: flex; flex-direction: column; gap: 8px;">
+                    <div style="text-align:center; padding: 2rem; color: #6b7280;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Sauvegarde Nouveau Projet -->
+    <div id="save-new-project-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Sauvegarder le projet</h3>
+                <button class="close-modal" id="btn-close-save-new">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <div id="new-project-name-container" style="margin-bottom: 16px; display: none;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Nom du projet :</label>
+                    <input type="text" id="input-new-project-name" class="form-control" placeholder="ex: ma-landing-page" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                </div>
+                <div style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Version linguistique :</label>
+                    <select id="select-new-project-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="FR">Français (FR)</option>
+                        <option value="EN">Anglais (EN)</option>
+                        <option value="ES">Espagnol (ES)</option>
+                    </select>
+                </div>
+                <button id="btn-confirm-save-new" class="btn-primary" style="width:100%; padding: 12px;">Enregistrer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Duplication Projet -->
+    <div id="duplicate-project-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 400px;">
+            <div class="modal-header">
+                <h3>Dupliquer le projet</h3>
+                <button class="close-modal" id="btn-close-duplicate">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 20px;">
+                <p id="duplicate-source-name" style="margin-bottom: 16px; font-size: 13px; color: #6B7280;">Source: ...</p>
+                
+                <div style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Type de duplication :</label>
+                    <select id="select-duplicate-type" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="translate">Traduire automatiquement (IA)</option>
+                        <option value="simple">Duplication simple (Copie exacte)</option>
+                    </select>
+                </div>
+
+                <div id="duplicate-translate-options" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Langue cible :</label>
+                    <select id="select-duplicate-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                        <option value="EN">Anglais (EN)</option>
+                        <option value="ES">Espagnol (ES)</option>
+                        <option value="FR">Français (FR)</option>
+                    </select>
+                </div>
+
+                <div id="duplicate-simple-options" class="hidden" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Nouveau nom :</label>
+                    <input type="text" id="input-duplicate-name" class="form-control" placeholder="copie-page" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
+                </div>
+
+                <button id="btn-confirm-duplicate" class="btn-primary" style="width:100%; padding: 12px;">Dupliquer</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal SEO Settings depuis le Dashboard -->
+    <div id="seo-settings-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 520px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fas fa-sliders-h" style="color: #1A7A5E; margin-right: 8px;"></i> Paramètres SEO</h3>
+                <button class="close-modal" id="btn-close-seo-settings">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 24px; max-height: 75vh; overflow-y: auto;">
+                <!-- Status banner -->
+                <div id="seo-settings-status" style="display:none; margin-bottom: 16px; padding: 10px 14px; border-radius: 8px; font-size: 13px; font-weight: 500;"></div>
+
+                <input type="hidden" id="seo-settings-project-name">
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-heading" style="color: #6B7280; margin-right: 4px;"></i> Titre de la page
+                    </label>
+                    <input type="text" id="seo-settings-title" class="modal-input" placeholder="ex: Journée Portes Ouvertes – Mon École" style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-globe" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Title</span>
+                        <span id="seo-settings-title-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 60</span>
+                    </label>
+                    <input type="text" id="seo-settings-meta-title" class="modal-input" placeholder="Titre accrocheur · 50-60 car." style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-paragraph" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Description</span>
+                        <span id="seo-settings-desc-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 160</span>
+                    </label>
+                    <textarea id="seo-settings-meta-desc" class="modal-input" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." style="margin-bottom: 0; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+
+                <!-- Google Search Preview -->
+                <div class="google-preview-card" id="seo-settings-google-preview">
+                    <div class="google-preview-label">
+                        <i class="fab fa-google" style="color: #4285F4;"></i> Aperçu Google Search (Temps réel)
+                    </div>
+                    <div class="google-preview-header">
+                        <div class="google-preview-favicon">
+                            <img id="seo-settings-preview-fav" src="assets/LogoReetain.png" alt="">
+                        </div>
+                        <div class="google-preview-url-container">
+                            <span class="google-preview-site-name" id="seo-settings-preview-sitename">Reetain</span>
+                            <span class="google-preview-url" id="seo-settings-preview-url">https://www.reetain.com &gt; page</span>
+                        </div>
+                    </div>
+                    <div class="google-preview-title" id="seo-settings-preview-title">Titre de la page</div>
+                    <div class="google-preview-snippet">
+                        <span class="google-preview-date" id="seo-settings-preview-date">23 mai 2026 — </span>
+                        <span id="seo-settings-preview-desc">Description de la page...</span>
+                    </div>
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-key" style="color: #6B7280; margin-right: 4px;"></i> Mots-clés (Keywords)
+                    </label>
+                    <input type="text" id="seo-settings-keywords" class="modal-input" placeholder="ex: JPO, formation, inscription" style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-link" style="color: #6B7280; margin-right: 4px;"></i> URL Canonique
+                    </label>
+                    <input type="text" id="seo-settings-canonical" class="modal-input" placeholder="https://mon-ecole.fr/page" style="margin-bottom: 0;">
+                </div>
+
+
+
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button id="btn-seo-settings-cancel" class="btn-outline" style="flex: 1; padding: 12px; border-color: #D1D5DB; color: #4B5563; font-weight: 500;">
+                        Annuler
+                    </button>
+                    <button id="btn-seo-settings-save" class="btn-primary" style="flex: 1; padding: 12px; background: #1A7A5E; font-weight: 600;">
+                        <i class="fas fa-save" style="margin-right: 6px;"></i> Sauvegarder le SEO
+                    </button>
+                </div>
+                <p style="margin-top: 12px; font-size: 11px; color: #9CA3AF; text-align: center;">
+                    <i class="fas fa-bolt"></i> La sauvegarde est instantanée. L'envoi vers SFMC se fait en arrière-plan.
+                </p>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal Validation & Edition SEO avant Sauvegarde -->
+    <div id="save-seo-modal" class="modal-overlay hidden">
+        <div class="modal-content" style="max-width: 500px; width: 90%;">
+            <div class="modal-header">
+                <h3><i class="fas fa-search-dollar" style="color: #1A7A5E; margin-right: 8px;"></i> Validation & Sauvegarde SEO</h3>
+                <button class="close-modal" id="btn-close-save-seo">&times;</button>
+            </div>
+            <div class="modal-body" style="padding: 24px; max-height: 75vh; overflow-y: auto;">
+                <p class="modal-message" style="margin-bottom: 20px; font-size: 13px; color: #4B5563; line-height: 1.5;">
+                    Vérifiez ou mettez à jour les métadonnées SEO de votre projet avant de l'enregistrer dans <strong>Supabase</strong> et de le synchroniser avec <strong>Salesforce Marketing Cloud (SFMC)</strong>.
+                </p>
+                
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-heading" style="color: #6B7280; margin-right: 4px;"></i> Titre de la page
+                    </label>
+                    <input type="text" id="modal-seo-title" class="modal-input" placeholder="ex: ma-landing-page" style="margin-bottom: 0;">
+                </div>
+                
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-globe" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Title</span>
+                        <span id="modal-seo-title-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 60</span>
+                    </label>
+                    <input type="text" id="modal-seo-meta-title" class="modal-input" placeholder="Titre accrocheur · 50-60 car." style="margin-bottom: 0;">
+                </div>
+
+                <div class="props-field" style="margin-bottom: 16px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151; display: flex; justify-content: space-between;">
+                        <span><i class="fas fa-paragraph" style="color: #6B7280; margin-right: 4px;"></i> SEO Meta Description</span>
+                        <span id="modal-seo-desc-counter" style="font-size: 11px; font-weight: normal; color: #6B7280;">0 / 160</span>
+                    </label>
+                    <textarea id="modal-seo-meta-desc" class="modal-input" rows="3" placeholder="Description attractive et optimisée pour Google · 120-160 car." style="margin-bottom: 0; font-family: inherit; resize: vertical;"></textarea>
+                </div>
+
+                <!-- Google Search Preview -->
+                <div class="google-preview-card" id="save-seo-google-preview">
+                    <div class="google-preview-label">
+                        <i class="fab fa-google" style="color: #4285F4;"></i> Aperçu Google Search (Temps réel)
+                    </div>
+                    <div class="google-preview-header">
+                        <div class="google-preview-favicon">
+                            <img id="save-seo-preview-fav" src="assets/LogoReetain.png" alt="">
+                        </div>
+                        <div class="google-preview-url-container">
+                            <span class="google-preview-site-name" id="save-seo-preview-sitename">Reetain</span>
+                            <span class="google-preview-url" id="save-seo-preview-url">https://www.reetain.com &gt; page</span>
+                        </div>
+                    </div>
+                    <div class="google-preview-title" id="save-seo-preview-title">Titre de la page</div>
+                    <div class="google-preview-snippet">
+                        <span class="google-preview-date" id="save-seo-preview-date">23 mai 2026 — </span>
+                        <span id="save-seo-preview-desc">Description de la page...</span>
+                    </div>
+                </div>
+
+                <div class="props-field" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:600; font-size: 13px; color: #374151;">
+                        <i class="fas fa-key" style="color: #6B7280; margin-right: 4px;"></i> Mots-clés (Keywords)
+                    </label>
+                    <input type="text" id="modal-seo-keywords" class="modal-input" placeholder="ex: JPO, formation, inscription" style="margin-bottom: 0;">
+                </div>
+
+                <div style="display: flex; gap: 12px; margin-top: 10px;">
+                    <button id="btn-save-seo-cancel" class="btn-outline" style="flex: 1; padding: 12px; border-color: #D1D5DB; color: #4B5563; font-weight: 500;">
+                        Annuler
+                    </button>
+                    <button id="btn-save-seo-confirm" class="btn-primary" style="flex: 1; padding: 12px; background: #1A7A5E; font-weight: 600;">
+                        Sauvegarder & Synchroniser
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div id="modal-container" class="modal-overlay hidden">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h3 id="modal-title">Export Options</h3>
+                <button class="close-modal">&times;</button>
+            </div>
+            <div class="modal-body" id="modal-body">
+                <!-- Dynamic content -->
+            </div>
+            <div class="modal-footer">
+                <button class="btn-secondary close-modal">Close</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- App Scripts -->
+    <script type="module" src="js/app.js"></script>
+    <!-- AI Floating Bot -->
+    <div id="ai-bot-widget" class="ai-bot-widget">
+        <div id="ai-bot-panel" class="ai-bot-panel hidden">
+            <!-- Sidebar (ChatGPT style) -->
+            <div class="ai-bot-sidebar">
+                <button id="btn-new-chat" class="btn-new-chat"><i class="fas fa-plus"></i> Nouvelle discussion</button>
+                <div id="ai-conversations-list" class="ai-conversations-list">
+                    <!-- Conversations will be listed here -->
+                </div>
+            </div>
+            
+            <!-- Main Chat Area -->
+            <div class="ai-bot-main">
+                <div class="ai-bot-header">
+                    <div class="ai-bot-avatar">
+                        <img src="assets/LogoReetain.png" alt="Bot">
+                        <span>Assistant Reetain <span class="online-status"></span></span>
+                    </div>
+                    <button id="btn-close-ai-bot">&times;</button>
+                </div>
+                <div id="ai-chat-messages" class="ai-messages">
+                    <div class="ai-msg bot">Bonjour ! 👋<br>Je suis votre assistant IA Reetain. Je peux vous aider à rédiger des textes, optimiser vos CTAs ou organiser votre contenu. De quoi avez-vous besoin ?</div>
+                </div>
+                <div class="ai-chat-input-area">
+                    <textarea id="ai-chat-input" placeholder="Écrivez votre message..."></textarea>
+                    <button id="btn-send-ai"><i class="fas fa-paper-plane"></i></button>
+                </div>
+            </div>
+        </div>
+        <button id="btn-toggle-ai-bot" class="ai-bot-bubble">
+            <i class="fas fa-robot"></i>
+            <span class="ai-badge">IA</span>
+        </button>
+    </div>
+</body>
+</html>

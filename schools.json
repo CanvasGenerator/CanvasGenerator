@@ -1,0 +1,61 @@
+[
+  {
+    "id": "efap",
+    "name": "EFAP",
+    "fullName": "École Française des Attachés de Presse",
+    "description": "Communication, Relations Presse & Médias",
+    "color": "#d9d0c1",
+    "secondaryColor": "#1a1a1a",
+    "colorLight": "rgba(217,208,193,0.2)",
+    "emoji": "📰",
+    "defaultBlocks": [
+      "header-efap",
+      "hero",
+      "horizontal-menu",
+      "programme-list",
+      "form-sfmc",
+      "chiffres-cles",
+      "cta-button",
+      "footer-efap"
+    ]
+  },
+  {
+    "id": "brassart",
+    "name": "BRASSART",
+    "fullName": "École d'Art et de Design Brassart",
+    "description": "Design, Animation & Art Numérique",
+    "color": "#bc0b5d",
+    "secondaryColor": "#e91e63",
+    "colorLight": "rgba(188,11,93,0.12)",
+    "emoji": "🎨",
+    "defaultBlocks": [
+      "header-brassart",
+      "hero",
+      "bande-rose",
+      "programme-editorial",
+      "programme-list",
+      "trois-raisons",
+      "form-sfmc",
+      "cta-button",
+      "footer-brassart"
+    ]
+  },
+  {
+    "id": "icart",
+    "name": "ICART",
+    "fullName": "L'école du management de la culture et du marché de l'art",
+    "description": "Management Culturel, Marché de l'Art & Médiation",
+    "color": "#f59e0b",
+    "secondaryColor": "#b45309",
+    "colorLight": "rgba(245,158,11,0.12)",
+    "emoji": "🎭",
+    "defaultBlocks": [
+      "hero",
+      "horizontal-menu",
+      "programme-list",
+      "form-sfmc",
+      "chiffres-cles",
+      "cta-button"
+    ]
+  }
+]

@@ -1,0 +1,32 @@
+{
+    "outputDirectory": ".",
+    "headers": [
+        {
+            "source": "/(.*)",
+            "headers": [
+                {
+                    "key": "Content-Security-Policy",
+                    "value": "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com"
+                }
+            ]
+        }
+    ],
+    "rewrites": [
+        {
+            "source": "/api/cron",
+            "destination": "/api/cron"
+        },
+        {
+            "source": "/preview/:name",
+            "destination": "/api/router?path=/preview/:name"
+        },
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/router?path=/api/$1"
+        },
+        {
+            "source": "/:path((?!api/|preview/|.*\\.).+)",
+            "destination": "/api/router?path=/:path"
+        }
+    ]
+}

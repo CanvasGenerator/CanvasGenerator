@@ -1,0 +1,12 @@
+{
+  "scripts": {
+    "dev": "node server.js",
+    "start": "node server.js",
+    "build": "npm run check",
+    "check": "node --check api/router.js && node --check api/schools.js && node --check api/content.js && node --check lib/api-shared.js && node --check blocks/registry.js && node --check server.js && node --check js/app.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0",
+    "dotenv": "^17.4.2"
+  }
+}
