@@ -11,6 +11,12 @@ const BLOCK_REGISTRY = [
     { id: 'trois-raisons', label: 'Trois raisons', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/trois-raisons.svg', tags: ['benefits'], enabled: true },
     { id: 'form-sfmc', label: 'Formulaire SFMC', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'sfmc'], enabled: true, defaultForNewSchools: true },
     { id: 'form-salesforce-core', label: 'Formulaire Salesforce Core', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'salesforce'], enabled: true },
+    /* ── Formulaires EDH (besoins EDH/One Point) ── */
+    { id: 'form-brochure', label: 'Formulaire Brochure', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'brochure', 'edh'], enabled: true, defaultForNewSchools: false },
+    { id: 'form-jpo', label: 'Formulaire JPO', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'jpo', 'event', 'edh'], enabled: true, defaultForNewSchools: false },
+    { id: 'form-atelier', label: 'Formulaire Atelier Découverte', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'atelier', 'event', 'edh'], enabled: true, defaultForNewSchools: false },
+    { id: 'form-stage', label: 'Formulaire Stage', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'stage', 'event', 'edh'], enabled: true, defaultForNewSchools: false },
+    { id: 'form-precandidature', label: 'Formulaire Pré-candidature', category: 'Forms', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/form-sfmc.svg', tags: ['form', 'candidature', 'edh'], enabled: true, defaultForNewSchools: false },
     { id: 'chiffres-cles', label: 'Chiffres clés', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/chiffres-cles.svg', tags: ['stats'], enabled: true },
     { id: 'cta-button', label: 'CTA bouton', category: 'Conversion', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/cta-button.svg', tags: ['cta'], enabled: true, defaultForNewSchools: true },
     { id: 'rich-text', label: 'Texte riche', category: 'Content', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/rich-text.svg', tags: ['text'], enabled: false },

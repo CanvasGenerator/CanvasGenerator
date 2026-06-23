@@ -428,7 +428,7 @@
         }
 
         .admin-field textarea {
-            min-height: 78px;
+            min-height: 50px;
             resize: vertical;
         }
 
@@ -731,6 +731,14 @@
                         <label for="school-base-url">Adresse web de base</label>
                         <input id="school-base-url" type="url" placeholder="https://www.ecole.fr">
                         <div id="school-base-url-feedback" class="field-feedback"></div>
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-rgpd-text">Texte RGPD (formulaires)</label>
+                        <textarea id="school-rgpd-text" placeholder="J'accepte d'être contacté(e) par l'école" style="height:60px;resize:vertical;"></textarea>
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-rgpd-url">Lien politique de confidentialité</label>
+                        <input id="school-rgpd-url" type="url" placeholder="https://www.ecole.fr/confidentialite">
                     </div>
                     <div class="admin-field">
                         <label for="school-color">Couleur principale</label>
@@ -1039,6 +1047,8 @@
             setValue('school-color', school?.color || '#3b82f6');
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
             setValue('school-emoji', school?.emoji || '🏫');
+            setValue('school-rgpd-text', school?.rgpdText || '');
+            setValue('school-rgpd-url', school?.rgpdUrl || '');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
             document.getElementById('school-admin-modal').style.display = 'flex';
             validateSchoolForm({ showEmpty: false });
@@ -1130,7 +1140,9 @@
                 color: document.getElementById('school-color').value,
                 secondaryColor: document.getElementById('school-secondary-color').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
-                defaultBlocks: getDefaultBlocksSelection()
+                defaultBlocks: getDefaultBlocksSelection(),
+                rgpdText: document.getElementById('school-rgpd-text').value.trim(),
+                rgpdUrl: document.getElementById('school-rgpd-url').value.trim()
             };
         }
 
