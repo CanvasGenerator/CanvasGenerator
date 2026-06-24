@@ -108,6 +108,93 @@ module.exports = async function handler(req, res) {
         if (await handleSchoolsRoute(req, res, pathname)) return;
         if (await handleContentRoute(req, res, pathname)) return;
 
+        // ==========================================
+        // FAQ API
+        // ==========================================
+
+        // Endpoint de rendu : retourne les FAQs à afficher pour une école + page_type
+        // Utilisé par le composant Accordion dans les landing pages générées.
+        // Vérifie aussi que show_faq=true pour l'école concernée.
+        if (req.method === 'GET' && pathname === '/api/faq/render') {
+            const { school_id, page_type } = req.query || {};
+            if (!school_id) return res.status(400).json({ error: 'school_id requis' });
+
+            // Vérifier que la FAQ est activée pour cette école
+            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
+            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
+            if (school && school.show_faq === false) return res.status(200).json([]);
+
+            // Charger les FAQs associées à cette école + page_type, jointes à la banque globale
+            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
+            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
+            const rows = await supabaseRequest('GET', url).catch(() => []);
+            const faqs = (Array.isArray(rows) ? rows : [])
+                .map(r => r.faq)
+                .filter(Boolean);
+            return res.status(200).json(faqs);
+        }
+
+        // Banque globale — liste toutes les FAQs
+        if (req.method === 'GET' && pathname === '/api/faq') {
+            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
+            return res.status(200).json(result || []);
+        }
+
+        // Banque globale — créer une FAQ
+        if (req.method === 'POST' && pathname === '/api/faq') {
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // Banque globale — modifier une FAQ
+        if (req.method === 'PUT' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = pathname.replace('/api/faq/', '');
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // Banque globale — supprimer une FAQ
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = pathname.replace('/api/faq/', '');
+            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            return res.status(200).json({ message: 'FAQ supprimée' });
+        }
+
+        // Associations école — liste les liaisons school_page_faq pour une école
+        // Retourne aussi les détails FAQ pour l'affichage dans le modal admin
+        if (req.method === 'GET' && pathname.startsWith('/api/faq/school/')) {
+            const schoolId = pathname.replace('/api/faq/school/', '');
+            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
+            return res.status(200).json(Array.isArray(rows) ? rows : []);
+        }
+
+        // Associations école — ajouter une liaison FAQ ↔ école + page_type
+        if (req.method === 'POST' && pathname.startsWith('/api/faq/school/')) {
+            const schoolId = pathname.replace('/api/faq/school/', '');
+            const { faq_id, page_type = 'general', sort_order = 0 } = req.body || {};
+            if (!faq_id) return res.status(400).json({ error: 'faq_id requis' });
+            const result = await supabaseRequest('POST', '/school_page_faq', {
+                school_id: schoolId, faq_id, page_type, sort_order
+            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // Associations école — supprimer une liaison (par id de la ligne school_page_faq)
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/school/')) {
+            const parts = pathname.replace('/api/faq/school/', '').split('/');
+            // DELETE /api/faq/school/:schoolId/:linkId
+            const linkId = parts[1];
+            if (!linkId) return res.status(400).json({ error: 'linkId requis' });
+            await supabaseRequest('DELETE', `/school_page_faq?id=eq.${encodeURIComponent(linkId)}`);
+            return res.status(200).json({ message: 'Association supprimée' });
+        }
+
+        // ==========================================
+
         if (req.method === 'GET' && pathname === '/api/blocks') {
             return res.status(200).json({
                 blocks: listBlocks({ schoolId: req.query.schoolId }),
@@ -467,124 +554,4 @@ module.exports = async function handler(req, res) {
                 properties:   seoHistoryProps,
                 saved_by:     req.headers['x-user'] || null
             }, { Prefer: 'return=minimal' });
-            console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
-
-            // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
-            const rawBodyHtml = mergedProperties.rawHtml
-                || extractBodyContent(project.html || '');
-            const freshHtml = buildStoredHtml({
-                projectName,
-                html:       rawBodyHtml,
-                css:        project.css || '',
-                properties: mergedProperties
-            });
-
-            // ── 3. Mettre à jour Projects (html + properties) ─────────────────────
-            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                html:       freshHtml,
-                html_sfmc:  null,
-                properties: mergedProperties
-            });
-
-            // ── 4. Mise en file d'attente SFMC ────────────────────────────────────
-            const jobResult = await enqueueOrProcessInline({
-                projectName,
-                fullHtml:    freshHtml,
-                css:         project.css || '',
-                projectData: project.project_data,
-                properties:  mergedProperties,
-                source:      'save-seo-api'
-            });
-
-            return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
-        }
-
-        if (req.method === 'GET' && pathname === '/api/seo-history') {
-            const projectName = req.query.projectName;
-            if (!projectName) return res.status(400).json({ error: 'projectName required' });
-            const result = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc&limit=5`);
-            return res.status(200).json(result || []);
-        }
-
-        // ==========================================
-        // 7. Preview API
-        // ==========================================
-        if (req.method === 'GET' && pathname.startsWith('/preview/')) {
-            const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
-            let html = '';
-
-            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
-                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
-                return null;
-            });
-
-            if (structured?.version?.html) {
-                html = structured.version.html;
-            } else {
-                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-                if (!result || result.length === 0) {
-                    return res.status(404).json({ error: 'Project not found' });
-                }
-                html = result[0].html;
-            }
-
-            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);
-            if (schoolMatch) {
-                const schoolId = schoolMatch[1];
-                const schools  = await readSchoolsForApi();
-                const school   = schools.find(s => s.id === schoolId);
-
-                if (school) {
-                    const primary   = school.color || '#3b82f6';
-                    const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
-                    const brandStyles = `
-                        <style id="brand-variables-preview">
-                            :root {
-                                --brand-primary: ${primary};
-                                --brand-secondary: ${secondary};
-                            }
-                        </style>
-                    `;
-                    html = html.replace('</head>', `${brandStyles}</head>`);
-                }
-            }
-
-            res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(html);
-        }
-
-        if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
-            const resolved = await resolvePublicPageByHostPath({
-                host: req.headers.host,
-                path: pathname
-            });
-            if (resolved?.page) {
-                if (resolved.page.status !== 'published') {
-                    return res.status(404).send('Page not found');
-                }
-
-                const publication = getPublicationSettings(resolved.page);
-                if (publication.active === false) {
-                    if (publication.redirectUrl) {
-                        res.writeHead(302, { Location: publication.redirectUrl });
-                        return res.end();
-                    }
-                    return res.status(410).send('Page temporarily unavailable');
-                }
-
-                if (!resolved.version?.html) {
-                    return res.status(404).send('Page version not found');
-                }
-
-                res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(resolved.version.html);
-            }
-        }
-
-        return res.status(404).json({ error: 'API route not found: ' + pathname });
-
-    } catch (e) {
-        console.error('API Router Error:', e);
-        return res.status(500).json({ error: e.message });
-    }
-};
+            console.log(`🗄️  [SEO-SETTINGS] Historique SEO 

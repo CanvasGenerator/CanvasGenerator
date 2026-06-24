@@ -108,7 +108,7 @@ export default function(editor, categories) {
   .mf2-checkbox-label { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #555; line-height: 1.4; cursor: pointer; }
   .mf2-checkbox { flex-shrink: 0; margin-top: 2px; }
   .mf2-link { color: var(--brand-primary, #1f2937); }
-  .mf2-submit { width: 100%; padding: 14px; background: #111; color: #e5e7eb; border: none; font-size: 15px; font-weight: 700; cursor: pointer; border-radius: 2px; letter-spacing: 0.5px; transition: opacity 0.2s; }
+  .mf2-submit { width: 100%; padding: 14px; background: var(--brand-primary, #111); color: #fff; border: none; font-size: 15px; font-weight: 700; cursor: pointer; border-radius: 2px; letter-spacing: 0.5px; transition: opacity 0.2s; }
   .mf2-submit:hover { opacity: 0.85; }
   @media(max-width:768px) { .mf2-half { grid-template-columns: 1fr; } }
 </style>

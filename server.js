@@ -69,6 +69,11 @@ function extractBodyContent(fullHtml) {
     return match ? match[1] : fullHtml;
 }
 
+function hexToRgb(hex) {
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
+}
+
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
     const title = properties?.seoTitle || properties?.title || projectName || '';
     const desc = properties?.seoDescription || '';
@@ -139,6 +144,9 @@ function normalizeSchool(school = {}) {
         color: school.color || '#3b82f6',
         secondaryColor: school.secondaryColor || school.secondary_color || '#1a1a1a',
         colorLight: school.colorLight || school.color_light || '',
+        colorHeader: school.colorHeader || school.color_header || '',
+        colorCarousel: school.colorCarousel || school.color_carousel || '',
+        logo: school.logo || '',
         emoji: school.emoji || '🏫',
         deleted: Boolean(school.deleted),
         defaultBlocks: Array.isArray(school.defaultBlocks)
@@ -184,12 +192,30 @@ function schoolDbPayload(school) {
 async function readSchoolsForApi() {
     const baseSchools = SCHOOLS.map(normalizeSchool);
     try {
-        const schools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
-        if (Array.isArray(schools)) {
-            const merged = new Map(baseSchools.map(school => [school.id, school]));
-            schools.map(normalizeSchool).forEach(school => {
-                if (school.deleted) merged.delete(school.id);
-                else merged.set(school.id, school);
+        const dbSchools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
+        if (Array.isArray(dbSchools)) {
+            const merged = new Map(baseSchools.map(s => [s.id, s]));
+            dbSchools.forEach(dbRaw => {
+                const id = dbRaw.id;
+                if (!id) return;
+                if (dbRaw.deleted) { merged.delete(id); return; }
+                // Construire un objet avec seulement les valeurs DB non-nulles/non-vides
+                // pour ne pas écraser les données de schools.json avec des valeurs par défaut
+                const dbOverrides = {};
+                if (dbRaw.name)             dbOverrides.name           = dbRaw.name;
+                if (dbRaw.full_name)        dbOverrides.fullName       = dbRaw.full_name;
+                if (dbRaw.description)      dbOverrides.description    = dbRaw.description;
+                if (dbRaw.contact)          dbOverrides.contact        = dbRaw.contact;
+                if (dbRaw.base_url)         dbOverrides.baseUrl        = dbRaw.base_url;
+                if (dbRaw.color)            dbOverrides.color          = dbRaw.color;
+                if (dbRaw.secondary_color)  dbOverrides.secondaryColor = dbRaw.secondary_color;
+                if (dbRaw.color_light)      dbOverrides.colorLight     = dbRaw.color_light;
+                if (dbRaw.logo)             dbOverrides.logo           = dbRaw.logo;
+                if (dbRaw.emoji)            dbOverrides.emoji          = dbRaw.emoji;
+                if (Array.isArray(dbRaw.default_blocks)) dbOverrides.defaultBlocks = dbRaw.default_blocks;
+                dbOverrides.deleted = Boolean(dbRaw.deleted);
+                const base = merged.get(id) || { id };
+                merged.set(id, { ...base, ...dbOverrides });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
         }
@@ -353,7 +379,7 @@ function createApiResponse(res) {
 http.createServer(async (req, res) => {
 
     res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
     res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
     if (req.method === 'OPTIONS') {
@@ -870,6 +896,263 @@ http.createServer(async (req, res) => {
         return;
     }
 
+    // ── API: Rename project ───────────────────────────────────────────
+    if (req.method === 'PATCH' && pathname === '/api/project/rename') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { oldName, newName } = JSON.parse(body);
+                if (!oldName || !newName) {
+                    res.writeHead(400); return res.end('Missing oldName or newName');
+                }
+                console.log(`\n✏️  Renommage projet: "${oldName}" → "${newName}"`);
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+                console.log(`✅ Renommage OK`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true }));
+            } catch (e) {
+                console.log(`❌ Erreur renommage:`, e.message);
+                res.writeHead(500); res.end('Error: ' + e.message);
+            }
+        });
+        return;
+    }
+
+    // ── API: Decline master template → schools ────────────────────────
+    if (req.method === 'POST' && pathname === '/api/decline') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { masterProjectName, schoolIds, projectDisplayName } = JSON.parse(body);
+                if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
+                    res.writeHead(400); return res.end('Missing masterProjectName or schoolIds');
+                }
+
+                // 1. Charger le projet master depuis Supabase
+                const masterRows = await supabaseRequest('GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`);
+                if (!masterRows || masterRows.length === 0) {
+                    res.writeHead(404); return res.end('Master project not found');
+                }
+                const master = masterRows[0];
+
+                // Extraire le nom d'affichage depuis le nom complet si non fourni
+                const displayName = projectDisplayName ||
+                    masterProjectName.replace(/^school-master__/, '').replace(/__[A-Z]{2}$/, '');
+
+                // Extraire le corps HTML du document complet stocké
+                const masterBodyHtml = extractBodyContent(master.html || '');
+                const masterCss = master.css || '';
+                const masterProps = master.properties || {};
+                const masterProjectData = master.project_data || '{}';
+
+                // 2. Charger toutes les écoles
+                const allSchools = await readSchoolsForApi();
+
+                const results = { success: [], errors: [] };
+
+                // 3. Pour chaque école cible
+                for (const schoolId of schoolIds) {
+                    try {
+                        const school = allSchools.find(s => s.id === schoolId);
+                        if (!school) throw new Error(`École "${schoolId}" introuvable`);
+
+                        const schoolName     = school.name || schoolId;
+                        const schoolFullName = school.fullName || school.full_name || schoolName;
+                        const schoolLogo     = school.logo || '';
+                        const primary        = school.color || '#374151';
+                        const secondary      = school.secondaryColor || school.secondary_color || '#1a1a1a';
+                        const colorHeader    = school.colorHeader || primary;
+                        const colorCarousel  = school.colorCarousel || primary;
+                        const rgb            = hexToRgb(primary);
+
+                        // Remplacer les placeholders texte dans le HTML
+                        let schoolHtml = masterBodyHtml
+                            .replace(/NOM_ECOLE/g, schoolName)
+                            .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
+                            .replace(/LOGO_ECOLE/g, schoolLogo);
+
+                        // Injecter les CSS vars de l'école en tête du CSS
+                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
+                        const schoolCss  = schoolVars + masterCss;
+
+                        // Construire les propriétés du projet décliné
+                        const newProjectName = `school-${schoolId}__${displayName}__FR`;
+                        const newProps = {
+                            ...masterProps,
+                            seoTitle: `${schoolName} – ${displayName}`,
+                            title:    `${schoolName} – ${displayName}`
+                        };
+
+                        // Construire le HTML final stocké
+                        const fullHtml = buildStoredHtml({
+                            projectName: newProjectName,
+                            html: schoolHtml,
+                            css: schoolCss,
+                            properties: newProps
+                        });
+
+                        // Construire le project_data avec métadonnées + remplacement placeholders
+                        // Le project_data est ce que l'éditeur GrapesJS charge réellement.
+                        let parsedProjectData;
+                        try { parsedProjectData = JSON.parse(masterProjectData); }
+                        catch(e) { parsedProjectData = {}; }
+
+                        // 1. Remplacement des placeholders texte (noms)
+                        let projectDataStr = JSON.stringify({
+                            ...parsedProjectData,
+                            declinedFrom: masterProjectName,
+                            declinedAt:   new Date().toISOString(),
+                            schoolId
+                        });
+                        projectDataStr = projectDataStr
+                            .replace(/NOM_ECOLE/g, schoolName)
+                            .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
+                            .replace(/LOGO_ECOLE/g, schoolLogo);
+
+                        // 2. Remplacement des logos placehold.co dans les src d'images
+                        // Le header/footer utilisent des URLs placehold.co comme placeholder logo
+                        if (schoolLogo) {
+                            projectDataStr = projectDataStr.replace(
+                                /https?:\/\/placehold\.co\/[^"]*(?:LOGO|logo)[^"]*/g,
+                                schoolLogo
+                            );
+                        }
+
+                        // 3. Post-process les styles GrapesJS
+                        // Le project_data a été sauvegardé avec les anciennes couleurs hardcodées
+                        // des composants master (avant nos mises à jour). On doit donc :
+                        //   a) Mettre à jour les fallbacks des var() existantes
+                        //   b) Remplacer les couleurs hardcodées "master default" dans background/border
+                        let finalProjectData;
+                        try {
+                            finalProjectData = JSON.parse(projectDataStr);
+
+                            // Couleurs hardcodées des composants master qui doivent devenir brand-primary
+                            const MASTER_PRIMARY_COLORS = new Set([
+                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000'
+                            ]);
+                            // Propriétés CSS où la couleur doit être celle de l'école (pas le texte)
+                            const BRAND_BG_PROPS = new Set([
+                                'background', 'background-color',
+                                'border-color', 'border-bottom-color', 'border-top-color',
+                                'border-left-color', 'border-right-color'
+                            ]);
+
+                            if (Array.isArray(finalProjectData.styles)) {
+                                finalProjectData.styles = finalProjectData.styles.map(rule => {
+                                    if (!rule.style) return rule;
+                                    const newStyle = { ...rule.style };
+                                    let changed = false;
+                                    Object.keys(newStyle).forEach(prop => {
+                                        const val = String(newStyle[prop] || '');
+                                        if (!val) return;
+
+                                        // a) Mettre à jour les fallbacks var(--brand-primary, OLD) → var(--brand-primary, primary)
+                                        if (val.includes('var(--brand-primary')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-primary,\s*[^)]+\)/, `var(--brand-primary, ${primary})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-secondary')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-secondary,\s*[^)]+\)/, `var(--brand-secondary, ${secondary})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-header')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-header,\s*[^)]+\)/, `var(--brand-header, ${colorHeader})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-carousel')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-carousel,\s*[^)]+\)/, `var(--brand-carousel, ${colorCarousel})`);
+                                            changed = true;
+                                            return;
+                                        }
+
+                                        // b) Remplacer les couleurs hardcodées master dans les props de fond/bordure
+                                        if (BRAND_BG_PROPS.has(prop)) {
+                                            const valLower = val.toLowerCase();
+                                            for (const mc of MASTER_PRIMARY_COLORS) {
+                                                if (valLower === mc || valLower.startsWith(mc)) {
+                                                    newStyle[prop] = `var(--brand-primary, ${primary})`;
+                                                    changed = true;
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    });
+                                    return changed ? { ...rule, style: newStyle } : rule;
+                                });
+                            }
+
+                            // 4. Ajouter/mettre à jour la règle :root avec les vraies couleurs
+                            if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
+                            finalProjectData.styles = finalProjectData.styles.filter(r => {
+                                const sel = r.selectors;
+                                return !(Array.isArray(sel) && sel.length === 1 && sel[0] === ':root');
+                            });
+                            finalProjectData.styles.unshift({
+                                selectors: [':root'],
+                                style: {
+                                    '--brand-primary':     primary,
+                                    '--brand-secondary':   secondary,
+                                    '--brand-primary-rgb': rgb,
+                                    '--brand-header':      colorHeader,
+                                    '--brand-carousel':    colorCarousel
+                                }
+                            });
+
+                        } catch(e) {
+                            console.error('project_data post-process error:', e.message);
+                            finalProjectData = JSON.parse(projectDataStr);
+                        }
+                        const newProjectData = JSON.stringify(finalProjectData);
+
+                        // Sauvegarder via upsert Supabase
+                        await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                            project_name:         newProjectName,
+                            html:                 fullHtml,
+                            css:                  schoolCss,
+                            project_data:         newProjectData,
+                            properties:           newProps,
+                            is_original_language: true
+                        });
+
+                        // Synchroniser dans le système structuré (donne un page_id → active
+                        // les boutons historique, statut, dossier dans le dashboard)
+                        try {
+                            await syncLegacyProjectToContent({
+                                projectName: newProjectName,
+                                html:        fullHtml,
+                                css:         schoolCss,
+                                projectData: newProjectData,
+                                properties:  newProps
+                            });
+                        } catch (syncErr) {
+                            console.warn(`⚠️ [decline] sync content failed for ${schoolId}:`, syncErr.message);
+                        }
+
+                        results.success.push({ schoolId, projectName: newProjectName });
+                        console.log(`✅ [decline] ${schoolId} → ${newProjectName}`);
+                    } catch (e) {
+                        results.errors.push({ schoolId, message: e.message });
+                        console.error(`❌ [decline] ${schoolId}:`, e.message);
+                    }
+                }
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(results));
+            } catch (e) {
+                console.error('❌ Erreur /api/decline:', e.message);
+                res.writeHead(500); res.end('Error: ' + e.message);
+            }
+        });
+        return;
+    }
+
     // ── API: Get project by name ─────────────────────────────────────
     if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
         try {
@@ -994,6 +1277,159 @@ http.createServer(async (req, res) => {
             res.end(e.message);
         }
         return;
+    }
+
+    // ── API: FAQ — rendu pour une école + page_type ───────────────────
+    if (req.method === 'GET' && pathname === '/api/faq/render') {
+        try {
+            const school_id = params.get('school_id');
+            const page_type = params.get('page_type');
+            if (!school_id) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'school_id requis' }));
+            }
+            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
+            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
+            if (school && school.show_faq === false) {
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify([]));
+            }
+            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
+            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
+            const rows = await supabaseRequest('GET', url).catch(() => []);
+            const faqs = (Array.isArray(rows) ? rows : []).map(r => r.faq).filter(Boolean);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(faqs));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: FAQ — liste toute la banque ──────────────────────────────
+    if (req.method === 'GET' && pathname === '/api/faq') {
+        try {
+            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(result || []));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: FAQ — créer une question ─────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/faq') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { question, answer } = JSON.parse(body || '{}');
+                if (!question || !answer) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'question et answer requis' }));
+                }
+                const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: FAQ — modifier une question ──────────────────────────────
+    if (req.method === 'PUT' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+                const { question, answer } = JSON.parse(body || '{}');
+                if (!question || !answer) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'question et answer requis' }));
+                }
+                const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: FAQ — supprimer une question ─────────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+        try {
+            const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ message: 'FAQ supprimée' }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: FAQ — associations d'une école ───────────────────────────
+    if (req.method === 'GET' && pathname.startsWith('/api/faq/school/') && !pathname.includes('/', '/api/faq/school/'.length)) {
+        try {
+            const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify(Array.isArray(rows) ? rows : []));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: FAQ — ajouter une association ────────────────────────────
+    if (req.method === 'POST' && pathname.startsWith('/api/faq/school/')) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+                const { faq_id, page_type = 'general', sort_order = 0 } = JSON.parse(body || '{}');
+                if (!faq_id) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'faq_id requis' }));
+                }
+                const result = await supabaseRequest('POST', '/school_page_faq', {
+                    school_id: schoolId, faq_id, page_type, sort_order
+                }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+            } catch (e) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: FAQ — supprimer une association ──────────────────────────
+    if (req.method === 'DELETE' && pathname.startsWith('/api/faq/school/')) {
+        try {
+            const parts = pathname.replace('/api/faq/school/', '').split('/');
+            const linkId = parts[1];
+            if (!linkId) {
+                res.writeHead(400, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'linkId requis' }));
+            }
+            await supabaseRequest('DELETE', `/school_page_faq?id=eq.${encodeURIComponent(linkId)}`);
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ message: 'Association supprimée' }));
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
     }
 
     // ── AI: Generate Content ─────────────────────────────────────────
@@ -1234,6 +1670,7 @@ Règles importantes :
         }
         return;
     }
+
 
     // ── API: Duplicate a page (CMS) ───────────────────────────────────────
     if (req.method === 'POST' && pathname === '/api/pages/duplicate') {

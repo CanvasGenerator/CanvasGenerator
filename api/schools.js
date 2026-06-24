@@ -35,13 +35,19 @@ function normalizeSchool(school = {}) {
         color: school.color || '#3b82f6',
         secondaryColor: school.secondaryColor || school.secondary_color || '#1a1a1a',
         colorLight: school.colorLight || school.color_light || '',
+        colorHeader: school.colorHeader || school.color_header || '',
+        colorCarousel: school.colorCarousel || school.color_carousel || '',
         emoji: school.emoji || '🏫',
         deleted: Boolean(school.deleted),
         defaultBlocks: Array.isArray(school.defaultBlocks)
             ? school.defaultBlocks
             : Array.isArray(school.default_blocks)
                 ? school.default_blocks
-                : []
+                : [],
+        // show_faq : active/désactive le bloc FAQ sur toutes les pages de cette école
+        showFaq: school.showFaq !== undefined ? Boolean(school.showFaq)
+               : school.show_faq !== undefined ? Boolean(school.show_faq)
+               : true
     };
 }
 
@@ -73,6 +79,7 @@ function schoolDbPayload(school) {
         color_light: school.colorLight,
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
+        show_faq: school.showFaq !== undefined ? school.showFaq : true,
         deleted: school.deleted
     };
 }

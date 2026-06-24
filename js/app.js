@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateSchoolUI(CURRENT_SCHOOL);
             injectBrandVariables(null, CURRENT_SCHOOL, true);
         } else if (schoolId === 'master') {
-            CURRENT_SCHOOL = { id: 'master', name: 'MASTER', color: '#c9b87a', secondaryColor: '#1a1a1a', defaultBlocks: [] };
+            CURRENT_SCHOOL = { id: 'master', name: 'MASTER', color: '#c9b87a', secondaryColor: '#1a1a1a', colorHeader: '#1a1a1a', colorCarousel: '#c9b87a', defaultBlocks: [] };
             updateSchoolUI(CURRENT_SCHOOL);
             injectBrandVariables(null, CURRENT_SCHOOL, true);
         }
@@ -170,6 +170,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (!res.ok) return;
                 const project = await res.json();
                 window.editor.loadProjectData(parseProjectData(project.project_data));
+                injectBrandVariables(window.editor, CURRENT_SCHOOL);
                 populateProperties(project.properties || {});
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
@@ -222,6 +223,7 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     const projectData = parseProjectData(version.project_data);
     if (Object.keys(projectData).length) {
         window.editor.loadProjectData(projectData);
+        injectBrandVariables(window.editor, CURRENT_SCHOOL);
     } else {
         window.editor.setComponents(extractBodyHtml(version.html || ''));
         window.editor.setStyle(version.css || '');
@@ -282,6 +284,12 @@ function initEditor(schoolId) {
     initAiAssistant(editor);
     registerBlocks(editor);
 
+    // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
+    // (nécessaire pour les composants custom GrapesJS comme les carousels)
+    editor.on('canvas:frame:load', () => {
+        injectBrandVariables(editor, CURRENT_SCHOOL);
+    });
+
     editor.on('load', () => {
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
@@ -291,6 +299,164 @@ function initEditor(schoolId) {
         const params = new URLSearchParams(window.location.search);
         if (!params.get('project')) {
             showOpeningPopup();
+        }
+    });
+
+    // ── Verrouillage et ouverture automatique du picker FAQ ─────────────
+    // 1. Chaque composant ajouté dans un ma-faq-section est verrouillé immédiatement.
+    //    (le _lockChildren dans init() peut manquer des enfants parsés tardivement)
+    editor.on('component:add', (component) => {
+        // Verrouiller si enfant d'un ma-faq-section
+        let parent = component.parent();
+        while (parent) {
+            if (parent.get('type') === 'ma-faq-section') {
+                component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                return;
+            }
+            parent = parent.parent();
+        }
+        // Ouvrir le picker automatiquement quand le bloc FAQ est droppé
+        if (component.get('type') === 'ma-faq-section') {
+            setTimeout(() => editor.Commands.run('open-faq-picker'), 150);
+        }
+    });
+
+    // 2. Clic sur un enfant → rediriger la sélection vers le ma-faq-section parent
+    editor.on('component:selected', (component) => {
+        if (component.get('type') === 'ma-faq-section') return;
+        let parent = component.parent();
+        while (parent) {
+            if (parent.get('type') === 'ma-faq-section') {
+                editor.select(parent);
+                return;
+            }
+            parent = parent.parent();
+        }
+    });
+
+    // ── Commande GrapesJS : sélecteur de FAQs ──────────────────────────
+    // Déclenchée par le bouton ❓ dans la toolbar du composant ma-faq-section.
+    // Ouvre un modal avec toutes les FAQs de la BDD sous forme de checkboxes.
+    // Au submit, les FAQs sélectionnées sont intégrées statiquement dans le composant.
+    editor.Commands.add('open-faq-picker', {
+        run(ed) {
+            const component = ed.getSelected();
+            if (!component) return;
+
+            const modal      = document.getElementById('faq-config-modal');
+            const body       = document.getElementById('faq-config-body');
+            const countEl    = document.getElementById('faq-config-count');
+            const selCountEl = document.getElementById('faq-config-selected-count');
+
+            // Récupérer les IDs déjà sélectionnés (stockés dans data-faq-ids)
+            const existingIds = (component.getAttributes()['data-faq-ids'] || '')
+                .split(',').filter(Boolean);
+
+            modal.style.display = 'flex';
+            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Chargement…</div>';
+            countEl.textContent    = '';
+            selCountEl.textContent = '';
+
+            let allFaqs = [];
+
+            function updateSelCount() {
+                const checked = body.querySelectorAll('input[type=checkbox]:checked').length;
+                selCountEl.textContent = checked
+                    ? `${checked} question${checked > 1 ? 's' : ''} sélectionnée${checked > 1 ? 's' : ''}`
+                    : '';
+            }
+
+            fetch('/api/faq')
+                .then(r => r.json())
+                .then(faqs => {
+                    allFaqs = faqs;
+                    countEl.textContent = `${faqs.length} FAQ${faqs.length > 1 ? 's' : ''} disponible${faqs.length > 1 ? 's' : ''}`;
+
+                    if (!faqs.length) {
+                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucune FAQ dans la base de données.</div>';
+                        return;
+                    }
+
+                    body.innerHTML = faqs.map(faq => `
+                        <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 20px;border-bottom:1px solid #f3f4f6;cursor:pointer;">
+                            <input type="checkbox" value="${escapeHtml(faq.id)}"
+                                ${existingIds.includes(faq.id) ? 'checked' : ''}
+                                style="margin-top:3px;width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;">
+                            <div style="min-width:0;">
+                                <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">${escapeHtml(faq.question)}</div>
+                                <div style="font-size:11px;color:#9ca3af;margin-top:3px;line-height:1.4;">${escapeHtml(faq.answer.slice(0, 110))}${faq.answer.length > 110 ? '…' : ''}</div>
+                            </div>
+                        </label>
+                    `).join('');
+
+                    body.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                        cb.addEventListener('change', updateSelCount);
+                    });
+                    updateSelCount();
+                })
+                .catch(() => {
+                    body.innerHTML = '<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">Erreur de chargement des FAQs.</div>';
+                });
+
+            // Tout cocher / tout décocher
+            document.getElementById('btn-faq-select-all').onclick = () => {
+                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
+                updateSelCount();
+            };
+            document.getElementById('btn-faq-deselect-all').onclick = () => {
+                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
+                updateSelCount();
+            };
+
+            function confirmSelection() {
+                const selectedIds  = [...body.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+                const selectedFaqs = allFaqs.filter(f => selectedIds.includes(f.id));
+
+                // Stocker les IDs sélectionnés
+                component.addAttributes({ 'data-faq-ids': selectedIds.join(',') });
+
+                // Reconstruire le HTML statique de la liste
+                if (selectedFaqs.length) {
+                    const listComp = component.find('.ma-list')[0];
+                    if (listComp) {
+                        const itemsHtml = selectedFaqs.map((faq, i) => {
+                            const first = i === 0;
+                            return `<div class="ma-item${first ? ' ma-open' : ''}">
+                                <div class="ma-q">
+                                    <span>${escapeHtml(faq.question)}</span>
+                                    <button class="ma-toggle" aria-label="Toggle">${first ? '&#8722;' : '&#43;'}</button>
+                                </div>
+                                <div class="ma-a"${first ? '' : ' style="display:none"'}>
+                                    <p>${escapeHtml(faq.answer)}</p>
+                                </div>
+                            </div>`;
+                        }).join('');
+                        listComp.components(itemsHtml);
+                        // Re-verrouiller tous les enfants après mise à jour du contenu
+                        const lockAll = (comp) => {
+                            comp.get('components').each(child => {
+                                child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                                lockAll(child);
+                            });
+                        };
+                        lockAll(component);
+                    }
+                }
+                closeModal();
+            }
+
+            function closeModal() {
+                modal.style.display = 'none';
+                document.getElementById('btn-faq-config-confirm').onclick    = null;
+                document.getElementById('btn-faq-config-skip').onclick       = null;
+                document.getElementById('btn-faq-config-close').onclick      = null;
+                document.getElementById('btn-faq-select-all').onclick        = null;
+                document.getElementById('btn-faq-deselect-all').onclick      = null;
+            }
+
+            document.getElementById('btn-faq-config-confirm').onclick = confirmSelection;
+            document.getElementById('btn-faq-config-skip').onclick    = closeModal;
+            document.getElementById('btn-faq-config-close').onclick   = closeModal;
         }
     });
 
@@ -621,8 +787,10 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
     const primary = school.color || '#3b82f6';
     const secondary = school.secondaryColor || '#1a1a1a';
+    const colorHeader = school.colorHeader || primary;
+    const colorCarousel = school.colorCarousel || primary;
     const rgb = hexToRgb(primary) || '59, 130, 246';
-    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; }`;
+    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }`;
 
     if (intoMainDoc) {
         let style = document.getElementById('brand-variables-main');
@@ -635,15 +803,29 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     }
 
     if (editor) {
-        const doc = editor.Canvas.getDocument();
-        if (doc) {
-            let style = doc.getElementById('brand-variables');
-            if (!style) {
-                style = doc.createElement('style');
-                style.id = 'brand-variables';
-                doc.head.appendChild(style);
-            }
-            style.innerHTML = css;
+        // GrapesJS reconstruit le canvas de façon asynchrone après loadProjectData.
+        // On tente l'injection immédiatement, puis on retry après 100ms et 400ms
+        // pour s'assurer que le canvas est prêt.
+        function doInject() {
+            try {
+                const doc = editor.Canvas.getDocument();
+                if (!doc) return false;
+                let style = doc.getElementById('brand-variables');
+                if (!style) {
+                    style = doc.createElement('style');
+                    style.id = 'brand-variables';
+                    doc.head.appendChild(style);
+                }
+                style.innerHTML = css;
+                return true;
+            } catch(e) { return false; }
+        }
+        if (!doInject()) {
+            setTimeout(() => { if (!doInject()) setTimeout(doInject, 400); }, 100);
+        } else {
+            // Injection réussie immédiatement, mais on refait après 150ms
+            // au cas où GrapesJS recrée le canvas ensuite
+            setTimeout(doInject, 150);
         }
     }
 }
@@ -654,9 +836,23 @@ function hexToRgb(hex) {
 }
 
 function filterBlocksBySchool(editor, schoolId) {
-    if (!schoolId || schoolId === 'master') return;
+    if (!schoolId) return;
+
     const bm = editor.BlockManager;
     const allBlocks = [...bm.getAll().models];
+
+    if (schoolId === 'master') {
+        // Mode Master : ne garder QUE les blocs de la catégorie 'Master Template'
+        const toRemove = [];
+        allBlocks.forEach(block => {
+            const category = block.get('category');
+            const categoryId = ((typeof category === 'object' ? category.get('id') : category) || '').toLowerCase();
+            if (categoryId !== 'master template') toRemove.push(block.get('id'));
+        });
+        toRemove.forEach(id => bm.remove(id));
+        bm.render();
+        return;
+    }
     const targetSchoolId = schoolId.toLowerCase();
     
     // List of all known schools in the ecosystem
@@ -1590,6 +1786,7 @@ function initUI(editor) {
             const response = await fetch(`/api/project/${fullName}`);
             const project = await response.json();
             editor.loadProjectData(parseProjectData(project.project_data));
+            injectBrandVariables(editor, CURRENT_SCHOOL);
             // Populate SEO / Properties panel
             populateProperties(project.properties || {});
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
