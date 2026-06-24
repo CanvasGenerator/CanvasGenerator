@@ -75,6 +75,8 @@ export default function(editor, categories) {
                 .mcd-colored-zone {
                     background: var(--brand-carousel, #f3f4f6);
                     width: 100%;
+                    max-width: 1100px;
+                    margin: 0 auto;
                     padding: 20px 20px 20px;
                     box-sizing: border-box;
                 }

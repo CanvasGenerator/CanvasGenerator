@@ -1458,4 +1458,352 @@
             const count = getDefaultBlocksSelection().length;
             document.getElementById('school-default-blocks-meta').textContent =
                 `${count} bloc${count > 1 ? 's' : ''} sélectionné${count > 1 ? 's' : ''}`;
-            validateSchoolFo
+            validateSchoolForm({ showEmpty: true });
+        }
+
+        function renderDefaultBlockPicker() {
+            const picker = document.getElementById('school-default-blocks');
+            picker.innerHTML = blockCatalog.map(block => `
+                <label class="block-option">
+                    <input type="checkbox" value="${escHtml(block.id)}" data-default-block>
+                    <span>${escHtml(block.label)}</span>
+                </label>
+            `).join('');
+            picker.querySelectorAll('[data-default-block]').forEach(input => {
+                input.addEventListener('change', updateDefaultBlocksMeta);
+            });
+        }
+
+        function openSchoolModal(school = null) {
+            editingSchoolId = school?.id || null;
+            showAdminError('school-admin-error', '');
+            clearSchoolValidation();
+            document.getElementById('school-admin-title').textContent = school ? `Modifier ${school.name}` : 'Ajouter une école';
+            document.getElementById('btn-delete-school').style.display = school ? 'inline-flex' : 'none';
+            document.getElementById('school-id').disabled = Boolean(school);
+            setValue('school-id', school?.id || '');
+            setValue('school-name', school?.name || '');
+            setValue('school-full-name', school?.fullName || '');
+            setValue('school-description', school?.description || '');
+            setValue('school-contact', school?.contact || '');
+            setValue('school-base-url', school?.baseUrl || '');
+            setValue('school-color', school?.color || '#3b82f6');
+            setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
+            setValue('school-emoji', school?.emoji || '🏫');
+            setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
+            // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
+            document.getElementById('btn-open-faq-modal').style.display = school ? 'inline-flex' : 'none';
+            document.getElementById('school-admin-modal').style.display = 'flex';
+            validateSchoolForm({ showEmpty: false });
+        }
+
+        function closeSchoolModal() {
+            document.getElementById('school-admin-modal').style.display = 'none';
+            editingSchoolId = null;
+        }
+
+        function validateSchoolForm({ showEmpty = true } = {}) {
+            const rawId = document.getElementById('school-id').value;
+            const slugId = slugifyId(rawId);
+            const name = document.getElementById('school-name').value.trim();
+            const contact = document.getElementById('school-contact').value.trim();
+            const baseUrl = document.getElementById('school-base-url').value.trim();
+            const selectedBlocks = getDefaultBlocksSelection();
+            const errors = {};
+
+            if (!slugId && showEmpty) errors.id = 'Identifiant requis.';
+            else if (rawId && rawId !== slugId && !editingSchoolId) {
+                setFieldState('school-id', { info: `Sera enregistré comme "${slugId}".` });
+            } else if (slugId) {
+                setFieldState('school-id', { valid: true });
+            } else {
+                setFieldState('school-id');
+            }
+
+            if (!name && showEmpty) errors.name = 'Nom court requis.';
+            if (contact && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(contact)) {
+                errors.contact = 'Contact invalide. Exemple: contact@ecole.fr.';
+            }
+            if (baseUrl && !/^https?:\/\/[^\s]+\.[^\s]+/i.test(baseUrl)) {
+                errors.baseUrl = 'URL invalide. Exemple: https://www.ecole.fr.';
+            }
+            if (!selectedBlocks.length) {
+                errors.defaultBlocks = 'Sélectionnez au moins un bloc.';
+            }
+
+            if (errors.id) setFieldState('school-id', { error: errors.id });
+            else if (!rawId || rawId === slugId || editingSchoolId) {
+                if (slugId) setFieldState('school-id', { valid: true });
+                else setFieldState('school-id');
+            }
+            if (errors.name) setFieldState('school-name', { error: errors.name });
+            else if (name) setFieldState('school-name', { valid: true });
+            else setFieldState('school-name');
+
+            if (errors.contact) setFieldState('school-contact', { error: errors.contact });
+            else if (contact) setFieldState('school-contact', { valid: true });
+            else setFieldState('school-contact');
+
+            if (errors.baseUrl) setFieldState('school-base-url', { error: errors.baseUrl });
+            else if (baseUrl) setFieldState('school-base-url', { valid: true });
+            else setFieldState('school-base-url');
+
+            const blockFeedback = document.getElementById('school-default-blocks-feedback');
+            if (blockFeedback) {
+                blockFeedback.textContent = errors.defaultBlocks || '';
+                blockFeedback.classList.toggle('is-info', false);
+            }
+
+            const hasErrors = Object.keys(errors).length > 0;
+            document.getElementById('btn-save-school').disabled = hasErrors;
+            return { valid: !hasErrors, errors, slugId };
+        }
+
+        function collectSchoolForm() {
+            const validation = validateSchoolForm({ showEmpty: true });
+            if (!validation.valid) {
+                throw new Error('Corrigez les champs signalés avant d’enregistrer.');
+            }
+            const id = slugifyId(document.getElementById('school-id').value);
+            document.getElementById('school-id').value = id;
+            const baseUrl = document.getElementById('school-base-url').value.trim();
+            if (!/^[a-z0-9-]+$/.test(id)) {
+                throw new Error("Identifiant invalide. Utilisez uniquement des minuscules, chiffres et tirets, par exemple mon-ecole.");
+            }
+            if (baseUrl && !/^https?:\/\//i.test(baseUrl)) {
+                throw new Error('Adresse web de base invalide. Utilisez http:// ou https://.');
+            }
+            return {
+                id,
+                name: document.getElementById('school-name').value.trim(),
+                fullName: document.getElementById('school-full-name').value.trim(),
+                description: document.getElementById('school-description').value.trim(),
+                contact: document.getElementById('school-contact').value.trim(),
+                baseUrl,
+                color: document.getElementById('school-color').value,
+                secondaryColor: document.getElementById('school-secondary-color').value,
+                emoji: document.getElementById('school-emoji').value.trim() || '🏫',
+                defaultBlocks: getDefaultBlocksSelection(),
+                showFaq: true
+            };
+        }
+
+        async function saveSchool() {
+            const validation = validateSchoolForm({ showEmpty: true });
+            if (!validation.valid) {
+                showAdminError('school-admin-error', 'Corrigez les champs signalés avant d’enregistrer.');
+                return;
+            }
+            const btn = document.getElementById('btn-save-school');
+            btn.disabled = true;
+            btn.textContent = 'Enregistrement...';
+            try {
+                const school = collectSchoolForm();
+                const url = editingSchoolId ? `/api/school/${encodeURIComponent(editingSchoolId)}` : '/api/schools';
+                const method = editingSchoolId ? 'PUT' : 'POST';
+                const res = await fetch(url, {
+                    method,
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(school)
+                });
+                if (!res.ok) {
+                    throw new Error(await readErrorMessage(res));
+                }
+                closeSchoolModal();
+                await init();
+            } catch (e) {
+                showAdminError('school-admin-error', e.message);
+            } finally {
+                btn.disabled = !validateSchoolForm({ showEmpty: true }).valid;
+                btn.textContent = 'Enregistrer';
+            }
+        }
+
+        function openDeleteSchoolModal() {
+            deletingSchoolId = editingSchoolId;
+            showAdminError('school-delete-error', '');
+            const select = document.getElementById('school-transfer-target');
+            select.innerHTML = currentSchools
+                .filter(s => s.id !== deletingSchoolId)
+                .map(s => `<option value="${escHtml(s.id)}">${escHtml(s.name)} (${currentProjectsMap[s.id]?.length || 0} pages)</option>`)
+                .join('');
+            if (!select.innerHTML) {
+                showAdminError('school-admin-error', 'Impossible de supprimer la seule école existante.');
+                return;
+            }
+            document.getElementById('school-delete-modal').style.display = 'flex';
+        }
+
+        function closeDeleteSchoolModal() {
+            document.getElementById('school-delete-modal').style.display = 'none';
+            deletingSchoolId = null;
+        }
+
+        function closeSchoolHistoryModal() {
+            document.getElementById('school-history-modal').style.display = 'none';
+        }
+
+        function formatHistoryDate(value) {
+            if (!value) return '';
+            return new Date(value).toLocaleString('fr-FR', {
+                day: '2-digit',
+                month: 'short',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+
+        function renderHistoryItem(log) {
+            const meta = log.metadata || {};
+            const total = Number(meta.totalTransferredPages || 0);
+            const legacy = Number(meta.transferredPages || 0);
+            const structured = Number(meta.transferredStructuredPages || 0);
+            const structuredPages = Array.isArray(meta.structuredPages) ? meta.structuredPages : [];
+            const legacyProjects = Array.isArray(meta.legacyProjects) ? meta.legacyProjects : [];
+            const pageLabels = [
+                ...structuredPages.map(page => page.title || page.newLegacyProjectName || page.id),
+                ...legacyProjects.map(page => page.newProjectName || page.previousProjectName)
+            ].filter(Boolean).slice(0, 6);
+            const extraCount = Math.max(0, total - pageLabels.length);
+
+            return `
+                <div class="history-item">
+                    <div class="history-item-top">
+                        <div>
+                            <strong>${escHtml(meta.deletedSchoolId || 'École supprimée')}</strong>
+                            <span style="color:var(--text-secondary);">vers</span>
+                            <strong>${escHtml(meta.transferToSchoolName || meta.transferToSchoolId || 'destination inconnue')}</strong>
+                        </div>
+                        <div class="history-date">${escHtml(formatHistoryDate(log.created_at))}</div>
+                    </div>
+                    <div class="history-meta">
+                        <span class="history-pill">${total} page${total > 1 ? 's' : ''}</span>
+                        <span class="history-pill">${legacy} legacy</span>
+                        <span class="history-pill">${structured} structurée${structured > 1 ? 's' : ''}</span>
+                    </div>
+                    ${pageLabels.length ? `
+                        <div class="history-pages">
+                            ${pageLabels.map(label => escHtml(label)).join(', ')}
+                            ${extraCount ? `, +${extraCount} autre${extraCount > 1 ? 's' : ''}` : ''}
+                        </div>
+                    ` : ''}
+                </div>
+            `;
+        }
+
+        async function loadSchoolHistory() {
+            const list = document.getElementById('school-history-list');
+            showAdminError('school-history-error', '');
+            list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Chargement...</div>';
+            try {
+                const logs = await fetchJSON('/api/schools/activity?limit=25');
+                if (!Array.isArray(logs) || logs.length === 0) {
+                    list.innerHTML = '<div style="color:var(--text-muted);font-size:13px;">Aucun transfert enregistré.</div>';
+                    return;
+                }
+                list.innerHTML = logs.map(renderHistoryItem).join('');
+            } catch (e) {
+                list.innerHTML = '';
+                const message = /404|not found/i.test(e.message)
+                    ? "Endpoint historique indisponible. Redémarrez le serveur local pour charger la nouvelle route /api/schools/activity."
+                    : e.message;
+                showAdminError('school-history-error', message);
+            }
+        }
+
+        async function openSchoolHistoryModal() {
+            document.getElementById('school-history-modal').style.display = 'flex';
+            await loadSchoolHistory();
+        }
+
+        async function deleteSchool() {
+            const transferToSchoolId = document.getElementById('school-transfer-target').value;
+            const deletedSchoolId = deletingSchoolId;
+            const btn = document.getElementById('btn-confirm-delete-school');
+            btn.disabled = true;
+            btn.textContent = 'Transfert...';
+            try {
+                const res = await fetch(`/api/school/${encodeURIComponent(deletedSchoolId)}`, {
+                    method: 'DELETE',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ transferToSchoolId })
+                });
+                if (!res.ok) {
+                    throw new Error(await readErrorMessage(res));
+                }
+                const payload = await res.json();
+                const targetSchool = currentSchools.find(s => s.id === transferToSchoolId);
+                const targetName = targetSchool?.name || transferToSchoolId;
+                const legacyCount = Number(payload.transferredPages || 0);
+                const structuredCount = Number(payload.transferredStructuredPages || 0);
+                const totalCount = Number(payload.totalTransferredPages ?? legacyCount + structuredCount);
+                closeDeleteSchoolModal();
+                closeSchoolModal();
+                await init();
+                showAdminNotice(`
+                    <strong>${escHtml(deletedSchoolId)}</strong> a été supprimée.
+                    ${totalCount} page${totalCount > 1 ? 's' : ''} transférée${totalCount > 1 ? 's' : ''} vers
+                    <strong>${escHtml(targetName)}</strong>
+                    <span style="color:#527064;">(${legacyCount} legacy, ${structuredCount} structurée${structuredCount > 1 ? 's' : ''})</span>.
+                `);
+            } catch (e) {
+                showAdminError('school-delete-error', e.message);
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Transférer et supprimer';
+            }
+        }
+
+        async function init() {
+            try {
+                const [schools, projects, blocksPayload] = await Promise.all([
+                    fetchJSON('/api/schools'),
+                    fetchJSON('/api/projects').catch(err => {
+                        console.warn("Erreur chargement projets:", err);
+                        return [];
+                    }),
+                    fetchJSON('/api/blocks').catch(err => {
+                        console.warn("Erreur chargement blocs:", err);
+                        return null;
+                    })
+                ]);
+
+                if (!Array.isArray(schools)) throw new Error("Format de données invalide pour les écoles");
+                if (blocksPayload?.blocks?.length) {
+                    blockCatalog = blocksPayload.blocks;
+                    fallbackDefaultBlocks = blocksPayload.defaultBlockIds?.length
+                        ? blocksPayload.defaultBlockIds
+                        : fallbackDefaultBlocks;
+                    renderDefaultBlockPicker();
+                }
+
+                const projectsMap = {};
+                schools.forEach(s => { projectsMap[s.id] = []; });
+
+                (projects || []).forEach(p => {
+                    const match = (p.project_name || '').match(/^school-([^_]+)__(.+)$/);
+                    if (match && projectsMap[match[1]]) {
+                        projectsMap[match[1]].push(p);
+                    }
+                });
+
+                buildGrid(schools, projectsMap);
+            } catch (err) {
+                console.error(err);
+                const debugEl = document.getElementById('debug-error');
+                debugEl.style.display = 'block';
+                debugEl.innerHTML = `<strong>Erreur d'initialisation:</strong> ${err.message}<br><small>${err.stack || ''}</small>`;
+
+                document.getElementById('school-grid').innerHTML = `
+                    <div style="text-align:center; padding: 40px; color: #e16a5a; grid-column: 1 / -1;">
+                        Impossible de charger les données du tableau de bord.
+                    </div>
+                `;
+            }
+        }
+
+        init();
+    </script>
+</body>
+</html>

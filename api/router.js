@@ -554,4 +554,124 @@ module.exports = async function handler(req, res) {
                 properties:   seoHistoryProps,
                 saved_by:     req.headers['x-user'] || null
             }, { Prefer: 'return=minimal' });
-            console.log(`🗄️  [SEO-SETTINGS] Historique SEO 
+            console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
+
+            // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
+            const rawBodyHtml = mergedProperties.rawHtml
+                || extractBodyContent(project.html || '');
+            const freshHtml = buildStoredHtml({
+                projectName,
+                html:       rawBodyHtml,
+                css:        project.css || '',
+                properties: mergedProperties
+            });
+
+            // ── 3. Mettre à jour Projects (html + properties) ─────────────────────
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                html:       freshHtml,
+                html_sfmc:  null,
+                properties: mergedProperties
+            });
+
+            // ── 4. Mise en file d'attente SFMC ────────────────────────────────────
+            const jobResult = await enqueueOrProcessInline({
+                projectName,
+                fullHtml:    freshHtml,
+                css:         project.css || '',
+                projectData: project.project_data,
+                properties:  mergedProperties,
+                source:      'save-seo-api'
+            });
+
+            return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
+        }
+
+        if (req.method === 'GET' && pathname === '/api/seo-history') {
+            const projectName = req.query.projectName;
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            const result = await supabaseRequest('GET', `/seo_history?project_name=eq.${encodeURIComponent(projectName)}&order=created_at.desc&limit=5`);
+            return res.status(200).json(result || []);
+        }
+
+        // ==========================================
+        // 7. Preview API
+        // ==========================================
+        if (req.method === 'GET' && pathname.startsWith('/preview/')) {
+            const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
+            let html = '';
+
+            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                return null;
+            });
+
+            if (structured?.version?.html) {
+                html = structured.version.html;
+            } else {
+                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                if (!result || result.length === 0) {
+                    return res.status(404).json({ error: 'Project not found' });
+                }
+                html = result[0].html;
+            }
+
+            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);
+            if (schoolMatch) {
+                const schoolId = schoolMatch[1];
+                const schools  = await readSchoolsForApi();
+                const school   = schools.find(s => s.id === schoolId);
+
+                if (school) {
+                    const primary   = school.color || '#3b82f6';
+                    const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
+                    const brandStyles = `
+                        <style id="brand-variables-preview">
+                            :root {
+                                --brand-primary: ${primary};
+                                --brand-secondary: ${secondary};
+                            }
+                        </style>
+                    `;
+                    html = html.replace('</head>', `${brandStyles}</head>`);
+                }
+            }
+
+            res.setHeader('Content-Type', 'text/html');
+            return res.status(200).send(html);
+        }
+
+        if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
+            const resolved = await resolvePublicPageByHostPath({
+                host: req.headers.host,
+                path: pathname
+            });
+            if (resolved?.page) {
+                if (resolved.page.status !== 'published') {
+                    return res.status(404).send('Page not found');
+                }
+
+                const publication = getPublicationSettings(resolved.page);
+                if (publication.active === false) {
+                    if (publication.redirectUrl) {
+                        res.writeHead(302, { Location: publication.redirectUrl });
+                        return res.end();
+                    }
+                    return res.status(410).send('Page temporarily unavailable');
+                }
+
+                if (!resolved.version?.html) {
+                    return res.status(404).send('Page version not found');
+                }
+
+                res.setHeader('Content-Type', 'text/html');
+                return res.status(200).send(resolved.version.html);
+            }
+        }
+
+        return res.status(404).json({ error: 'API route not found: ' + pathname });
+
+    } catch (e) {
+        console.error('API Router Error:', e);
+        return res.status(500).json({ error: e.message });
+    }
+};

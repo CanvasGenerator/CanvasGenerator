@@ -288,6 +288,7 @@ function initEditor(schoolId) {
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
     editor.on('canvas:frame:load', () => {
         injectBrandVariables(editor, CURRENT_SCHOOL);
+        injectComponentFixedStyles(editor);
     });
 
     editor.on('load', () => {
@@ -828,6 +829,28 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
             setTimeout(doInject, 150);
         }
     }
+}
+
+// Force les styles de structure des composants master qui pourraient être
+// écrasés par un project_data sauvegardé avec d'anciennes valeurs.
+function injectComponentFixedStyles(editor) {
+    try {
+        const doc = editor.Canvas.getDocument();
+        if (!doc) return;
+        let style = doc.getElementById('component-fixed-styles');
+        if (!style) {
+            style = doc.createElement('style');
+            style.id = 'component-fixed-styles';
+            doc.head.appendChild(style);
+        }
+        style.innerHTML = `
+            /* CarouselVariantC — force grille 3 colonnes desktop */
+            @media (min-width: 769px) {
+                .mcc-grid { grid-template-columns: repeat(3, 1fr) !important; display: grid !important; }
+                .mcc-item { display: flex !important; }
+            }
+        `;
+    } catch(e) { /* silencieux */ }
 }
 
 function hexToRgb(hex) {

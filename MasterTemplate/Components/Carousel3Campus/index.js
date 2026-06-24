@@ -38,7 +38,7 @@ export default function(editor, categories) {
             type: 'mc3c-component',
             styles: `
                 .mc3c-section { padding: 60px 20px; background: var(--brand-carousel, #f5f5f5); font-family: Arial, sans-serif; }
-                .mc3c-container { max-width: 620px; margin: 0 auto; overflow: hidden; }
+                .mc3c-container { max-width: 1100px; margin: 0 auto; overflow: hidden; }
                 .mc3c-track { display: flex; transition: transform 0.45s cubic-bezier(0.25,0.46,0.45,0.94); }
 
                 .mc3c-slide { flex: 0 0 100%; box-sizing: border-box; }
@@ -80,7 +80,7 @@ export default function(editor, categories) {
                 .mc3c-prev:hover, .mc3c-next:hover { background: var(--brand-primary, #333); color: #fff; border-color: var(--brand-primary, #333); }
 
                 @media (max-width: 640px) {
-                    .mc3c-container { max-width: 100%; }
+                    .mc3c-container { max-width: 100%; overflow: hidden; }
                     .mc3c-media { height: 200px; }
                     .mc3c-overlay-label { font-size: 22px; }
                     .mc3c-line { display: none; }
