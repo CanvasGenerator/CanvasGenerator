@@ -347,7 +347,83 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 6. General API (Project, Save)
+        // ==========================================
+        // 6. FAQ API
+        // ==========================================
+
+        // GET /api/faq/render?school_id=X&page_type=Y — FAQs filtrées pour le rendu live
+        if (req.method === 'GET' && pathname === '/api/faq/render') {
+            const school_id = req.query.school_id;
+            const page_type = req.query.page_type;
+            if (!school_id) return res.status(400).json({ error: 'school_id requis' });
+            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
+            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
+            if (school && school.show_faq === false) return res.status(200).json([]);
+            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
+            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
+            const rows = await supabaseRequest('GET', url).catch(() => []);
+            const faqs = (Array.isArray(rows) ? rows : []).map(r => r.faq).filter(Boolean);
+            return res.status(200).json(faqs);
+        }
+
+        // GET /api/faq — toute la banque de questions
+        if (req.method === 'GET' && pathname === '/api/faq') {
+            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
+            return res.status(200).json(result || []);
+        }
+
+        // POST /api/faq — créer une question
+        if (req.method === 'POST' && pathname === '/api/faq') {
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // PUT /api/faq/:id — modifier une question
+        if (req.method === 'PUT' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/faq/:id — supprimer une question
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            return res.status(200).json({ message: 'FAQ supprimée' });
+        }
+
+        // GET /api/faq/school/:schoolId — associations d'une école
+        if (req.method === 'GET' && pathname.startsWith('/api/faq/school/') && !pathname.slice('/api/faq/school/'.length).includes('/')) {
+            const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
+            return res.status(200).json(Array.isArray(rows) ? rows : []);
+        }
+
+        // POST /api/faq/school/:schoolId — ajouter une association
+        if (req.method === 'POST' && pathname.startsWith('/api/faq/school/')) {
+            const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+            const { faq_id, page_type = 'general', sort_order = 0 } = req.body || {};
+            if (!faq_id) return res.status(400).json({ error: 'faq_id requis' });
+            const result = await supabaseRequest('POST', '/school_page_faq', { school_id: schoolId, faq_id, page_type, sort_order }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/faq/school/:schoolId/:linkId — supprimer une association
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/school/')) {
+            const parts = pathname.replace('/api/faq/school/', '').split('/');
+            const linkId = parts[1];
+            if (!linkId) return res.status(400).json({ error: 'linkId requis' });
+            await supabaseRequest('DELETE', `/school_page_faq?id=eq.${encodeURIComponent(linkId)}`);
+            return res.status(200).json({ message: 'Association supprimée' });
+        }
+
+        // ==========================================
+        // 7. General API (Project, Save)
+        // ==========================================
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);

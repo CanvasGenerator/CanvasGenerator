@@ -143,7 +143,7 @@ document.addEventListener('DOMContentLoaded', async () => {
             updateSchoolUI(CURRENT_SCHOOL);
             injectBrandVariables(null, CURRENT_SCHOOL, true);
         } else if (schoolId === 'master') {
-            CURRENT_SCHOOL = { id: 'master', name: 'MASTER', color: '#c9b87a', secondaryColor: '#1a1a1a', colorHeader: '#1a1a1a', colorCarousel: '#c9b87a', defaultBlocks: [] };
+            CURRENT_SCHOOL = { id: 'master', name: 'MASTER', color: '#e5e7eb', secondaryColor: '#6b7280', colorHeader: '#9ca3af', colorCarousel: '#e5e7eb', defaultBlocks: [] };
             updateSchoolUI(CURRENT_SCHOOL);
             injectBrandVariables(null, CURRENT_SCHOOL, true);
         }
@@ -304,14 +304,21 @@ function initEditor(schoolId) {
     });
 
     // ── Verrouillage et ouverture automatique du picker FAQ ─────────────
-    // 1. Chaque composant ajouté dans un ma-faq-section est verrouillé immédiatement.
-    //    (le _lockChildren dans init() peut manquer des enfants parsés tardivement)
+    // Seul le .ma-title reste éditable ; tout le reste est verrouillé.
+    function isFaqTitle(comp) {
+        try { return comp.getClasses && comp.getClasses().includes('ma-title'); } catch(e) { return false; }
+    }
+
     editor.on('component:add', (component) => {
-        // Verrouiller si enfant d'un ma-faq-section
+        // Verrouiller si enfant d'un ma-faq-section (sauf le titre)
         let parent = component.parent();
         while (parent) {
             if (parent.get('type') === 'ma-faq-section') {
-                component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                if (isFaqTitle(component)) {
+                    component.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
+                } else {
+                    component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                }
                 return;
             }
             parent = parent.parent();
@@ -433,11 +440,15 @@ function initEditor(schoolId) {
                             </div>`;
                         }).join('');
                         listComp.components(itemsHtml);
-                        // Re-verrouiller tous les enfants après mise à jour du contenu
+                        // Re-verrouiller tous les enfants après mise à jour du contenu (titre exclu)
                         const lockAll = (comp) => {
                             comp.get('components').each(child => {
-                                child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
-                                lockAll(child);
+                                if (isFaqTitle(child)) {
+                                    child.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
+                                } else {
+                                    child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                                    lockAll(child);
+                                }
                             });
                         };
                         lockAll(component);
