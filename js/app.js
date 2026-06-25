@@ -793,6 +793,13 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     const rgb = hexToRgb(primary) || '59, 130, 246';
     const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }`;
 
+    // Règles directes avec !important pour overrider les couleurs hardcodées
+    // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici
+    const headerOverrideCss = `
+.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
+.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
+.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }`;
+
     if (intoMainDoc) {
         let style = document.getElementById('brand-variables-main');
         if (!style) {
@@ -817,7 +824,7 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
                     style.id = 'brand-variables';
                     doc.head.appendChild(style);
                 }
-                style.innerHTML = css;
+                style.innerHTML = css + headerOverrideCss;
                 return true;
             } catch(e) { return false; }
         }

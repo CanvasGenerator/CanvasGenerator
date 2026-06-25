@@ -64,6 +64,79 @@ function isFullHtmlDocument(html = '') {
     return /^\s*(<!doctype\s+html[^>]*>\s*)?<html[\s>]/i.test(String(html || ''));
 }
 
+// Sélecteurs dont le background doit prendre --brand-header lors d'une déclinaison
+const BRAND_HEADER_SELECTORS = [
+    'header-efap', 'header-brassart', 'mh-header',
+    'footer-efap', 'footer-brassart', 'mf-footer'
+];
+const BRAND_CAROUSEL_SELECTORS = [
+    'mc2a-section', 'mc2b-section', 'mc2c-section',
+    'mcva-section', 'mcd-colored-zone', 'mc3c-section', 'mce-section', 'mcb-gray-zone'
+];
+
+/**
+ * Patche une chaîne CSS :
+ *  - Met à jour les fallbacks var(--brand-*, OLD) avec les nouvelles couleurs
+ *  - Remplace les background-color hardcodés dans les blocs header/footer
+ */
+function patchCssString(css, { colorHeader, primary, secondary, colorCarousel }) {
+    if (!css) return css;
+    // 1. Mettre à jour les fallbacks var()
+    css = css.replace(/var\(--brand-header,\s*[^)]+\)/g, `var(--brand-header, ${colorHeader})`);
+    css = css.replace(/var\(--brand-primary,\s*[^)]+\)/g, `var(--brand-primary, ${primary})`);
+    css = css.replace(/var\(--brand-secondary,\s*[^)]+\)/g, `var(--brand-secondary, ${secondary})`);
+    css = css.replace(/var\(--brand-carousel,\s*[^)]+\)/g, `var(--brand-carousel, ${colorCarousel})`);
+    // 2. Pour chaque sélecteur header/footer, remplacer les background hardcodés
+    for (const cls of BRAND_HEADER_SELECTORS) {
+        css = css.replace(
+            new RegExp(`(\\.${cls}\\s*\\{[^}]*?)(background(?:-color)?\\s*:\\s*)([^;!}]+)`, 'gs'),
+            (match, prefix, prop, val) => {
+                if (val.trim().startsWith('var(')) return match;
+                return `${prefix}${prop}var(--brand-header, ${colorHeader})`;
+            }
+        );
+    }
+    // 3. Pour chaque sélecteur carousel, remplacer les background hardcodés
+    for (const cls of BRAND_CAROUSEL_SELECTORS) {
+        css = css.replace(
+            new RegExp(`(\\.${cls}\\s*\\{[^}]*?)(background(?:-color)?\\s*:\\s*)([^;!}]+)`, 'gs'),
+            (match, prefix, prop, val) => {
+                if (val.trim().startsWith('var(')) return match;
+                return `${prefix}${prop}var(--brand-carousel, ${colorCarousel})`;
+            }
+        );
+    }
+    return css;
+}
+
+/**
+ * Parcourt récursivement l'arbre de composants GrapesJS et patche
+ * le contenu des balises <style> inline.
+ */
+function patchComponentTree(components, colorVars) {
+    if (!Array.isArray(components)) return components;
+    return components.map(comp => {
+        const c = { ...comp };
+        // Balise <style> : le CSS est dans comp.content ou dans le premier enfant textnode
+        if (comp.tagName === 'style') {
+            if (typeof comp.content === 'string' && comp.content.trim()) {
+                c.content = patchCssString(comp.content, colorVars);
+            } else if (Array.isArray(comp.components) && comp.components.length > 0) {
+                const children = [...comp.components];
+                if (typeof children[0].content === 'string') {
+                    children[0] = { ...children[0], content: patchCssString(children[0].content, colorVars) };
+                }
+                c.components = children;
+            }
+        }
+        // Récursion sur les enfants
+        if (Array.isArray(comp.components)) {
+            c.components = patchComponentTree(comp.components, colorVars);
+        }
+        return c;
+    });
+}
+
 function extractBodyContent(fullHtml) {
     const match = String(fullHtml || '').match(/<body[^>]*>([\s\S]*?)<\/body>/i);
     return match ? match[1] : fullHtml;
@@ -974,9 +1047,19 @@ http.createServer(async (req, res) => {
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
                             .replace(/LOGO_ECOLE/g, schoolLogo);
 
+                        // Patcher les balises <style> inline dans le HTML body
+                        const colorVarsForHtml = { colorHeader, primary, secondary, colorCarousel };
+                        schoolHtml = schoolHtml.replace(
+                            /(<style[^>]*>)([\s\S]*?)(<\/style>)/gi,
+                            (_, open, cssContent, close) =>
+                                open + patchCssString(cssContent, colorVarsForHtml) + close
+                        );
+
                         // Injecter les CSS vars de l'école en tête du CSS
                         const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
-                        const schoolCss  = schoolVars + masterCss;
+                        // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
+                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
                         const newProjectName = `school-${schoolId}__${displayName}__FR`;
@@ -1040,15 +1123,34 @@ http.createServer(async (req, res) => {
                                 'border-color', 'border-bottom-color', 'border-top-color',
                                 'border-left-color', 'border-right-color'
                             ]);
+                            // Sélecteurs de header/footer : background doit suivre --brand-header (pas --brand-primary)
+                            const HEADER_SELECTORS = new Set([
+                                '.header-efap', '.header-brassart', '.mh-header',
+                                '.footer-efap', '.footer-brassart'
+                            ]);
 
                             if (Array.isArray(finalProjectData.styles)) {
                                 finalProjectData.styles = finalProjectData.styles.map(rule => {
                                     if (!rule.style) return rule;
                                     const newStyle = { ...rule.style };
                                     let changed = false;
+
+                                    // Déterminer si ce rule cible un sélecteur de header
+                                    const selectorStr = Array.isArray(rule.selectors)
+                                        ? rule.selectors.map(s => typeof s === 'string' ? s : (s && s.name ? `.${s.name}` : '')).join('')
+                                        : '';
+                                    const isHeaderSelector = HEADER_SELECTORS.has(selectorStr);
+
                                     Object.keys(newStyle).forEach(prop => {
                                         const val = String(newStyle[prop] || '');
                                         if (!val) return;
+
+                                        // c) Pour les sélecteurs de header : forcer background → var(--brand-header)
+                                        if (isHeaderSelector && (prop === 'background' || prop === 'background-color')) {
+                                            newStyle[prop] = `var(--brand-header, ${colorHeader})`;
+                                            changed = true;
+                                            return;
+                                        }
 
                                         // a) Mettre à jour les fallbacks var(--brand-primary, OLD) → var(--brand-primary, primary)
                                         if (val.includes('var(--brand-primary')) {
@@ -1104,6 +1206,23 @@ http.createServer(async (req, res) => {
                                     '--brand-carousel':    colorCarousel
                                 }
                             });
+
+                            // 5. Patcher les balises <style> inline dans l'arbre des composants GrapesJS
+                            // (project_data.pages[].frames[].component) — ces styles ne sont PAS
+                            // dans le tableau .styles mais directement dans le HTML des composants.
+                            const colorVars = { colorHeader, primary, secondary, colorCarousel };
+                            if (Array.isArray(finalProjectData.pages)) {
+                                finalProjectData.pages = finalProjectData.pages.map(page => ({
+                                    ...page,
+                                    frames: (page.frames || []).map(frame => ({
+                                        ...frame,
+                                        component: frame.component ? {
+                                            ...frame.component,
+                                            components: patchComponentTree(frame.component.components, colorVars)
+                                        } : frame.component
+                                    }))
+                                }));
+                            }
 
                         } catch(e) {
                             console.error('project_data post-process error:', e.message);

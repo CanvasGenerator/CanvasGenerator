@@ -67,7 +67,7 @@ export default function(editor, categories) {
 
             styles: `
                 .mcd-section {
-                    padding: 20px 20px 0;
+                    padding: 20px;
                     background: transparent;
                     font-family: Arial, sans-serif;
                 }
