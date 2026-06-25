@@ -1815,6 +1815,190 @@
             }
         }
 
+
+        // ══════════════════════════════════════════════════════════════════
+        // FAQ ADMIN — Gestion de la banque de questions et des associations
+        // ══════════════════════════════════════════════════════════════════
+        let faqModalSchoolId = null;
+        let allFaqsBank = [];
+        let schoolFaqLinks = []; // associations {id, faq_id, page_type, sort_order}
+
+        function openFaqModal(schoolId) {
+            faqModalSchoolId = schoolId;
+            const school = currentSchools.find(s => s.id === schoolId);
+            document.getElementById('faq-modal-school-name').textContent = school ? school.name : schoolId;
+            hideFaqForm();
+            showAdminError('faq-school-error', '');
+            document.getElementById('faq-admin-modal').style.display = 'flex';
+            loadFaqsForSchool();
+        }
+
+        function closeFaqModal() {
+            document.getElementById('faq-admin-modal').style.display = 'none';
+            faqModalSchoolId = null;
+        }
+
+        async function loadFaqsForSchool() {
+            const list = document.getElementById('faq-school-list');
+            list.innerHTML = '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:24px;"><i class="fas fa-spinner fa-spin"></i> Chargement…</div>';
+            showAdminError('faq-school-error', '');
+            try {
+                const [bank, links] = await Promise.all([
+                    fetchJSON('/api/faq'),
+                    faqModalSchoolId ? fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}`).catch(() => []) : Promise.resolve([])
+                ]);
+                allFaqsBank = Array.isArray(bank) ? bank : [];
+                schoolFaqLinks = Array.isArray(links) ? links : [];
+                renderFaqList();
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+                list.innerHTML = '';
+            }
+        }
+
+        function renderFaqList() {
+            const list = document.getElementById('faq-school-list');
+            if (!allFaqsBank.length) {
+                list.innerHTML = '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:40px;">Aucune FAQ dans la banque. Créez-en une avec le bouton <strong>Nouvelle FAQ</strong>.</div>';
+                return;
+            }
+            const linkedIds = new Set(schoolFaqLinks.map(l => l.faq_id));
+            list.innerHTML = allFaqsBank.map(faq => {
+                const isLinked = linkedIds.has(faq.id);
+                const link = schoolFaqLinks.find(l => l.faq_id === faq.id);
+                return `
+                <div class="faq-row" id="faq-row-${escHtml(faq.id)}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:#fff;border:1.5px solid ${isLinked ? '#a7f3d0' : '#e5e7eb'};border-radius:10px;transition:border-color .2s;">
+                    <div style="padding-top:2px;flex-shrink:0;">
+                        <input type="checkbox" id="faq-check-${escHtml(faq.id)}"
+                            ${isLinked ? 'checked' : ''}
+                            style="width:16px;height:16px;cursor:pointer;accent-color:#1a7a5e;"
+                            onchange="toggleFaqLink('${escHtml(faq.id)}', '${link ? escHtml(link.id) : ''}', this.checked)">
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:13px;font-weight:600;color:#111;line-height:1.4;margin-bottom:4px;">${escHtml(faq.question)}</div>
+                        <div style="font-size:12px;color:#6b7280;line-height:1.5;">${escHtml(faq.answer.slice(0, 160))}${faq.answer.length > 160 ? '…' : ''}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-shrink:0;padding-top:2px;">
+                        <button class="admin-btn" title="Modifier" style="padding:5px 10px;font-size:11px;" onclick="editFaq('${escHtml(faq.id)}', ${JSON.stringify(escHtml(faq.question))}, ${JSON.stringify(escHtml(faq.answer))})">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="admin-btn danger" title="Supprimer" style="padding:5px 10px;font-size:11px;" onclick="deleteFaq('${escHtml(faq.id)}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        async function toggleFaqLink(faqId, linkId, checked) {
+            const row = document.getElementById(`faq-row-${faqId}`);
+            try {
+                if (checked) {
+                    const result = await fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ faq_id: faqId, page_type: 'general', sort_order: 0 })
+                    });
+                    schoolFaqLinks.push(result || { faq_id: faqId });
+                    if (row) row.style.borderColor = '#a7f3d0';
+                } else {
+                    if (linkId) {
+                        await fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}/${encodeURIComponent(linkId)}`, { method: 'DELETE' });
+                    }
+                    schoolFaqLinks = schoolFaqLinks.filter(l => l.faq_id !== faqId);
+                    if (row) row.style.borderColor = '#e5e7eb';
+                }
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+                // Revert checkbox
+                const cb = document.getElementById(`faq-check-${faqId}`);
+                if (cb) cb.checked = !checked;
+                if (row) row.style.borderColor = checked ? '#e5e7eb' : '#a7f3d0';
+            }
+        }
+
+        function showFaqForm({ id = '', question = '', answer = '', title = 'Nouvelle question' } = {}) {
+            document.getElementById('faq-form-title').textContent = title;
+            document.getElementById('faq-edit-id').value = id;
+            document.getElementById('faq-input-question').value = question;
+            document.getElementById('faq-input-answer').value = answer;
+            document.getElementById('faq-form-error').style.display = 'none';
+            document.getElementById('faq-form-wrap').style.display = 'block';
+            document.getElementById('faq-input-question').focus();
+        }
+
+        function hideFaqForm() {
+            document.getElementById('faq-form-wrap').style.display = 'none';
+            document.getElementById('faq-edit-id').value = '';
+            document.getElementById('faq-input-question').value = '';
+            document.getElementById('faq-input-answer').value = '';
+            document.getElementById('faq-form-error').style.display = 'none';
+        }
+
+        function editFaq(id, question, answer) {
+            showFaqForm({ id, question, answer, title: 'Modifier la question' });
+        }
+
+        async function saveFaqForm() {
+            const id = document.getElementById('faq-edit-id').value;
+            const question = document.getElementById('faq-input-question').value.trim();
+            const answer = document.getElementById('faq-input-answer').value.trim();
+            const errEl = document.getElementById('faq-form-error');
+            if (!question || !answer) {
+                errEl.textContent = 'La question et la réponse sont obligatoires.';
+                errEl.style.display = 'block';
+                return;
+            }
+            const btn = document.getElementById('btn-faq-form-save');
+            btn.disabled = true;
+            errEl.style.display = 'none';
+            try {
+                if (id) {
+                    await fetchJSON(`/api/faq/${encodeURIComponent(id)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question, answer })
+                    });
+                } else {
+                    await fetchJSON('/api/faq', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question, answer })
+                    });
+                }
+                hideFaqForm();
+                await loadFaqsForSchool();
+            } catch(e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteFaq(id) {
+            if (!confirm('Supprimer cette question de la banque ? Elle sera retirée de toutes les écoles.')) return;
+            try {
+                await fetchJSON(`/api/faq/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                await loadFaqsForSchool();
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+            }
+        }
+
+        // Wiring FAQ modal buttons
+        document.getElementById('btn-open-faq-modal').addEventListener('click', () => {
+            if (editingSchoolId) openFaqModal(editingSchoolId);
+        });
+        document.getElementById('btn-close-faq-modal').addEventListener('click', closeFaqModal);
+        document.getElementById('btn-close-faq-modal-footer').addEventListener('click', closeFaqModal);
+        document.getElementById('faq-admin-modal').addEventListener('click', e => {
+            if (e.target === document.getElementById('faq-admin-modal')) closeFaqModal();
+        });
+        document.getElementById('btn-faq-new').addEventListener('click', () => showFaqForm());
+        document.getElementById('btn-faq-form-save').addEventListener('click', saveFaqForm);
+        document.getElementById('btn-faq-form-cancel').addEventListener('click', hideFaqForm);
+
         init();
     </script>
 </body>
