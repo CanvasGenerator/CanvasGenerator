@@ -46,7 +46,6 @@ export function registerBlocks(editor) {
         hero, twoColumn, richText, ctaButton, imageCaption, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
-        DerniereFonctionnalite,
         carousel, CarrouselTemoignages,
         icartBlocks, formSalesforceCore,
         formBrochure, formJpo, formPrecandidature, formWebconf
