@@ -1539,38 +1539,39 @@ function initUI(editor) {
     };
 
     // Preview
-    document.getElementById('btn-preview').onclick = async () => {
-        const name = await getProjectName('Aperçu');
-        if (!name) return;
-        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+    document.getElementById('btn-preview').onclick = () => {
+        // Hide custom UI panels
+        const tb = document.querySelector('.builder-toolbar');
+        const sl = document.querySelector('.sidebar-left');
+        const sr = document.querySelector('.sidebar-right');
+        if (tb) tb.style.display = 'none';
+        if (sl) sl.style.display = 'none';
+        if (sr) sr.style.display = 'none';
+        
+        // Run GrapesJS preview
+        editor.runCommand('core:preview');
+        editor.refresh(); // Force resize
 
-        const currentFullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
-        const selectedLanguage = document.getElementById('language-switcher')?.value || currentProjectLanguage || 'FR';
-        const previewProjectName = currentFullName || `school-${schoolId}__${name}__${selectedLanguage}`;
-
-        if (!currentProjectIsNew && currentFullName) {
-            window.open(`/preview/${encodeURIComponent(previewProjectName)}`, '_blank');
-            return;
+        // Create or show custom exit button
+        let exitBtn = document.getElementById('custom-exit-preview');
+        if (!exitBtn) {
+            exitBtn = document.createElement('button');
+            exitBtn.id = 'custom-exit-preview';
+            exitBtn.className = 'btn-primary';
+            exitBtn.innerHTML = '<i class="fas fa-times" style="margin-right:8px;"></i> Quitter l\'aperçu';
+            exitBtn.style.cssText = 'position: fixed; bottom: 30px; left: 50%; transform: translateX(-50%); z-index: 10000; box-shadow: 0 10px 25px rgba(0,0,0,0.2); padding: 12px 24px; font-size: 15px; border-radius: 30px;';
+            document.body.appendChild(exitBtn);
+            
+            exitBtn.onclick = () => {
+                editor.stopCommand('core:preview');
+                if (tb) tb.style.display = '';
+                if (sl) sl.style.display = '';
+                if (sr) sr.style.display = '';
+                exitBtn.style.display = 'none';
+                editor.refresh();
+            };
         }
-
-        // New pages still need a temporary save before preview can resolve a URL.
-        const propsToSave = collectProperties();
-        const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
-
-        const projectData = { 
-            projectName: previewProjectName,
-            html: finalHtml,           // full HTML with SEO meta tags
-            css: editor.getCss(), 
-            projectData: editor.getProjectData() 
-        };
-        try {
-            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
-            if (!res.ok) throw new Error(await res.text());
-            window.open(`/preview/${encodeURIComponent(previewProjectName)}`, '_blank');
-        } catch (e) { 
-            console.error(e);
-            await showAlert({ title: 'Erreur Preview', message: 'Impossible de générer l\'aperçu. La sauvegarde a échoué. ' + e.message });
-        }
+        exitBtn.style.display = 'block';
     };
 
     // Open Project

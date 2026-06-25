@@ -25,7 +25,7 @@ const BLOCK_REGISTRY = [
     { id: 'spacer', label: 'Espacement', category: 'Structure', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/spacer.svg', tags: ['layout'], enabled: false },
     { id: 'Carrousel', label: 'Carrousel', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel.svg', tags: ['carousel'], enabled: true },
     { id: 'CarrouselTemoignages', label: 'Carrousel témoignages', category: 'Social Proof', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel-temoignages.svg', tags: ['carousel', 'testimonials'], enabled: true },
-    { id: 'CarrouselCampus', label: 'Carrousel campus', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel-campus.svg', tags: ['carousel', 'campus'], enabled: true }
+    { id: 'master-carousel3-campus', label: 'Carrousel campus', category: 'Media', scope: 'global', schools: [], thumbnail: 'assets/block-thumbnails/carrousel-campus.svg', tags: ['carousel', 'campus'], enabled: true }
 ];
 
 function listBlocks({ schoolId } = {}) {
