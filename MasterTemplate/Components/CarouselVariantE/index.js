@@ -59,11 +59,11 @@ export default function(editor, categories) {
             styles: `
                 .mce-section {
                     padding: 36px 20px;
-                    background: var(--brand-primary, #374151);
+                    background: var(--brand-carousel, var(--brand-primary, #374151));
                     font-family: Arial, sans-serif;
                 }
                 .mce-viewport {
-                    max-width: 860px;
+                    max-width: 1100px;
                     margin: 0 auto;
                     overflow: hidden;
                 }
@@ -154,7 +154,7 @@ export default function(editor, categories) {
                     width: 40px;
                     height: 40px;
                     border-radius: 50%;
-                    border: 2px solid #555;
+                    border: 2px solid var(--brand-primary, #555);
                     background: #fff;
                     cursor: pointer;
                     font-size: 20px;

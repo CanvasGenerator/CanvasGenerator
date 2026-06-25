@@ -38,7 +38,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2b-component',
             styles: `
-                .mc2b-section { padding: 48px 20px; background: #f7f9fc; font-family: Arial, sans-serif; }
+                .mc2b-section { padding: 48px 20px; background: var(--brand-carousel, #f7f9fc); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
                 .mc2b-viewport { max-width: 520px; margin: 0 auto; overflow: hidden; }
                 .mc2b-track { display: flex; transition: transform 0.42s ease; }
 

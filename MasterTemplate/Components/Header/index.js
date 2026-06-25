@@ -17,8 +17,8 @@ export default function(editor, categories) {
 </header>
 <style>
   .mh-header {
-    background: #1a1a1a;
-    border-bottom: 3px solid var(--brand-primary, #1f2937);
+    background: var(--brand-header, var(--brand-primary, #1a1a1a));
+    border-bottom: 3px solid rgba(0,0,0,0.2);
     font-family: Arial, sans-serif;
     width: 100%;
   }
@@ -31,7 +31,7 @@ export default function(editor, categories) {
     align-items: center;
   }
   .mh-logo-img {
-    height: 48px;
+    height: 64px;
     object-fit: contain;
     display: block;
   }
@@ -49,7 +49,7 @@ export default function(editor, categories) {
   .mh-lang-btn:hover { background: rgba(255,255,255,0.1); }
   @media (max-width: 768px) {
     .mh-inner { padding: 10px 16px; }
-    .mh-logo-img { height: 36px; }
+    .mh-logo-img { height: 48px; }
   }
 </style>`,
         attributes: { class: 'fa fa-window-maximize' }

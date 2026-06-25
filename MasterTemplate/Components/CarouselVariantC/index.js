@@ -42,7 +42,7 @@ export default function(editor, categories) {
                     font-family: Arial, sans-serif;
                 }
                 .mcc-wrapper {
-                    max-width: 740px;
+                    max-width: 1100px;
                     margin: 0 auto;
                     border: 1px solid #ddd;
                     padding: 20px 20px 24px;

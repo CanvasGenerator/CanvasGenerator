@@ -23,7 +23,7 @@ export default function(editor, categories) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    background-color: var(--bg-surface-strong, #e5e7eb);
+                    background-color: var(--brand-primary, #1f2937);
                     background-size: cover;
                     background-position: center;
                     font-family: var(--font-family, 'Inter', sans-serif);
