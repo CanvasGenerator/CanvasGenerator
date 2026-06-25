@@ -13,7 +13,7 @@ export default function(editor, categories) {
             </header>
             <style>
                 .header-brassart {
-                    background-color: #ffffff;
+                    background-color: var(--brand-header, #ffffff);
                     padding: 20px 0;
                     margin: 0;
                     display: flex;

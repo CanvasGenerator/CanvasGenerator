@@ -30,7 +30,7 @@ export default function(editor, categories) {
             </footer>
             <style>
                 .footer-efap {
-                    background-color: #1a1a1a;
+                    background-color: var(--brand-header, #1a1a1a);
                     padding: 50px 40px;
                     color: #ffffff;
                     font-family: 'Georgia', serif;

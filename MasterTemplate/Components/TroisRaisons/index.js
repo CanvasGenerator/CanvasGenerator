@@ -66,7 +66,7 @@ export default function(editor, categories) {
   }
   .mtr-content-col {
     flex: 1;
-    background: #e69b35; /* Orange BRASSART */
+    background: var(--brand-primary, #e69b35);
     padding: 60px 50px;
     display: flex;
     flex-direction: column;
@@ -81,7 +81,7 @@ export default function(editor, categories) {
   .mtr-title {
     font-size: 24px;
     font-weight: 800;
-    color: #111;
+    color: #fff;
     letter-spacing: 0.5px;
     margin: 0;
     line-height: 1.2;
@@ -95,21 +95,21 @@ export default function(editor, categories) {
   .mtr-line {
     width: 40px;
     height: 1px;
-    background: #111;
+    background: rgba(255,255,255,0.3);
   }
   .mtr-title-deco strong {
     font-size: 14px;
-    color: #111;
+    color: rgba(255,255,255,0.8);
     font-weight: 900;
   }
   .mtr-items { display: flex; flex-direction: column; gap: 28px; }
   .mtr-item { display: flex; gap: 16px; align-items: flex-start; }
   .mtr-icon { flex-shrink: 0; margin-top: 2px; }
-  .mtr-item-text { color: #111; font-size: 13px; line-height: 1.5; font-weight: 500; }
+  .mtr-item-text { color: #fff; font-size: 13px; line-height: 1.5; font-weight: 500; }
   .mtr-keyword {
     display: inline-block;
     font-weight: 700;
-    background: #111;
+    background: var(--brand-secondary, #111);
     color: #fff;
     padding: 2px 8px;
     border-radius: 2px;

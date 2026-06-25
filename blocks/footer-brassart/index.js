@@ -28,7 +28,7 @@ export default function(editor, categories) {
             </footer>
             <style>
                 .footer-brassart {
-                    background-color: #ffffff;
+                    background-color: var(--brand-header, #ffffff);
                     padding: 60px 40px 40px 40px;
                     font-family: 'Inter', sans-serif;
                     border-top: 1px solid #f0f0f0;

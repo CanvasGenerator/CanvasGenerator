@@ -22,6 +22,8 @@ import carousel2A from './Carousel2A/index.js';
 import carousel2B from './Carousel2B/index.js';
 import carousel2C from './Carousel2C/index.js';
 import carousel3Campus from './Carousel3Campus/index.js';
+import blocsTexte3Col from './BlocsTexte3Col/index.js';
+import chiffresCles2 from './ChiffresCles2/index.js';
 
 export function registerMasterComponents(editor) {
     const categories = {
@@ -52,7 +54,9 @@ export function registerMasterComponents(editor) {
         carousel2A,
         carousel2B,
         carousel2C,
-        carousel3Campus
+        carousel3Campus,
+        blocsTexte3Col,
+        chiffresCles2
     ].forEach(blockInit => {
         if (typeof blockInit === 'function') {
             blockInit(editor, categories);

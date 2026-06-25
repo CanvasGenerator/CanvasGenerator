@@ -9,7 +9,7 @@ export default function(editor, categories) {
             </header>
             <style>
                 .header-efap {
-                    background-color: #1a1a1a;
+                    background-color: var(--brand-header, #1a1a1a);
                     padding: 18px 0; /* Collé au bord gauche */
                     margin: 0;
                     display: flex;
