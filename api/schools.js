@@ -13,8 +13,17 @@ async function readSchoolsForApi() {
         if (Array.isArray(schools)) {
             const merged = new Map(baseSchools.map(school => [school.id, school]));
             schools.map(normalizeSchool).forEach(school => {
-                if (school.deleted) merged.delete(school.id);
-                else merged.set(school.id, school);
+                if (school.deleted) { merged.delete(school.id); return; }
+                const base = merged.get(school.id) || {};
+                // Toutes les couleurs viennent toujours de schools.json
+                merged.set(school.id, {
+                    ...school,
+                    color:         base.color         || school.color,
+                    secondaryColor: base.secondaryColor || school.secondaryColor,
+                    colorHeader:   base.colorHeader   || school.colorHeader,
+                    colorCarousel: base.colorCarousel || school.colorCarousel,
+                    colorLight:    base.colorLight    || school.colorLight,
+                });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
         }
@@ -35,15 +44,19 @@ function normalizeSchool(school = {}) {
         color: school.color || '#3b82f6',
         secondaryColor: school.secondaryColor || school.secondary_color || '#1a1a1a',
         colorLight: school.colorLight || school.color_light || '',
+        colorHeader: school.colorHeader || school.color_header || '',
+        colorCarousel: school.colorCarousel || school.color_carousel || '',
         emoji: school.emoji || '🏫',
-        rgpdText: school.rgpdText || school.rgpd_text || '',
-        rgpdUrl: school.rgpdUrl || school.rgpd_url || '',
         deleted: Boolean(school.deleted),
         defaultBlocks: Array.isArray(school.defaultBlocks)
             ? school.defaultBlocks
             : Array.isArray(school.default_blocks)
                 ? school.default_blocks
-                : []
+                : [],
+        // show_faq : active/désactive le bloc FAQ sur toutes les pages de cette école
+        showFaq: school.showFaq !== undefined ? Boolean(school.showFaq)
+               : school.show_faq !== undefined ? Boolean(school.show_faq)
+               : true
     };
 }
 
@@ -72,9 +85,12 @@ function schoolDbPayload(school) {
         base_url: school.baseUrl,
         color: school.color,
         secondary_color: school.secondaryColor,
+        color_header: school.colorHeader,
+        color_carousel: school.colorCarousel,
         color_light: school.colorLight,
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
+        show_faq: school.showFaq !== undefined ? school.showFaq : true,
         deleted: school.deleted
     };
 }

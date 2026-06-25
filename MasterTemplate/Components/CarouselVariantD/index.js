@@ -67,14 +67,16 @@ export default function(editor, categories) {
 
             styles: `
                 .mcd-section {
-                    padding: 20px 20px 0;
+                    padding: 20px;
                     background: transparent;
                     font-family: Arial, sans-serif;
                 }
                 /* Wrapper gris très clair — uniquement autour des cartes */
                 .mcd-colored-zone {
-                    background: #f3f4f6;
+                    background: var(--brand-carousel, #f3f4f6);
                     width: 100%;
+                    max-width: 1100px;
+                    margin: 0 auto;
                     padding: 20px 20px 20px;
                     box-sizing: border-box;
                 }
@@ -127,8 +129,8 @@ export default function(editor, categories) {
                 }
                 .mcd-tag {
                     display: inline-block;
-                    background: #1f2937;
-                    color: #e5e7eb;
+                    background: var(--brand-primary, #1f2937);
+                    color: #fff;
                     font-size: 10.5px;
                     font-weight: 600;
                     padding: 3px 8px;
@@ -153,7 +155,7 @@ export default function(editor, categories) {
                     width: 40px;
                     height: 40px;
                     border-radius: 50%;
-                    border: 2px solid #555;
+                    border: 2px solid var(--brand-primary, #555);
                     background: #fff;
                     cursor: pointer;
                     font-size: 20px;

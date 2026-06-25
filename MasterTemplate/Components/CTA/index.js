@@ -55,7 +55,7 @@ export default function(editor, categories) {
     position: fixed;
     bottom: 0; left: 0; right: 0;
     z-index: 9999;
-    background: #111;
+    background: var(--brand-primary, #111);
     display: flex;
     align-items: stretch;
     box-shadow: 0 -2px 12px rgba(0,0,0,0.25);

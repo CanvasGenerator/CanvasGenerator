@@ -44,8 +44,8 @@ export default function(editor, categories) {
         content: {
             type: 'mcva-component',
             styles: `
-                .mcva-section { padding: 40px 20px; background: #fff; font-family: Arial, sans-serif; }
-                .mcva-viewport { max-width: 1000px; margin: 0 auto; overflow: hidden; }
+                .mcva-section { padding: 40px 20px; background: var(--brand-carousel, #fff); font-family: Arial, sans-serif; }
+                .mcva-viewport { max-width: 1100px; margin: 0 auto; overflow: hidden; }
                 .mcva-track { display: flex; transition: transform 0.42s cubic-bezier(0.25,0.46,0.45,0.94); }
 
                 .mcva-card {
@@ -109,7 +109,7 @@ export default function(editor, categories) {
                 .mcva-nav { text-align: center; margin-top: 20px; }
                 .mcva-prev, .mcva-next {
                     width: 40px; height: 40px; border-radius: 50%;
-                    border: 2px solid #555; background: #fff;
+                    border: 2px solid var(--brand-primary, #555); background: #fff;
                     cursor: pointer; font-size: 22px; margin: 0 6px;
                     color: #333; display: inline-flex;
                     align-items: center; justify-content: center;

@@ -42,7 +42,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2c-component',
             styles: `
-                .mc2c-section { padding: 0; background: #f7f9fc; font-family: Arial, sans-serif; }
+                .mc2c-section { padding: 0; background: var(--brand-carousel, #f7f9fc); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
                 .mc2c-viewport { max-width: 820px; margin: 0 auto; overflow: hidden; }
                 .mc2c-track { display: flex; transition: transform 0.42s ease; }
 

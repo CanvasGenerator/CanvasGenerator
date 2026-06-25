@@ -36,7 +36,7 @@ export default function(editor, categories) {
   </div>
 </footer>
 <style>
-  .mf-footer { background:#1a1a1a; color:#fff; padding:40px 24px; font-family:Arial,sans-serif; }
+  .mf-footer { background:var(--brand-primary, #1a1a1a); color:#fff; padding:40px 24px; font-family:Arial,sans-serif; }
   .mf-inner { max-width:1200px; margin:0 auto; display:flex; gap:48px; align-items:flex-start; }
   .mf-brand { flex:0 0 auto; min-width:180px; }
   .mf-logo { height:52px; object-fit:contain; display:block; margin-bottom:10px; }

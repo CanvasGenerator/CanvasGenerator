@@ -231,7 +231,7 @@ export default function(editor, categories) {
                     padding: 18px 16px;
                     cursor: pointer;
                     border-right: 1px solid rgba(255,255,255,0.2);
-                    background: #9b26b6;
+                    background: var(--brand-primary, #9b26b6);
                     transition: all 0.3s ease;
                 }
                 .mta-tab-hd:last-child { border-right: none; }
@@ -286,7 +286,7 @@ export default function(editor, categories) {
                 .mta-step-body { flex: 1; }
                 .mta-badge {
                     display: inline-block;
-                    background: #f29c38;
+                    background: var(--brand-secondary, #f29c38);
                     color: #111;
                     font-size: 11px;
                     font-weight: 800;
@@ -330,7 +330,7 @@ export default function(editor, categories) {
                         display: block;
                         padding: 16px 20px;
                         cursor: pointer;
-                        background: #9b26b6;
+                        background: var(--brand-primary, #9b26b6);
                         border-bottom: 1px solid rgba(255,255,255,0.1);
                         transition: all 0.3s ease;
                     }
