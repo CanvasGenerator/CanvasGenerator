@@ -791,7 +791,11 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     const colorHeader = school.colorHeader || primary;
     const colorCarousel = school.colorCarousel || primary;
     const rgb = hexToRgb(primary) || '59, 130, 246';
-    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }`;
+    let bandeColor = '#3b82f6';
+    if (school.id === 'brassart') bandeColor = '#bc0b5d';
+    if (school.id === 'efap') bandeColor = '#1a1a1a';
+    if (school.id === 'cread') bandeColor = '#d4af37';
+    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor}; }`;
 
     // Règles directes avec !important pour overrider les couleurs hardcodées
     // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici

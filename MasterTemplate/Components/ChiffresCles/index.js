@@ -60,12 +60,12 @@ export default function(editor, categories) {
   .mcc-number {
     font-size: 42px;
     font-weight: 700;
-    color: var(--brand-primary, #1f2937);
+    color: var(--bande-color, #1f2937);
     line-height: 1;
   }
   .mcc-badge {
     display: inline-block;
-    background: var(--brand-primary, #1f2937);
+    background: var(--bande-color, #1f2937);
     color: #e5e7eb;
     font-size: 11px;
     font-weight: 600;
@@ -77,7 +77,7 @@ export default function(editor, categories) {
   .mcc-cta-col { flex-shrink: 0; }
   .mcc-btn {
     display: inline-block;
-    background: var(--brand-primary, #1f2937);
+    background: var(--bande-color, #1f2937);
     color: #e5e7eb;
     font-size: 13px;
     font-weight: 700;

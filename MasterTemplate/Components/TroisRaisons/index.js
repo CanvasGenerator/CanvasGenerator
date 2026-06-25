@@ -66,11 +66,12 @@ export default function(editor, categories) {
   }
   .mtr-content-col {
     flex: 1;
-    background: var(--brand-primary, #e69b35);
+    background: #E9A036;
     padding: 60px 50px;
     display: flex;
     flex-direction: column;
     justify-content: center;
+    border-top: 12px solid var(--bande-color, #bc0b5d);
   }
   .mtr-title-wrap {
     display: flex;
@@ -109,7 +110,7 @@ export default function(editor, categories) {
   .mtr-keyword {
     display: inline-block;
     font-weight: 700;
-    background: var(--brand-secondary, #111);
+    background: #1a1a1a;
     color: #fff;
     padding: 2px 8px;
     border-radius: 2px;

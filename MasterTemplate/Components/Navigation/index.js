@@ -23,7 +23,7 @@ export default function(editor, categories) {
 <style>
   .mn-nav {
     background: #fff;
-    border-bottom: 3px solid var(--brand-primary, #1f2937);
+    border-bottom: 3px solid var(--bande-color, #1f2937);
     position: sticky;
     top: 0;
     z-index: 200;
@@ -61,8 +61,8 @@ export default function(editor, categories) {
     white-space: nowrap;
   }
   .mn-link:hover, .mn-link.mn-active {
-    color: var(--brand-primary, #1f2937);
-    border-bottom-color: var(--brand-primary, #1f2937);
+    color: var(--bande-color, #1f2937);
+    border-bottom-color: var(--bande-color, #1f2937);
   }
   @media (max-width: 768px) {
     .mn-link { font-size: 11px; padding: 12px 10px; }

@@ -58,7 +58,7 @@ export default function(editor, categories) {
                     gap: 6px;
                 }
                 .keyfig-number {
-                    color: var(--brand-secondary, #a8174f);
+                    color: var(--bande-color, #a8174f);
                     font-size: 34px;
                     font-weight: 700;
                     line-height: 1;
@@ -66,7 +66,7 @@ export default function(editor, categories) {
                 }
                 .keyfig-label {
                     display: inline-block;
-                    background-color: var(--brand-secondary, #a8174f);
+                    background-color: var(--bande-color, #a8174f);
                     color: #ffffff;
                     font-size: 11px;
                     font-weight: 600;
@@ -86,7 +86,7 @@ export default function(editor, categories) {
                     justify-content: center;
                     min-width: 220px;
                     padding: 14px 24px;
-                    background-color: var(--brand-secondary, #a8174f);
+                    background-color: var(--bande-color, #a8174f);
                     color: #ffffff;
                     text-decoration: none;
                     text-align: center;
@@ -96,7 +96,7 @@ export default function(editor, categories) {
                     transition: all 0.2s ease;
                 }
                 .keyfig-cta:hover {
-                    background-color: var(--brand-secondary, #8e1244);
+                    background-color: var(--bande-color, #8e1244);
                     filter: brightness(0.9);
                 }
                 @media (max-width: 768px) {
