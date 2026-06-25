@@ -937,6 +937,14 @@
                         <input id="school-secondary-color" type="color" value="#1a1a1a">
                     </div>
                     <div class="admin-field">
+                        <label for="school-color-header">Couleur header / footer</label>
+                        <input id="school-color-header" type="color" value="#3b82f6">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-color-carousel">Couleur carousel</label>
+                        <input id="school-color-carousel" type="color" value="#3b82f6">
+                    </div>
+                    <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
                     </div>
@@ -1489,6 +1497,8 @@
             setValue('school-base-url', school?.baseUrl || '');
             setValue('school-color', school?.color || '#3b82f6');
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
+            setValue('school-color-header', school?.colorHeader || school?.color || '#3b82f6');
+            setValue('school-color-carousel', school?.colorCarousel || school?.color || '#3b82f6');
             setValue('school-emoji', school?.emoji || '🏫');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
             // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
@@ -1582,6 +1592,8 @@
                 baseUrl,
                 color: document.getElementById('school-color').value,
                 secondaryColor: document.getElementById('school-secondary-color').value,
+                colorHeader: document.getElementById('school-color-header').value,
+                colorCarousel: document.getElementById('school-color-carousel').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
                 defaultBlocks: getDefaultBlocksSelection(),
                 showFaq: true

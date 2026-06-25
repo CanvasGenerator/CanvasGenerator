@@ -13,8 +13,17 @@ async function readSchoolsForApi() {
         if (Array.isArray(schools)) {
             const merged = new Map(baseSchools.map(school => [school.id, school]));
             schools.map(normalizeSchool).forEach(school => {
-                if (school.deleted) merged.delete(school.id);
-                else merged.set(school.id, school);
+                if (school.deleted) { merged.delete(school.id); return; }
+                const base = merged.get(school.id) || {};
+                // Toutes les couleurs viennent toujours de schools.json
+                merged.set(school.id, {
+                    ...school,
+                    color:         base.color         || school.color,
+                    secondaryColor: base.secondaryColor || school.secondaryColor,
+                    colorHeader:   base.colorHeader   || school.colorHeader,
+                    colorCarousel: base.colorCarousel || school.colorCarousel,
+                    colorLight:    base.colorLight    || school.colorLight,
+                });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
         }
@@ -76,6 +85,8 @@ function schoolDbPayload(school) {
         base_url: school.baseUrl,
         color: school.color,
         secondary_color: school.secondaryColor,
+        color_header: school.colorHeader,
+        color_carousel: school.colorCarousel,
         color_light: school.colorLight,
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
