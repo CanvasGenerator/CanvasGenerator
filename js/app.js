@@ -872,12 +872,13 @@ function filterBlocksBySchool(editor, schoolId) {
     const allBlocks = [...bm.getAll().models];
 
     if (schoolId === 'master') {
-        // Mode Master : ne garder QUE les blocs de la catégorie 'Master Template'
+        // Mode Master : ne garder QUE les blocs Master Template et Form Blocks
+        const allowedCategories = ['master template', 'form blocks'];
         const toRemove = [];
         allBlocks.forEach(block => {
             const category = block.get('category');
             const categoryId = ((typeof category === 'object' ? category.get('id') : category) || '').toLowerCase();
-            if (categoryId !== 'master template') toRemove.push(block.get('id'));
+            if (!allowedCategories.includes(categoryId)) toRemove.push(block.get('id'));
         });
         toRemove.forEach(id => bm.remove(id));
         bm.render();

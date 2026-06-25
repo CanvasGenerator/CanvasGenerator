@@ -21,6 +21,11 @@ import CarrouselTemoignages from './carrousel-temoignages/index.js';
 import chiffresCles from './chiffres-cles/index.js';
 import icartBlocks from './icart/index.js';
 import formSalesforceCore from './form-salesforce-core/index.js';
+// Formulaires EDH (besoins EDH/One Point)
+import formBrochure from './forms/form-brochure/index.js';
+import formJpo from './forms/form-jpo/index.js';
+import formPrecandidature from './forms/form-precandidature/index.js';
+import formWebconf from './forms/form-webconf/index.js';
 
 export function registerBlocks(editor) {
     const bm = editor.BlockManager;
@@ -30,7 +35,8 @@ export function registerBlocks(editor) {
         EFAP: 'EFAP Components',
         BRASSART: 'BRASSART Components',
         ICART: 'ICART Components',
-        ESSENTIAL: 'Essential Blocks'
+        ESSENTIAL: 'Essential Blocks',
+        FORMS: 'Form Blocks'
     };
 
     // Load all blocks
@@ -41,8 +47,9 @@ export function registerBlocks(editor) {
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
         carousel, CarrouselTemoignages,
-        icartBlocks, formSalesforceCore
-        
+        icartBlocks, formSalesforceCore,
+        formBrochure, formJpo, formPrecandidature, formWebconf
+
     ].forEach(blockInit => {
         if (typeof blockInit === 'function') {
             blockInit(editor, categories);
