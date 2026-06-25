@@ -265,6 +265,7 @@ function initEditor(schoolId) {
         styleManager: { appendTo: '#styles-container' },
         layerManager: { appendTo: '#layers-container' },
         traitManager: { appendTo: '#traits-container' },
+        allowScripts: 1,
         panels: { defaults: [] },
         deviceManager: {
             devices: [
@@ -281,6 +282,48 @@ function initEditor(schoolId) {
     initExport(editor);
     initAiAssistant(editor);
     registerBlocks(editor);
+
+    /* ── Verrouillage des blocs formulaire ───────────────────────────
+     * setTimeout(0) évite d'interférer avec le cycle de drop de GrapesJS.
+     * On verrouille uniquement la sélection et l'édition des enfants,
+     * sans toucher à draggable/droppable (ce qui casserait les drops).
+     * ---------------------------------------------------------------- */
+    const FORM_ROOT_CLASSES = ['jpo-section', 'brf-section', 'pc-section'];
+
+    function lockChildren(component) {
+        component.components().each(function (child) {
+            child.set({
+                selectable:    false,
+                hoverable:     false,
+                editable:      false,
+                removable:     false,
+                copyable:      false,
+                highlightable: false,
+            });
+            lockChildren(child);
+        });
+    }
+
+    editor.on('component:mount', function (component) {
+        setTimeout(function () {
+            try {
+                const el = component.getEl();
+                if (!el || !el.classList) return;
+                const isFormRoot = FORM_ROOT_CLASSES.some(cls => el.classList.contains(cls));
+                if (!isFormRoot) return;
+
+                component.set({
+                    removable:     false,
+                    copyable:      false,
+                    droppable:     false,
+                    editable:      false,
+                    highlightable: false,
+                });
+
+                lockChildren(component);
+            } catch (e) { /* ignore */ }
+        }, 0);
+    });
 
     editor.on('load', () => {
         filterBlocksBySchool(editor, schoolId);
