@@ -219,9 +219,6 @@ module.exports = async function handler(req, res) {
                 properties:   newProps,
                 page_group_id:  groupId
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-            if (lang === 'FR') {
-                localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-            }
 
             if (isSfmcConfigured()) {
                 try {
@@ -347,7 +344,6 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // ==========================================
         // 6. FAQ API
         // ==========================================
 
@@ -423,7 +419,6 @@ module.exports = async function handler(req, res) {
 
         // ==========================================
         // 7. General API (Project, Save)
-        // ==========================================
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
@@ -583,7 +578,7 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 7. Preview API
+        // 8. Preview API
         // ==========================================
         if (req.method === 'GET' && pathname.startsWith('/preview/')) {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
@@ -657,6 +652,84 @@ module.exports = async function handler(req, res) {
             }
         }
 
+        // ==========================================
+        // 9. Déclinaison API (dupliquer master vers plusieurs écoles)
+        // ==========================================
+        if (req.method === 'POST' && pathname === '/api/decline') {
+            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
+
+            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
+                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
+            }
+
+            // Charger le projet master
+            const masterResult = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
+            );
+            if (!masterResult || masterResult.length === 0) {
+                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
+            }
+            const master = masterResult[0];
+            const baseHtml = master.html || '';
+            const baseCss  = master.css  || '';
+
+            // Charger la liste des écoles (Supabase ou fallback JSON)
+            const schools = await readSchoolsForApi();
+
+            const displayName = (projectDisplayName || masterProjectName)
+                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
+                .trim();
+
+            const results = [];
+
+            for (const schoolId of schoolIds) {
+                const school = schools.find(s => s.id === schoolId.toLowerCase());
+                const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
+
+                try {
+                    // Injecter les couleurs de marque de l'école dans le HTML copié
+                    let schoolHtml = baseHtml;
+                    if (school) {
+                        const primary   = school.color || '#3b82f6';
+                        const secondary = school.secondaryColor || '#2563eb';
+                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
+                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
+                        if (schoolHtml.includes('id="brand-variables"')) {
+                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
+                        } else {
+                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
+                        }
+                    }
+
+                    const newProperties = {
+                        ...(master.properties || {}),
+                        school: schoolId.toLowerCase(),
+                        declinedFrom: masterProjectName,
+                        declinedAt: new Date().toISOString(),
+                    };
+
+                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                        project_name: targetProjectName,
+                        html:         schoolHtml,
+                        css:          baseCss,
+                        project_data: master.project_data || null,
+                        properties:   newProperties,
+                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+
+                    results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
+                } catch (err) {
+                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
+                    results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
+                }
+            }
+
+            return res.status(200).json({
+                message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
+                results,
+            });
+        }
+
         return res.status(404).json({ error: 'API route not found: ' + pathname });
 
     } catch (e) {
@@ -664,81 +737,3 @@ module.exports = async function handler(req, res) {
         return res.status(500).json({ error: e.message });
     }
 };
-// ==========================================
-// 7. Déclinaison API (dupliquer master vers plusieurs écoles)
-// ==========================================
-if (req.method === 'POST' && pathname === '/api/decline') {
-    const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
-
-    if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
-        return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
-    }
-
-    // Charger le projet master
-    const masterResult = await supabaseRequest(
-        'GET',
-        `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
-    );
-    if (!masterResult || masterResult.length === 0) {
-        return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
-    }
-    const master = masterResult[0];
-    const baseHtml = master.html || '';
-    const baseCss  = master.css  || '';
-
-    // Charger la liste des écoles (Supabase ou fallback JSON)
-    const schools = await readSchoolsForApi();
-
-    const displayName = (projectDisplayName || masterProjectName)
-        .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
-        .trim();
-
-    const results = [];
-
-    for (const schoolId of schoolIds) {
-        const school = schools.find(s => s.id === schoolId.toLowerCase());
-        const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
-
-        try {
-            // Injecter les couleurs de marque de l'école dans le HTML copié
-            let schoolHtml = baseHtml;
-            if (school) {
-                const primary   = school.color || '#3b82f6';
-                const secondary = school.secondaryColor || '#2563eb';
-                const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
-                // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
-                if (schoolHtml.includes('id="brand-variables"')) {
-                    schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
-                } else {
-                    schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
-                }
-            }
-
-            const newProperties = {
-                ...(master.properties || {}),
-                school: schoolId.toLowerCase(),
-                declinedFrom: masterProjectName,
-                declinedAt: new Date().toISOString(),
-            };
-
-            await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                project_name: targetProjectName,
-                html:         schoolHtml,
-                css:          baseCss,
-                project_data: master.project_data || null,
-                properties:   newProperties,
-            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-
-            results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
-        } catch (err) {
-            console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
-            results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
-        }
-    }
-
-    return res.status(200).json({
-        message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
-        results,
-    });
-}
-
