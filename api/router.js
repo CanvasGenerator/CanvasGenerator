@@ -3,8 +3,8 @@ const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const {
-    handleContentRoute,
     syncLegacyProjectToContent,
+    handleContentRoute,
     listMigratedDashboardPages,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
@@ -757,13 +757,18 @@ module.exports = async function handler(req, res) {
 
             const displayName = (projectDisplayName || masterProjectName)
                 .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
+                .replace(/__[A-Z]{2}$/i, '') // retirer éventuel suffixe langue
                 .trim();
+                
+            const langMatch = masterProjectName.match(/__([A-Z]{2})$/i);
+            const lang = langMatch ? langMatch[1] : 'FR';
 
-            const results = [];
+            const success = [];
+            const errors = [];
 
             for (const schoolId of schoolIds) {
                 const school = schools.find(s => s.id === schoolId.toLowerCase());
-                const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
+                const targetProjectName = `school-${schoolId.toLowerCase()}__${displayName}__${lang}`;
 
                 try {
                     // Injecter les couleurs de marque de l'école dans le HTML copié
@@ -795,16 +800,17 @@ module.exports = async function handler(req, res) {
                         properties:   newProperties,
                     }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
 
-                    results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
+                    success.push({ schoolId, projectName: targetProjectName });
                 } catch (err) {
                     console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
-                    results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
+                    errors.push({ schoolId, message: err.message });
                 }
             }
 
             return res.status(200).json({
-                message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
-                results,
+                message: `Déclinaison terminée (${success.length}/${schoolIds.length} succès)`,
+                success,
+                errors
             });
         }
 
