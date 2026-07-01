@@ -91,6 +91,72 @@ async function resolveOrCreateGroupId(projectName) {
     return groupId;
 }
 
+// ── Helpers for Declinaison ───────────────────────────────────────────────
+const BRAND_HEADER_SELECTORS = [
+    'header-efap', 'header-brassart', 'mh-header',
+    'footer-efap', 'footer-brassart', 'mf-footer'
+];
+const BRAND_CAROUSEL_SELECTORS = [
+    'mc2a-section', 'mc2b-section', 'mc2c-section',
+    'mcva-section', 'mcd-colored-zone', 'mc3c-section', 'mce-section', 'mcb-gray-zone'
+];
+
+function patchCssString(css, { colorHeader, primary, secondary, colorCarousel }) {
+    if (!css) return css;
+    css = css.replace(/var\(--brand-header,\s*[^)]+\)/g, `var(--brand-header, ${colorHeader})`);
+    css = css.replace(/var\(--brand-primary,\s*[^)]+\)/g, `var(--brand-primary, ${primary})`);
+    css = css.replace(/var\(--brand-secondary,\s*[^)]+\)/g, `var(--brand-secondary, ${secondary})`);
+    css = css.replace(/var\(--brand-carousel,\s*[^)]+\)/g, `var(--brand-carousel, ${colorCarousel})`);
+    for (const cls of BRAND_HEADER_SELECTORS) {
+        css = css.replace(
+            new RegExp(`(\\.${cls}\\s*\\{[^}]*?)(background(?:-color)?\\s*:\\s*)([^;!}]+)`, 'gs'),
+            (match, prefix, prop, val) => {
+                if (val.trim().startsWith('var(')) return match;
+                return `${prefix}${prop}var(--brand-header, ${colorHeader})`;
+            }
+        );
+    }
+    for (const cls of BRAND_CAROUSEL_SELECTORS) {
+        css = css.replace(
+            new RegExp(`(\\.${cls}\\s*\\{[^}]*?)(background(?:-color)?\\s*:\\s*)([^;!}]+)`, 'gs'),
+            (match, prefix, prop, val) => {
+                if (val.trim().startsWith('var(')) return match;
+                return `${prefix}${prop}var(--brand-carousel, ${colorCarousel})`;
+            }
+        );
+    }
+    return css;
+}
+
+function patchComponentTree(components, colorVars) {
+    if (!Array.isArray(components)) return components;
+    return components.map(comp => {
+        const c = { ...comp };
+        if (comp.tagName === 'style') {
+            if (typeof comp.content === 'string' && comp.content.trim()) {
+                c.content = patchCssString(comp.content, colorVars);
+            } else if (Array.isArray(comp.components) && comp.components.length > 0) {
+                const children = [...comp.components];
+                if (typeof children[0].content === 'string') {
+                    children[0] = { ...children[0], content: patchCssString(children[0].content, colorVars) };
+                }
+                c.components = children;
+            }
+        }
+        if (Array.isArray(comp.components)) {
+            c.components = patchComponentTree(comp.components, colorVars);
+        }
+        return c;
+    });
+}
+
+function hexToRgb(hex) {
+    if (!hex) return '0,0,0';
+    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
+}
+
+
 module.exports = async function handler(req, res) {
     // Ensure CORS
     res.setHeader('Access-Control-Allow-Origin', '*');
@@ -729,89 +795,271 @@ module.exports = async function handler(req, res) {
                 return res.status(200).send(resolved.version.html);
             }
         }
-
         // ==========================================
         // 9. Déclinaison API (dupliquer master vers plusieurs écoles)
         // ==========================================
         if (req.method === 'POST' && pathname === '/api/decline') {
-            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
-
-            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
-                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
-            }
-
-            // Charger le projet master
-            const masterResult = await supabaseRequest(
-                'GET',
-                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
-            );
-            if (!masterResult || masterResult.length === 0) {
-                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
-            }
-            const master = masterResult[0];
-            const baseHtml = master.html || '';
-            const baseCss  = master.css  || '';
-
-            // Charger la liste des écoles (Supabase ou fallback JSON)
-            const schools = await readSchoolsForApi();
-
-            const displayName = (projectDisplayName || masterProjectName)
-                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
-                .replace(/__[A-Z]{2}$/i, '') // retirer éventuel suffixe langue
-                .trim();
-                
-            const langMatch = masterProjectName.match(/__([A-Z]{2})$/i);
-            const lang = langMatch ? langMatch[1] : 'FR';
-
-            const success = [];
-            const errors = [];
-
-            for (const schoolId of schoolIds) {
-                const school = schools.find(s => s.id === schoolId.toLowerCase());
-                const targetProjectName = `school-${schoolId.toLowerCase()}__${displayName}__${lang}`;
-
-                try {
-                    // Injecter les couleurs de marque de l'école dans le HTML copié
-                    let schoolHtml = baseHtml;
-                    if (school) {
-                        const primary   = school.color || '#3b82f6';
-                        const secondary = school.secondaryColor || '#2563eb';
-                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
-                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
-                        if (schoolHtml.includes('id="brand-variables"')) {
-                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
-                        } else {
-                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
-                        }
-                    }
-
-                    const newProperties = {
-                        ...(master.properties || {}),
-                        school: schoolId.toLowerCase(),
-                        declinedFrom: masterProjectName,
-                        declinedAt: new Date().toISOString(),
-                    };
-
-                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                        project_name: targetProjectName,
-                        html:         schoolHtml,
-                        css:          baseCss,
-                        project_data: master.project_data || null,
-                        properties:   newProperties,
-                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-
-                    success.push({ schoolId, projectName: targetProjectName });
-                } catch (err) {
-                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
-                    errors.push({ schoolId, message: err.message });
+            try {
+                const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
+                if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
+                    return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
                 }
-            }
 
-            return res.status(200).json({
-                message: `Déclinaison terminée (${success.length}/${schoolIds.length} succès)`,
-                success,
-                errors
-            });
+                // 1. Charger le projet master depuis Supabase
+                const masterRows = await supabaseRequest('GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`);
+                if (!masterRows || masterRows.length === 0) {
+                    return res.status(404).json({ error: 'Master project not found' });
+                }
+                const master = masterRows[0];
+
+                // Extraire le nom d'affichage depuis le nom complet si non fourni
+                const displayName = projectDisplayName ||
+                    masterProjectName.replace(/^school-master__/, '').replace(/__[A-Z]{2}$/, '');
+
+                // Extraire le corps HTML du document complet stocké
+                const masterBodyHtml = extractBodyContent(master.html || '');
+                const masterCss = master.css || '';
+                const masterProps = master.properties || {};
+                const masterProjectData = master.project_data || '{}';
+
+                // 2. Charger toutes les écoles
+                const allSchools = await readSchoolsForApi();
+
+                const results = { success: [], errors: [] };
+                
+                // Extraire la langue
+                const langMatch = masterProjectName.match(/__([A-Z]{2})$/i);
+                const lang = langMatch ? langMatch[1] : 'FR';
+
+                // 3. Pour chaque école cible
+                for (const schoolId of schoolIds) {
+                    try {
+                        const school = allSchools.find(s => s.id === schoolId.toLowerCase());
+                        if (!school) throw new Error(`École "${schoolId}" introuvable`);
+
+                        const schoolName     = school.name || schoolId;
+                        const schoolFullName = school.fullName || school.full_name || schoolName;
+                        const schoolLogo     = school.logo || '';
+                        const primary        = school.color || '#374151';
+                        const secondary      = school.secondaryColor || school.secondary_color || '#1a1a1a';
+                        const colorHeader    = school.colorHeader || primary;
+                        const colorCarousel  = school.colorCarousel || primary;
+                        const rgb            = hexToRgb(primary);
+
+                        // Remplacer les placeholders texte dans le HTML
+                        let schoolHtml = masterBodyHtml
+                            .replace(/NOM_ECOLE/g, schoolName)
+                            .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
+                            .replace(/LOGO_ECOLE/g, schoolLogo);
+
+                        // Patcher les balises <style> inline dans le HTML body
+                        const colorVarsForHtml = { colorHeader, primary, secondary, colorCarousel };
+                        schoolHtml = schoolHtml.replace(
+                            /(<style[^>]*>)([\s\S]*?)(<\/style>)/gi,
+                            (_, open, cssContent, close) =>
+                                open + patchCssString(cssContent, colorVarsForHtml) + close
+                        );
+
+                        // Injecter les CSS vars de l'école en tête du CSS
+                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
+                        // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
+                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
+
+                        // Construire les propriétés du projet décliné
+                        const newProjectName = `school-${schoolId.toLowerCase()}__${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}__${lang}`;
+                        const newProps = {
+                            ...masterProps,
+                            school: schoolId.toLowerCase(),
+                            seoTitle: `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`,
+                            title:    `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`
+                        };
+
+                        // Construire le HTML final stocké
+                        const fullHtml = buildStoredHtml({
+                            projectName: newProjectName,
+                            html: schoolHtml,
+                            css: schoolCss,
+                            properties: newProps
+                        });
+
+                        // Construire le project_data avec métadonnées + remplacement placeholders
+                        // Le project_data est ce que l'éditeur GrapesJS charge réellement.
+                        let parsedProjectData;
+                        try { parsedProjectData = JSON.parse(masterProjectData); }
+                        catch(e) { parsedProjectData = {}; }
+
+                        // 1. Remplacement des placeholders texte (noms)
+                        let projectDataStr = JSON.stringify({
+                            ...parsedProjectData,
+                            declinedFrom: masterProjectName,
+                            declinedAt:   new Date().toISOString(),
+                            schoolId
+                        });
+                        projectDataStr = projectDataStr
+                            .replace(/NOM_ECOLE/g, schoolName)
+                            .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
+                            .replace(/LOGO_ECOLE/g, schoolLogo);
+
+                        // 2. Remplacement des logos placehold.co dans les src d'images
+                        if (schoolLogo) {
+                            projectDataStr = projectDataStr.replace(
+                                /https?:\/\/placehold\.co\/[^"]*(?:LOGO|logo)[^"]*/g,
+                                schoolLogo
+                            );
+                        }
+
+                        // 3. Post-process les styles GrapesJS
+                        let finalProjectData;
+                        try {
+                            finalProjectData = JSON.parse(projectDataStr);
+
+                            const MASTER_PRIMARY_COLORS = new Set([
+                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000'
+                            ]);
+                            const BRAND_BG_PROPS = new Set([
+                                'background', 'background-color',
+                                'border-color', 'border-bottom-color', 'border-top-color',
+                                'border-left-color', 'border-right-color'
+                            ]);
+                            const HEADER_SELECTORS = new Set([
+                                '.header-efap', '.header-brassart', '.mh-header',
+                                '.footer-efap', '.footer-brassart'
+                            ]);
+
+                            if (Array.isArray(finalProjectData.styles)) {
+                                finalProjectData.styles = finalProjectData.styles.map(rule => {
+                                    if (!rule.style) return rule;
+                                    const newStyle = { ...rule.style };
+                                    let changed = false;
+
+                                    const selectorStr = Array.isArray(rule.selectors)
+                                        ? rule.selectors.map(s => typeof s === 'string' ? s : (s && s.name ? `.${s.name}` : '')).join('')
+                                        : '';
+                                    const isHeaderSelector = HEADER_SELECTORS.has(selectorStr);
+
+                                    Object.keys(newStyle).forEach(prop => {
+                                        const val = String(newStyle[prop] || '');
+                                        if (!val) return;
+
+                                        if (isHeaderSelector && (prop === 'background' || prop === 'background-color')) {
+                                            newStyle[prop] = `var(--brand-header, ${colorHeader})`;
+                                            changed = true;
+                                            return;
+                                        }
+
+                                        if (val.includes('var(--brand-primary')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-primary,\s*[^)]+\)/, `var(--brand-primary, ${primary})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-secondary')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-secondary,\s*[^)]+\)/, `var(--brand-secondary, ${secondary})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-header')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-header,\s*[^)]+\)/, `var(--brand-header, ${colorHeader})`);
+                                            changed = true;
+                                            return;
+                                        }
+                                        if (val.includes('var(--brand-carousel')) {
+                                            newStyle[prop] = val.replace(/var\(--brand-carousel,\s*[^)]+\)/, `var(--brand-carousel, ${colorCarousel})`);
+                                            changed = true;
+                                            return;
+                                        }
+
+                                        if (BRAND_BG_PROPS.has(prop)) {
+                                            const valLower = val.toLowerCase();
+                                            for (const mc of MASTER_PRIMARY_COLORS) {
+                                                if (valLower === mc || valLower.startsWith(mc)) {
+                                                    newStyle[prop] = `var(--brand-primary, ${primary})`;
+                                                    changed = true;
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    });
+                                    return changed ? { ...rule, style: newStyle } : rule;
+                                });
+                            }
+
+                            if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
+                            finalProjectData.styles = finalProjectData.styles.filter(r => {
+                                const sel = r.selectors;
+                                return !(Array.isArray(sel) && sel.length === 1 && sel[0] === ':root');
+                            });
+                            finalProjectData.styles.unshift({
+                                selectors: [':root'],
+                                style: {
+                                    '--brand-primary':     primary,
+                                    '--brand-secondary':   secondary,
+                                    '--brand-primary-rgb': rgb,
+                                    '--brand-header':      colorHeader,
+                                    '--brand-carousel':    colorCarousel
+                                }
+                            });
+
+                            const colorVars = { colorHeader, primary, secondary, colorCarousel };
+                            if (Array.isArray(finalProjectData.pages)) {
+                                finalProjectData.pages = finalProjectData.pages.map(page => ({
+                                    ...page,
+                                    frames: (page.frames || []).map(frame => ({
+                                        ...frame,
+                                        component: frame.component ? {
+                                            ...frame.component,
+                                            components: patchComponentTree(frame.component.components, colorVars)
+                                        } : frame.component
+                                    }))
+                                }));
+                            }
+
+                        } catch(e) {
+                            console.error('project_data post-process error:', e.message);
+                            finalProjectData = JSON.parse(projectDataStr);
+                        }
+                        const newProjectData = JSON.stringify(finalProjectData);
+
+                        // Sauvegarder via upsert Supabase
+                        await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                            project_name:         newProjectName,
+                            html:                 fullHtml,
+                            css:                  schoolCss,
+                            project_data:         newProjectData,
+                            properties:           newProps,
+                            is_original_language: true
+                        });
+
+                        // Synchroniser dans le système structuré
+                        try {
+                            await syncLegacyProjectToContent({
+                                projectName: newProjectName,
+                                html:        fullHtml,
+                                css:         schoolCss,
+                                projectData: newProjectData,
+                                properties:  newProps
+                            });
+                        } catch (syncErr) {
+                            console.warn(`⚠️ [decline] sync content failed for ${schoolId}:`, syncErr.message);
+                        }
+
+                        results.success.push({ schoolId, projectName: newProjectName });
+                    } catch (e) {
+                        results.errors.push({ schoolId, message: e.message });
+                        console.error(`❌ [decline] ${schoolId}:`, e.message);
+                    }
+                }
+
+                return res.status(200).json({
+                    message: `Déclinaison terminée (${results.success.length}/${schoolIds.length} succès)`,
+                    success: results.success,
+                    errors: results.errors
+                });
+            } catch (e) {
+                console.error('❌ Erreur /api/decline:', e.message);
+                return res.status(500).json({ error: e.message });
+            }
         }
 
         return res.status(404).json({ error: 'API route not found: ' + pathname });
