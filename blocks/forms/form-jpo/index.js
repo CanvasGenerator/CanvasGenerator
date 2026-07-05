@@ -11,6 +11,8 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig } from '../shared/rgpd-config.js';
+import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
+import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 
 export default function (editor, categories) {
 
@@ -64,6 +66,11 @@ export default function (editor, categories) {
             mobile:      'Portable',
             mobilePh:    '06 12 34 56 78',
             studyLevel:  "Niveau d'études",
+            programme:   'Programme souhaité',
+            programmePh: 'Sélectionnez un programme...',
+            childLastName:  'Nom de votre enfant',
+            childFirstName: 'Prénom de votre enfant',
+            childPhone:     'Téléphone de votre enfant',
             rgpd:        "J'accepte d'être contacté(e) par l'école pour les finalités décrites",
             rgpdLink:    'ici',
             errRequired: 'Ce champ est requis.',
@@ -85,6 +92,11 @@ export default function (editor, categories) {
             mobile:      'Mobile',
             mobilePh:    '07 12 34 56 78',
             studyLevel:  'Level of study',
+            programme:   'Desired programme',
+            programmePh: 'Select a programme...',
+            childLastName:  "Your child's last name",
+            childFirstName: "Your child's first name",
+            childPhone:     "Your child's phone",
             rgpd:        'I agree to be contacted by the school for the purposes described',
             rgpdLink:    'here',
             errRequired: 'This field is required.',
@@ -100,8 +112,9 @@ export default function (editor, categories) {
     };
 
     /* ── Générateur HTML (sans <script>) ────────────────────────────── */
-    function buildBlock({ blockId, formId, typeEvenement, nomAction, submitLabel, formTitle, formSubtitle, lang = 'fr' }) {
+    function buildBlock({ blockId, formId, typeEvenement, nomAction, submitLabel, formTitle, formSubtitle, lang = 'fr', showVousEtes = true, showChild = false }) {
         const t = TRANS[lang] || TRANS.fr;
+        const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang });
         return `
 <section class="jpo-section"
   data-gjs-removable="false"
@@ -524,12 +537,10 @@ export default function (editor, categories) {
 
     <div class="jpo-form-zone">
     <form class="jpo-form" data-lang="${lang}" novalidate>
-        <input type="hidden" name="submitted"     value="true">
+${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
-        <input type="hidden" name="NomAction"     value="${nomAction}">
-        <input type="hidden" name="Marque"        value="">
         <input type="hidden" name="EventDate"     value="">
-
+${showVousEtes ? `
         <div class="jpo-field">
             <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
             <div class="jpo-sel-wrap">
@@ -538,7 +549,7 @@ export default function (editor, categories) {
                 </select>
             </div>
             <span class="jpo-err-msg">${t.errRequired}</span>
-        </div>
+        </div>` : ''}
 
         <div class="jpo-row">
             <div class="jpo-field">
@@ -580,12 +591,37 @@ export default function (editor, categories) {
         <div class="jpo-field">
             <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
             <div class="jpo-sel-wrap">
-                <select class="jpo-select" name="StudyLevel" required>
+                <select class="jpo-select jpo-niveau" name="StudyLevel" required>
                     ${studyLevelOptions}
                 </select>
             </div>
             <span class="jpo-err-msg">${t.errRequired}</span>
         </div>
+
+        <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
+        <div class="jpo-field jpo-programme-field hidden">
+            <label class="jpo-label">${t.programme}</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select jpo-programme-select" name="Programme">
+                    <option value="">${t.programmePh}</option>
+                </select>
+            </div>
+        </div>
+${showChild ? `
+        <!-- Champs conditionnels parent (facultatifs) -->
+        <div class="jpo-field jpo-child-ln-field hidden">
+            <label class="jpo-label">${t.childLastName}</label>
+            <input class="jpo-input" type="text" name="ChildLastName">
+        </div>
+        <div class="jpo-field jpo-child-fn-field hidden">
+            <label class="jpo-label">${t.childFirstName}</label>
+            <input class="jpo-input" type="text" name="ChildFirstName">
+        </div>
+        <div class="jpo-field jpo-child-phone-field hidden">
+            <label class="jpo-label">${t.childPhone}</label>
+            <input class="jpo-input jpo-child-phone-input" type="tel" name="ChildPhone">
+            <span class="jpo-err-msg">${t.errPhone}</span>
+        </div>` : ''}
 
         <div class="jpo-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
@@ -743,6 +779,57 @@ export default function (editor, categories) {
 
         if (!form) return;
 
+        /* ── Champs cachés (tracking / CRM) ── */
+        populateHiddenFields(form, { lang });
+
+        /* ── Programme conditionnel (niveau + campus + école) ── */
+        const niveauEl        = form.querySelector('.jpo-niveau');
+        const vousEtesEl      = form.querySelector('[name="VousEtes"]');
+        const programmeField  = form.querySelector('.jpo-programme-field');
+        const programmeSelect = form.querySelector('.jpo-programme-select');
+        const childPhoneEl    = form.querySelector('.jpo-child-phone-input');
+
+        const school = (() => {
+            try { return (form.ownerDocument.defaultView || window).CURRENT_SCHOOL || null; }
+            catch (e) { return null; }
+        })();
+        const showProgramme = isProgrammeSchool(school);
+
+        function refreshProgramme() {
+            if (!programmeField || !programmeSelect) return;
+            const niveau = niveauEl ? niveauEl.value : '';
+            const campus = campusSelect ? campusSelect.value : '';
+            const progs  = showProgramme ? getProgrammes(niveau, campus, lang) : [];
+            if (progs.length > 0) {
+                programmeSelect.innerHTML = `<option value="">${t.programmePh}</option>`
+                    + progs.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
+                programmeField.classList.remove('hidden');
+            } else {
+                programmeField.classList.add('hidden');
+                programmeSelect.value = '';
+            }
+        }
+
+        function refreshChild() {
+            const isParent = vousEtesEl && vousEtesEl.value === 'parent';
+            ['jpo-child-ln-field', 'jpo-child-fn-field', 'jpo-child-phone-field'].forEach(cls => {
+                const f = form.querySelector('.' + cls);
+                if (f) f.classList.toggle('hidden', !isParent);
+            });
+            if (!isParent) {
+                ['ChildLastName', 'ChildFirstName', 'ChildPhone'].forEach(n => {
+                    const el = form.querySelector(`[name="${n}"]`);
+                    if (el) el.value = '';
+                });
+            }
+        }
+
+        if (niveauEl)   niveauEl.addEventListener('change', refreshProgramme);
+        if (vousEtesEl) vousEtesEl.addEventListener('change', refreshChild);
+        campusSelect.addEventListener('change', refreshProgramme);
+        refreshProgramme();
+        refreshChild();
+
         const emailEl = form.querySelector('[name="EmailAddress"]');
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);
@@ -774,6 +861,12 @@ export default function (editor, categories) {
             const pe = validatePhone((phoneEl || {}).value || '', t);
             if (pe) { showFieldErr(phoneEl, pe); ok = false; } else clearFieldErr(phoneEl);
 
+            const childPhoneField = form.querySelector('.jpo-child-phone-field');
+            if (childPhoneField && !childPhoneField.classList.contains('hidden') && childPhoneEl && childPhoneEl.value.trim()) {
+                const ce = validatePhone(childPhoneEl.value.trim(), t);
+                if (ce) { showFieldErr(childPhoneEl, ce); ok = false; } else clearFieldErr(childPhoneEl);
+            }
+
             if (!ok) return;
 
             const btn = form.querySelector('.jpo-submit');
@@ -791,6 +884,7 @@ export default function (editor, categories) {
             data.HasOptedInEmail    = rgpd ? '1' : '0';
             data.HasOptedInSMS      = rgpd ? '1' : '0';
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
+            data.HasOptedInPhone    = rgpd ? '1' : '0';
 
             handleSubmit(data).then(res => {
                 if (res.ok) {
@@ -819,42 +913,42 @@ export default function (editor, categories) {
     editor.BlockManager.add('form-jpo', {
         label: 'Formulaire JPO',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'jpo', formId: 'form-jpo', typeEvenement: 'JPO', nomAction: 'Inscription_JPO', submitLabel: "Je m'inscris", formTitle: 'Inscription Journée Portes Ouvertes', formSubtitle: 'Venez découvrir nos formations et rencontrer nos équipes.', lang: 'fr' }),
+        content: buildBlock({ blockId: 'jpo', formId: 'form-jpo', typeEvenement: 'JPO', nomAction: 'Inscription_JPO', submitLabel: "Je m'inscris", formTitle: 'Inscription Journée Portes Ouvertes', formSubtitle: 'Venez découvrir nos formations et rencontrer nos équipes.', lang: 'fr', showVousEtes: true, showChild: true }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
     editor.BlockManager.add('form-jpo-en', {
         label: 'Formulaire JPO Anglais',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'jpo', formId: 'form-jpo-en', typeEvenement: 'JPO', nomAction: 'Inscription_JPO', submitLabel: 'Register', formTitle: 'Open Day Registration', formSubtitle: 'Come and discover our programmes and meet our teams.', lang: 'en' }),
+        content: buildBlock({ blockId: 'jpo', formId: 'form-jpo-en', typeEvenement: 'JPO', nomAction: 'Inscription_JPO', submitLabel: 'Register', formTitle: 'Open Day Registration', formSubtitle: 'Come and discover our programmes and meet our teams.', lang: 'en', showVousEtes: true, showChild: true }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
     editor.BlockManager.add('form-atelier', {
         label: 'Formulaire Atelier Découverte',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'atelier', formId: 'form-atelier', typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier', submitLabel: "Je m'inscris à l'atelier", formTitle: "Inscription à l'Atelier Découverte", formSubtitle: "Participez à notre atelier et explorez nos programmes.", lang: 'fr' }),
+        content: buildBlock({ blockId: 'atelier', formId: 'form-atelier', typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier', submitLabel: "Je m'inscris à l'atelier", formTitle: "Inscription à l'Atelier Découverte", formSubtitle: "Participez à notre atelier et explorez nos programmes.", lang: 'fr', showVousEtes: false, showChild: false }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
     editor.BlockManager.add('form-atelier-en', {
         label: 'Formulaire Atelier Découverte Anglais',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'atelier', formId: 'form-atelier-en', typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier', submitLabel: 'Register for the workshop', formTitle: 'Discovery Workshop Registration', formSubtitle: 'Join our workshop and explore our programmes.', lang: 'en' }),
+        content: buildBlock({ blockId: 'atelier', formId: 'form-atelier-en', typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier', submitLabel: 'Register for the workshop', formTitle: 'Discovery Workshop Registration', formSubtitle: 'Join our workshop and explore our programmes.', lang: 'en', showVousEtes: false, showChild: false }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
     editor.BlockManager.add('form-stage', {
         label: 'Formulaire Stage',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'stage', formId: 'form-stage', typeEvenement: 'Stage', nomAction: 'Inscription_Stage', submitLabel: "Je m'inscris au stage", formTitle: 'Inscription au Stage', formSubtitle: "Candidatez pour un stage au sein de notre école.", lang: 'fr' }),
+        content: buildBlock({ blockId: 'stage', formId: 'form-stage', typeEvenement: 'Stage', nomAction: 'Inscription_Stage', submitLabel: "Je m'inscris au stage", formTitle: 'Inscription au Stage', formSubtitle: "Candidatez pour un stage au sein de notre école.", lang: 'fr', showVousEtes: false, showChild: false }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
     editor.BlockManager.add('form-stage-en', {
         label: 'Formulaire Stage Anglais',
         category: categories.FORMS,
-        content: buildBlock({ blockId: 'stage', formId: 'form-stage-en', typeEvenement: 'Stage', nomAction: 'Inscription_Stage', submitLabel: 'Apply for the internship', formTitle: 'Internship Application', formSubtitle: 'Apply for an internship at our school.', lang: 'en' }),
+        content: buildBlock({ blockId: 'stage', formId: 'form-stage-en', typeEvenement: 'Stage', nomAction: 'Inscription_Stage', submitLabel: 'Apply for the internship', formTitle: 'Internship Application', formSubtitle: 'Apply for an internship at our school.', lang: 'en', showVousEtes: false, showChild: false }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 }

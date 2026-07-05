@@ -10,6 +10,8 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig } from '../shared/rgpd-config.js';
+import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
+import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 
 export default function (editor, categories) {
 
@@ -29,8 +31,9 @@ export default function (editor, categories) {
             country:        'Pays de résidence',
             programme:      'Programme souhaité',
             programmePh:    'Sélectionnez un programme...',
+            childLastName:  'Nom de votre enfant',
             childFirstName: 'Prénom de votre enfant',
-            childEmail:     'Email de votre enfant',
+            childPhone:     'Téléphone de votre enfant',
             rgpd:           "J'accepte d'être contacté(e) par l'école pour les finalités décrites",
             rgpdLink:       'ici',
             submit:         'Je télécharge la brochure',
@@ -58,8 +61,9 @@ export default function (editor, categories) {
             country:        'Country of residence',
             programme:      'Desired programme',
             programmePh:    'Select a programme...',
+            childLastName:  "Your child's last name",
             childFirstName: "Your child's first name",
-            childEmail:     "Your child's email",
+            childPhone:     "Your child's phone",
             rgpd:           'I agree to be contacted by the school for the purposes described',
             rgpdLink:       'here',
             submit:         'Download brochure',
@@ -73,33 +77,6 @@ export default function (editor, categories) {
             errPhone:       'Invalid number (e.g. 07 12 34 56 78).',
             errGeneric:     'An error occurred, please try again.',
         }
-    };
-
-    /* ── Données de test : spécialités par niveau d'études ──────────── */
-    const specialitesByLevel = {
-        'bac+2': [
-            { value: 'comm_publique', label: 'Communication Publique & Influence' },
-            { value: 'comm_event',    label: 'Communication et Management Événementiel' },
-            { value: 'sport_comm',    label: 'Sport Business & Communication' }
-        ],
-        'bac+3': [
-            { value: 'comm_publique', label: 'Communication Publique & Influence' },
-            { value: 'comm_event',    label: 'Communication et Management Événementiel' },
-            { value: 'creation_pub',  label: 'Création & Stratégies Publicitaires' },
-            { value: 'prod_audio',    label: 'Communication & Production Audiovisuelle' },
-            { value: 'sport_comm',    label: 'Sport Business & Communication' },
-            { value: 'comm_gastro',   label: 'Communication & Gastronomie' }
-        ],
-        'bac+4': [
-            { value: 'comm_marketing', label: 'Communication et Marketing Stratégique' },
-            { value: 'comm_event',     label: 'Communication et Management Événementiel' },
-            { value: 'sport_comm',     label: 'Sport Business & Communication' }
-        ],
-        'bac+5': [
-            { value: 'mba_comm',     label: 'MBA Communication & Leadership' },
-            { value: 'mba_marketing',label: 'MBA Marketing Digital' },
-            { value: 'mba_event',    label: 'MBA Event Management' }
-        ]
     };
 
     /* ── Données de test : brochures par campus × niveau ────────────── */
@@ -222,8 +199,7 @@ export default function (editor, categories) {
 
     <!-- Formulaire -->
     <form class="brf-form" data-lang="${lang}" novalidate>
-        <input type="hidden" name="submitted" value="true">
-        <input type="hidden" name="Marque"    value="">
+${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure', lang })}
 
         <!-- Vous êtes -->
         <div class="brf-field">
@@ -318,15 +294,19 @@ export default function (editor, categories) {
             <span class="brf-err-msg">${t.errRequired}</span>
         </div>
 
-        <!-- Champs conditionnels parent -->
+        <!-- Champs conditionnels parent (facultatifs) -->
+        <div class="brf-field brf-child-ln-field hidden">
+            <label class="brf-label">${t.childLastName}</label>
+            <input class="brf-input" type="text" name="ChildLastName">
+        </div>
         <div class="brf-field brf-child-fn-field hidden">
             <label class="brf-label">${t.childFirstName}</label>
             <input class="brf-input" type="text" name="ChildFirstName">
         </div>
-        <div class="brf-field brf-child-email-field hidden">
-            <label class="brf-label">${t.childEmail}</label>
-            <input class="brf-input brf-child-email-input" type="email" name="ChildEmail">
-            <span class="brf-err-msg">${t.errEmail}</span>
+        <div class="brf-field brf-child-phone-field hidden">
+            <label class="brf-label">${t.childPhone}</label>
+            <input class="brf-input brf-child-phone-input" type="tel" name="ChildPhone">
+            <span class="brf-err-msg">${t.errPhone}</span>
         </div>
 
         <!-- RGPD -->
@@ -399,36 +379,50 @@ export default function (editor, categories) {
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
         });
 
-        const vousEtesEl    = form.querySelector('.brf-vous-etes');
-        const niveauEl      = form.querySelector('.brf-niveau');
-        const emailEl       = form.querySelector('.brf-email-input');
-        const phoneEl       = form.querySelector('.brf-phone-input');
-        const childEmailEl  = form.querySelector('.brf-child-email-input');
-        const programmeField= form.querySelector('.brf-programme-field');
-        const programmeSelect=form.querySelector('.brf-programme-select');
-        const childFnField  = form.querySelector('.brf-child-fn-field');
-        const childEmField  = form.querySelector('.brf-child-email-field');
+        /* ── Champs cachés (tracking / CRM) ── */
+        populateHiddenFields(form, { lang });
+
+        const vousEtesEl     = form.querySelector('.brf-vous-etes');
+        const niveauEl       = form.querySelector('.brf-niveau');
+        const campusEl       = form.querySelector('[name="Campus"]');
+        const emailEl        = form.querySelector('.brf-email-input');
+        const phoneEl        = form.querySelector('.brf-phone-input');
+        const childPhoneEl   = form.querySelector('.brf-child-phone-input');
+        const programmeField = form.querySelector('.brf-programme-field');
+        const programmeSelect= form.querySelector('.brf-programme-select');
+        const childLnField   = form.querySelector('.brf-child-ln-field');
+        const childFnField   = form.querySelector('.brf-child-fn-field');
+        const childPhoneField= form.querySelector('.brf-child-phone-field');
+
+        const school = (() => {
+            try { return (form.ownerDocument.defaultView || window).CURRENT_SCHOOL || null; }
+            catch (e) { return null; }
+        })();
+        const showProgramme = isProgrammeSchool(school);
 
         function refreshConditions() {
             const vousEtes = vousEtesEl ? vousEtesEl.value : '';
             const niveau   = niveauEl   ? niveauEl.value   : '';
+            const campus   = campusEl   ? campusEl.value   : '';
 
-            /* Parent → champs enfant */
+            /* Parent → champs enfant (Nom + Prénom + Téléphone, facultatifs) */
             const isParent = vousEtes === 'parent';
-            if (childFnField) childFnField.classList.toggle('hidden', !isParent);
-            if (childEmField) childEmField.classList.toggle('hidden', !isParent);
+            [childLnField, childFnField, childPhoneField].forEach(f => {
+                if (f) f.classList.toggle('hidden', !isParent);
+            });
             if (!isParent) {
-                const fn = form.querySelector('[name="ChildFirstName"]');
-                if (fn) fn.value = '';
-                if (childEmailEl) childEmailEl.value = '';
+                ['ChildLastName', 'ChildFirstName', 'ChildPhone'].forEach(n => {
+                    const el = form.querySelector(`[name="${n}"]`);
+                    if (el) el.value = '';
+                });
             }
 
-            /* Niveau → spécialités */
-            const specs = specialitesByLevel[niveau] || [];
+            /* Niveau + campus + école → programmes */
+            const progs = showProgramme ? getProgrammes(niveau, campus, lang) : [];
             if (programmeField && programmeSelect) {
-                if (specs.length > 0) {
+                if (progs.length > 0) {
                     programmeSelect.innerHTML = `<option value="">${t.programmePh}</option>`
-                        + specs.map(s => `<option value="${s.value}">${s.label}</option>`).join('');
+                        + progs.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
                     programmeField.classList.remove('hidden');
                 } else {
                     programmeField.classList.add('hidden');
@@ -439,6 +433,7 @@ export default function (editor, categories) {
 
         if (vousEtesEl) vousEtesEl.addEventListener('change', refreshConditions);
         if (niveauEl)   niveauEl.addEventListener('change', refreshConditions);
+        if (campusEl)   campusEl.addEventListener('change', refreshConditions);
         refreshConditions();
 
         if (emailEl) emailEl.addEventListener('blur', function () {
@@ -451,9 +446,9 @@ export default function (editor, categories) {
             e ? showFieldErr(this, e) : clearFieldErr(this);
         });
 
-        if (childEmailEl) childEmailEl.addEventListener('blur', function () {
+        if (childPhoneEl) childPhoneEl.addEventListener('blur', function () {
             if (!this.value.trim()) { clearFieldErr(this); return; }
-            const e = validateEmail(this.value.trim(), t);
+            const e = validatePhone(this.value.trim(), t);
             e ? showFieldErr(this, e) : clearFieldErr(this);
         });
 
@@ -473,9 +468,9 @@ export default function (editor, categories) {
             const pe = validatePhone((phoneEl || {}).value || '', t);
             if (pe) { showFieldErr(phoneEl, pe); ok = false; } else clearFieldErr(phoneEl);
 
-            if (childEmField && !childEmField.classList.contains('hidden') && childEmailEl && childEmailEl.value.trim()) {
-                const ce = validateEmail(childEmailEl.value.trim(), t);
-                if (ce) { showFieldErr(childEmailEl, ce); ok = false; } else clearFieldErr(childEmailEl);
+            if (childPhoneField && !childPhoneField.classList.contains('hidden') && childPhoneEl && childPhoneEl.value.trim()) {
+                const ce = validatePhone(childPhoneEl.value.trim(), t);
+                if (ce) { showFieldErr(childPhoneEl, ce); ok = false; } else clearFieldErr(childPhoneEl);
             }
 
             if (!ok) {
@@ -499,6 +494,7 @@ export default function (editor, categories) {
             data.HasOptedInEmail    = rgpd ? '1' : '0';
             data.HasOptedInSMS      = rgpd ? '1' : '0';
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
+            data.HasOptedInPhone    = rgpd ? '1' : '0';
 
             /* MODE TEST : simulation d'envoi */
             new Promise(resolve => setTimeout(() => resolve({ ok: true }), 1000))
