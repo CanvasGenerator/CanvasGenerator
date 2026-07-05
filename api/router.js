@@ -3,8 +3,8 @@ const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const {
-    handleContentRoute,
     syncLegacyProjectToContent,
+    handleContentRoute,
     listMigratedDashboardPages,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
@@ -219,9 +219,6 @@ module.exports = async function handler(req, res) {
                 properties:   newProps,
                 page_group_id:  groupId
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-            if (lang === 'FR') {
-                localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-            }
 
             if (isSfmcConfigured()) {
                 try {
@@ -347,7 +344,81 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 6. General API (Project, Save)
+        // 6. FAQ API
+        // ==========================================
+
+        // GET /api/faq/render?school_id=X&page_type=Y — FAQs filtrées pour le rendu live
+        if (req.method === 'GET' && pathname === '/api/faq/render') {
+            const school_id = req.query.school_id;
+            const page_type = req.query.page_type;
+            if (!school_id) return res.status(400).json({ error: 'school_id requis' });
+            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
+            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
+            if (school && school.show_faq === false) return res.status(200).json([]);
+            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
+            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
+            const rows = await supabaseRequest('GET', url).catch(() => []);
+            const faqs = (Array.isArray(rows) ? rows : []).map(r => r.faq).filter(Boolean);
+            return res.status(200).json(faqs);
+        }
+
+        // GET /api/faq — toute la banque de questions
+        if (req.method === 'GET' && pathname === '/api/faq') {
+            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
+            return res.status(200).json(result || []);
+        }
+
+        // POST /api/faq — créer une question
+        if (req.method === 'POST' && pathname === '/api/faq') {
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // PUT /api/faq/:id — modifier une question
+        if (req.method === 'PUT' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            const { question, answer } = req.body || {};
+            if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
+            const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/faq/:id — supprimer une question
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
+            const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            return res.status(200).json({ message: 'FAQ supprimée' });
+        }
+
+        // GET /api/faq/school/:schoolId — associations d'une école
+        if (req.method === 'GET' && pathname.startsWith('/api/faq/school/') && !pathname.slice('/api/faq/school/'.length).includes('/')) {
+            const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
+            return res.status(200).json(Array.isArray(rows) ? rows : []);
+        }
+
+        // POST /api/faq/school/:schoolId — ajouter une association
+        if (req.method === 'POST' && pathname.startsWith('/api/faq/school/')) {
+            const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
+            const { faq_id, page_type = 'general', sort_order = 0 } = req.body || {};
+            if (!faq_id) return res.status(400).json({ error: 'faq_id requis' });
+            const result = await supabaseRequest('POST', '/school_page_faq', { school_id: schoolId, faq_id, page_type, sort_order }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/faq/school/:schoolId/:linkId — supprimer une association
+        if (req.method === 'DELETE' && pathname.startsWith('/api/faq/school/')) {
+            const parts = pathname.replace('/api/faq/school/', '').split('/');
+            const linkId = parts[1];
+            if (!linkId) return res.status(400).json({ error: 'linkId requis' });
+            await supabaseRequest('DELETE', `/school_page_faq?id=eq.${encodeURIComponent(linkId)}`);
+            return res.status(200).json({ message: 'Association supprimée' });
+        }
+
+        // ==========================================
+        // 7. General API (Project, Save)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
@@ -507,7 +578,85 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 7. Preview API
+        // 7. Déclinaison API (dupliquer master vers plusieurs écoles)
+        // ==========================================
+        if (req.method === 'POST' && pathname === '/api/decline') {
+            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
+
+            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
+                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
+            }
+
+            // Charger le projet master
+            const masterResult = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
+            );
+            if (!masterResult || masterResult.length === 0) {
+                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
+            }
+            const master = masterResult[0];
+            const baseHtml = master.html || '';
+            const baseCss  = master.css  || '';
+
+            // Charger la liste des écoles (Supabase ou fallback JSON)
+            const schools = await readSchoolsForApi();
+
+            const displayName = (projectDisplayName || masterProjectName)
+                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
+                .trim();
+
+            const results = [];
+
+            for (const schoolId of schoolIds) {
+                const school = schools.find(s => s.id === schoolId.toLowerCase());
+                const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
+
+                try {
+                    // Injecter les couleurs de marque de l'école dans le HTML copié
+                    let schoolHtml = baseHtml;
+                    if (school) {
+                        const primary   = school.color || '#3b82f6';
+                        const secondary = school.secondaryColor || '#2563eb';
+                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
+                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
+                        if (schoolHtml.includes('id="brand-variables"')) {
+                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
+                        } else {
+                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
+                        }
+                    }
+
+                    const newProperties = {
+                        ...(master.properties || {}),
+                        school: schoolId.toLowerCase(),
+                        declinedFrom: masterProjectName,
+                        declinedAt: new Date().toISOString(),
+                    };
+
+                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                        project_name: targetProjectName,
+                        html:         schoolHtml,
+                        css:          baseCss,
+                        project_data: master.project_data || null,
+                        properties:   newProperties,
+                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+
+                    results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
+                } catch (err) {
+                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
+                    results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
+                }
+            }
+
+            return res.status(200).json({
+                message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
+                results,
+            });
+        }
+
+        // ==========================================
+        // 8. Preview API
         // ==========================================
         if (req.method === 'GET' && pathname.startsWith('/preview/')) {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
@@ -579,6 +728,90 @@ module.exports = async function handler(req, res) {
                 res.setHeader('Content-Type', 'text/html');
                 return res.status(200).send(resolved.version.html);
             }
+        }
+
+        // ==========================================
+        // 9. Déclinaison API (dupliquer master vers plusieurs écoles)
+        // ==========================================
+        if (req.method === 'POST' && pathname === '/api/decline') {
+            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
+
+            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
+                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
+            }
+
+            // Charger le projet master
+            const masterResult = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
+            );
+            if (!masterResult || masterResult.length === 0) {
+                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
+            }
+            const master = masterResult[0];
+            const baseHtml = master.html || '';
+            const baseCss  = master.css  || '';
+
+            // Charger la liste des écoles (Supabase ou fallback JSON)
+            const schools = await readSchoolsForApi();
+
+            const displayName = (projectDisplayName || masterProjectName)
+                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
+                .replace(/__[A-Z]{2}$/i, '') // retirer éventuel suffixe langue
+                .trim();
+                
+            const langMatch = masterProjectName.match(/__([A-Z]{2})$/i);
+            const lang = langMatch ? langMatch[1] : 'FR';
+
+            const success = [];
+            const errors = [];
+
+            for (const schoolId of schoolIds) {
+                const school = schools.find(s => s.id === schoolId.toLowerCase());
+                const targetProjectName = `school-${schoolId.toLowerCase()}__${displayName}__${lang}`;
+
+                try {
+                    // Injecter les couleurs de marque de l'école dans le HTML copié
+                    let schoolHtml = baseHtml;
+                    if (school) {
+                        const primary   = school.color || '#3b82f6';
+                        const secondary = school.secondaryColor || '#2563eb';
+                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
+                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
+                        if (schoolHtml.includes('id="brand-variables"')) {
+                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
+                        } else {
+                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
+                        }
+                    }
+
+                    const newProperties = {
+                        ...(master.properties || {}),
+                        school: schoolId.toLowerCase(),
+                        declinedFrom: masterProjectName,
+                        declinedAt: new Date().toISOString(),
+                    };
+
+                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
+                        project_name: targetProjectName,
+                        html:         schoolHtml,
+                        css:          baseCss,
+                        project_data: master.project_data || null,
+                        properties:   newProperties,
+                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+
+                    success.push({ schoolId, projectName: targetProjectName });
+                } catch (err) {
+                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
+                    errors.push({ schoolId, message: err.message });
+                }
+            }
+
+            return res.status(200).json({
+                message: `Déclinaison terminée (${success.length}/${schoolIds.length} succès)`,
+                success,
+                errors
+            });
         }
 
         return res.status(404).json({ error: 'API route not found: ' + pathname });
