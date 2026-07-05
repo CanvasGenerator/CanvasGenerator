@@ -61,11 +61,12 @@ export default function(editor, categories) {
                     display: block;
                 }
                 .trois-raisons-content {
-                    background-color: var(--brand-primary, #E8A020);
+                    background-color: #E9A036;
                     padding: 50px 40px;
                     display: flex;
                     flex-direction: column;
                     justify-content: center;
+                    border-top: 12px solid var(--bande-color, #bc0b5d);
                 }
                 .tr-header {
                     margin-bottom: 32px;
@@ -125,9 +126,9 @@ export default function(editor, categories) {
                 }
                 .tr-highlight {
                     font-weight: 800;
-                    background-color: #fff;
-                    color: var(--brand-primary, #000);
-                    padding: 1px 6px;
+                    background-color: #1a1a1a;
+                    color: #fff;
+                    padding: 2px 6px;
                     border-radius: 3px;
                     display: inline-block;
                     margin-bottom: 4px;

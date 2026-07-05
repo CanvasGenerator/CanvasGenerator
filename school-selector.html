@@ -428,7 +428,7 @@
         }
 
         .admin-field textarea {
-            min-height: 50px;
+            min-height: 78px;
             resize: vertical;
         }
 
@@ -621,6 +621,146 @@
             .master-banner-left { flex-direction: column; }
             .admin-grid { grid-template-columns: 1fr; }
         }
+
+        /* ── Modal Master Projects ───────────────────────────── */
+        .master-modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 9000;
+            background: rgba(0,0,0,0.45); align-items: center; justify-content: center;
+        }
+        .master-modal-overlay.open { display: flex; }
+        .master-modal {
+            background: #fff; border-radius: 14px; width: 640px; max-width: 95vw;
+            max-height: 85vh; display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.25);
+        }
+        .master-modal-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 20px 24px 16px; border-bottom: 1px solid #e5e7eb;
+        }
+        .master-modal-header h3 { margin: 0; font-size: 17px; font-weight: 700; color: #111; display: flex; align-items: center; gap: 10px; }
+        .master-modal-header h3 i { color: #c9b87a; }
+        .master-modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #6b7280; line-height: 1; padding: 0 4px; }
+        .master-modal-close:hover { color: #111; }
+        .master-modal-body { flex: 1; overflow-y: auto; padding: 16px 24px 8px; }
+        .master-modal-footer { padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: flex-end; gap: 10px; }
+        .master-project-list { display: flex; flex-direction: column; gap: 10px; min-height: 60px; }
+        .master-project-item {
+            display: flex; align-items: center; gap: 12px;
+            padding: 12px 14px; border: 1px solid #e5e7eb; border-radius: 8px;
+            background: #fafafa; transition: background 0.15s;
+        }
+        .master-project-item:hover { background: #f5f3ee; }
+        .master-project-item .mpi-icon { color: #c9b87a; font-size: 16px; flex-shrink: 0; }
+        .master-project-item .mpi-info { flex: 1; }
+        .master-project-item .mpi-name { font-size: 14px; font-weight: 600; color: #1a1a1a; }
+        .master-project-item .mpi-meta { font-size: 12px; color: #9ca3af; margin-top: 2px; }
+        .master-project-item .mpi-actions { display: flex; gap: 8px; flex-shrink: 0; }
+        .btn-master-edit {
+            padding: 6px 14px; font-size: 12px; font-weight: 600; border-radius: 6px;
+            border: 1px solid #c9b87a; background: #fff; color: #8a7a40; cursor: pointer;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-master-edit:hover { background: #c9b87a; color: #fff; }
+        .btn-master-rename {
+            width: 30px; height: 30px; border-radius: 6px; border: 1px solid #e5e7eb;
+            background: #fff; color: #9ca3af; cursor: pointer; font-size: 13px;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-master-rename:hover { background: #f0ede4; color: #8a7a40; border-color: #c9b87a; }
+        .btn-rename-confirm {
+            width: 30px; height: 30px; border-radius: 6px; border: 1px solid #86efac;
+            background: #f0fdf4; color: #16a34a; cursor: pointer; font-size: 13px;
+            align-items: center; justify-content: center; transition: background 0.15s;
+        }
+        .btn-rename-confirm:hover { background: #dcfce7; }
+        .btn-rename-cancel {
+            width: 30px; height: 30px; border-radius: 6px; border: 1px solid #fca5a5;
+            background: #fff1f2; color: #dc2626; cursor: pointer; font-size: 13px;
+            align-items: center; justify-content: center; transition: background 0.15s;
+        }
+        .btn-rename-cancel:hover { background: #fee2e2; }
+        .mpi-name-wrap { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
+        .mpi-rename-input {
+            font-size: 14px; font-weight: 600; color: #1a1a1a;
+            border: 1px solid #c9b87a; border-radius: 5px; padding: 2px 8px;
+            outline: none; background: #fffef8; width: 180px;
+        }
+        /* ── Modal Déclinaison ───────────────────────────── */
+        .decline-modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 9100;
+            background: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+        }
+        .decline-modal-overlay.open { display: flex; }
+        .decline-modal {
+            background: #fff; border-radius: 14px; width: 540px; max-width: 95vw;
+            max-height: 85vh; display: flex; flex-direction: column;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        .decline-modal-header {
+            display: flex; align-items: center; justify-content: space-between;
+            padding: 20px 24px 16px; border-bottom: 1px solid #e5e7eb;
+        }
+        .decline-modal-header h3 { margin: 0; font-size: 16px; font-weight: 700; color: #111; }
+        .decline-modal-header h3 span { color: #c9b87a; }
+        .decline-modal-close { background: none; border: none; font-size: 22px; cursor: pointer; color: #6b7280; }
+        .decline-modal-close:hover { color: #111; }
+        .decline-modal-body { flex: 1; overflow-y: auto; padding: 16px 24px; }
+        .decline-name-field { margin-bottom: 16px; }
+        .decline-name-field label { display: block; font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+        .decline-name-input {
+            width: 100%; box-sizing: border-box; padding: 8px 12px;
+            border: 1px solid #d1d5db; border-radius: 7px; font-size: 14px;
+            outline: none; color: #1a1a1a;
+        }
+        .decline-name-input:focus { border-color: #c9b87a; box-shadow: 0 0 0 2px rgba(201,184,122,0.2); }
+        .decline-schools-label { font-size: 12px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between; }
+        .decline-select-all { font-size: 12px; color: #c9b87a; cursor: pointer; font-weight: 600; text-decoration: underline; text-transform: none; letter-spacing: 0; }
+        .decline-school-list { display: flex; flex-direction: column; gap: 8px; }
+        .decline-school-item {
+            display: flex; align-items: center; gap: 12px; padding: 10px 14px;
+            border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer;
+            transition: background 0.12s, border-color 0.12s;
+        }
+        .decline-school-item:hover { background: #fafafa; }
+        .decline-school-item.selected { background: #fdf9f0; border-color: #c9b87a; }
+        .decline-school-item input[type=checkbox] { accent-color: #c9b87a; width: 16px; height: 16px; flex-shrink: 0; }
+        .decline-school-color { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+        .decline-school-name { font-size: 13px; font-weight: 600; color: #1a1a1a; flex: 1; }
+        .decline-school-full { font-size: 11px; color: #9ca3af; }
+        .decline-modal-footer { padding: 16px 24px; border-top: 1px solid #e5e7eb; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .decline-count { font-size: 13px; color: #6b7280; }
+        .decline-count strong { color: #c9b87a; }
+        .decline-results { margin-top: 16px; display: flex; flex-direction: column; gap: 6px; }
+        .decline-result-item { display: flex; align-items: center; gap: 8px; font-size: 13px; padding: 8px 12px; border-radius: 6px; }
+        .decline-result-item.ok { background: #f0fdf4; color: #16a34a; }
+        .decline-result-item.err { background: #fff1f2; color: #dc2626; }
+        .btn-decline-confirm {
+            padding: 9px 20px; font-size: 13px; font-weight: 700; border-radius: 7px;
+            border: none; background: #c9b87a; color: #fff; cursor: pointer;
+            display: flex; align-items: center; gap: 7px; transition: background 0.15s;
+        }
+        .btn-decline-confirm:disabled { background: #e5e7eb; color: #9ca3af; cursor: not-allowed; }
+        .btn-decline-confirm:not(:disabled):hover { background: #b8a660; }
+        .btn-master-decline {
+            width: 30px; height: 30px; border-radius: 6px; border: 1px solid #e5e7eb;
+            background: #fff; color: #9ca3af; cursor: pointer; font-size: 12px;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-master-decline:hover { background: #f0ede4; color: #c9b87a; border-color: #c9b87a; }
+
+        .btn-master-new {
+            padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 7px;
+            border: none; background: #c9b87a; color: #fff; cursor: pointer;
+            display: flex; align-items: center; gap: 7px; transition: background 0.15s;
+        }
+        .btn-master-new:hover { background: #b8a660; }
+        .btn-master-cancel {
+            padding: 8px 16px; font-size: 13px; font-weight: 600; border-radius: 7px;
+            border: 1px solid #d1d5db; background: #fff; color: #6b7280; cursor: pointer;
+        }
+        .btn-master-cancel:hover { background: #f3f4f6; }
     </style>
 </head>
 <body>
@@ -684,6 +824,62 @@
             <button class="btn-master" id="btn-open-master">Éditer le Master</button>
         </div>
 
+        <!-- Modal : liste des projets master -->
+        <div class="master-modal-overlay" id="master-projects-modal">
+            <div class="master-modal">
+                <div class="master-modal-header">
+                    <h3><i class="fas fa-layer-group"></i> Templates Maître</h3>
+                    <button class="master-modal-close" id="btn-close-master-modal">&times;</button>
+                </div>
+                <div class="master-modal-body">
+                    <div class="master-project-list" id="master-project-list">
+                        <div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;">
+                            <i class="fas fa-spinner fa-spin"></i> Chargement...
+                        </div>
+                    </div>
+                </div>
+                <div class="master-modal-footer">
+                    <button class="btn-master-cancel" id="btn-close-master-modal-footer">Fermer</button>
+                    <button class="btn-master-new" id="btn-new-master-project">
+                        <i class="fas fa-plus"></i> Nouveau template
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Modal : déclinaison master → écoles -->
+        <div class="decline-modal-overlay" id="decline-modal">
+            <div class="decline-modal">
+                <div class="decline-modal-header">
+                    <h3><i class="fas fa-code-branch" style="color:#c9b87a;margin-right:8px;"></i>Décliner <span id="decline-project-label"></span></h3>
+                    <button class="decline-modal-close" id="btn-close-decline-modal">&times;</button>
+                </div>
+                <div class="decline-modal-body">
+                    <div class="decline-name-field">
+                        <label>Nom du projet pour chaque école</label>
+                        <input class="decline-name-input" id="decline-name-input" type="text" placeholder="Nom du projet décliné">
+                    </div>
+                    <div class="decline-schools-label">
+                        Écoles cibles
+                        <span class="decline-select-all" id="decline-select-all">Tout sélectionner</span>
+                    </div>
+                    <div class="decline-school-list" id="decline-school-list">
+                        <div style="text-align:center;padding:16px;color:#9ca3af;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>
+                    </div>
+                    <div class="decline-results" id="decline-results" style="display:none;"></div>
+                </div>
+                <div class="decline-modal-footer">
+                    <span class="decline-count"><strong id="decline-selected-count">0</strong> école(s) sélectionnée(s)</span>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-master-cancel" id="btn-cancel-decline">Annuler</button>
+                        <button class="btn-decline-confirm" id="btn-confirm-decline" disabled>
+                            <i class="fas fa-code-branch"></i> Décliner
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div id="debug-error" style="display:none; background:#fee2e2; color:#991b1b; padding:16px; border-radius:8px; margin-bottom:24px; border:1px solid #f87171;"></div>
         <div id="admin-notice" class="admin-notice"></div>
 
@@ -733,20 +929,20 @@
                         <div id="school-base-url-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field">
-                        <label for="school-rgpd-text">Texte RGPD (formulaires)</label>
-                        <textarea id="school-rgpd-text" placeholder="J'accepte d'être contacté(e) par l'école" style="height:60px;resize:vertical;"></textarea>
-                    </div>
-                    <div class="admin-field">
-                        <label for="school-rgpd-url">Lien politique de confidentialité</label>
-                        <input id="school-rgpd-url" type="url" placeholder="https://www.ecole.fr/confidentialite">
-                    </div>
-                    <div class="admin-field">
                         <label for="school-color">Couleur principale</label>
                         <input id="school-color" type="color" value="#3b82f6">
                     </div>
                     <div class="admin-field">
                         <label for="school-secondary-color">Couleur secondaire</label>
                         <input id="school-secondary-color" type="color" value="#1a1a1a">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-color-header">Couleur header / footer</label>
+                        <input id="school-color-header" type="color" value="#3b82f6">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-color-carousel">Couleur carousel</label>
+                        <input id="school-color-carousel" type="color" value="#3b82f6">
                     </div>
                     <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
@@ -757,6 +953,11 @@
                         <div id="school-default-blocks" class="block-picker"></div>
                         <div id="school-default-blocks-meta" class="block-picker-meta">0 bloc sélectionné</div>
                         <div id="school-default-blocks-feedback" class="field-feedback"></div>
+                    </div>
+                    <div class="admin-field full" style="display:flex;align-items:center;padding:12px 0;border-top:1px solid #f0f0f0;margin-top:4px;">
+                        <button type="button" id="btn-open-faq-modal" class="admin-btn" style="gap:6px;">
+                            <i class="fas fa-question-circle"></i> Gérer les FAQs
+                        </button>
                     </div>
                 </div>
             </div>
@@ -791,6 +992,56 @@
         </div>
     </div>
 
+    <!-- ══ Modal FAQ Admin ══════════════════════════════════════════════════ -->
+    <div id="faq-admin-modal" class="admin-modal-overlay" style="display:none;">
+        <div class="admin-modal" style="max-width:860px;height:90vh;display:flex;flex-direction:column;">
+            <div class="admin-modal-header">
+                <h3><i class="fas fa-question-circle" style="color:#1a7a5e;margin-right:8px;"></i>FAQs — <span id="faq-modal-school-name"></span></h3>
+                <div style="display:flex;gap:8px;align-items:center;">
+                    <button class="admin-btn primary" id="btn-faq-new" style="padding:6px 14px;font-size:12px;display:flex;align-items:center;gap:6px;">
+                        <i class="fas fa-plus"></i> Nouvelle FAQ
+                    </button>
+                    <button class="admin-btn" id="btn-close-faq-modal">&times;</button>
+                </div>
+            </div>
+
+            <!-- Formulaire ajout / édition inline -->
+            <div id="faq-form-wrap" style="display:none;background:#fff;border-left:4px solid #1a7a5e;border-bottom:2px solid #e5e7eb;padding:20px 24px;box-shadow:0 2px 8px rgba(26,122,94,.08);">
+                <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+                    <span style="display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;background:#1a7a5e;border-radius:6px;color:#fff;font-size:13px;"><i class="fas fa-pen"></i></span>
+                    <span style="font-size:14px;font-weight:700;color:#1a7a5e;" id="faq-form-title">Nouvelle question</span>
+                </div>
+                <input type="hidden" id="faq-edit-id">
+                <div style="display:grid;gap:12px;">
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Question <span style="color:#ef4444;">*</span></label>
+                        <input type="text" id="faq-input-question" placeholder="Ex: Comment candidater ?" class="admin-input" style="font-size:13px;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;width:100%;box-sizing:border-box;transition:border-color .2s;" onfocus="this.style.borderColor='#1a7a5e'" onblur="this.style.borderColor='#d1d5db'">
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:11px;font-weight:700;color:#374151;text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;">Réponse <span style="color:#ef4444;">*</span></label>
+                        <textarea id="faq-input-answer" placeholder="Réponse complète…" class="admin-input" rows="4" style="font-size:13px;padding:10px 12px;border:1.5px solid #d1d5db;border-radius:8px;width:100%;box-sizing:border-box;resize:vertical;font-family:inherit;transition:border-color .2s;" onfocus="this.style.borderColor='#1a7a5e'" onblur="this.style.borderColor='#d1d5db'"></textarea>
+                    </div>
+                </div>
+                <div id="faq-form-error" class="admin-error" style="display:none;margin-top:10px;"></div>
+                <div style="display:flex;gap:8px;margin-top:14px;">
+                    <button class="admin-btn primary" id="btn-faq-form-save" style="padding:9px 22px;font-size:13px;font-weight:600;border-radius:8px;"><i class="fas fa-check" style="margin-right:6px;"></i>Enregistrer</button>
+                    <button class="admin-btn" id="btn-faq-form-cancel" style="padding:9px 16px;font-size:13px;border-radius:8px;">Annuler</button>
+                </div>
+            </div>
+
+            <div class="admin-modal-body" style="flex:1;overflow-y:auto;padding:16px 24px;">
+                <div id="faq-school-error" class="admin-error" style="display:none;"></div>
+                <div id="faq-school-list" style="display:flex;flex-direction:column;gap:8px;">
+                    <div style="color:#9ca3af;font-size:13px;text-align:center;padding:24px;">Chargement…</div>
+                </div>
+            </div>
+            <div class="admin-modal-footer" style="flex-shrink:0;">
+                <button class="admin-btn" id="btn-close-faq-modal-footer">Fermer</button>
+            </div>
+        </div>
+    </div>
+    <!-- ══ Fin Modal FAQ Admin ═══════════════════════════════════════════════ -->
+
     <div id="school-history-modal" class="admin-modal-overlay">
         <div class="admin-modal" style="max-width:760px;">
             <div class="admin-modal-header">
@@ -818,13 +1069,14 @@
         let blockCatalog = [];
         let fallbackDefaultBlocks = ['hero', 'programme-list', 'form-sfmc', 'cta-button'];
 
-        async function fetchJSON(url) {
-            const r = await fetch(url);
+        async function fetchJSON(url, options) {
+            const r = await fetch(url, options);
             if (!r.ok) {
                 const text = await r.text().catch(() => '');
                 throw new Error(text || `${r.status} ${r.statusText}`);
             }
-            return r.json();
+            const text = await r.text();
+            return text ? JSON.parse(text) : null;
         }
 
         async function readErrorMessage(res) {
@@ -945,8 +1197,207 @@
                 : 'Aucun';
         }
 
-        document.getElementById('btn-open-master').addEventListener('click', () => {
-            window.location.href = `index.html?school=master`;
+        document.getElementById('btn-open-master').addEventListener('click', openMasterModal);
+        document.getElementById('btn-close-master-modal').onclick = closeMasterModal;
+        document.getElementById('btn-close-master-modal-footer').onclick = closeMasterModal;
+        document.getElementById('btn-new-master-project').onclick = () => {
+            closeMasterModal();
+            window.location.href = 'index.html?school=master';
+        };
+
+        async function openMasterModal() {
+            const overlay = document.getElementById('master-projects-modal');
+            overlay.classList.add('open');
+            await loadMasterProjects();
+        }
+
+        async function loadMasterProjects() {
+            const list = document.getElementById('master-project-list');
+            list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>';
+            try {
+                const projects = await fetchJSON('/api/projects');
+                const masterProjects = projects.filter(p => p.project_name.startsWith('school-master__'));
+                if (masterProjects.length === 0) {
+                    list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;">Aucun template maître. Créez-en un nouveau !</div>';
+                    return;
+                }
+                list.innerHTML = masterProjects.map(p => {
+                    const fullName = p.project_name.replace('school-master__', '');
+                    const parts = fullName.split('__');
+                    const displayName = parts[0];
+                    const lang = parts[1] || 'FR';
+                    const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+                    const editUrl = `index.html?school=master&project=${encodeURIComponent(p.project_name)}`;
+                    const safeOldName = escHtml(p.project_name);
+                    return `
+                        <div class="master-project-item" data-project="${safeOldName}">
+                            <i class="fas fa-file-code mpi-icon"></i>
+                            <div class="mpi-info">
+                                <div class="mpi-name-wrap">
+                                    <span class="mpi-name-text">${escHtml(displayName)}</span>
+                                    <span style="font-size:11px;background:#f0ede4;color:#8a7a40;padding:1px 6px;border-radius:4px;margin-left:4px;">${escHtml(lang)}</span>
+                                    <input class="mpi-rename-input" type="text" value="${escHtml(displayName)}" style="display:none;" data-lang="${escHtml(lang)}">
+                                </div>
+                                <div class="mpi-meta">Modifié le ${date}</div>
+                            </div>
+                            <div class="mpi-actions">
+                                <button class="btn-master-rename" title="Renommer" onclick="startRename(this)"><i class="fas fa-i-cursor"></i></button>
+                                <button class="btn-rename-confirm" style="display:none;" onclick="confirmRename(this)"><i class="fas fa-check"></i></button>
+                                <button class="btn-rename-cancel" style="display:none;" onclick="cancelRename(this)"><i class="fas fa-times"></i></button>
+                                <button class="btn-master-decline" title="Décliner vers les écoles" onclick="openDeclineModal('${safeOldName}', '${escHtml(displayName)}')"><i class="fas fa-code-branch"></i></button>
+                                <button class="btn-master-edit" onclick="window.location.href='${editUrl}'"><i class="fas fa-pen"></i> Modifier</button>
+                            </div>
+                        </div>`;
+                }).join('');
+            } catch (e) {
+                list.innerHTML = `<div style="text-align:center;padding:24px;color:#ef4444;font-size:13px;">Erreur de chargement : ${e.message}</div>`;
+            }
+        }
+
+        function startRename(btn) {
+            const item = btn.closest('.master-project-item');
+            item.querySelector('.mpi-name-text').style.display = 'none';
+            const input = item.querySelector('.mpi-rename-input');
+            input.style.display = 'inline-block';
+            input.focus();
+            input.select();
+            btn.style.display = 'none';
+            item.querySelector('.btn-rename-confirm').style.display = 'inline-flex';
+            item.querySelector('.btn-rename-cancel').style.display = 'inline-flex';
+            item.querySelector('.btn-master-edit').style.display = 'none';
+        }
+
+        function cancelRename(btn) {
+            const item = btn.closest('.master-project-item');
+            item.querySelector('.mpi-name-text').style.display = '';
+            item.querySelector('.mpi-rename-input').style.display = 'none';
+            item.querySelector('.btn-master-rename').style.display = '';
+            item.querySelector('.btn-rename-confirm').style.display = 'none';
+            item.querySelector('.btn-rename-cancel').style.display = 'none';
+            item.querySelector('.btn-master-edit').style.display = '';
+        }
+
+        async function confirmRename(btn) {
+            const item = btn.closest('.master-project-item');
+            const oldProjectName = item.dataset.project;
+            const input = item.querySelector('.mpi-rename-input');
+            const newDisplayName = input.value.trim();
+            const lang = input.dataset.lang;
+            if (!newDisplayName) return;
+
+            const newProjectName = `school-master__${newDisplayName}__${lang}`;
+            if (newProjectName === oldProjectName) { cancelRename(btn); return; }
+
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+            btn.disabled = true;
+            try {
+                await fetchJSON('/api/project/rename', {
+                    method: 'PATCH',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ oldName: oldProjectName, newName: newProjectName })
+                });
+                await loadMasterProjects();
+            } catch (e) {
+                alert('Erreur de renommage : ' + e.message);
+                btn.innerHTML = '<i class="fas fa-check"></i>';
+                btn.disabled = false;
+            }
+        }
+
+        function closeMasterModal() {
+            document.getElementById('master-projects-modal').classList.remove('open');
+        }
+
+        // ── Déclinaison Master → Écoles ───────────────────────────────────────
+        let _declineProjectName = '';
+
+        async function openDeclineModal(projectName, displayName) {
+            _declineProjectName = projectName;
+            document.getElementById('decline-project-label').textContent = displayName;
+            document.getElementById('decline-name-input').value = displayName;
+            document.getElementById('decline-results').style.display = 'none';
+            document.getElementById('decline-results').innerHTML = '';
+            document.getElementById('decline-selected-count').textContent = '0';
+            document.getElementById('btn-confirm-decline').disabled = true;
+            document.getElementById('decline-modal').classList.add('open');
+
+            // Charger les écoles
+            const list = document.getElementById('decline-school-list');
+            list.innerHTML = '<div style="text-align:center;padding:16px;color:#9ca3af;font-size:13px;"><i class="fas fa-spinner fa-spin"></i></div>';
+            try {
+                const schools = await fetchJSON('/api/schools');
+                list.innerHTML = schools.map(s => `
+                    <label class="decline-school-item" onclick="toggleDeclineSchool(this)">
+                        <input type="checkbox" value="${escHtml(s.id)}" onclick="event.stopPropagation(); updateDeclineCount()">
+                        <span class="decline-school-color" style="background:${escHtml(s.color || '#374151')};"></span>
+                        <span class="decline-school-name">${escHtml(s.name)}</span>
+                        <span class="decline-school-full">${escHtml(s.fullName || s.full_name || '')}</span>
+                    </label>`).join('');
+            } catch(e) {
+                list.innerHTML = `<div style="color:#ef4444;font-size:13px;">Erreur : ${e.message}</div>`;
+            }
+        }
+
+        function toggleDeclineSchool(label) {
+            const cb = label.querySelector('input[type=checkbox]');
+            cb.checked = !cb.checked;
+            label.classList.toggle('selected', cb.checked);
+            updateDeclineCount();
+        }
+
+        function updateDeclineCount() {
+            const checked = document.querySelectorAll('#decline-school-list input[type=checkbox]:checked').length;
+            document.getElementById('decline-selected-count').textContent = checked;
+            document.getElementById('btn-confirm-decline').disabled = checked === 0;
+        }
+
+        document.getElementById('decline-select-all').addEventListener('click', () => {
+            const checkboxes = document.querySelectorAll('#decline-school-list input[type=checkbox]');
+            const allChecked = [...checkboxes].every(cb => cb.checked);
+            checkboxes.forEach(cb => {
+                cb.checked = !allChecked;
+                cb.closest('.decline-school-item').classList.toggle('selected', !allChecked);
+            });
+            updateDeclineCount();
+        });
+
+        document.getElementById('btn-close-decline-modal').onclick = () => document.getElementById('decline-modal').classList.remove('open');
+        document.getElementById('btn-cancel-decline').onclick = () => document.getElementById('decline-modal').classList.remove('open');
+
+        document.getElementById('btn-confirm-decline').addEventListener('click', async () => {
+            const schoolIds = [...document.querySelectorAll('#decline-school-list input[type=checkbox]:checked')].map(cb => cb.value);
+            const projectDisplayName = document.getElementById('decline-name-input').value.trim() || _declineProjectName.replace(/^school-master__/, '').replace(/__[A-Z]{2}$/, '');
+            if (schoolIds.length === 0) return;
+
+            const btn = document.getElementById('btn-confirm-decline');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> En cours...';
+
+            try {
+                const result = await fetchJSON('/api/decline', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ masterProjectName: _declineProjectName, schoolIds, projectDisplayName })
+                });
+
+                const resultsEl = document.getElementById('decline-results');
+                resultsEl.style.display = 'flex';
+                resultsEl.innerHTML = [
+                    ...(result.success || []).map(r => `<div class="decline-result-item ok"><i class="fas fa-check-circle"></i> <strong>${escHtml(r.schoolId)}</strong> → ${escHtml(r.projectName)}</div>`),
+                    ...(result.errors  || []).map(r => `<div class="decline-result-item err"><i class="fas fa-times-circle"></i> <strong>${escHtml(r.schoolId)}</strong> : ${escHtml(r.message)}</div>`)
+                ].join('');
+
+                btn.innerHTML = '<i class="fas fa-check"></i> Terminé';
+                setTimeout(() => {
+                    btn.innerHTML = '<i class="fas fa-code-branch"></i> Décliner';
+                    btn.disabled = false;
+                }, 2500);
+            } catch(e) {
+                document.getElementById('decline-results').style.display = 'flex';
+                document.getElementById('decline-results').innerHTML = `<div class="decline-result-item err"><i class="fas fa-times-circle"></i> ${escHtml(e.message)}</div>`;
+                btn.innerHTML = '<i class="fas fa-code-branch"></i> Décliner';
+                btn.disabled = false;
+            }
         });
 
         document.getElementById('btn-manage-schools').addEventListener('click', () => openSchoolModal());
@@ -1046,10 +1497,12 @@
             setValue('school-base-url', school?.baseUrl || '');
             setValue('school-color', school?.color || '#3b82f6');
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
+            setValue('school-color-header', school?.colorHeader || school?.color || '#3b82f6');
+            setValue('school-color-carousel', school?.colorCarousel || school?.color || '#3b82f6');
             setValue('school-emoji', school?.emoji || '🏫');
-            setValue('school-rgpd-text', school?.rgpdText || '');
-            setValue('school-rgpd-url', school?.rgpdUrl || '');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
+            // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
+            document.getElementById('btn-open-faq-modal').style.display = school ? 'inline-flex' : 'none';
             document.getElementById('school-admin-modal').style.display = 'flex';
             validateSchoolForm({ showEmpty: false });
         }
@@ -1139,10 +1592,11 @@
                 baseUrl,
                 color: document.getElementById('school-color').value,
                 secondaryColor: document.getElementById('school-secondary-color').value,
+                colorHeader: document.getElementById('school-color-header').value,
+                colorCarousel: document.getElementById('school-color-carousel').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
                 defaultBlocks: getDefaultBlocksSelection(),
-                rgpdText: document.getElementById('school-rgpd-text').value.trim(),
-                rgpdUrl: document.getElementById('school-rgpd-url').value.trim()
+                showFaq: true
             };
         }
 
@@ -1352,7 +1806,7 @@
                 const debugEl = document.getElementById('debug-error');
                 debugEl.style.display = 'block';
                 debugEl.innerHTML = `<strong>Erreur d'initialisation:</strong> ${err.message}<br><small>${err.stack || ''}</small>`;
-                
+
                 document.getElementById('school-grid').innerHTML = `
                     <div style="text-align:center; padding: 40px; color: #e16a5a; grid-column: 1 / -1;">
                         Impossible de charger les données du tableau de bord.
@@ -1360,6 +1814,190 @@
                 `;
             }
         }
+
+
+        // ══════════════════════════════════════════════════════════════════
+        // FAQ ADMIN — Gestion de la banque de questions et des associations
+        // ══════════════════════════════════════════════════════════════════
+        let faqModalSchoolId = null;
+        let allFaqsBank = [];
+        let schoolFaqLinks = []; // associations {id, faq_id, page_type, sort_order}
+
+        function openFaqModal(schoolId) {
+            faqModalSchoolId = schoolId;
+            const school = currentSchools.find(s => s.id === schoolId);
+            document.getElementById('faq-modal-school-name').textContent = school ? school.name : schoolId;
+            hideFaqForm();
+            showAdminError('faq-school-error', '');
+            document.getElementById('faq-admin-modal').style.display = 'flex';
+            loadFaqsForSchool();
+        }
+
+        function closeFaqModal() {
+            document.getElementById('faq-admin-modal').style.display = 'none';
+            faqModalSchoolId = null;
+        }
+
+        async function loadFaqsForSchool() {
+            const list = document.getElementById('faq-school-list');
+            list.innerHTML = '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:24px;"><i class="fas fa-spinner fa-spin"></i> Chargement…</div>';
+            showAdminError('faq-school-error', '');
+            try {
+                const [bank, links] = await Promise.all([
+                    fetchJSON('/api/faq'),
+                    faqModalSchoolId ? fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}`).catch(() => []) : Promise.resolve([])
+                ]);
+                allFaqsBank = Array.isArray(bank) ? bank : [];
+                schoolFaqLinks = Array.isArray(links) ? links : [];
+                renderFaqList();
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+                list.innerHTML = '';
+            }
+        }
+
+        function renderFaqList() {
+            const list = document.getElementById('faq-school-list');
+            if (!allFaqsBank.length) {
+                list.innerHTML = '<div style="color:#9ca3af;font-size:13px;text-align:center;padding:40px;">Aucune FAQ dans la banque. Créez-en une avec le bouton <strong>Nouvelle FAQ</strong>.</div>';
+                return;
+            }
+            const linkedIds = new Set(schoolFaqLinks.map(l => l.faq_id));
+            list.innerHTML = allFaqsBank.map(faq => {
+                const isLinked = linkedIds.has(faq.id);
+                const link = schoolFaqLinks.find(l => l.faq_id === faq.id);
+                return `
+                <div class="faq-row" id="faq-row-${escHtml(faq.id)}" style="display:flex;align-items:flex-start;gap:12px;padding:14px 16px;background:#fff;border:1.5px solid ${isLinked ? '#a7f3d0' : '#e5e7eb'};border-radius:10px;transition:border-color .2s;">
+                    <div style="padding-top:2px;flex-shrink:0;">
+                        <input type="checkbox" id="faq-check-${escHtml(faq.id)}"
+                            ${isLinked ? 'checked' : ''}
+                            style="width:16px;height:16px;cursor:pointer;accent-color:#1a7a5e;"
+                            onchange="toggleFaqLink('${escHtml(faq.id)}', '${link ? escHtml(link.id) : ''}', this.checked)">
+                    </div>
+                    <div style="flex:1;min-width:0;">
+                        <div style="font-size:13px;font-weight:600;color:#111;line-height:1.4;margin-bottom:4px;">${escHtml(faq.question)}</div>
+                        <div style="font-size:12px;color:#6b7280;line-height:1.5;">${escHtml(faq.answer.slice(0, 160))}${faq.answer.length > 160 ? '…' : ''}</div>
+                    </div>
+                    <div style="display:flex;gap:6px;flex-shrink:0;padding-top:2px;">
+                        <button class="admin-btn" title="Modifier" style="padding:5px 10px;font-size:11px;" onclick="editFaq('${escHtml(faq.id)}', ${JSON.stringify(escHtml(faq.question))}, ${JSON.stringify(escHtml(faq.answer))})">
+                            <i class="fas fa-pen"></i>
+                        </button>
+                        <button class="admin-btn danger" title="Supprimer" style="padding:5px 10px;font-size:11px;" onclick="deleteFaq('${escHtml(faq.id)}')">
+                            <i class="fas fa-trash"></i>
+                        </button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        async function toggleFaqLink(faqId, linkId, checked) {
+            const row = document.getElementById(`faq-row-${faqId}`);
+            try {
+                if (checked) {
+                    const result = await fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ faq_id: faqId, page_type: 'general', sort_order: 0 })
+                    });
+                    schoolFaqLinks.push(result || { faq_id: faqId });
+                    if (row) row.style.borderColor = '#a7f3d0';
+                } else {
+                    if (linkId) {
+                        await fetchJSON(`/api/faq/school/${encodeURIComponent(faqModalSchoolId)}/${encodeURIComponent(linkId)}`, { method: 'DELETE' });
+                    }
+                    schoolFaqLinks = schoolFaqLinks.filter(l => l.faq_id !== faqId);
+                    if (row) row.style.borderColor = '#e5e7eb';
+                }
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+                // Revert checkbox
+                const cb = document.getElementById(`faq-check-${faqId}`);
+                if (cb) cb.checked = !checked;
+                if (row) row.style.borderColor = checked ? '#e5e7eb' : '#a7f3d0';
+            }
+        }
+
+        function showFaqForm({ id = '', question = '', answer = '', title = 'Nouvelle question' } = {}) {
+            document.getElementById('faq-form-title').textContent = title;
+            document.getElementById('faq-edit-id').value = id;
+            document.getElementById('faq-input-question').value = question;
+            document.getElementById('faq-input-answer').value = answer;
+            document.getElementById('faq-form-error').style.display = 'none';
+            document.getElementById('faq-form-wrap').style.display = 'block';
+            document.getElementById('faq-input-question').focus();
+        }
+
+        function hideFaqForm() {
+            document.getElementById('faq-form-wrap').style.display = 'none';
+            document.getElementById('faq-edit-id').value = '';
+            document.getElementById('faq-input-question').value = '';
+            document.getElementById('faq-input-answer').value = '';
+            document.getElementById('faq-form-error').style.display = 'none';
+        }
+
+        function editFaq(id, question, answer) {
+            showFaqForm({ id, question, answer, title: 'Modifier la question' });
+        }
+
+        async function saveFaqForm() {
+            const id = document.getElementById('faq-edit-id').value;
+            const question = document.getElementById('faq-input-question').value.trim();
+            const answer = document.getElementById('faq-input-answer').value.trim();
+            const errEl = document.getElementById('faq-form-error');
+            if (!question || !answer) {
+                errEl.textContent = 'La question et la réponse sont obligatoires.';
+                errEl.style.display = 'block';
+                return;
+            }
+            const btn = document.getElementById('btn-faq-form-save');
+            btn.disabled = true;
+            errEl.style.display = 'none';
+            try {
+                if (id) {
+                    await fetchJSON(`/api/faq/${encodeURIComponent(id)}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question, answer })
+                    });
+                } else {
+                    await fetchJSON('/api/faq', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ question, answer })
+                    });
+                }
+                hideFaqForm();
+                await loadFaqsForSchool();
+            } catch(e) {
+                errEl.textContent = e.message;
+                errEl.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+            }
+        }
+
+        async function deleteFaq(id) {
+            if (!confirm('Supprimer cette question de la banque ? Elle sera retirée de toutes les écoles.')) return;
+            try {
+                await fetchJSON(`/api/faq/${encodeURIComponent(id)}`, { method: 'DELETE' });
+                await loadFaqsForSchool();
+            } catch(e) {
+                showAdminError('faq-school-error', e.message);
+            }
+        }
+
+        // Wiring FAQ modal buttons
+        document.getElementById('btn-open-faq-modal').addEventListener('click', () => {
+            if (editingSchoolId) openFaqModal(editingSchoolId);
+        });
+        document.getElementById('btn-close-faq-modal').addEventListener('click', closeFaqModal);
+        document.getElementById('btn-close-faq-modal-footer').addEventListener('click', closeFaqModal);
+        document.getElementById('faq-admin-modal').addEventListener('click', e => {
+            if (e.target === document.getElementById('faq-admin-modal')) closeFaqModal();
+        });
+        document.getElementById('btn-faq-new').addEventListener('click', () => showFaqForm());
+        document.getElementById('btn-faq-form-save').addEventListener('click', saveFaqForm);
+        document.getElementById('btn-faq-form-cancel').addEventListener('click', hideFaqForm);
 
         init();
     </script>

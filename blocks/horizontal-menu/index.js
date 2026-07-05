@@ -35,7 +35,7 @@ export default function(editor, categories) {
                 .hm-band-top {
                     width: 100%;
                     height: 45px;
-                    background-color: var(--brand-secondary, #A8174F);
+                    background-color: var(--bande-color, #A8174F);
                 }
                 .hm-band-bottom {
                     display: none;
@@ -90,11 +90,11 @@ export default function(editor, categories) {
                     height: 2px;
                     bottom: 0;
                     left: 0;
-                    background-color: var(--brand-secondary, #A8174F);
+                    background-color: var(--bande-color, #A8174F);
                     transition: width 0.3s ease;
                 }
                 .hm-nav-item:hover {
-                    color: var(--brand-secondary, #A8174F);
+                    color: var(--bande-color, #A8174F);
                 }
                 .hm-nav-item:hover::after {
                     width: 100%;
