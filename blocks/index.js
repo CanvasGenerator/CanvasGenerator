@@ -24,6 +24,8 @@ import formSalesforceCore from './form-salesforce-core/index.js';
 // Formulaires EDH (besoins EDH/One Point)
 import formBrochure from './forms/form-brochure/index.js';
 import formJpo from './forms/form-jpo/index.js';
+import formAtelier from './forms/form-atelier/index.js';
+import formStage from './forms/form-stage/index.js';
 import formImmersion from './forms/form-immersion/index.js';
 import formCandidature from './forms/form-candidature/index.js';
 
@@ -49,7 +51,7 @@ export function registerBlocks(editor) {
         carousel, CarrouselTemoignages, CarrouselCampus,
         icartBlocks, formSalesforceCore,
         // Formulaires EDH (6 formulaires : Brochure, JPO, Atelier, Stage, Immersion, Candidature)
-        formBrochure, formJpo, formImmersion, formCandidature
+        formBrochure, formJpo, formAtelier, formStage, formImmersion, formCandidature
 
     ].forEach(blockInit => {
         if (typeof blockInit === 'function') {
