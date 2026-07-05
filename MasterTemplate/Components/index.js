@@ -24,11 +24,13 @@ import carousel2C from './Carousel2C/index.js';
 import carousel3Campus from './Carousel3Campus/index.js';
 import blocsTexte3Col from './BlocsTexte3Col/index.js';
 import chiffresCles2 from './ChiffresCles2/index.js';
-// Formulaires EDH
+// Formulaires EDH (6 formulaires)
 import formBrochure from '../../blocks/forms/form-brochure/index.js';
 import formJpo from '../../blocks/forms/form-jpo/index.js';
-import formPrecandidature from '../../blocks/forms/form-precandidature/index.js';
-import formWebconf from '../../blocks/forms/form-webconf/index.js';
+import formAtelier from '../../blocks/forms/form-atelier/index.js';
+import formStage from '../../blocks/forms/form-stage/index.js';
+import formImmersion from '../../blocks/forms/form-immersion/index.js';
+import formCandidature from '../../blocks/forms/form-candidature/index.js';
 
 export function registerMasterComponents(editor) {
     const categories = {
@@ -65,8 +67,10 @@ export function registerMasterComponents(editor) {
         chiffresCles2,
         formBrochure,
         formJpo,
-        formPrecandidature,
-        formWebconf
+        formAtelier,
+        formStage,
+        formImmersion,
+        formCandidature
     ].forEach(blockInit => {
         if (typeof blockInit === 'function') {
             blockInit(editor, categories);
