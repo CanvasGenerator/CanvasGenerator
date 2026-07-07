@@ -24,6 +24,7 @@ import carousel2C from './Carousel2C/index.js';
 import carousel3Campus from './Carousel3Campus/index.js';
 import blocsTexte3Col from './BlocsTexte3Col/index.js';
 import chiffresCles2 from './ChiffresCles2/index.js';
+import nosCampus from './NosCampus/index.js';
 // Formulaires EDH (6 formulaires)
 import formBrochure from '../../blocks/forms/form-brochure/index.js';
 import formJpo from '../../blocks/forms/form-jpo/index.js';
@@ -65,6 +66,7 @@ export function registerMasterComponents(editor) {
         carousel3Campus,
         blocsTexte3Col,
         chiffresCles2,
+        nosCampus,
         formBrochure,
         formJpo,
         formAtelier,

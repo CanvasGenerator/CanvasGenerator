@@ -14,6 +14,7 @@ const {
     resolvePublicPageByHostPath
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
+const { getSchoolLogo } = require('../lib/school-logos');
 
 /**
  * Extrait le contenu <body> d'un document HTML complet.
@@ -510,7 +511,45 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 7. General API (Project, Save)
+        // 7. Campus API
+        // ==========================================
+
+        // GET /api/campuses — list all campuses
+        if (req.method === 'GET' && pathname === '/api/campuses') {
+            const result = await supabaseRequest('GET', '/campuses?order=name.asc');
+            return res.status(200).json(result || []);
+        }
+
+        // POST /api/campuses — create a campus
+        if (req.method === 'POST' && pathname === '/api/campuses') {
+            const { id, name, slug } = req.body || {};
+            if (!id || !name) return res.status(400).json({ error: 'id et name requis' });
+            const result = await supabaseRequest('POST', '/campuses', {
+                id, name, slug: slug || id
+            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // PUT /api/campuses/:id — update a campus
+        if (req.method === 'PUT' && pathname.startsWith('/api/campuses/')) {
+            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+            const { name, slug } = req.body || {};
+            if (!name) return res.status(400).json({ error: 'name requis' });
+            const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, {
+                name, slug: slug || campusId
+            }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/campuses/:id — delete a campus
+        if (req.method === 'DELETE' && pathname.startsWith('/api/campuses/')) {
+            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+            await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
+            return res.status(200).json({ message: 'Campus supprimé' });
+        }
+
+        // ==========================================
+        // 8. General API (Project, Save)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
@@ -793,11 +832,12 @@ module.exports = async function handler(req, res) {
 
                         const schoolName     = school.name || schoolId;
                         const schoolFullName = school.fullName || school.full_name || schoolName;
-                        const schoolLogo     = school.logo || '';
+                        const schoolLogo     = school.logo || getSchoolLogo(schoolId) || schoolName;
                         const primary        = school.color || '#374151';
                         const secondary      = school.secondaryColor || school.secondary_color || '#1a1a1a';
                         const colorHeader    = school.colorHeader || primary;
                         const colorCarousel  = school.colorCarousel || primary;
+                        const headerText     = school.headerTextColor || '#ffffff';
                         const rgb            = hexToRgb(primary);
 
                         // Remplacer les placeholders texte dans le HTML
@@ -815,9 +855,9 @@ module.exports = async function handler(req, res) {
                         );
 
                         // Injecter les CSS vars de l'école en tête du CSS
-                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
+                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
                         // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
@@ -853,13 +893,15 @@ module.exports = async function handler(req, res) {
                             declinedAt:   new Date().toISOString(),
                             schoolId
                         });
+                        // Logo = SVG/HTML → échappé pour rester valide DANS la chaîne JSON
+                        const schoolLogoJson = JSON.stringify(schoolLogo).slice(1, -1);
                         projectDataStr = projectDataStr
                             .replace(/NOM_ECOLE/g, schoolName)
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
-                            .replace(/LOGO_ECOLE/g, schoolLogo);
+                            .replace(/LOGO_ECOLE/g, schoolLogoJson);
 
-                        // 2. Remplacement des logos placehold.co dans les src d'images
-                        if (schoolLogo) {
+                        // 2. (Anciens gabarits) remplacer un logo placehold.co seulement si le logo est une URL
+                        if (schoolLogo && /^https?:\/\//.test(schoolLogo)) {
                             projectDataStr = projectDataStr.replace(
                                 /https?:\/\/placehold\.co\/[^"]*(?:LOGO|logo)[^"]*/g,
                                 schoolLogo
@@ -949,11 +991,12 @@ module.exports = async function handler(req, res) {
                             finalProjectData.styles.unshift({
                                 selectors: [':root'],
                                 style: {
-                                    '--brand-primary':     primary,
-                                    '--brand-secondary':   secondary,
-                                    '--brand-primary-rgb': rgb,
-                                    '--brand-header':      colorHeader,
-                                    '--brand-carousel':    colorCarousel
+                                    '--brand-primary':      primary,
+                                    '--brand-secondary':    secondary,
+                                    '--brand-primary-rgb':  rgb,
+                                    '--brand-header':       colorHeader,
+                                    '--brand-header-text':  headerText,
+                                    '--brand-carousel':     colorCarousel
                                 }
                             });
 
