@@ -156,6 +156,32 @@ function hexToRgb(hex) {
     return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
 }
 
+/**
+ * Résout le code marketing personnalisé (GTM, Analytics…) à injecter dans une
+ * page = code de l'ÉCOLE (commun) + code de la PAGE (spécifique).
+ * Écrit le résultat fusionné dans properties.customHeadCode / customBodyCode
+ * (lus ensuite par buildStoredHtml). Le code page reste dans pageHeadCode/pageBodyCode.
+ */
+async function applyCustomMarketingCode(projectName, properties) {
+    try {
+        const m = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+        const schoolId = m ? m[1].toLowerCase() : null;
+        let ecoleHead = '', ecoleBody = '';
+        if (schoolId && schoolId !== 'master') {
+            const schools = await readSchoolsForApi();
+            const school = (schools || []).find(s => s.id === schoolId);
+            if (school) {
+                ecoleHead = school.customHeadCode || school.custom_head_code || '';
+                ecoleBody = school.customBodyCode || school.custom_body_code || '';
+            }
+        }
+        properties.customHeadCode = [ecoleHead, properties.pageHeadCode || ''].filter(Boolean).join('\n');
+        properties.customBodyCode = [ecoleBody, properties.pageBodyCode || ''].filter(Boolean).join('\n');
+    } catch (e) {
+        console.warn('⚠️  applyCustomMarketingCode:', e.message);
+    }
+    return properties;
+}
 
 module.exports = async function handler(req, res) {
     // Ensure CORS
@@ -529,6 +555,9 @@ module.exports = async function handler(req, res) {
                 properties.page_group_id = existingRecord?.page_group_id || generateGroupId();
             }
 
+            // ── Code marketing personnalisé (école + page) ──
+            await applyCustomMarketingCode(projectName, properties);
+
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
@@ -607,6 +636,7 @@ module.exports = async function handler(req, res) {
             console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
+            await applyCustomMarketingCode(projectName, mergedProperties);
             const rawBodyHtml = mergedProperties.rawHtml
                 || extractBodyContent(project.html || '');
             const freshHtml = buildStoredHtml({
@@ -798,6 +828,9 @@ module.exports = async function handler(req, res) {
                             seoTitle: `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`,
                             title:    `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`
                         };
+
+                        // Code marketing : école cible (commun) + code page hérité du master
+                        await applyCustomMarketingCode(newProjectName, newProps);
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({

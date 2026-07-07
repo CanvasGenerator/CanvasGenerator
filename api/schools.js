@@ -56,7 +56,10 @@ function normalizeSchool(school = {}) {
         // show_faq : active/désactive le bloc FAQ sur toutes les pages de cette école
         showFaq: school.showFaq !== undefined ? Boolean(school.showFaq)
                : school.show_faq !== undefined ? Boolean(school.show_faq)
-               : true
+               : true,
+        // Code marketing personnalisé (GTM, Analytics…) injecté dans TOUTES les pages de l'école
+        customHeadCode: school.customHeadCode || school.custom_head_code || '',
+        customBodyCode: school.customBodyCode || school.custom_body_code || ''
     };
 }
 
@@ -91,6 +94,8 @@ function schoolDbPayload(school) {
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
         show_faq: school.showFaq !== undefined ? school.showFaq : true,
+        custom_head_code: school.customHeadCode || '',
+        custom_body_code: school.customBodyCode || '',
         deleted: school.deleted
     };
 }

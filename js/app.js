@@ -2145,6 +2145,41 @@ function _seoShowStatus(msg, type) {
     }
 }
 
+function validateSeoCustomCode(taId, fbId) {
+    const ta = document.getElementById(taId);
+    const fb = document.getElementById(fbId);
+    if (!ta || !fb) return;
+    const code = ta.value.trim();
+    if (!code) { fb.textContent = ''; return; }
+    const open  = (code.match(/<script\b/gi) || []).length;
+    const close = (code.match(/<\/script>/gi) || []).length;
+    if (open !== close) {
+        fb.textContent = `❌ Balise <script> non fermée (${open} ouvrante(s), ${close} fermante(s)).`;
+        fb.style.color = '#c0392b';
+        return;
+    }
+    const providers = [
+        { re: /googletagmanager\.com\/gtm|GTM-[A-Z0-9]/i, name: 'Google Tag Manager' },
+        { re: /gtag\(|googletagmanager\.com\/gtag|\bG-[A-Z0-9]{6,}/i, name: 'Google Analytics (GA4)' },
+        { re: /connect\.facebook\.net|fbq\(/i, name: 'Meta Pixel' },
+        { re: /snap\.licdn\.com|_linkedin_partner_id/i, name: 'LinkedIn' },
+        { re: /analytics\.tiktok\.com|\bttq\./i, name: 'TikTok' },
+        { re: /static\.hotjar\.com|\bhj\(/i, name: 'Hotjar' }
+    ];
+    const found = providers.filter(p => p.re.test(code)).map(p => p.name);
+    if (found.length) {
+        fb.textContent = '✅ Détecté : ' + found.join(', ');
+        fb.style.color = '#1a7a5e';
+    } else {
+        fb.textContent = '⚠️ Aucun outil connu détecté — vérifie que le code est correct.';
+        fb.style.color = '#b7791f';
+    }
+}
+['seo-settings-head-code', 'seo-settings-body-code'].forEach(id => {
+    const ta = document.getElementById(id);
+    if (ta) ta.addEventListener('input', () => validateSeoCustomCode(id, id + '-feedback'));
+});
+
 window.openSeoSettings = async (projectName) => {
     // Reset
     _seoStatus.style.display = 'none';
@@ -2201,6 +2236,10 @@ window.openSeoSettings = async (projectName) => {
         document.getElementById('seo-settings-meta-desc').value   = merged.seoDescription || '';
         document.getElementById('seo-settings-keywords').value    = merged.keywords || '';
         document.getElementById('seo-settings-canonical').value   = merged.canonical || '';
+        document.getElementById('seo-settings-head-code').value   = merged.pageHeadCode || '';
+        document.getElementById('seo-settings-body-code').value   = merged.pageBodyCode || '';
+        validateSeoCustomCode('seo-settings-head-code', 'seo-settings-head-code-feedback');
+        validateSeoCustomCode('seo-settings-body-code', 'seo-settings-body-code-feedback');
 
         updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
         updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
@@ -2222,6 +2261,8 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
         seoDescription: document.getElementById('seo-settings-meta-desc').value.trim(),
         keywords:       document.getElementById('seo-settings-keywords').value.trim(),
         canonical:      document.getElementById('seo-settings-canonical').value.trim(),
+        pageHeadCode:   document.getElementById('seo-settings-head-code').value,
+        pageBodyCode:   document.getElementById('seo-settings-body-code').value,
     };
 
     // Mettre à jour l'objet en mémoire pour ne pas l'écraser lors d'un "Save" ultérieur
