@@ -954,6 +954,16 @@
                         <div id="school-default-blocks-meta" class="block-picker-meta">0 bloc sélectionné</div>
                         <div id="school-default-blocks-feedback" class="field-feedback"></div>
                     </div>
+                    <div class="admin-field full">
+                        <label for="school-head-code">Code marketing — &lt;head&gt; (commun à toutes les pages de l'école)</label>
+                        <textarea id="school-head-code" rows="4" placeholder="Collez ici le script à insérer dans le &lt;head&gt; (ex : Google Tag Manager, Analytics…)" style="font-family:monospace;font-size:12px;"></textarea>
+                        <div id="school-head-code-feedback" class="field-feedback"></div>
+                    </div>
+                    <div class="admin-field full">
+                        <label for="school-body-code">Code marketing — bas de &lt;body&gt;</label>
+                        <textarea id="school-body-code" rows="3" placeholder="Collez ici le code à insérer avant &lt;/body&gt; (ex : le &lt;noscript&gt; de GTM)" style="font-family:monospace;font-size:12px;"></textarea>
+                        <div id="school-body-code-feedback" class="field-feedback"></div>
+                    </div>
                     <div class="admin-field full" style="display:flex;align-items:center;padding:12px 0;border-top:1px solid #f0f0f0;margin-top:4px;">
                         <button type="button" id="btn-open-faq-modal" class="admin-btn" style="gap:6px;">
                             <i class="fas fa-question-circle"></i> Gérer les FAQs
@@ -1500,6 +1510,10 @@
             setValue('school-color-header', school?.colorHeader || school?.color || '#3b82f6');
             setValue('school-color-carousel', school?.colorCarousel || school?.color || '#3b82f6');
             setValue('school-emoji', school?.emoji || '🏫');
+            setValue('school-head-code', school?.customHeadCode || '');
+            setValue('school-body-code', school?.customBodyCode || '');
+            validateCustomCode('school-head-code', 'school-head-code-feedback');
+            validateCustomCode('school-body-code', 'school-body-code-feedback');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
             // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
             document.getElementById('btn-open-faq-modal').style.display = school ? 'inline-flex' : 'none';
@@ -1596,9 +1610,47 @@
                 colorCarousel: document.getElementById('school-color-carousel').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
                 defaultBlocks: getDefaultBlocksSelection(),
-                showFaq: true
+                showFaq: true,
+                customHeadCode: document.getElementById('school-head-code').value,
+                customBodyCode: document.getElementById('school-body-code').value
             };
         }
+
+        // Validation souple du code marketing : forme (balises) + détection du fournisseur
+        function validateCustomCode(taId, fbId) {
+            const ta = document.getElementById(taId);
+            const fb = document.getElementById(fbId);
+            if (!ta || !fb) return;
+            const code = ta.value.trim();
+            if (!code) { fb.textContent = ''; return; }
+            const open  = (code.match(/<script\b/gi) || []).length;
+            const close = (code.match(/<\/script>/gi) || []).length;
+            if (open !== close) {
+                fb.textContent = `❌ Balise <script> non fermée (${open} ouvrante(s), ${close} fermante(s)).`;
+                fb.style.color = '#c0392b';
+                return;
+            }
+            const providers = [
+                { re: /googletagmanager\.com\/gtm|GTM-[A-Z0-9]/i, name: 'Google Tag Manager' },
+                { re: /gtag\(|googletagmanager\.com\/gtag|\bG-[A-Z0-9]{6,}/i, name: 'Google Analytics (GA4)' },
+                { re: /connect\.facebook\.net|fbq\(/i, name: 'Meta Pixel' },
+                { re: /snap\.licdn\.com|_linkedin_partner_id/i, name: 'LinkedIn' },
+                { re: /analytics\.tiktok\.com|\bttq\./i, name: 'TikTok' },
+                { re: /static\.hotjar\.com|\bhj\(/i, name: 'Hotjar' }
+            ];
+            const found = providers.filter(p => p.re.test(code)).map(p => p.name);
+            if (found.length) {
+                fb.textContent = '✅ Détecté : ' + found.join(', ');
+                fb.style.color = '#1a7a5e';
+            } else {
+                fb.textContent = '⚠️ Aucun outil connu détecté — vérifie que le code est correct.';
+                fb.style.color = '#b7791f';
+            }
+        }
+        ['school-head-code', 'school-body-code'].forEach(id => {
+            const ta = document.getElementById(id);
+            if (ta) ta.addEventListener('input', () => validateCustomCode(id, id + '-feedback'));
+        });
 
         async function saveSchool() {
             const validation = validateSchoolForm({ showEmpty: true });

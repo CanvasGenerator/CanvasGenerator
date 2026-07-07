@@ -156,6 +156,32 @@ function hexToRgb(hex) {
     return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
 }
 
+/**
+ * Résout le code marketing personnalisé (GTM, Analytics…) à injecter dans une
+ * page = code de l'ÉCOLE (commun) + code de la PAGE (spécifique).
+ * Écrit le résultat fusionné dans properties.customHeadCode / customBodyCode
+ * (lus ensuite par buildStoredHtml). Le code page reste dans pageHeadCode/pageBodyCode.
+ */
+async function applyCustomMarketingCode(projectName, properties) {
+    try {
+        const m = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+        const schoolId = m ? m[1].toLowerCase() : null;
+        let ecoleHead = '', ecoleBody = '';
+        if (schoolId && schoolId !== 'master') {
+            const schools = await readSchoolsForApi();
+            const school = (schools || []).find(s => s.id === schoolId);
+            if (school) {
+                ecoleHead = school.customHeadCode || school.custom_head_code || '';
+                ecoleBody = school.customBodyCode || school.custom_body_code || '';
+            }
+        }
+        properties.customHeadCode = [ecoleHead, properties.pageHeadCode || ''].filter(Boolean).join('\n');
+        properties.customBodyCode = [ecoleBody, properties.pageBodyCode || ''].filter(Boolean).join('\n');
+    } catch (e) {
+        console.warn('⚠️  applyCustomMarketingCode:', e.message);
+    }
+    return properties;
+}
 
 module.exports = async function handler(req, res) {
     // Ensure CORS
@@ -529,6 +555,9 @@ module.exports = async function handler(req, res) {
                 properties.page_group_id = existingRecord?.page_group_id || generateGroupId();
             }
 
+            // ── Code marketing personnalisé (école + page) ──
+            await applyCustomMarketingCode(projectName, properties);
+
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
@@ -607,6 +636,7 @@ module.exports = async function handler(req, res) {
             console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
+            await applyCustomMarketingCode(projectName, mergedProperties);
             const rawBodyHtml = mergedProperties.rawHtml
                 || extractBodyContent(project.html || '');
             const freshHtml = buildStoredHtml({
@@ -643,83 +673,6 @@ module.exports = async function handler(req, res) {
             return res.status(200).json(result || []);
         }
 
-        // ==========================================
-        // 7. Déclinaison API (dupliquer master vers plusieurs écoles)
-        // ==========================================
-        if (req.method === 'POST' && pathname === '/api/decline') {
-            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
-
-            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
-                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
-            }
-
-            // Charger le projet master
-            const masterResult = await supabaseRequest(
-                'GET',
-                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
-            );
-            if (!masterResult || masterResult.length === 0) {
-                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
-            }
-            const master = masterResult[0];
-            const baseHtml = master.html || '';
-            const baseCss  = master.css  || '';
-
-            // Charger la liste des écoles (Supabase ou fallback JSON)
-            const schools = await readSchoolsForApi();
-
-            const displayName = (projectDisplayName || masterProjectName)
-                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
-                .trim();
-
-            const results = [];
-
-            for (const schoolId of schoolIds) {
-                const school = schools.find(s => s.id === schoolId.toLowerCase());
-                const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
-
-                try {
-                    // Injecter les couleurs de marque de l'école dans le HTML copié
-                    let schoolHtml = baseHtml;
-                    if (school) {
-                        const primary   = school.color || '#3b82f6';
-                        const secondary = school.secondaryColor || '#2563eb';
-                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
-                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
-                        if (schoolHtml.includes('id="brand-variables"')) {
-                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
-                        } else {
-                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
-                        }
-                    }
-
-                    const newProperties = {
-                        ...(master.properties || {}),
-                        school: schoolId.toLowerCase(),
-                        declinedFrom: masterProjectName,
-                        declinedAt: new Date().toISOString(),
-                    };
-
-                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                        project_name: targetProjectName,
-                        html:         schoolHtml,
-                        css:          baseCss,
-                        project_data: master.project_data || null,
-                        properties:   newProperties,
-                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-
-                    results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
-                } catch (err) {
-                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
-                    results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
-                }
-            }
-
-            return res.status(200).json({
-                message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
-                results,
-            });
-        }
 
         // ==========================================
         // 8. Preview API
@@ -875,6 +828,9 @@ module.exports = async function handler(req, res) {
                             seoTitle: `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`,
                             title:    `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`
                         };
+
+                        // Code marketing : école cible (commun) + code page hérité du master
+                        await applyCustomMarketingCode(newProjectName, newProps);
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
