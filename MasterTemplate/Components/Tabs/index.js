@@ -217,7 +217,7 @@ export default function(editor, categories) {
                 .mta-wrapper {
                     max-width: 1000px;
                     margin: 0 auto;
-                    border: 1px solid #e0e0e0;
+                    border: 1px solid #000000;
                     overflow: hidden;
                 }
 
@@ -225,20 +225,23 @@ export default function(editor, categories) {
                 .mta-headers {
                     display: grid;
                     grid-template-columns: 1fr 1fr 1fr;
-                    border-bottom: 1px solid #e0e0e0;
+                    border-bottom: 1px solid #000000;
                 }
                 .mta-tab-hd {
                     padding: 18px 16px;
                     cursor: pointer;
-                    border-right: 1px solid rgba(255,255,255,0.2);
-                    background: var(--brand-primary, #9b26b6);
+                    border-right: 1px solid #000000;
+                    background: #bd2bf3;
                     transition: all 0.3s ease;
+                }
+                .mta-tab-hd[data-tab="2"] {
+                    background: #8a3ffc;
                 }
                 .mta-tab-hd:last-child { border-right: none; }
                 .mta-tab-hd-sub {
                     display: block;
                     font-size: 11px;
-                    color: rgba(255,255,255,0.8);
+                    color: rgba(255,255,255,0.9);
                     margin-bottom: 3px;
                 }
                 .mta-tab-hd-title {
@@ -249,13 +252,13 @@ export default function(editor, categories) {
                 }
                 .mta-tab-hd.mta-active {
                     background: #ffffff;
-                    border-bottom: 2px solid #ffffff;
+                    border-bottom: 1px solid #ffffff;
                     margin-bottom: -1px;
                     z-index: 10;
                     position: relative;
                 }
-                .mta-tab-hd.mta-active .mta-tab-hd-sub  { color: #555555; }
-                .mta-tab-hd.mta-active .mta-tab-hd-title { color: #111111; }
+                .mta-tab-hd.mta-active .mta-tab-hd-sub  { color: #000000; }
+                .mta-tab-hd.mta-active .mta-tab-hd-title { color: #000000; }
 
                 /* ── Steps grid ── */
                 .mta-pane { display: none; }
@@ -311,10 +314,11 @@ export default function(editor, categories) {
                 }
                 .mta-step-details {
                     margin: 12px 0 0;
-                    padding: 0 0 0 16px;
+                    padding: 12px 0 0 16px;
                     font-size: 13px;
                     color: #555;
                     line-height: 1.6;
+                    border-top: 1px solid #000000;
                     display: none;
                 }
                 .mta-step-details.mta-open { display: block; }
@@ -330,15 +334,18 @@ export default function(editor, categories) {
                         display: block;
                         padding: 16px 20px;
                         cursor: pointer;
-                        background: var(--brand-primary, #9b26b6);
-                        border-bottom: 1px solid rgba(255,255,255,0.1);
+                        background: #bd2bf3;
+                        border-bottom: 1px solid #000000;
                         transition: all 0.3s ease;
                     }
-                    .mta-mob-tab .mta-tab-hd-sub   { color: rgba(255,255,255,0.8); }
+                    .mta-mob-tab[data-tab="2"] {
+                        background: #8a3ffc;
+                    }
+                    .mta-mob-tab .mta-tab-hd-sub   { color: rgba(255,255,255,0.9); }
                     .mta-mob-tab .mta-tab-hd-title { color: #ffffff; }
                     .mta-mob-tab.mta-active { background: #ffffff; border-bottom: 1px solid #e0e0e0; }
-                    .mta-mob-tab.mta-active .mta-tab-hd-sub   { color: #555555; }
-                    .mta-mob-tab.mta-active .mta-tab-hd-title { color: #111111; }
+                    .mta-mob-tab.mta-active .mta-tab-hd-sub   { color: #000000; }
+                    .mta-mob-tab.mta-active .mta-tab-hd-title { color: #000000; }
                 }
             `,
             components: [{

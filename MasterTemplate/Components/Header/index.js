@@ -7,18 +7,19 @@ export default function(editor, categories) {
         content: `
 <header class="mh-header">
   <div class="mh-inner">
-    <div class="mh-logo">
-      <img src="https://placehold.co/200x52/ffffff/1a1a1a?text=LOGO+ÉCOLE" alt="Logo école" class="mh-logo-img">
+    <div class="mh-brand">
+      <div class="mh-logo" data-brand-logo>LOGO_ECOLE</div>
+      <span class="mh-baseline">L'école des nouveaux métiers<br>de la communication</span>
     </div>
     <div class="mh-right">
-      <a href="#" class="mh-lang-btn">EN</a>
+      <a href="#" class="mh-lang-btn">FR</a>
     </div>
   </div>
 </header>
 <style>
   .mh-header {
     background: var(--brand-header, var(--brand-primary, #1a1a1a));
-    border-bottom: 3px solid rgba(0,0,0,0.2);
+    color: var(--brand-header-text, #ffffff);
     font-family: Arial, sans-serif;
     width: 100%;
   }
@@ -29,27 +30,48 @@ export default function(editor, categories) {
     display: flex;
     justify-content: space-between;
     align-items: center;
+    gap: 16px;
   }
-  .mh-logo-img {
-    height: 64px;
-    object-fit: contain;
-    display: block;
+  .mh-brand {
+    display: flex;
+    align-items: center;
+    gap: 20px;
+    min-width: 0;
+  }
+  .mh-logo {
+    color: var(--brand-header-text, #ffffff);
+    display: flex;
+    align-items: center;
+    font-weight: 800;
+    font-size: 22px;
+    letter-spacing: 1px;
+    flex-shrink: 0;
+  }
+  .mh-logo svg, .mh-logo img { height: 56px; width: auto; display: block; }
+  .mh-baseline {
+    color: var(--brand-header-text, #ffffff);
+    font-size: 13px;
+    font-weight: 700;
+    line-height: 1.3;
   }
   .mh-lang-btn {
-    color: #fff;
+    color: var(--brand-header-text, #ffffff);
     font-size: 12px;
     font-weight: 700;
     letter-spacing: 1.5px;
     text-decoration: none;
-    border: 1px solid rgba(255,255,255,0.45);
+    border: 1px solid currentColor;
     padding: 5px 13px;
     border-radius: 2px;
-    transition: background 0.2s;
+    opacity: 0.9;
+    transition: opacity 0.2s;
+    flex-shrink: 0;
   }
-  .mh-lang-btn:hover { background: rgba(255,255,255,0.1); }
+  .mh-lang-btn:hover { opacity: 1; }
   @media (max-width: 768px) {
     .mh-inner { padding: 10px 16px; }
-    .mh-logo-img { height: 48px; }
+    .mh-logo svg, .mh-logo img { height: 44px; }
+    .mh-baseline { display: none; }
   }
 </style>`,
         attributes: { class: 'fa fa-window-maximize' }

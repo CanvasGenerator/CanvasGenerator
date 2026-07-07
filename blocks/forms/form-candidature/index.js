@@ -101,49 +101,119 @@ export default function (editor, categories) {
     padding: 40px 16px; background: transparent;
     font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #222;
 }
-.cnd-card { width: 100%; max-width: 520px; border-radius: 4px; background: #fff; padding: 24px 24px 28px; }
+.cnd-card {
+    width: 100%; max-width: 520px;
+    background: #F4EFEA; padding: 24px 24px 28px;
+}
 .cnd-title { font-size: 18px; font-weight: 700; color: #111; margin: 0 0 4px; }
 .cnd-subtitle { font-size: 12px; color: #666; margin: 0 0 18px; }
-.cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
-.cnd-field { display: flex; flex-direction: column; margin-bottom: 10px; }
+.cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .cnd-row .cnd-field { margin-bottom: 0; }
 .cnd-field.hidden { display: none; }
-.cnd-label { font-size: 12px; color: #333; margin-bottom: 3px; display: block; }
-.cnd-label .req { color: #c00; }
-.cnd-input, .cnd-select {
-    width: 100%; height: 34px; padding: 0 10px;
-    border: 1px solid #bbb; border-radius: 2px;
-    font-size: 13px; font-family: inherit; color: #111; background: #fff;
-    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.15s;
+.cnd-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
+    display: block;
 }
-.cnd-input:focus, .cnd-select:focus { border-color: #888; }
+.cnd-label .req { color: inherit; }
+.cnd-input, .cnd-select {
+    width: 100%; height: 46px; padding: 0 14px;
+    border: 1px solid #000; border-radius: 0;
+    font-size: 13px; font-family: inherit; color: #000; background: #fff;
+    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+}
+.cnd-input:focus, .cnd-select:focus { border-color: #666; }
 .cnd-input.err, .cnd-select.err { border-color: #c00; }
-.cnd-err-msg { font-size: 10px; color: #c00; margin-top: 2px; display: none; }
+.cnd-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
 .cnd-err-msg.show { display: block; }
 .cnd-sel-wrap { position: relative; }
 .cnd-sel-wrap::after {
-    content: ''; position: absolute; right: 10px; top: 50%;
-    transform: translateY(-50%); pointer-events: none;
-    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #666;
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
 }
-.cnd-phone-wrap { display: flex; gap: 6px; }
+.cnd-phone-wrap { display: flex; gap: 8px; }
+.cnd-phone-prefix-wrap {
+    position: relative;
+    width: 110px;
+    flex-shrink: 0;
+}
+.cnd-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
 .cnd-phone-prefix {
-    width: 72px; flex-shrink: 0; height: 34px; padding: 0 6px;
-    border: 1px solid #bbb; border-radius: 2px; font-size: 12px;
-    font-family: inherit; background: #fff; appearance: none; -webkit-appearance: none; outline: none;
+    width: 100%;
+    height: 46px;
+    padding: 0 24px 0 12px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
+    font-family: inherit;
+    color: #000;
+    background: #fff;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
 }
-.cnd-rgpd { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 16px; }
-.cnd-rgpd input[type="checkbox"] { width: 14px; height: 14px; margin-top: 2px; flex-shrink: 0; cursor: pointer; accent-color: #333; }
+.cnd-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
+.cnd-rgpd input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: #fff;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+.cnd-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
 .cnd-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
-.cnd-rgpd-label a { color: #333; text-decoration: underline; }
-.cnd-submit-wrap { display: flex; justify-content: center; }
+.cnd-rgpd-label a { color: #000; text-decoration: underline; }
+.cnd-submit-wrap { display: block; width: 100%; }
 .cnd-submit {
-    width: 50%; display: inline-flex; justify-content: center; align-items: center;
-    padding: 11px; background: #111; color: #fff; border: none; border-radius: 3px;
-    font-size: 14px; font-weight: 700; font-family: inherit; cursor: pointer;
-    letter-spacing: 0.02em; transition: background 0.15s;
+    width: 100%; display: inline-flex; justify-content: center; align-items: center;
+    padding: 14px; background: #000; color: #fff;
+    border: none; border-radius: 0; font-size: 14px; font-weight: 700;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
-.cnd-submit:hover { background: #333; }
+.cnd-submit::after {
+    content: ' →';
+}
+.cnd-submit:hover { background: #222; }
 .cnd-submit:disabled { background: #888; cursor: not-allowed; }
 .cnd-success { display: none; padding: 16px 0 8px; text-align: center; }
 .cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: #111; }
@@ -154,7 +224,10 @@ export default function (editor, categories) {
     border-radius: 50%; animation: cnd-spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
 }
 @keyframes cnd-spin { to { transform: rotate(360deg); } }
-@media(max-width:460px){ .cnd-row { grid-template-columns: 1fr; } .cnd-phone-prefix { width: 60px; } }
+@media(max-width:460px){
+    .cnd-row { grid-template-columns: 1fr; }
+    .cnd-phone-prefix-wrap { width: 90px; }
+}
 </style>
 
 <!-- ═══════════ CARD ═══════════ -->
@@ -209,15 +282,17 @@ ${hidden}
             <div class="cnd-field">
                 <label class="cnd-label">${t.mobile}<span class="req">*</span></label>
                 <div class="cnd-phone-wrap">
-                    <select class="cnd-phone-prefix" aria-label="Prefix">
-                        <option value="+33">+33</option>
-                        <option value="+32">+32</option>
-                        <option value="+41">+41</option>
-                        <option value="+352">+352</option>
-                        <option value="+1">+1</option>
-                        <option value="+44">+44</option>
-                        <option value="+212">+212</option>
-                    </select>
+                    <div class="cnd-phone-prefix-wrap">
+                        <select class="cnd-phone-prefix" aria-label="Prefix">
+                            <option value="+33" selected>FR (+33)</option>
+                            <option value="+32">BE (+32)</option>
+                            <option value="+41">CH (+41)</option>
+                            <option value="+352">LU (+352)</option>
+                            <option value="+1">US (+1)</option>
+                            <option value="+44">GB (+44)</option>
+                            <option value="+212">MA (+212)</option>
+                        </select>
+                    </div>
                     <input class="cnd-input cnd-phone-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="cnd-err-msg">${t.errPhone}</span>

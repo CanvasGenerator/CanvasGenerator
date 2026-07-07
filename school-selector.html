@@ -945,8 +945,17 @@
                         <input id="school-color-carousel" type="color" value="#3b82f6">
                     </div>
                     <div class="admin-field">
+                        <label for="school-header-text-color">Texte / logo header (blanc ou noir)</label>
+                        <input id="school-header-text-color" type="color" value="#ffffff">
+                    </div>
+                    <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
+                    </div>
+                    <div class="admin-field full">
+                        <label for="school-logo">Logo (code SVG — <code>fill="currentColor"</code> pour blanc/noir auto)</label>
+                        <textarea id="school-logo" rows="4" placeholder='Collez ici le code SVG du logo. Utilisez fill="currentColor" pour qu&#39;il soit blanc dans le header et noir dans le footer.' style="font-family:monospace;font-size:12px;"></textarea>
+                        <div id="school-logo-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field full">
                         <label>Blocs par défaut</label>
@@ -1509,7 +1518,9 @@
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
             setValue('school-color-header', school?.colorHeader || school?.color || '#3b82f6');
             setValue('school-color-carousel', school?.colorCarousel || school?.color || '#3b82f6');
+            setValue('school-header-text-color', school?.headerTextColor || '#ffffff');
             setValue('school-emoji', school?.emoji || '🏫');
+            setValue('school-logo', school?.logo || '');
             setValue('school-head-code', school?.customHeadCode || '');
             setValue('school-body-code', school?.customBodyCode || '');
             validateCustomCode('school-head-code', 'school-head-code-feedback');
@@ -1608,7 +1619,9 @@
                 secondaryColor: document.getElementById('school-secondary-color').value,
                 colorHeader: document.getElementById('school-color-header').value,
                 colorCarousel: document.getElementById('school-color-carousel').value,
+                headerTextColor: document.getElementById('school-header-text-color').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
+                logo: document.getElementById('school-logo').value,
                 defaultBlocks: getDefaultBlocksSelection(),
                 showFaq: true,
                 customHeadCode: document.getElementById('school-head-code').value,
