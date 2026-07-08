@@ -46,6 +46,10 @@ function normalizeSchool(school = {}) {
         colorLight: school.colorLight || school.color_light || '',
         colorHeader: school.colorHeader || school.color_header || '',
         colorCarousel: school.colorCarousel || school.color_carousel || '',
+        // Couleur du logo/écriture dans le header (blanc partout, noir pour MOPA)
+        headerTextColor: school.headerTextColor || school.header_text_color || '#ffffff',
+        // Logo = code SVG/HTML (currentColor) injecté dans header/footer à la déclinaison
+        logo: school.logo || '',
         emoji: school.emoji || '🏫',
         deleted: Boolean(school.deleted),
         defaultBlocks: Array.isArray(school.defaultBlocks)
@@ -56,7 +60,10 @@ function normalizeSchool(school = {}) {
         // show_faq : active/désactive le bloc FAQ sur toutes les pages de cette école
         showFaq: school.showFaq !== undefined ? Boolean(school.showFaq)
                : school.show_faq !== undefined ? Boolean(school.show_faq)
-               : true
+               : true,
+        // Code marketing personnalisé (GTM, Analytics…) injecté dans TOUTES les pages de l'école
+        customHeadCode: school.customHeadCode || school.custom_head_code || '',
+        customBodyCode: school.customBodyCode || school.custom_body_code || ''
     };
 }
 
@@ -87,10 +94,14 @@ function schoolDbPayload(school) {
         secondary_color: school.secondaryColor,
         color_header: school.colorHeader,
         color_carousel: school.colorCarousel,
+        header_text_color: school.headerTextColor || '#ffffff',
+        logo: school.logo || '',
         color_light: school.colorLight,
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
         show_faq: school.showFaq !== undefined ? school.showFaq : true,
+        custom_head_code: school.customHeadCode || '',
+        custom_body_code: school.customBodyCode || '',
         deleted: school.deleted
     };
 }

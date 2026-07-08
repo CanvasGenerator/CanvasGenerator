@@ -410,6 +410,24 @@
                     <input id="seo-modal-canonical" class="cms-modal-input" type="text" placeholder="https://mon-ecole.fr/page">
                 </div>
 
+                <!-- Code marketing — head (cette page) -->
+                <div style="margin-bottom:8px;">
+                    <label class="cms-modal-label" for="seo-modal-head-code">
+                        <i class="fas fa-code" style="color:#6b7280;margin-right:4px;"></i> Code marketing — &lt;head&gt; (cette page)
+                    </label>
+                    <textarea id="seo-modal-head-code" class="cms-modal-input" rows="3" placeholder="S'ajoute au code de l'école. Ex : script spécifique à cette page." style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+                    <div id="seo-modal-head-code-feedback" style="font-size:11px;margin-top:4px;"></div>
+                </div>
+
+                <!-- Code marketing — bas de body (cette page) -->
+                <div style="margin-bottom:8px;">
+                    <label class="cms-modal-label" for="seo-modal-body-code">
+                        <i class="fas fa-code" style="color:#6b7280;margin-right:4px;"></i> Code marketing — bas de &lt;body&gt; (cette page)
+                    </label>
+                    <textarea id="seo-modal-body-code" class="cms-modal-input" rows="2" placeholder="S'ajoute au code de l'école, avant &lt;/body&gt;." style="resize:vertical;font-family:monospace;font-size:12px;"></textarea>
+                    <div id="seo-modal-body-code-feedback" style="font-size:11px;margin-top:4px;"></div>
+                </div>
+
                 <div class="cms-inline-error" id="seo-error" style="display:none;"></div>
                 <p style="margin-top:12px;font-size:11px;color:#9ca3af;text-align:center;">
                     <i class="fas fa-bolt"></i> La sauvegarde est instantanée. L'envoi vers SFMC se fait en arrière-plan.
@@ -1376,6 +1394,10 @@
             document.getElementById('seo-modal-desc').value               = '';
             document.getElementById('seo-modal-keywords').value           = '';
             document.getElementById('seo-modal-canonical').value          = '';
+            document.getElementById('seo-modal-head-code').value          = '';
+            document.getElementById('seo-modal-body-code').value          = '';
+            document.getElementById('seo-modal-head-code-feedback').textContent = '';
+            document.getElementById('seo-modal-body-code-feedback').textContent = '';
             document.getElementById('seo-modal-page-title').placeholder   = 'Chargement...';
             document.getElementById('seo-modal-title').placeholder        = 'Chargement...';
             document.getElementById('seo-modal-desc').placeholder         = 'Chargement...';
@@ -1420,6 +1442,10 @@
                     document.getElementById('seo-modal-desc').value               = merged.seoDescription || '';
                     document.getElementById('seo-modal-keywords').value           = merged.keywords       || '';
                     document.getElementById('seo-modal-canonical').value          = merged.canonical      || '';
+                    document.getElementById('seo-modal-head-code').value          = merged.pageHeadCode   || '';
+                    document.getElementById('seo-modal-body-code').value          = merged.pageBodyCode   || '';
+                    validateSeoCustomCode('seo-modal-head-code', 'seo-modal-head-code-feedback');
+                    validateSeoCustomCode('seo-modal-body-code', 'seo-modal-body-code-feedback');
                     document.getElementById('seo-modal-page-title').placeholder   = 'ex: Journée Portes Ouvertes – Mon École';
                     document.getElementById('seo-modal-title').placeholder        = 'Titre accrocheur · 50-60 car.';
                     document.getElementById('seo-modal-desc').placeholder         = 'Description attractive · 120-160 car.';
@@ -1464,6 +1490,8 @@
                     seoDescription: document.getElementById('seo-modal-desc').value.trim(),
                     keywords:       document.getElementById('seo-modal-keywords').value.trim(),
                     canonical:      document.getElementById('seo-modal-canonical').value.trim(),
+                    pageHeadCode:   document.getElementById('seo-modal-head-code').value,
+                    pageBodyCode:   document.getElementById('seo-modal-body-code').value,
                 };
                 const res = await fetch('/api/save-seo', {
                     method: 'POST',
@@ -1477,6 +1505,42 @@
         };
         document.getElementById('activation-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeActivationModal(); });
         document.getElementById('domain-modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDomainModal(); });
+
+        // ── Validation souple du code marketing (forme + détection fournisseur) ──
+        function validateSeoCustomCode(taId, fbId) {
+            const ta = document.getElementById(taId);
+            const fb = document.getElementById(fbId);
+            if (!ta || !fb) return;
+            const code = ta.value.trim();
+            if (!code) { fb.textContent = ''; return; }
+            const open  = (code.match(/<script\b/gi) || []).length;
+            const close = (code.match(/<\/script>/gi) || []).length;
+            if (open !== close) {
+                fb.textContent = `❌ Balise <script> non fermée (${open} ouvrante(s), ${close} fermante(s)).`;
+                fb.style.color = '#c0392b';
+                return;
+            }
+            const providers = [
+                { re: /googletagmanager\.com\/gtm|GTM-[A-Z0-9]/i, name: 'Google Tag Manager' },
+                { re: /gtag\(|googletagmanager\.com\/gtag|\bG-[A-Z0-9]{6,}/i, name: 'Google Analytics (GA4)' },
+                { re: /connect\.facebook\.net|fbq\(/i, name: 'Meta Pixel' },
+                { re: /snap\.licdn\.com|_linkedin_partner_id/i, name: 'LinkedIn' },
+                { re: /analytics\.tiktok\.com|\bttq\./i, name: 'TikTok' },
+                { re: /static\.hotjar\.com|\bhj\(/i, name: 'Hotjar' }
+            ];
+            const found = providers.filter(p => p.re.test(code)).map(p => p.name);
+            if (found.length) {
+                fb.textContent = '✅ Détecté : ' + found.join(', ');
+                fb.style.color = '#1a7a5e';
+            } else {
+                fb.textContent = '⚠️ Aucun outil connu détecté — vérifie que le code est correct.';
+                fb.style.color = '#b7791f';
+            }
+        }
+        ['seo-modal-head-code', 'seo-modal-body-code'].forEach(id => {
+            const ta = document.getElementById(id);
+            if (ta) ta.addEventListener('input', () => validateSeoCustomCode(id, id + '-feedback'));
+        });
 
         // ── Init ───────────────────────────────────────────────────────────────
         loadPages();

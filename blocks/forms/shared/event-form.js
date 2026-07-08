@@ -146,27 +146,28 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-card {
     width: 100%;
     max-width: 520px;
-    border: 15px solid #fbdebc;
-    border-radius: 4px;
-    background: #fff;
-    padding: 0 0 22px;
+    background: #F4EFEA;
+    padding: 24px 24px 28px;
     overflow: visible;
 }
 
 .jpo-campus-zone {
-    background: #e4bcb0;
-    padding: 22px;
+    background: transparent;
+    padding: 0 0 10px 0;
 }
 
 .jpo-campus-zone .jpo-label {
-    font-size: 12px;
-    color: #333;
-    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
     display: block;
 }
 
 .jpo-campus-zone .jpo-label .req {
-    color: #c00;
+    color: inherit;
 }
 
 .jpo-campus-select-wrap {
@@ -177,48 +178,51 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-campus-select-wrap::after {
     content: '';
     position: absolute;
-    right: 10px;
+    right: 16px;
     top: 50%;
-    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
     pointer-events: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #666;
 }
 
 .jpo-campus-select {
     width: 100%;
-    height: 34px;
-    padding: 0 30px 0 10px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
+    height: 46px;
+    padding: 0 35px 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
     font-size: 13px;
     font-family: inherit;
-    color: #111;
+    font-weight: 600;
+    color: #000;
     background: #fff;
     outline: none;
     appearance: none;
     -webkit-appearance: none;
     cursor: pointer;
+    transition: border-color 0.2s;
 }
 
 .jpo-campus-select:focus {
-    border-color: #888;
+    border-color: #666;
 }
 
 .jpo-event-card {
     display: none;
-    padding: 14px 4px 0;
+    padding: 16px 0 0;
     position: relative;
 }
 
 .jpo-event-inner {
-    background: #e4bcb0;
-    border-radius: 3px;
+    background: transparent;
+    border-radius: 0;
     display: flex;
-    gap: 20px;
+    gap: 16px;
     align-items: flex-start;
-    margin-bottom: 0;
+    margin-bottom: 12px;
 }
 
 .jpo-event-left {
@@ -227,10 +231,10 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-event-right {
     flex: 0 0 auto;
-    max-width: 130px;
     font-size: 12px;
     color: #333;
     line-height: 1.5;
+    text-align: right;
 }
 
 .jpo-event-date-row {
@@ -243,55 +247,38 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-radio-icon {
     width: 18px;
     height: 18px;
-    border: 2px solid #333;
+    border: 1.5px solid #000;
     border-radius: 50%;
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.jpo-radio-icon::after {
-    content: '';
-    width: 8px;
-    height: 8px;
-    background: #333;
-    border-radius: 50%;
+    margin-top: 2px;
 }
 
 .jpo-event-date {
     font-weight: 700;
     font-size: 13px;
-    color: #111;
+    color: #000;
 }
 
 .jpo-event-detail {
     font-size: 12px;
     color: #333;
     line-height: 1.6;
-    padding-left: 26px;
+    padding-left: 0;
     white-space: pre-line;
 }
 
 .jpo-pointer {
-    width: 0;
-    height: 0;
-    border-left: 12px solid transparent;
-    border-right: 12px solid transparent;
-    border-top: 12px solid #e4bcb0;
-    margin: 0 auto;
-    position: relative;
-    top: 0;
+    display: none !important;
 }
 
 .jpo-form-zone {
-    padding: 18px 22px 0;
+    padding: 10px 0 0;
 }
 
 .jpo-field {
     display: flex;
     flex-direction: column;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .jpo-field.hidden {
@@ -302,7 +289,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .jpo-row .jpo-field {
@@ -310,36 +297,39 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-label {
-    font-size: 12px;
-    color: #333;
-    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
     display: block;
 }
 
 .jpo-label .req {
-    color: #c00;
+    color: inherit;
 }
 
 .jpo-input,
 .jpo-select {
     width: 100%;
-    height: 34px;
-    padding: 0 10px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
+    height: 46px;
+    padding: 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
     font-size: 13px;
     font-family: inherit;
-    color: #111;
+    color: #000;
     background: #fff;
     outline: none;
     appearance: none;
     -webkit-appearance: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.2s;
 }
 
 .jpo-input:focus,
 .jpo-select:focus {
-    border-color: #888;
+    border-color: #666;
 }
 
 .jpo-input.err,
@@ -350,7 +340,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-err-msg {
     font-size: 10px;
     color: #c00;
-    margin-top: 2px;
+    margin-top: 4px;
     display: none;
 }
 
@@ -365,49 +355,86 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-sel-wrap::after {
     content: '';
     position: absolute;
-    right: 10px;
+    right: 16px;
     top: 50%;
-    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
     pointer-events: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #666;
 }
 
 .jpo-phone-wrap {
     display: flex;
-    gap: 6px;
+    gap: 8px;
+}
+
+.jpo-phone-prefix-wrap {
+    position: relative;
+    width: 110px;
+    flex-shrink: 0;
+}
+
+.jpo-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
 }
 
 .jpo-phone-prefix {
-    width: 72px;
-    flex-shrink: 0;
-    height: 34px;
-    padding: 0 6px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
-    font-size: 12px;
+    width: 100%;
+    height: 46px;
+    padding: 0 24px 0 12px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
     font-family: inherit;
+    color: #000;
     background: #fff;
     appearance: none;
     -webkit-appearance: none;
     outline: none;
+    cursor: pointer;
 }
 
 .jpo-rgpd {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    margin: 10px 0 16px;
+    gap: 10px;
+    margin: 16px 0 20px;
 }
 
 .jpo-rgpd input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    margin-top: 2px;
-    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: #fff;
     cursor: pointer;
-    accent-color: #333;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+.jpo-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
 }
 
 .jpo-rgpd-label {
@@ -418,29 +445,40 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-rgpd-label a {
-    color: #333;
+    color: #000;
     text-decoration: underline;
 }
 
-.jpo-submit-wrap { display: flex; justify-content: center; }
+.jpo-submit-wrap {
+    display: block;
+    width: 100%;
+}
+
 .jpo-submit {
-    width: 50%;
-    display: inline-flex; justify-content: center; align-items: center;
-    padding: 11px;
-    background: #111;
+    width: 100%;
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    padding: 14px;
+    background: #000;
     color: #fff;
     border: none;
-    border-radius: 3px;
+    border-radius: 0;
     font-size: 14px;
     font-weight: 700;
     font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     cursor: pointer;
-    letter-spacing: 0.02em;
     transition: background 0.15s;
 }
 
+.jpo-submit::after {
+    content: ' →';
+}
+
 .jpo-submit:hover {
-    background: #333;
+    background: #222;
 }
 
 .jpo-submit:disabled {
@@ -450,7 +488,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-success {
     display: none;
-    padding: 16px 22px 8px;
+    padding: 16px 0 8px;
     text-align: center;
 }
 
@@ -490,8 +528,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         grid-template-columns: 1fr;
     }
 
-    .jpo-phone-prefix {
-        width: 60px;
+    .jpo-phone-prefix-wrap {
+        width: 90px;
     }
 
     .jpo-event-inner {
@@ -501,6 +539,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
     .jpo-event-right {
         max-width: 100%;
+        text-align: left;
     }
 }
 </style>
@@ -543,15 +582,35 @@ ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
 ${showVousEtes ? `
+        <div class="jpo-row">
+            <div class="jpo-field">
+                <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
+                <div class="jpo-sel-wrap">
+                    <select class="jpo-select" name="VousEtes" required>
+                        ${contactTypeOptions}
+                    </select>
+                </div>
+                <span class="jpo-err-msg">${t.errRequired}</span>
+            </div>
+            <div class="jpo-field">
+                <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
+                <div class="jpo-sel-wrap">
+                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
+                        ${studyLevelOptions}
+                    </select>
+                </div>
+                <span class="jpo-err-msg">${t.errRequired}</span>
+            </div>
+        </div>` : `
         <div class="jpo-field">
-            <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
+            <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
             <div class="jpo-sel-wrap">
-                <select class="jpo-select" name="VousEtes" required>
-                    ${contactTypeOptions}
+                <select class="jpo-select jpo-niveau" name="StudyLevel" required>
+                    ${studyLevelOptions}
                 </select>
             </div>
             <span class="jpo-err-msg">${t.errRequired}</span>
-        </div>` : ''}
+        </div>`}
 
         <div class="jpo-row">
             <div class="jpo-field">
@@ -575,29 +634,21 @@ ${showVousEtes ? `
             <div class="jpo-field">
                 <label class="jpo-label">${t.mobile}<span class="req">*</span></label>
                 <div class="jpo-phone-wrap">
-                    <select class="jpo-phone-prefix" aria-label="Prefix">
-                        <option value="+33">+33</option>
-                        <option value="+32">+32</option>
-                        <option value="+41">+41</option>
-                        <option value="+352">+352</option>
-                        <option value="+1">+1</option>
-                        <option value="+44">+44</option>
-                        <option value="+212">+212</option>
-                    </select>
+                    <div class="jpo-phone-prefix-wrap">
+                        <select class="jpo-phone-prefix" aria-label="Prefix">
+                            <option value="+33" selected>FR (+33)</option>
+                            <option value="+32">BE (+32)</option>
+                            <option value="+41">CH (+41)</option>
+                            <option value="+352">LU (+352)</option>
+                            <option value="+1">US (+1)</option>
+                            <option value="+44">GB (+44)</option>
+                            <option value="+212">MA (+212)</option>
+                        </select>
+                    </div>
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="jpo-err-msg">${t.errPhone}</span>
             </div>
-        </div>
-
-        <div class="jpo-field">
-            <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
-            <div class="jpo-sel-wrap">
-                <select class="jpo-select jpo-niveau" name="StudyLevel" required>
-                    ${studyLevelOptions}
-                </select>
-            </div>
-            <span class="jpo-err-msg">${t.errRequired}</span>
         </div>
 
         <!-- Programme souhaité (conditionnel : niveau + campus + école) -->

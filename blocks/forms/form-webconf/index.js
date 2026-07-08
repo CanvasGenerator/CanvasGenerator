@@ -150,26 +150,27 @@ export default function (editor, categories) {
 .wbc-card {
     width: 100%;
     max-width: 520px;
-    border: 15px solid #fbdebc;
-    border-radius: 4px;
-    background: #fff;
-    padding: 0 0 22px;
+    background: #F4EFEA;
+    padding: 24px 24px 28px;
     overflow: visible;
 }
 
 .wbc-top-zone {
-    background: #e4bcb0;
-    padding: 22px;
+    background: transparent;
+    padding: 0 0 10px 0;
 }
 
 .wbc-label {
-    font-size: 12px;
-    color: #333;
-    margin-bottom: 3px;
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
     display: block;
 }
 
-.wbc-label .req { color: #c00; }
+.wbc-label .req { color: inherit; }
 
 .wbc-sel-wrap {
     position: relative;
@@ -178,54 +179,57 @@ export default function (editor, categories) {
 .wbc-sel-wrap::after {
     content: '';
     position: absolute;
-    right: 10px;
+    right: 16px;
     top: 50%;
-    transform: translateY(-50%);
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
     pointer-events: none;
-    border-left: 4px solid transparent;
-    border-right: 4px solid transparent;
-    border-top: 5px solid #666;
 }
 
 .wbc-type-select {
     width: 100%;
-    height: 34px;
-    padding: 0 30px 0 10px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
+    height: 46px;
+    padding: 0 35px 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
     font-size: 13px;
     font-family: inherit;
-    color: #111;
+    color: #000;
     background: #fff;
     outline: none;
     appearance: none;
     -webkit-appearance: none;
     cursor: pointer;
+    transition: border-color 0.2s;
 }
 
-.wbc-type-select:focus { border-color: #888; }
+.wbc-type-select:focus { border-color: #666; }
 
 .wbc-event-card {
     display: none;
-    padding: 14px 4px 0;
+    padding: 16px 0 0;
 }
 
 .wbc-event-inner {
-    background: #e4bcb0;
-    border-radius: 3px;
+    background: transparent;
+    border-radius: 0;
     display: flex;
-    gap: 20px;
+    gap: 16px;
     align-items: flex-start;
+    margin-bottom: 12px;
 }
 
 .wbc-event-left { flex: 1; }
 
 .wbc-event-right {
     flex: 0 0 auto;
-    max-width: 140px;
     font-size: 12px;
     color: #333;
     line-height: 1.5;
+    text-align: right;
 }
 
 .wbc-event-date-row {
@@ -238,33 +242,23 @@ export default function (editor, categories) {
 .wbc-radio-icon {
     width: 18px;
     height: 18px;
-    border: 2px solid #333;
+    border: 1.5px solid #000;
     border-radius: 50%;
     flex-shrink: 0;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-}
-
-.wbc-radio-icon::after {
-    content: '';
-    width: 8px;
-    height: 8px;
-    background: #333;
-    border-radius: 50%;
+    margin-top: 2px;
 }
 
 .wbc-event-date {
     font-weight: 700;
     font-size: 13px;
-    color: #111;
+    color: #000;
 }
 
 .wbc-event-detail {
     font-size: 12px;
     color: #333;
     line-height: 1.6;
-    padding-left: 26px;
+    padding-left: 0;
     white-space: pre-line;
 }
 
@@ -272,35 +266,30 @@ export default function (editor, categories) {
     display: inline-block;
     font-size: 11px;
     font-weight: 700;
-    background: #111;
+    background: #000;
     color: #fff;
     padding: 2px 8px;
-    border-radius: 2px;
+    border-radius: 0;
     letter-spacing: 0.03em;
 }
 
 .wbc-pointer {
-    width: 0;
-    height: 0;
-    border-left: 12px solid transparent;
-    border-right: 12px solid transparent;
-    border-top: 12px solid #e4bcb0;
-    margin: 0 auto;
+    display: none !important;
 }
 
-.wbc-form-zone { padding: 18px 22px 0; }
+.wbc-form-zone { padding: 10px 0 0; }
 
 .wbc-field {
     display: flex;
     flex-direction: column;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .wbc-row {
     display: grid;
     grid-template-columns: 1fr 1fr;
     gap: 12px;
-    margin-bottom: 10px;
+    margin-bottom: 12px;
 }
 
 .wbc-row .wbc-field { margin-bottom: 0; }
@@ -308,22 +297,22 @@ export default function (editor, categories) {
 .wbc-input,
 .wbc-select {
     width: 100%;
-    height: 34px;
-    padding: 0 10px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
+    height: 46px;
+    padding: 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
     font-size: 13px;
     font-family: inherit;
-    color: #111;
+    color: #000;
     background: #fff;
     outline: none;
     appearance: none;
     -webkit-appearance: none;
-    transition: border-color 0.15s;
+    transition: border-color 0.2s;
 }
 
 .wbc-input:focus,
-.wbc-select:focus { border-color: #888; }
+.wbc-select:focus { border-color: #666; }
 
 .wbc-input.err,
 .wbc-select.err { border-color: #c00; }
@@ -331,7 +320,7 @@ export default function (editor, categories) {
 .wbc-err-msg {
     font-size: 10px;
     color: #c00;
-    margin-top: 2px;
+    margin-top: 4px;
     display: none;
 }
 
@@ -339,38 +328,74 @@ export default function (editor, categories) {
 
 .wbc-phone-wrap {
     display: flex;
-    gap: 6px;
+    gap: 8px;
+}
+
+.wbc-phone-prefix-wrap {
+    position: relative;
+    width: 110px;
+    flex-shrink: 0;
+}
+
+.wbc-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
 }
 
 .wbc-phone-prefix {
-    width: 72px;
-    flex-shrink: 0;
-    height: 34px;
-    padding: 0 6px;
-    border: 1px solid #bbb;
-    border-radius: 2px;
-    font-size: 12px;
+    width: 100%;
+    height: 46px;
+    padding: 0 24px 0 12px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
     font-family: inherit;
+    color: #000;
     background: #fff;
     appearance: none;
     -webkit-appearance: none;
     outline: none;
+    cursor: pointer;
 }
 
 .wbc-rgpd {
     display: flex;
     align-items: flex-start;
-    gap: 8px;
-    margin: 10px 0 16px;
+    gap: 10px;
+    margin: 16px 0 20px;
 }
 
 .wbc-rgpd input[type="checkbox"] {
-    width: 14px;
-    height: 14px;
-    margin-top: 2px;
-    flex-shrink: 0;
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: #fff;
     cursor: pointer;
-    accent-color: #333;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+.wbc-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
 }
 
 .wbc-rgpd-label {
@@ -380,34 +405,39 @@ export default function (editor, categories) {
     cursor: pointer;
 }
 
-.wbc-rgpd-label a { color: #333; text-decoration: underline; }
+.wbc-rgpd-label a { color: #000; text-decoration: underline; }
 
-.wbc-submit-wrap { display: flex; justify-content: center; }
+.wbc-submit-wrap { display: block; width: 100%; }
 
 .wbc-submit {
-    width: 50%;
+    width: 100%;
     display: inline-flex;
     justify-content: center;
     align-items: center;
-    padding: 11px;
-    background: #111;
+    padding: 14px;
+    background: #000;
     color: #fff;
     border: none;
-    border-radius: 3px;
+    border-radius: 0;
     font-size: 14px;
     font-weight: 700;
     font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
     cursor: pointer;
-    letter-spacing: 0.02em;
     transition: background 0.15s;
 }
 
-.wbc-submit:hover { background: #333; }
+.wbc-submit::after {
+    content: ' →';
+}
+
+.wbc-submit:hover { background: #222; }
 .wbc-submit:disabled { background: #888; cursor: not-allowed; }
 
 .wbc-success {
     display: none;
-    padding: 16px 22px 8px;
+    padding: 16px 0 8px;
     text-align: center;
 }
 
@@ -440,9 +470,9 @@ export default function (editor, categories) {
 
 @media (max-width: 460px) {
     .wbc-row { grid-template-columns: 1fr; }
-    .wbc-phone-prefix { width: 60px; }
+    .wbc-phone-prefix-wrap { width: 90px; }
     .wbc-event-inner { flex-direction: column; gap: 8px; }
-    .wbc-event-right { max-width: 100%; }
+    .wbc-event-right { max-width: 100%; text-align: left; }
 }
 </style>
 
@@ -521,15 +551,17 @@ export default function (editor, categories) {
             <div class="wbc-field">
                 <label class="wbc-label">${t.mobile}<span class="req">*</span></label>
                 <div class="wbc-phone-wrap">
-                    <select class="wbc-phone-prefix" aria-label="Prefix">
-                        <option value="+33">+33</option>
-                        <option value="+32">+32</option>
-                        <option value="+41">+41</option>
-                        <option value="+352">+352</option>
-                        <option value="+1">+1</option>
-                        <option value="+44">+44</option>
-                        <option value="+212">+212</option>
-                    </select>
+                    <div class="wbc-phone-prefix-wrap">
+                        <select class="wbc-phone-prefix" aria-label="Prefix">
+                            <option value="+33" selected>FR (+33)</option>
+                            <option value="+32">BE (+32)</option>
+                            <option value="+41">CH (+41)</option>
+                            <option value="+352">LU (+352)</option>
+                            <option value="+1">US (+1)</option>
+                            <option value="+44">GB (+44)</option>
+                            <option value="+212">MA (+212)</option>
+                        </select>
+                    </div>
                     <input class="wbc-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="wbc-err-msg">${t.errPhone}</span>

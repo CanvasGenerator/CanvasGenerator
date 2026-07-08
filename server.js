@@ -19,6 +19,7 @@ const {
 const { handleSchoolsRoute } = require('./api/schools');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
+const { getSchoolLogo } = require('./lib/school-logos');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -147,12 +148,25 @@ function hexToRgb(hex) {
     return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
 }
 
+function stripCustomCode(str = '', zone) {
+    const re = new RegExp(`<!-- custom-${zone}:start -->[\\s\\S]*?<!-- custom-${zone}:end -->`, 'g');
+    return String(str || '').replace(re, '');
+}
+function wrapCustomCode(code, zone) {
+    const c = String(code || '').trim();
+    return c ? `<!-- custom-${zone}:start -->${c}<!-- custom-${zone}:end -->` : '';
+}
+
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
     const title = properties?.seoTitle || properties?.title || projectName || '';
     const desc = properties?.seoDescription || '';
     const keywords = properties?.keywords || '';
     const canonical = properties?.canonical || '';
     const schemaLd = properties?.schemaLd || '';
+    const headCode = wrapCustomCode(properties.customHeadCode, 'head');
+    const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
+    // anti-doublon : retirer un éventuel code déjà injecté
+    html = stripCustomCode(stripCustomCode(html, 'head'), 'body');
 
     if (isFullHtmlDocument(html)) {
         // Parse with Cheerio to update the head without losing the body
@@ -181,7 +195,11 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
         if (schemaLd) {
             $('head').append(`\n    <script type="application/ld+json">${schemaLd}</script>`);
         }
-        
+
+        // Code marketing personnalisé (GTM, Analytics…)
+        if (headCode) $('head').append(`\n    ${headCode}`);
+        if (bodyCode) $('body').append(`\n    ${bodyCode}`);
+
         return $.html();
     }
 
@@ -197,13 +215,35 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    ${headCode}
     <title>${escapeHtml(title)}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     ${seoTags}
     <style>${css}</style>
 </head>
-<body>${html}</body>
+<body>${html}${bodyCode}</body>
 </html>`;
+}
+
+async function applyCustomMarketingCode(projectName, properties) {
+    try {
+        const m = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+        const schoolId = m ? m[1].toLowerCase() : null;
+        let ecoleHead = '', ecoleBody = '';
+        if (schoolId && schoolId !== 'master') {
+            const schools = await readSchoolsForApi();
+            const school = (schools || []).find(s => s.id === schoolId);
+            if (school) {
+                ecoleHead = school.customHeadCode || school.custom_head_code || '';
+                ecoleBody = school.customBodyCode || school.custom_body_code || '';
+            }
+        }
+        properties.customHeadCode = [ecoleHead, properties.pageHeadCode || ''].filter(Boolean).join('\n');
+        properties.customBodyCode = [ecoleBody, properties.pageBodyCode || ''].filter(Boolean).join('\n');
+    } catch (e) {
+        console.warn('⚠️  applyCustomMarketingCode:', e.message);
+    }
+    return properties;
 }
 
 function normalizeSchool(school = {}) {
@@ -219,6 +259,7 @@ function normalizeSchool(school = {}) {
         colorLight: school.colorLight || school.color_light || '',
         colorHeader: school.colorHeader || school.color_header || '',
         colorCarousel: school.colorCarousel || school.color_carousel || '',
+        headerTextColor: school.headerTextColor || school.header_text_color || '#ffffff',
         logo: school.logo || '',
         emoji: school.emoji || '🏫',
         deleted: Boolean(school.deleted),
@@ -226,7 +267,9 @@ function normalizeSchool(school = {}) {
             ? school.defaultBlocks
             : Array.isArray(school.default_blocks)
                 ? school.default_blocks
-                : []
+                : [],
+        customHeadCode: school.customHeadCode || school.custom_head_code || '',
+        customBodyCode: school.customBodyCode || school.custom_body_code || ''
     };
 }
 
@@ -255,9 +298,15 @@ function schoolDbPayload(school) {
         base_url: school.baseUrl,
         color: school.color,
         secondary_color: school.secondaryColor,
+        color_header: school.colorHeader,
+        color_carousel: school.colorCarousel,
+        header_text_color: school.headerTextColor || '#ffffff',
+        logo: school.logo || '',
         color_light: school.colorLight,
         emoji: school.emoji,
         default_blocks: school.defaultBlocks,
+        custom_head_code: school.customHeadCode || '',
+        custom_body_code: school.customBodyCode || '',
         deleted: school.deleted
     };
 }
@@ -283,9 +332,15 @@ async function readSchoolsForApi() {
                 if (dbRaw.color)            dbOverrides.color          = dbRaw.color;
                 if (dbRaw.secondary_color)  dbOverrides.secondaryColor = dbRaw.secondary_color;
                 if (dbRaw.color_light)      dbOverrides.colorLight     = dbRaw.color_light;
+                if (dbRaw.color_header)     dbOverrides.colorHeader    = dbRaw.color_header;
+                if (dbRaw.color_carousel)   dbOverrides.colorCarousel  = dbRaw.color_carousel;
+                if (dbRaw.header_text_color) dbOverrides.headerTextColor = dbRaw.header_text_color;
                 if (dbRaw.logo)             dbOverrides.logo           = dbRaw.logo;
                 if (dbRaw.emoji)            dbOverrides.emoji          = dbRaw.emoji;
                 if (Array.isArray(dbRaw.default_blocks)) dbOverrides.defaultBlocks = dbRaw.default_blocks;
+                if (dbRaw.custom_head_code != null) dbOverrides.customHeadCode = dbRaw.custom_head_code;
+                if (dbRaw.custom_body_code != null) dbOverrides.customBodyCode = dbRaw.custom_body_code;
+                if (dbRaw.show_faq != null)         dbOverrides.showFaq        = dbRaw.show_faq;
                 dbOverrides.deleted = Boolean(dbRaw.deleted);
                 const base = merged.get(id) || { id };
                 merged.set(id, { ...base, ...dbOverrides });
@@ -615,6 +670,9 @@ http.createServer(async (req, res) => {
                     return res.end('Project name is required');
                 }
 
+                // Code marketing personnalisé (école + page)
+                if (properties) await applyCustomMarketingCode(projectName, properties);
+
                 const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
                 // ── Résoudre les flags de traduction + group_id ───────────────────────────
@@ -698,12 +756,12 @@ http.createServer(async (req, res) => {
 
                 // 2. On libère l'utilisateur immédiatement (réponse 200)
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ 
-                    message: 'Project saved! Background tasks started.', 
-                    projectName, 
+                res.end(JSON.stringify({
+                    message: 'Project saved! Background tasks started.',
+                    projectName,
                     page_id: contentSync?.pageId || null,
-                    sfmc: { action: 'pending_background' }, 
-                    content: contentSync 
+                    sfmc: { action: 'pending_background' },
+                    content: contentSync
                 }));
 
                 // 3. Tâche en arrière-plan (non-bloquante) pour le nettoyage et l'envoi SFMC
@@ -797,6 +855,7 @@ http.createServer(async (req, res) => {
                 console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
+                await applyCustomMarketingCode(projectName, mergedProperties);
                 const baseHtml = mergedProperties.rawHtml || extractBodyContent(project.html || '') || '';
                 const freshHtml = buildStoredHtml({
                     projectName,
@@ -1034,11 +1093,13 @@ http.createServer(async (req, res) => {
 
                         const schoolName     = school.name || schoolId;
                         const schoolFullName = school.fullName || school.full_name || schoolName;
-                        const schoolLogo     = school.logo || '';
+                        // Logo : override DB éventuel → logo hardcodé de l'école → nom
+                        const schoolLogo     = school.logo || getSchoolLogo(schoolId) || schoolName;
                         const primary        = school.color || '#374151';
                         const secondary      = school.secondaryColor || school.secondary_color || '#1a1a1a';
                         const colorHeader    = school.colorHeader || primary;
                         const colorCarousel  = school.colorCarousel || primary;
+                        const headerText     = school.headerTextColor || '#ffffff';
                         const rgb            = hexToRgb(primary);
 
                         // Remplacer les placeholders texte dans le HTML
@@ -1056,9 +1117,9 @@ http.createServer(async (req, res) => {
                         );
 
                         // Injecter les CSS vars de l'école en tête du CSS
-                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
+                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
                         // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
@@ -1068,6 +1129,9 @@ http.createServer(async (req, res) => {
                             seoTitle: `${schoolName} – ${displayName}`,
                             title:    `${schoolName} – ${displayName}`
                         };
+
+                        // Code marketing : école cible (commun) + code page hérité du master
+                        await applyCustomMarketingCode(newProjectName, newProps);
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -1090,14 +1154,15 @@ http.createServer(async (req, res) => {
                             declinedAt:   new Date().toISOString(),
                             schoolId
                         });
+                        // Logo = SVG/HTML → échappé pour rester valide DANS la chaîne JSON
+                        const schoolLogoJson = JSON.stringify(schoolLogo).slice(1, -1);
                         projectDataStr = projectDataStr
                             .replace(/NOM_ECOLE/g, schoolName)
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
-                            .replace(/LOGO_ECOLE/g, schoolLogo);
+                            .replace(/LOGO_ECOLE/g, schoolLogoJson);
 
-                        // 2. Remplacement des logos placehold.co dans les src d'images
-                        // Le header/footer utilisent des URLs placehold.co comme placeholder logo
-                        if (schoolLogo) {
+                        // 2. (Anciens gabarits) remplacer un logo placehold.co seulement si le logo est une URL
+                        if (schoolLogo && /^https?:\/\//.test(schoolLogo)) {
                             projectDataStr = projectDataStr.replace(
                                 /https?:\/\/placehold\.co\/[^"]*(?:LOGO|logo)[^"]*/g,
                                 schoolLogo
@@ -1199,11 +1264,12 @@ http.createServer(async (req, res) => {
                             finalProjectData.styles.unshift({
                                 selectors: [':root'],
                                 style: {
-                                    '--brand-primary':     primary,
-                                    '--brand-secondary':   secondary,
-                                    '--brand-primary-rgb': rgb,
-                                    '--brand-header':      colorHeader,
-                                    '--brand-carousel':    colorCarousel
+                                    '--brand-primary':      primary,
+                                    '--brand-secondary':    secondary,
+                                    '--brand-primary-rgb':  rgb,
+                                    '--brand-header':       colorHeader,
+                                    '--brand-header-text':  headerText,
+                                    '--brand-carousel':     colorCarousel
                                 }
                             });
 
@@ -1644,6 +1710,52 @@ Règles importantes :
             }
         });
         return;
+    }
+    // ── API: Campus CRUD ──────────────────────────────────────────────
+    if (pathname.startsWith('/api/campuses')) {
+        try {
+            if (req.method === 'GET') {
+                const result = await supabaseRequest('GET', '/campuses?order=name.asc');
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(result || []));
+            }
+            if (req.method === 'POST') {
+                let body = '';
+                req.on('data', chunk => { body += chunk.toString(); });
+                req.on('end', async () => {
+                    const { id, name, slug } = JSON.parse(body || '{}');
+                    if (!id || !name) {
+                        res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
+                    }
+                    const result = await supabaseRequest('POST', '/campuses', { id, name, slug: slug || id }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                });
+                return;
+            }
+            if (req.method === 'PUT') {
+                const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+                let body = '';
+                req.on('data', chunk => { body += chunk.toString(); });
+                req.on('end', async () => {
+                    const { name, slug } = JSON.parse(body || '{}');
+                    if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
+                    const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, { name, slug: slug || campusId }, { 'Prefer': 'return=representation' });
+                    res.writeHead(200, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                });
+                return;
+            }
+            if (req.method === 'DELETE') {
+                const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+                await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ message: 'Campus supprimé' }));
+            }
+        } catch (e) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
     }
 
     // ── API: Get single project by project_name ──────────────────────

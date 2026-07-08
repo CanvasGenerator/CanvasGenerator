@@ -14,6 +14,7 @@ const {
     resolvePublicPageByHostPath
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
+const { getSchoolLogo } = require('../lib/school-logos');
 
 /**
  * Extrait le contenu <body> d'un document HTML complet.
@@ -156,6 +157,32 @@ function hexToRgb(hex) {
     return result ? `${parseInt(result[1], 16)}, ${parseInt(result[2], 16)}, ${parseInt(result[3], 16)}` : '0,0,0';
 }
 
+/**
+ * Résout le code marketing personnalisé (GTM, Analytics…) à injecter dans une
+ * page = code de l'ÉCOLE (commun) + code de la PAGE (spécifique).
+ * Écrit le résultat fusionné dans properties.customHeadCode / customBodyCode
+ * (lus ensuite par buildStoredHtml). Le code page reste dans pageHeadCode/pageBodyCode.
+ */
+async function applyCustomMarketingCode(projectName, properties) {
+    try {
+        const m = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+        const schoolId = m ? m[1].toLowerCase() : null;
+        let ecoleHead = '', ecoleBody = '';
+        if (schoolId && schoolId !== 'master') {
+            const schools = await readSchoolsForApi();
+            const school = (schools || []).find(s => s.id === schoolId);
+            if (school) {
+                ecoleHead = school.customHeadCode || school.custom_head_code || '';
+                ecoleBody = school.customBodyCode || school.custom_body_code || '';
+            }
+        }
+        properties.customHeadCode = [ecoleHead, properties.pageHeadCode || ''].filter(Boolean).join('\n');
+        properties.customBodyCode = [ecoleBody, properties.pageBodyCode || ''].filter(Boolean).join('\n');
+    } catch (e) {
+        console.warn('⚠️  applyCustomMarketingCode:', e.message);
+    }
+    return properties;
+}
 
 module.exports = async function handler(req, res) {
     // Ensure CORS
@@ -484,7 +511,45 @@ module.exports = async function handler(req, res) {
         }
 
         // ==========================================
-        // 7. General API (Project, Save)
+        // 7. Campus API
+        // ==========================================
+
+        // GET /api/campuses — list all campuses
+        if (req.method === 'GET' && pathname === '/api/campuses') {
+            const result = await supabaseRequest('GET', '/campuses?order=name.asc');
+            return res.status(200).json(result || []);
+        }
+
+        // POST /api/campuses — create a campus
+        if (req.method === 'POST' && pathname === '/api/campuses') {
+            const { id, name, slug } = req.body || {};
+            if (!id || !name) return res.status(400).json({ error: 'id et name requis' });
+            const result = await supabaseRequest('POST', '/campuses', {
+                id, name, slug: slug || id
+            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // PUT /api/campuses/:id — update a campus
+        if (req.method === 'PUT' && pathname.startsWith('/api/campuses/')) {
+            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+            const { name, slug } = req.body || {};
+            if (!name) return res.status(400).json({ error: 'name requis' });
+            const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, {
+                name, slug: slug || campusId
+            }, { 'Prefer': 'return=representation' });
+            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+        }
+
+        // DELETE /api/campuses/:id — delete a campus
+        if (req.method === 'DELETE' && pathname.startsWith('/api/campuses/')) {
+            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+            await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
+            return res.status(200).json({ message: 'Campus supprimé' });
+        }
+
+        // ==========================================
+        // 8. General API (Project, Save)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
             return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
@@ -528,6 +593,9 @@ module.exports = async function handler(req, res) {
                 properties.is_original_language = true;
                 properties.page_group_id = existingRecord?.page_group_id || generateGroupId();
             }
+
+            // ── Code marketing personnalisé (école + page) ──
+            await applyCustomMarketingCode(projectName, properties);
 
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
@@ -607,6 +675,7 @@ module.exports = async function handler(req, res) {
             console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
+            await applyCustomMarketingCode(projectName, mergedProperties);
             const rawBodyHtml = mergedProperties.rawHtml
                 || extractBodyContent(project.html || '');
             const freshHtml = buildStoredHtml({
@@ -643,83 +712,6 @@ module.exports = async function handler(req, res) {
             return res.status(200).json(result || []);
         }
 
-        // ==========================================
-        // 7. Déclinaison API (dupliquer master vers plusieurs écoles)
-        // ==========================================
-        if (req.method === 'POST' && pathname === '/api/decline') {
-            const { masterProjectName, schoolIds, projectDisplayName } = req.body || {};
-
-            if (!masterProjectName || !Array.isArray(schoolIds) || schoolIds.length === 0) {
-                return res.status(400).json({ error: 'masterProjectName et schoolIds[] requis' });
-            }
-
-            // Charger le projet master
-            const masterResult = await supabaseRequest(
-                'GET',
-                `/Projects?project_name=eq.${encodeURIComponent(masterProjectName)}&limit=1`
-            );
-            if (!masterResult || masterResult.length === 0) {
-                return res.status(404).json({ error: 'Projet master introuvable : ' + masterProjectName });
-            }
-            const master = masterResult[0];
-            const baseHtml = master.html || '';
-            const baseCss  = master.css  || '';
-
-            // Charger la liste des écoles (Supabase ou fallback JSON)
-            const schools = await readSchoolsForApi();
-
-            const displayName = (projectDisplayName || masterProjectName)
-                .replace(/^school-[a-z0-9-]+_+/i, '') // retirer éventuel préfixe école
-                .trim();
-
-            const results = [];
-
-            for (const schoolId of schoolIds) {
-                const school = schools.find(s => s.id === schoolId.toLowerCase());
-                const targetProjectName = `school-${schoolId.toLowerCase()}_${displayName}`;
-
-                try {
-                    // Injecter les couleurs de marque de l'école dans le HTML copié
-                    let schoolHtml = baseHtml;
-                    if (school) {
-                        const primary   = school.color || '#3b82f6';
-                        const secondary = school.secondaryColor || '#2563eb';
-                        const brandStyles = `<style id="brand-variables">\n    :root {\n        --brand-primary: ${primary};\n        --brand-secondary: ${secondary};\n    }\n</style>`;
-                        // Remplacer un éventuel style brand-variables existant, ou injecter avant </head>
-                        if (schoolHtml.includes('id="brand-variables"')) {
-                            schoolHtml = schoolHtml.replace(/<style id="brand-variables"[^>]*>[\s\S]*?<\/style>/i, brandStyles);
-                        } else {
-                            schoolHtml = schoolHtml.replace('</head>', `${brandStyles}\n</head>`);
-                        }
-                    }
-
-                    const newProperties = {
-                        ...(master.properties || {}),
-                        school: schoolId.toLowerCase(),
-                        declinedFrom: masterProjectName,
-                        declinedAt: new Date().toISOString(),
-                    };
-
-                    await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
-                        project_name: targetProjectName,
-                        html:         schoolHtml,
-                        css:          baseCss,
-                        project_data: master.project_data || null,
-                        properties:   newProperties,
-                    }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-
-                    results.push({ schoolId, projectName: targetProjectName, status: 'ok' });
-                } catch (err) {
-                    console.error(`[/api/decline] Erreur pour ${schoolId}:`, err.message);
-                    results.push({ schoolId, projectName: targetProjectName, status: 'error', error: err.message });
-                }
-            }
-
-            return res.status(200).json({
-                message: `Déclinaison terminée (${results.filter(r => r.status === 'ok').length}/${schoolIds.length} succès)`,
-                results,
-            });
-        }
 
         // ==========================================
         // 8. Preview API
@@ -840,11 +832,12 @@ module.exports = async function handler(req, res) {
 
                         const schoolName     = school.name || schoolId;
                         const schoolFullName = school.fullName || school.full_name || schoolName;
-                        const schoolLogo     = school.logo || '';
+                        const schoolLogo     = school.logo || getSchoolLogo(schoolId) || schoolName;
                         const primary        = school.color || '#374151';
                         const secondary      = school.secondaryColor || school.secondary_color || '#1a1a1a';
                         const colorHeader    = school.colorHeader || primary;
                         const colorCarousel  = school.colorCarousel || primary;
+                        const headerText     = school.headerTextColor || '#ffffff';
                         const rgb            = hexToRgb(primary);
 
                         // Remplacer les placeholders texte dans le HTML
@@ -862,9 +855,9 @@ module.exports = async function handler(req, res) {
                         );
 
                         // Injecter les CSS vars de l'école en tête du CSS
-                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; }\n`;
+                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
                         // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
@@ -875,6 +868,9 @@ module.exports = async function handler(req, res) {
                             seoTitle: `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`,
                             title:    `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`
                         };
+
+                        // Code marketing : école cible (commun) + code page hérité du master
+                        await applyCustomMarketingCode(newProjectName, newProps);
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -897,13 +893,15 @@ module.exports = async function handler(req, res) {
                             declinedAt:   new Date().toISOString(),
                             schoolId
                         });
+                        // Logo = SVG/HTML → échappé pour rester valide DANS la chaîne JSON
+                        const schoolLogoJson = JSON.stringify(schoolLogo).slice(1, -1);
                         projectDataStr = projectDataStr
                             .replace(/NOM_ECOLE/g, schoolName)
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
-                            .replace(/LOGO_ECOLE/g, schoolLogo);
+                            .replace(/LOGO_ECOLE/g, schoolLogoJson);
 
-                        // 2. Remplacement des logos placehold.co dans les src d'images
-                        if (schoolLogo) {
+                        // 2. (Anciens gabarits) remplacer un logo placehold.co seulement si le logo est une URL
+                        if (schoolLogo && /^https?:\/\//.test(schoolLogo)) {
                             projectDataStr = projectDataStr.replace(
                                 /https?:\/\/placehold\.co\/[^"]*(?:LOGO|logo)[^"]*/g,
                                 schoolLogo
@@ -993,11 +991,12 @@ module.exports = async function handler(req, res) {
                             finalProjectData.styles.unshift({
                                 selectors: [':root'],
                                 style: {
-                                    '--brand-primary':     primary,
-                                    '--brand-secondary':   secondary,
-                                    '--brand-primary-rgb': rgb,
-                                    '--brand-header':      colorHeader,
-                                    '--brand-carousel':    colorCarousel
+                                    '--brand-primary':      primary,
+                                    '--brand-secondary':    secondary,
+                                    '--brand-primary-rgb':  rgb,
+                                    '--brand-header':       colorHeader,
+                                    '--brand-header-text':  headerText,
+                                    '--brand-carousel':     colorCarousel
                                 }
                             });
 

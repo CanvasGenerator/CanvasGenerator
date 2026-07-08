@@ -124,50 +124,117 @@ export default function (editor, categories) {
 }
 .pc-card {
     width: 100%; max-width: 520px;
-    border-radius: 4px; background: #fff; padding: 24px 24px 28px;
+    background: #F4EFEA; padding: 24px 24px 28px;
 }
 .pc-title { font-size: 18px; font-weight: 700; color: #111; margin: 0 0 4px; }
 .pc-subtitle { font-size: 12px; color: #666; margin: 0 0 18px; }
-.pc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 10px; }
-.pc-field { display: flex; flex-direction: column; margin-bottom: 10px; }
+.pc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+.pc-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .pc-row .pc-field { margin-bottom: 0; }
-.pc-label { font-size: 12px; color: #333; margin-bottom: 3px; display: block; }
-.pc-label .req { color: #c00; }
-.pc-input, .pc-select {
-    width: 100%; height: 34px; padding: 0 10px;
-    border: 1px solid #bbb; border-radius: 2px;
-    font-size: 13px; font-family: inherit; color: #111; background: #fff;
-    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.15s;
+.pc-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
+    display: block;
 }
-.pc-input:focus, .pc-select:focus { border-color: #888; }
+.pc-label .req { color: inherit; }
+.pc-input, .pc-select {
+    width: 100%; height: 46px; padding: 0 14px;
+    border: 1px solid #000; border-radius: 0;
+    font-size: 13px; font-family: inherit; color: #000; background: #fff;
+    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+}
+.pc-input:focus, .pc-select:focus { border-color: #666; }
 .pc-input.err, .pc-select.err { border-color: #c00; }
-.pc-err-msg { font-size: 10px; color: #c00; margin-top: 2px; display: none; }
+.pc-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
 .pc-err-msg.show { display: block; }
 .pc-sel-wrap { position: relative; }
 .pc-sel-wrap::after {
-    content: ''; position: absolute; right: 10px; top: 50%;
-    transform: translateY(-50%); pointer-events: none;
-    border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid #666;
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
 }
-.pc-phone-wrap { display: flex; gap: 6px; }
+.pc-phone-wrap { display: flex; gap: 8px; }
+.pc-phone-prefix-wrap {
+    position: relative;
+    width: 110px;
+    flex-shrink: 0;
+}
+.pc-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 14px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
 .pc-phone-prefix {
-    width: 72px; flex-shrink: 0; height: 34px; padding: 0 6px;
-    border: 1px solid #bbb; border-radius: 2px; font-size: 12px;
-    font-family: inherit; background: #fff; appearance: none; -webkit-appearance: none; outline: none;
+    width: 100%;
+    height: 46px;
+    padding: 0 24px 0 12px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
+    font-family: inherit;
+    color: #000;
+    background: #fff;
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
 }
 .pc-programme-wrap { display: none; }
-.pc-rgpd { display: flex; align-items: flex-start; gap: 8px; margin: 10px 0 16px; }
-.pc-rgpd input[type="checkbox"] { width: 14px; height: 14px; margin-top: 2px; flex-shrink: 0; cursor: pointer; accent-color: #333; }
-.pc-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
-.pc-rgpd-label a { color: #333; text-decoration: underline; }
-.pc-submit-wrap { display: flex; justify-content: center; }
-.pc-submit {
-    width: 50%; display: inline-flex; justify-content: center; align-items: center;
-    padding: 11px; background: #111; color: #fff;
-    border: none; border-radius: 3px; font-size: 14px; font-weight: 700;
-    font-family: inherit; cursor: pointer; letter-spacing: 0.02em; transition: background 0.15s;
+.pc-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
+.pc-rgpd input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: #fff;
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
 }
-.pc-submit:hover { background: #333; }
+.pc-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
+.pc-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
+.pc-rgpd-label a { color: #000; text-decoration: underline; }
+.pc-submit-wrap { display: block; width: 100%; }
+.pc-submit {
+    width: 100%; display: inline-flex; justify-content: center; align-items: center;
+    padding: 14px; background: #000; color: #fff;
+    border: none; border-radius: 0; font-size: 14px; font-weight: 700;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
+}
+.pc-submit::after {
+    content: ' →';
+}
+.pc-submit:hover { background: #222; }
 .pc-submit:disabled { background: #888; cursor: not-allowed; }
 .pc-success { display: none; text-align: center; padding: 20px 0 8px; }
 .pc-success h3 { font-size: 16px; font-weight: 700; color: #111; margin: 0 0 8px; }
@@ -179,7 +246,10 @@ export default function (editor, categories) {
     vertical-align: middle; margin-right: 6px;
 }
 @keyframes pc-spin { to { transform: rotate(360deg); } }
-@media(max-width:460px){ .pc-row { grid-template-columns: 1fr; } .pc-phone-prefix { width: 60px; } }
+@media(max-width:460px){
+    .pc-row { grid-template-columns: 1fr; }
+    .pc-phone-prefix-wrap { width: 90px; }
+}
 </style>
 
 <div class="pc-card">
@@ -222,15 +292,17 @@ export default function (editor, categories) {
             <div class="pc-field">
                 <label class="pc-label">${t.mobile}<span class="req">*</span></label>
                 <div class="pc-phone-wrap">
-                    <select class="pc-phone-prefix" aria-label="Prefix">
-                        <option value="+33">+33</option>
-                        <option value="+32">+32</option>
-                        <option value="+41">+41</option>
-                        <option value="+352">+352</option>
-                        <option value="+1">+1</option>
-                        <option value="+44">+44</option>
-                        <option value="+212">+212</option>
-                    </select>
+                    <div class="pc-phone-prefix-wrap">
+                        <select class="pc-phone-prefix" aria-label="Prefix">
+                            <option value="+33" selected>FR (+33)</option>
+                            <option value="+32">BE (+32)</option>
+                            <option value="+41">CH (+41)</option>
+                            <option value="+352">LU (+352)</option>
+                            <option value="+1">US (+1)</option>
+                            <option value="+44">GB (+44)</option>
+                            <option value="+212">MA (+212)</option>
+                        </select>
+                    </div>
                     <input class="pc-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="pc-err-msg">${t.errPhone}</span>

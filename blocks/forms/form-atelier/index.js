@@ -3,7 +3,7 @@
  * ───────────────────────────────────────────────────────────────
  * Source : « Formulaires pour les 10 écoles.xlsx » — onglet « Inscription AD ».
  * Moteur commun : ../shared/event-form.js.
- * Différence vs JPO : pas de « Vous êtes », pas de champs enfant.
+ * Différence vs JPO : pas de champs enfant, bouton « RÉSERVER MA PLACE ».
  */
 
 import { buildEventBlock, attachEventFormLogic } from '../shared/event-form.js';
@@ -17,10 +17,10 @@ export default function (editor, categories) {
         category: categories.FORMS,
         content: buildEventBlock({
             typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier',
-            submitLabel: "Je m'inscris à l'atelier",
+            submitLabel: 'RÉSERVER MA PLACE',
             formTitle: "Inscription à l'Atelier Découverte",
             formSubtitle: 'Participez à notre atelier et explorez nos programmes.',
-            lang: 'fr', showVousEtes: false, showChild: false
+            lang: 'fr', showVousEtes: true, showChild: true
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
@@ -30,10 +30,10 @@ export default function (editor, categories) {
         category: categories.FORMS,
         content: buildEventBlock({
             typeEvenement: 'Atelier_Decouverte', nomAction: 'Inscription_Atelier',
-            submitLabel: 'Register for the workshop',
+            submitLabel: 'BOOK MY SPOT',
             formTitle: 'Discovery Workshop Registration',
             formSubtitle: 'Join our workshop and explore our programmes.',
-            lang: 'en', showVousEtes: false, showChild: false
+            lang: 'en', showVousEtes: true, showChild: true
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });

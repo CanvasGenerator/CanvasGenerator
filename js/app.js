@@ -471,6 +471,168 @@ function initEditor(schoolId) {
             document.getElementById('btn-faq-config-close').onclick   = closeModal;
         }
     });
+    // ── Campus block : auto-open picker on drop + child redirect ─────────
+    editor.on('component:add', (component) => {
+        if (component.get('type') === 'mc-nos-campus') {
+            setTimeout(() => editor.Commands.run('open-campus-picker'), 150);
+        }
+    });
+
+    editor.on('component:selected', (component) => {
+        if (component.get('type') === 'mc-nos-campus') return;
+        let parent = component.parent();
+        while (parent) {
+            if (parent.get('type') === 'mc-nos-campus') {
+                editor.select(parent);
+                return;
+            }
+            parent = parent.parent();
+        }
+    });
+
+    // ── Commande GrapesJS : sélecteur de Campus ──────────────────────────
+    editor.Commands.add('open-campus-picker', {
+        run(ed) {
+            const component = ed.getSelected();
+            if (!component) return;
+
+            const modal      = document.getElementById('campus-config-modal');
+            const body       = document.getElementById('campus-config-body');
+            const countEl    = document.getElementById('campus-config-count');
+            const selCountEl = document.getElementById('campus-config-selected-count');
+
+            // Récupérer les IDs déjà sélectionnés
+            const existingIds = (component.getAttributes()['data-campus-ids'] || '')
+                .split(',').filter(Boolean);
+            const existingMode = component.getAttributes()['data-campus-mode'] || '';
+
+            modal.style.display = 'flex';
+            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Chargement…</div>';
+            countEl.textContent    = '';
+            selCountEl.textContent = '';
+
+            let allCampuses = [];
+
+            function escapeHtml(str) {
+                if (!str) return '';
+                return String(str)
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;');
+            }
+
+            function updateSelCount() {
+                const checked = body.querySelectorAll('input[type=checkbox]:checked').length;
+                const total   = body.querySelectorAll('input[type=checkbox]').length;
+                const isAll   = checked === total && total > 0;
+                selCountEl.textContent = checked
+                    ? `${checked} campus sélectionné${checked > 1 ? 's' : ''}${isAll ? ' (TOUS — mise à jour auto)' : ''}`
+                    : '';
+            }
+
+            fetch('/api/campuses')
+                .then(r => r.json())
+                .then(campuses => {
+                    // Gérer le cas où l'API renvoie une erreur (ex: table non créée dans Supabase)
+                    if (!Array.isArray(campuses)) {
+                        console.error('Erreur API Campus:', campuses);
+                        body.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">
+                            Erreur de base de données.<br><br>Avez-vous bien exécuté le script SQL <b>007_add_campus_tables.sql</b> dans Supabase ?
+                        </div>`;
+                        return;
+                    }
+
+                    allCampuses = campuses;
+                    countEl.textContent = `${campuses.length} campus disponible${campuses.length > 1 ? 's' : ''}`;
+
+                    if (campuses.length === 0) {
+                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus dans la base de données. Ajoutez-en un !</div>';
+                        return;
+                    }
+
+                    body.innerHTML = campuses.map(campus => `
+                        <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 20px;border-bottom:1px solid #f3f4f6;cursor:pointer;">
+                            <input type="checkbox" value="${escapeHtml(campus.id)}"
+                                ${existingMode === 'all' || existingIds.includes(campus.id) ? 'checked' : ''}
+                                style="margin-top:3px;width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;">
+                            <div style="min-width:0;">
+                                <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(campus.name)}</div>
+                                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">ID: ${escapeHtml(campus.id)}</div>
+                            </div>
+                        </label>
+                    `).join('');
+
+                    body.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                        cb.addEventListener('change', updateSelCount);
+                    });
+                    updateSelCount();
+                })
+                .catch(() => {
+                    body.innerHTML = '<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">Erreur de chargement des campus.</div>';
+                });
+
+            // Tout cocher / décocher
+            document.getElementById('btn-campus-select-all').onclick = () => {
+                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
+                updateSelCount();
+            };
+            document.getElementById('btn-campus-deselect-all').onclick = () => {
+                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
+                updateSelCount();
+            };
+
+            function confirmSelection() {
+                const selectedIds      = [...body.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
+                const totalCheckboxes  = body.querySelectorAll('input[type=checkbox]').length;
+                const isAll            = selectedIds.length === totalCheckboxes && totalCheckboxes > 0;
+                const selectedCampuses = allCampuses.filter(c => selectedIds.includes(c.id));
+
+                // Stocker le mode et les IDs
+                const mode = isAll ? 'all' : 'selected';
+                component.addAttributes({
+                    'data-campus-ids': selectedIds.join(','),
+                    'data-campus-mode': mode
+                });
+
+                // Reconstruire le contenu HTML de la liste
+                const listComp = component.find('.mnc-list')[0];
+                if (listComp && selectedCampuses.length) {
+                    const namesHtml = selectedCampuses.map(c =>
+                        `<span class="mnc-campus-name">${escapeHtml(c.name.toUpperCase())}</span>`
+                    ).join('<span class="mnc-dot">·</span>');
+                    listComp.components(namesHtml);
+
+                    // Lock children
+                    const lockAll = (comp) => {
+                        comp.get('components').each(child => {
+                            child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                            lockAll(child);
+                        });
+                    };
+                    lockAll(component);
+                } else if (listComp && selectedCampuses.length === 0) {
+                    listComp.components('<span class="mnc-placeholder">Aucun campus sélectionné.</span>');
+                }
+
+                closeModal();
+            }
+
+            function closeModal() {
+                modal.style.display = 'none';
+                document.getElementById('btn-campus-config-confirm').onclick = null;
+                document.getElementById('btn-campus-config-skip').onclick    = null;
+                document.getElementById('btn-campus-config-close').onclick   = null;
+                document.getElementById('btn-campus-select-all').onclick     = null;
+                document.getElementById('btn-campus-deselect-all').onclick   = null;
+            }
+
+            document.getElementById('btn-campus-config-confirm').onclick = confirmSelection;
+            document.getElementById('btn-campus-config-skip').onclick    = closeModal;
+            document.getElementById('btn-campus-config-close').onclick   = closeModal;
+        }
+    });
 
     if (schoolId === 'icart') initIcartSpecifics(editor);
     window.editor = editor;
@@ -2150,6 +2312,41 @@ function _seoShowStatus(msg, type) {
     }
 }
 
+function validateSeoCustomCode(taId, fbId) {
+    const ta = document.getElementById(taId);
+    const fb = document.getElementById(fbId);
+    if (!ta || !fb) return;
+    const code = ta.value.trim();
+    if (!code) { fb.textContent = ''; return; }
+    const open  = (code.match(/<script\b/gi) || []).length;
+    const close = (code.match(/<\/script>/gi) || []).length;
+    if (open !== close) {
+        fb.textContent = `❌ Balise <script> non fermée (${open} ouvrante(s), ${close} fermante(s)).`;
+        fb.style.color = '#c0392b';
+        return;
+    }
+    const providers = [
+        { re: /googletagmanager\.com\/gtm|GTM-[A-Z0-9]/i, name: 'Google Tag Manager' },
+        { re: /gtag\(|googletagmanager\.com\/gtag|\bG-[A-Z0-9]{6,}/i, name: 'Google Analytics (GA4)' },
+        { re: /connect\.facebook\.net|fbq\(/i, name: 'Meta Pixel' },
+        { re: /snap\.licdn\.com|_linkedin_partner_id/i, name: 'LinkedIn' },
+        { re: /analytics\.tiktok\.com|\bttq\./i, name: 'TikTok' },
+        { re: /static\.hotjar\.com|\bhj\(/i, name: 'Hotjar' }
+    ];
+    const found = providers.filter(p => p.re.test(code)).map(p => p.name);
+    if (found.length) {
+        fb.textContent = '✅ Détecté : ' + found.join(', ');
+        fb.style.color = '#1a7a5e';
+    } else {
+        fb.textContent = '⚠️ Aucun outil connu détecté — vérifie que le code est correct.';
+        fb.style.color = '#b7791f';
+    }
+}
+['seo-settings-head-code', 'seo-settings-body-code'].forEach(id => {
+    const ta = document.getElementById(id);
+    if (ta) ta.addEventListener('input', () => validateSeoCustomCode(id, id + '-feedback'));
+});
+
 window.openSeoSettings = async (projectName) => {
     // Reset
     _seoStatus.style.display = 'none';
@@ -2206,6 +2403,10 @@ window.openSeoSettings = async (projectName) => {
         document.getElementById('seo-settings-meta-desc').value   = merged.seoDescription || '';
         document.getElementById('seo-settings-keywords').value    = merged.keywords || '';
         document.getElementById('seo-settings-canonical').value   = merged.canonical || '';
+        document.getElementById('seo-settings-head-code').value   = merged.pageHeadCode || '';
+        document.getElementById('seo-settings-body-code').value   = merged.pageBodyCode || '';
+        validateSeoCustomCode('seo-settings-head-code', 'seo-settings-head-code-feedback');
+        validateSeoCustomCode('seo-settings-body-code', 'seo-settings-body-code-feedback');
 
         updateFieldStatus(document.getElementById('seo-settings-meta-title'), document.getElementById('seo-settings-title-counter'), 50, 60);
         updateFieldStatus(document.getElementById('seo-settings-meta-desc'), document.getElementById('seo-settings-desc-counter'), 120, 160);
@@ -2227,6 +2428,8 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
         seoDescription: document.getElementById('seo-settings-meta-desc').value.trim(),
         keywords:       document.getElementById('seo-settings-keywords').value.trim(),
         canonical:      document.getElementById('seo-settings-canonical').value.trim(),
+        pageHeadCode:   document.getElementById('seo-settings-head-code').value,
+        pageBodyCode:   document.getElementById('seo-settings-body-code').value,
     };
 
     // Mettre à jour l'objet en mémoire pour ne pas l'écraser lors d'un "Save" ultérieur
