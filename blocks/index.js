@@ -1,26 +1,10 @@
 import basics from './basics/index.js';
 import { registerMasterComponents } from '../MasterTemplate/Components/index.js';
-// Header + Footer dédiés par école (10 écoles) — moteur commun : ./school-brand
-import headerEfap from './header-efap/index.js';
-import footerEfap from './footer-efap/index.js';
-import headerBrassart from './header-brassart/index.js';
-import footerBrassart from './footer-brassart/index.js';
-import headerIcart from './header-icart/index.js';
-import footerIcart from './footer-icart/index.js';
-import headerCread from './header-cread/index.js';
-import footerCread from './footer-cread/index.js';
-import headerEsec from './header-esec/index.js';
-import footerEsec from './footer-esec/index.js';
-import headerIfaParis from './header-ifa-paris/index.js';
-import footerIfaParis from './footer-ifa-paris/index.js';
-import headerMopa from './header-mopa/index.js';
-import footerMopa from './footer-mopa/index.js';
-import headerEcoleBleue from './header-ecole-bleue/index.js';
-import footerEcoleBleue from './footer-ecole-bleue/index.js';
-import headerEfj from './header-efj/index.js';
-import footerEfj from './footer-efj/index.js';
-import header3wa from './header-3wa/index.js';
-import footer3wa from './footer-3wa/index.js';
+// Headers & footers des 10 écoles centralisés (reproduction fidèle des maquettes).
+// Remplace les anciens fichiers dédiés header-efap/footer-efap/header-brassart/footer-brassart
+// et les blocs header-icart/footer-icart de icart/index.js.
+import headers from './headers.js';
+import footers from './footers.js';
 import hero from './hero/index.js';
 import twoColumn from './two-column/index.js';
 import richText from './rich-text/index.js';
@@ -54,23 +38,25 @@ export function registerBlocks(editor) {
         EFAP: 'EFAP Components',
         BRASSART: 'BRASSART Components',
         ICART: 'ICART Components',
+        EFJ: 'EFJ Components',
+        MOPA: 'MOPA Components',
+        CREAD: 'CREAD Components',
+        ESEC: 'ÉSEC Components',
+        '3WA': '3W ACADEMY Components',
+        IFA: 'IFA PARIS Components',
+        BLEUE: 'ÉCOLE BLEUE Components',
         ESSENTIAL: 'Essential Blocks',
         FORMS: 'Form Blocks'
     };
 
     // Load all blocks
     [
-        headerEfap, footerEfap, headerBrassart, footerBrassart,
-        headerIcart, footerIcart, headerCread, footerCread,
-        headerEsec, footerEsec, headerIfaParis, footerIfaParis,
-        headerMopa, footerMopa, headerEcoleBleue, footerEcoleBleue,
-        headerEfj, footerEfj, header3wa, footer3wa,
-        icartBlocks,
+        headers, footers, icartBlocks,
         hero, twoColumn, richText, ctaButton, imageCaption, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
         carousel, CarrouselTemoignages,
-        icartBlocks, formSalesforceCore,
+        formSalesforceCore,
         // Formulaires EDH (6 formulaires : Brochure, JPO, Atelier, Stage, Immersion, Candidature)
         formBrochure, formJpo, formAtelier, formStage, formImmersion, formCandidature
 

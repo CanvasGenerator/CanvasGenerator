@@ -972,9 +972,11 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
 
     // Règles directes avec !important pour overrider les couleurs hardcodées
     // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici
+    // NB : les headers/footers d'école ont leurs couleurs figées (maquettes) dans blocks/headers.js
+    // et blocks/footers.js — on ne les repeint donc PAS ici. Seul le Master Template reste thémable.
     const headerOverrideCss = `
-.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
-.footer-efap, .footer-brassart, .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
+.mh-header { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
+.mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
 .mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }`;
 
     if (intoMainDoc) {
@@ -1063,9 +1065,12 @@ function filterBlocksBySchool(editor, schoolId) {
     }
     const targetSchoolId = schoolId.toLowerCase();
     
-    // List of all known schools in the ecosystem
+    // List of all known schools in the ecosystem.
+    // IMPORTANT : ces ids doivent correspondre EXACTEMENT aux ids de schools.json
+    // (et aux suffixes des blocs header-<id> / footer-<id>), sinon le filtre supprime
+    // par erreur les blocs de l'école courante (ex : 'ifa-paris' vs 'ifa').
     const allSchoolsList = [
-        'efap', 'brassart', 'icart', 'efj', 'mopa', 'cread', 'esec', '3wa', 'ifa', 'bleue', 'cesine', 'creanavarra', 'miami'
+        'efap', 'brassart', 'icart', 'efj', 'mopa', 'cread', 'esec', '3wa', 'ifa-paris', 'ecole-bleue'
     ];
     
     const otherSchools = allSchoolsList.filter(s => s !== targetSchoolId);

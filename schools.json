@@ -64,14 +64,15 @@
     "emoji": "🎭",
     "logo": "assets/icart-logo.png",
     "defaultBlocks": [
+      "header-icart",
       "hero",
       "horizontal-menu",
       "programme-list",
       "form-sfmc",
       "chiffres-cles",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-icart"
+    ]
   },
   {
     "id": "cread",
@@ -87,12 +88,13 @@
     "emoji": "🖌️",
     "logo": "",
     "defaultBlocks": [
+      "header-cread",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-cread"
+    ]
   },
   {
     "id": "esec",
@@ -108,12 +110,13 @@
     "emoji": "📸",
     "logo": "",
     "defaultBlocks": [
+      "header-esec",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-esec"
+    ]
   },
   {
     "id": "ifa-paris",
@@ -129,12 +132,13 @@
     "emoji": "👗",
     "logo": "",
     "defaultBlocks": [
+      "header-ifa-paris",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-ifa-paris"
+    ]
   },
   {
     "id": "mopa",
@@ -150,12 +154,13 @@
     "emoji": "🎬",
     "logo": "",
     "defaultBlocks": [
+      "header-mopa",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#000000"
+      "cta-button",
+      "footer-mopa"
+    ]
   },
   {
     "id": "ecole-bleue",
@@ -171,12 +176,13 @@
     "emoji": "🔵",
     "logo": "",
     "defaultBlocks": [
+      "header-ecole-bleue",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-ecole-bleue"
+    ]
   },
   {
     "id": "efj",
@@ -192,12 +198,13 @@
     "emoji": "📝",
     "logo": "",
     "defaultBlocks": [
+      "header-efj",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-efj"
+    ]
   },
   {
     "id": "3wa",
@@ -213,11 +220,12 @@
     "emoji": "💻",
     "logo": "",
     "defaultBlocks": [
+      "header-3wa",
       "hero",
       "programme-list",
       "form-sfmc",
-      "cta-button"
-    ],
-    "headerTextColor": "#ffffff"
+      "cta-button",
+      "footer-3wa"
+    ]
   }
 ]
