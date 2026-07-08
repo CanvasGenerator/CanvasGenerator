@@ -1,134 +1,75 @@
+// Headers des écoles — reproduction fidèle des maquettes "Maquettes headers & footers".
+// Chaque header : fond couleur de marque, logo + baseline à droite (blanc, ou noir pour MoPA),
+// CTA langue "FR" à l'extrême droite.
+// Les couleurs sont codées en dur (identiques aux maquettes) et volontairement NON pilotées
+// par --brand-header : voir server.js BRAND_HEADER_SELECTORS et app.js (override désactivé).
+// Les ids de blocs (header-<id>) correspondent aux ids de schools.json.
 export default function(editor, categories) {
     const schools = [
         {
-            id: 'header-brassart',
-            label: 'BRASSART Header',
-            category: categories.BRASSART,
-            prefix: 'header-brassart',
-            logo: 'BRASSART',
-            tagline: "L'école des métiers<br>de la création",
-            logoColor: '#BE0D5C',
-            taglineColor: '#BE0D5C'
+            id: 'header-efap', label: 'EFAP Header', category: categories.EFAP,
+            bg: '#000000', fg: '#ffffff', logoFont: "'Georgia','Times New Roman',serif",
+            logo: `E<i>|</i>F<i>|</i>A<i>|</i>P`,
+            baseline: "L'école des nouveaux métiers<br>de la communication"
         },
         {
-            id: 'header-efap',
-            label: 'EFAP Header',
-            category: categories.EFAP,
-            prefix: 'header-efap',
-            logo: 'EFAP',
-            tagline: "L'école des nouveaux métiers<br>de la communication",
-            logoColor: '#C8102E',
-            taglineColor: '#C8102E'
+            id: 'header-brassart', label: 'BRASSART Header', category: categories.BRASSART,
+            bg: '#C7005D', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `BRASSART`,
+            baseline: "L'école des métiers<br>de la création"
         },
         {
-            id: 'header-icart',
-            label: 'ICART Header',
-            category: categories.ICART,
-            prefix: 'header-icart',
-            logo: 'ICART',
-            tagline: "Management culturel<br>& Marché de l'art",
-            logoColor: '#E35111',
-            taglineColor: '#E35111'
+            id: 'header-cread', label: 'CREAD Header', category: categories.CREAD,
+            bg: '#463A8F', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `CREAD`,
+            baseline: "L'école des métiers<br>de l'architecture intérieure"
         },
         {
-            id: 'header-efj',
-            label: 'EFJ Header',
-            category: categories.EFJ,
-            prefix: 'header-efj',
-            logo: 'EFJ',
-            tagline: "École française<br>de journalisme",
-            logoColor: '#006A71',
-            taglineColor: '#006A71'
+            id: 'header-esec', label: 'ÉSEC Header', category: categories.ESEC,
+            bg: '#000000', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `<span class="esec-box">ÉSEC</span>`,
+            baseline: "L'école des métiers<br>du cinéma et de l'audiovisuel",
+            extraCss: `.header-esec .esec-box { display:inline-block; border:2px solid #D9000D; padding:4px 16px; letter-spacing:2px; }`
         },
         {
-            id: 'header-mopa',
-            label: 'MoPA Header',
-            category: categories.MOPA,
-            prefix: 'header-mopa',
-            logo: 'MoPA',
-            tagline: "École de cinéma<br>d'animation 3D",
-            logoColor: '#FFEF4A',
-            taglineColor: '#FFEF4A'
+            id: 'header-icart', label: 'ICART Header', category: categories.ICART,
+            bg: '#E9540D', fg: '#ffffff', logoFont: "'Inter',Arial,sans-serif",
+            logo: `I<i>|</i>C<i>|</i>A<i>|</i>R<i>|</i>T`,
+            baseline: "L'école du management<br>de la culture et du marché de l'art"
         },
         {
-            id: 'header-cread',
-            label: 'CREAD Header',
-            category: categories.CREAD,
-            prefix: 'header-cread',
-            logo: 'CREAD',
-            tagline: "Architecture<br>& Décoration intérieure",
-            logoColor: '#4D408E',
-            taglineColor: '#4D408E'
+            id: 'header-ifa-paris', label: 'IFA Paris Header', category: categories.IFA,
+            bg: '#000000', fg: '#ffffff', logoFont: "'Georgia','Times New Roman',serif",
+            logo: `IFA Paris`,
+            baseline: "L'école internationale<br>des métiers de la <em>mode</em>"
         },
         {
-            id: 'header-esec',
-            label: 'ÉSEC Header',
-            category: categories.ESEC,
-            prefix: 'header-esec',
-            logo: 'ÉSEC',
-            tagline: "École des métiers<br>du cinéma",
-            logoColor: '#E30613',
-            taglineColor: '#E30613'
+            id: 'header-mopa', label: 'MoPA Header', category: categories.MOPA,
+            bg: '#FFE73E', fg: '#000000', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `MoPA`,
+            baseline: "L'école internationale<br>du cinéma d'animation"
         },
         {
-            id: 'header-3wa',
-            label: '3W Academy Header',
-            category: categories['3WA'],
-            prefix: 'header-3wa',
-            logo: '3W Academy',
-            tagline: "Code, cybersécurité<br>& intelligence artificielle",
-            logoColor: '#E30613',
-            taglineColor: '#E30613'
+            id: 'header-ecole-bleue', label: 'École Bleue Header', category: categories.BLEUE,
+            bg: '#000041', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `<span class="bleue-logo">ECOLE<br>BLEUE</span>`,
+            baseline: "Architecture intérieure<br>et métiers du design",
+            extraCss: `.header-ecole-bleue .bleue-logo { display:inline-block; line-height:0.95; letter-spacing:1px; }`
         },
         {
-            id: 'header-ifa',
-            label: 'IFA Paris Header',
-            category: categories.IFA,
-            prefix: 'header-ifa',
-            logo: 'IFA Paris',
-            tagline: "Mode & Marketing<br>de la Mode",
-            logoColor: '#F10091',
-            taglineColor: '#F10091'
+            id: 'header-efj', label: 'EFJ Header', category: categories.EFJ,
+            bg: '#00858C', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `E<i>|</i>F<i>|</i>J`,
+            baseline: "L'école du nouveau<br>journalisme"
         },
         {
-            id: 'header-bleue',
-            label: 'Ecole Bleue Header',
-            category: categories.BLEUE,
-            prefix: 'header-bleue',
-            logo: 'ECOLE BLEUE',
-            tagline: "Architecture intérieure<br>& Design",
-            logoColor: '#00003F',
-            taglineColor: '#00003F'
-        },
-        {
-            id: 'header-cesine',
-            label: 'Cesine Header',
-            category: categories.CESINE,
-            prefix: 'header-cesine',
-            logo: 'CESINE',
-            tagline: "Design, Periodismo<br>& Publicidad",
-            logoColor: '#547E8A',
-            taglineColor: '#547E8A'
-        },
-        {
-            id: 'header-creanavarra',
-            label: 'Creanavarra Header',
-            category: categories.CREANAVARRA,
-            prefix: 'header-creanavarra',
-            logo: 'Creanavarra',
-            tagline: "Centro Superior de Diseño<br>& Artes Visuales",
-            logoColor: '#0000D1',
-            taglineColor: '#0000D1'
-        },
-        {
-            id: 'header-miami',
-            label: 'Miami Ad School Header',
-            category: categories.MIAMI,
-            prefix: 'header-miami',
-            logo: 'Miami Ad School',
-            tagline: "Creative Agency School<br>& Portfolio Program",
-            logoColor: '#9D1F72',
-            taglineColor: '#9D1F72'
+            id: 'header-3wa', label: '3W Academy Header', category: categories['3WA'],
+            bg: '#CD1316', fg: '#ffffff', logoFont: "'Arial Black',Arial,sans-serif",
+            logo: `<span class="wa-logo"><b>3W</b><span class="wa-sub">ACADEMY</span></span>`,
+            baseline: "L'école des nouveaux métiers<br>du code et du numérique",
+            extraCss: `.header-3wa .wa-logo { display:inline-flex; flex-direction:column; line-height:1; }
+                       .header-3wa .wa-logo b { font-size:38px; }
+                       .header-3wa .wa-logo .wa-sub { font-size:14px; letter-spacing:4px; font-weight:700; }`
         }
     ];
 
@@ -137,51 +78,71 @@ export default function(editor, categories) {
             label: school.label,
             category: school.category || 'Headers',
             content: `
-                <header class="${school.prefix}">
-                    <div class="logo-group">
-                        <div class="logo-text">${school.logo}</div>
-                        <div class="header-tagline">
-                            ${school.tagline}
+                <header class="${school.id}">
+                    <div class="hdr-inner">
+                        <div class="hdr-brand">
+                            <div class="hdr-logo">${school.logo}</div>
+                            <div class="hdr-baseline">${school.baseline}</div>
                         </div>
+                        <div class="hdr-lang">FR</div>
                     </div>
                 </header>
                 <style>
-                    .${school.prefix} {
-                        background-color: #ffffff;
-                        padding: 20px 0;
+                    .${school.id} {
+                        background-color: ${school.bg};
+                        color: ${school.fg};
+                        width: 100%;
                         margin: 0;
+                        font-family: 'Inter', sans-serif;
+                    }
+                    .${school.id} .hdr-inner {
                         display: flex;
                         align-items: center;
-                        font-family: 'Inter', sans-serif;
-                        border-bottom: 1px solid #f0f0f0;
-                        width: 100%;
+                        justify-content: space-between;
+                        padding: 22px 90px;
                     }
-                    .${school.prefix} .logo-group {
+                    .${school.id} .hdr-brand {
                         display: flex;
-                        flex-direction: column;
-                        margin-left: 120px;
+                        align-items: center;
+                        gap: 32px;
                     }
-                    .${school.prefix} .logo-text {
-                        font-family: Arial Black, Arial, Helvetica, sans-serif;
+                    .${school.id} .hdr-logo {
+                        font-family: ${school.logoFont};
                         font-size: 32px;
                         font-weight: 900;
-                        color: ${school.logoColor};
+                        color: ${school.fg};
                         line-height: 1;
-                        margin-bottom: 5px;
+                        white-space: nowrap;
                     }
-                    .${school.prefix} .header-tagline {
-                        font-size: 11px;
-                        line-height: 1.2;
-                        color: ${school.taglineColor};
-                        font-weight: 500;
+                    .${school.id} .hdr-logo i {
+                        font-style: normal;
+                        font-weight: 300;
+                        opacity: 0.55;
+                        margin: 0 7px;
                     }
+                    .${school.id} .hdr-logo em { font-style: italic; }
+                    .${school.id} .hdr-baseline {
+                        font-size: 13px;
+                        line-height: 1.25;
+                        font-weight: 600;
+                        color: ${school.fg};
+                    }
+                    .${school.id} .hdr-lang {
+                        font-size: 15px;
+                        font-weight: 700;
+                        letter-spacing: 1px;
+                        color: ${school.fg};
+                        cursor: pointer;
+                    }
+                    ${school.extraCss || ''}
                     @media (max-width: 768px) {
-                        .${school.prefix} .logo-group {
-                            margin-left: 40px;
-                        }
-                        .${school.prefix} .logo-text {
-                            font-size: 24px;
-                        }
+                        .${school.id} .hdr-inner { padding: 16px 24px; }
+                        .${school.id} .hdr-brand { gap: 16px; }
+                        .${school.id} .hdr-logo { font-size: 24px; }
+                        .${school.id} .hdr-baseline { font-size: 10px; }
+                    }
+                    @media (max-width: 520px) {
+                        .${school.id} .hdr-baseline { display: none; }
                     }
                 </style>
             `,

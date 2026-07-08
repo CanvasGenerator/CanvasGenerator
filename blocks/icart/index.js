@@ -2,58 +2,9 @@ export default function(editor, categories) {
     const icartColor = '#E35111';
     const category = categories.ICART;
 
-    // ICART Header (Duplicated from Brassart style)
-    editor.BlockManager.add('header-icart', {
-        label: 'ICART Header',
-        category: category,
-        content: `
-            <header class="header-icart">
-                <div class="logo-group">
-                    <div class="icart-logo-text">ICART</div>
-                    <div class="header-tagline">
-                        L'école du management culturel<br>& du marché de l'art
-                    </div>
-                </div>
-            </header>
-            <style>
-                .header-icart {
-                    background-color: #ffffff;
-                    padding: 20px 0;
-                    margin: 0;
-                    display: flex;
-                    align-items: center;
-                    font-family: 'Inter', sans-serif;
-                    border-bottom: 1px solid #f0f0f0;
-                    width: 100%;
-                }
-                .header-icart .logo-group {
-                    display: flex;
-                    flex-direction: column;
-                    margin-left: 120px;
-                }
-                .header-icart .icart-logo-text {
-                    font-family: Arial Black, Arial, Helvetica, sans-serif;
-                    font-size: 32px;
-                    font-weight: 900;
-                    color: ${icartColor};
-                    line-height: 1;
-                    margin-bottom: 5px;
-                }
-                .header-icart .header-tagline {
-                    font-size: 11px;
-                    line-height: 1.2;
-                    color: ${icartColor};
-                    font-weight: 500;
-                }
-                @media (max-width: 768px) {
-                    .header-icart .logo-group { margin-left: 40px; }
-                    .header-icart .icart-logo-text { font-size: 24px; }
-                }
-            </style>
-        `,
-        attributes: { class: 'gjs-fonts gjs-f-b1' }
-    });
-
+    // NB : le header ICART (header-icart) est désormais dans blocks/headers.js
+    // (reproduction fidèle de la maquette). Ce fichier ne gère que les blocs
+    // spécifiques ICART ci-dessous.
 
     // ICART Horizontal Menu
     editor.BlockManager.add('horizontal-menu-icart', {
@@ -461,78 +412,6 @@ export default function(editor, categories) {
         }
     });
 
-
-    // ICART Footer (Match EFAP style)
-    editor.BlockManager.add('footer-icart', {
-        label: 'ICART Footer',
-        category: category,
-        content: `
-            <footer class="footer-icart">
-                <div class="icart-footer-container">
-                    <div class="icart-footer-left-side">
-                        <div class="icart-brand-top-row">
-                            <div class="icart-logo-f">ICART</div>
-                            <div class="icart-tagline-f">L'école du management culturel<br>& du marché de l'art</div>
-                        </div>
-                        <div class="icart-social-bottom-row">
-                            <a href="#" class="icart-social-item"><i class="fab fa-instagram"></i></a>
-                            <a href="#" class="icart-social-item"><i class="fab fa-facebook-f"></i></a>
-                            <a href="#" class="icart-social-item"><i class="fab fa-linkedin-in"></i></a>
-                            <a href="#" class="icart-social-item"><i class="fab fa-youtube"></i></a>
-                            <a href="#" class="icart-social-item"><i class="fab fa-tiktok"></i></a>
-                        </div>
-                    </div>
-                    <div class="icart-footer-right-side">
-                        <p class="icart-legal-t">
-                            L'ICART collecte vos données afin de vous adresser de la documentation. Si vous le souhaitez, nous collectons également vos données afin de vous adresser des emails commerciaux. Pour en savoir plus sur le traitement de vos données et pour exercer vos droits, nous vous invitons à consulter la <a href="#" class="icart-legal-l">Politique de confidentialité</a>.
-                        </p>
-                    </div>
-                </div>
-                <div class="icart-back-to-top-container">
-                    <button class="icart-btt-btn"><i class="fas fa-chevron-up"></i></button>
-                </div>
-            </footer>
-            <style>
-                .footer-icart {
-                    background-color: #1a1a1a;
-                    padding: 50px 40px;
-                    color: #ffffff;
-                    font-family: 'Inter', sans-serif;
-                    position: relative;
-                }
-                .icart-footer-container {
-                    display: flex;
-                    justify-content: space-between;
-                    align-items: flex-start;
-                    max-width: 1200px;
-                    margin: 0 auto;
-                    gap: 60px;
-                }
-                .icart-footer-left-side { display: flex; flex-direction: column; }
-                .icart-brand-top-row { display: flex; align-items: center; gap: 25px; margin-bottom: 25px; }
-                .icart-logo-f { font-size: 32px; font-weight: 900; color: ${icartColor}; letter-spacing: 2px; }
-                .icart-tagline-f { font-size: 11px; line-height: 1.4; opacity: 0.9; color: #fff; }
-                .icart-social-bottom-row { display: flex; gap: 12px; }
-                .icart-social-item {
-                    width: 32px; height: 32px; display: flex; justify-content: center; align-items: center;
-                    background-color: ${icartColor}; border-radius: 50%; color: #fff; text-decoration: none; font-size: 14px;
-                }
-                .icart-footer-right-side { flex: 1; max-width: 480px; }
-                .icart-legal-t { font-size: 10px; line-height: 1.8; color: rgba(255,255,255,0.7); text-align: right; }
-                .icart-legal-l { color: #ffffff; text-decoration: underline; }
-                .icart-back-to-top-container { position: absolute; bottom: 30px; right: 30px; }
-                .icart-btt-btn {
-                    width: 44px; height: 44px; background-color: #ffffff; border: none; border-radius: 50%;
-                    cursor: pointer; display: flex; justify-content: center; align-items: center;
-                    box-shadow: 0 4px 12px rgba(0,0,0,0.4); color: #000;
-                }
-                @media (max-width: 768px) {
-                    .icart-footer-container { flex-direction: column; gap: 40px; }
-                    .icart-brand-top-row { flex-direction: column; align-items: flex-start; gap: 10px; }
-                    .icart-legal-t { text-align: left; }
-                }
-            </style>
-        `,
-        attributes: { class: 'gjs-fonts gjs-f-b1' }
-    });
+    // NB : le footer ICART (footer-icart) est désormais dans blocks/footers.js
+    // (reproduction fidèle de la maquette : fond blanc, logo noir).
 }
