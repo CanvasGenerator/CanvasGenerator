@@ -252,7 +252,27 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     if (openModal) openModal.classList.add('hidden');
 }
 
+// Un projet autosauvegardé corrompu (ou écrit par une autre version de GrapesJS)
+// fait planter l'init ("Cannot read properties of undefined (reading 'getFrames')").
+// On valide le blob avant l'init et on le purge s'il est inutilisable.
+function cleanCorruptedAutosave(storageKey) {
+    try {
+        const raw = localStorage.getItem(storageKey);
+        if (!raw) return;
+        const data = JSON.parse(raw);
+        const pages = data && data.pages;
+        const valid = Array.isArray(pages) && pages.length > 0
+            && pages.every(p => p && Array.isArray(p.frames) && p.frames.length > 0);
+        if (!valid) throw new Error('invalid project data');
+    } catch (e) {
+        console.warn(`⚠️ Autosave corrompu supprimé (${storageKey})`, e.message);
+        localStorage.removeItem(storageKey);
+    }
+}
+
 function initEditor(schoolId) {
+    const storageKey = `reetain-builder__${schoolId}__gjsProject`;
+    cleanCorruptedAutosave(storageKey);
     const editor = grapesjs.init({
         container: '#gjs',
         height: '100%',
@@ -261,7 +281,7 @@ function initEditor(schoolId) {
             type: 'local',
             autosave: true,
             stepsBeforeSave: 1,
-            key: `reetain-builder__${schoolId}__gjsProject`,
+            key: storageKey,
         },
         blockManager: { appendTo: '#blocks' },
         styleManager: { appendTo: '#styles-container' },
