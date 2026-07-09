@@ -1,42 +1,41 @@
 export default function(editor, categories) {
     const cat = categories && categories.MASTER ? categories.MASTER : 'Master Template';
 
-    /* ── Helper : crée une card Programme D éditable ── */
-    function makeCard(imgSrc, title, tags, desc) {
+    /* ── Helper : crée une carte spécialisation éditable ── */
+    function makeCard(titleHtml, tags, desc) {
         return {
-            tagName: 'div',
-            classes: ['mcd-card'],
+            tagName: 'article',
+            classes: ['spe-carte'],
             components: [
-                /* Image éditable */
-                {
-                    type: 'image',
-                    editable: true,
-                    selectable: true,
-                    attributes: { src: imgSrc, alt: title },
-                    classes: ['mcd-img']
-                },
-                /* Corps de la card (fond beige) */
+                /* Case image (grise) — droppable : on peut y glisser une image */
                 {
                     tagName: 'div',
-                    classes: ['mcd-body'],
+                    classes: ['spe-image'],
+                    droppable: true,
+                    selectable: true,
+                    components: 'Image'
+                },
+                /* Contenu */
+                {
+                    tagName: 'div',
+                    classes: ['spe-contenu'],
                     components: [
                         /* Titre éditable */
                         {
                             type: 'text',
-                            tagName: 'div',
-                            classes: ['mcd-title'],
+                            tagName: 'h3',
                             editable: true,
                             selectable: true,
-                            components: title
+                            components: titleHtml
                         },
                         /* Rangée de tags */
                         {
                             tagName: 'div',
-                            classes: ['mcd-tags'],
+                            classes: ['spe-tags'],
                             components: tags.map(t => ({
                                 type: 'text',
                                 tagName: 'span',
-                                classes: ['mcd-tag'],
+                                classes: ['spe-tag'],
                                 editable: true,
                                 selectable: true,
                                 components: t
@@ -46,7 +45,6 @@ export default function(editor, categories) {
                         {
                             type: 'text',
                             tagName: 'p',
-                            classes: ['mcd-desc'],
                             editable: true,
                             selectable: true,
                             components: desc
@@ -58,7 +56,7 @@ export default function(editor, categories) {
     }
 
     editor.BlockManager.add('master-carousel-variant-d', {
-        label: 'Carrousel Variante D (programme + tags)',
+        label: 'Carrousel Variante D (spécialisations + tags)',
         category: cat,
         attributes: { class: 'fa fa-tags' },
 
@@ -66,151 +64,137 @@ export default function(editor, categories) {
             type: 'mcd-component',
 
             styles: `
-                .mcd-section {
-                    padding: 20px;
-                    background: transparent;
-                    font-family: Arial, sans-serif;
+                .specialisations {
+                    background: #f1ede9;
+                    padding: 56px 24px 48px;
+                    font-family: 'Montserrat', Arial, Helvetica, sans-serif;
                 }
-                /* Wrapper gris très clair — uniquement autour des cartes */
-                .mcd-colored-zone {
-                    background: var(--brand-carousel, #f3f4f6);
-                    width: 100%;
+                .specialisations .section-title {
                     max-width: 1100px;
-                    margin: 0 auto;
-                    padding: 20px 20px 20px;
-                    box-sizing: border-box;
-                }
-                .mcd-viewport {
-                    overflow: hidden;
-                    width: 100%;
-                }
-                .mcd-track {
-                    display: flex;
-                    transition: transform 0.42s cubic-bezier(0.25, 0.46, 0.45, 0.94);
-                }
-
-                /* ── Card ── */
-                .mcd-card {
-                    flex: 0 0 calc(100% / 3);
-                    max-width: calc(100% / 3);
-                    box-sizing: border-box;
-                    padding: 20px;
-                    display: flex;
-                    flex-direction: column;
-                }
-                .mcd-img {
-                    width: 100%;
-                    height: 195px;
-                    object-fit: cover;
-                    display: block;
-                }
-                /* Corps beige/crème */
-                .mcd-body {
-                    flex: 1;
-                    background: #f5ede0;
-                    padding: 14px 16px 18px;
-                    display: flex;
-                    flex-direction: column;
-                    gap: 10px;
-                }
-                .mcd-title {
-                    font-size: 13px;
+                    margin: 0 auto 28px;
+                    font-size: 22px;
                     font-weight: 800;
-                    color: #111;
                     text-transform: uppercase;
-                    letter-spacing: 0.3px;
-                    line-height: 1.35;
+                    letter-spacing: .3px;
+                    color: #000;
                 }
-                /* Rangée de badges */
-                .mcd-tags {
-                    display: flex;
-                    flex-wrap: wrap;
-                    gap: 5px;
-                }
-                .mcd-tag {
-                    display: inline-block;
-                    background: var(--brand-primary, #1f2937);
-                    color: #fff;
-                    font-size: 10.5px;
-                    font-weight: 600;
-                    padding: 3px 8px;
-                    border-radius: 2px;
-                    white-space: nowrap;
-                    cursor: text;
-                }
-                .mcd-desc {
-                    font-size: 12px;
-                    color: #333;
-                    line-height: 1.6;
-                    margin: 0;
-                }
+                .specialisations .container { max-width: 1100px; margin: 0 auto; }
 
-                /* ── Navigation ── */
-                .mcd-nav {
-                    text-align: center;
-                    margin-top: 20px;
+                /* Piste scrollable horizontale (manquait dans l'extrait) */
+                .specialisations .carrousel {
+                    display: flex;
+                    gap: 22px;
+                    overflow-x: auto;
+                    scroll-behavior: smooth;
+                    padding-bottom: 6px;
+                    scrollbar-width: none;
                 }
-                .mcd-prev,
-                .mcd-next {
-                    width: 40px;
-                    height: 40px;
-                    border-radius: 50%;
-                    border: 2px solid var(--brand-primary, #555);
-                    background: #fff;
-                    cursor: pointer;
-                    font-size: 20px;
-                    color: #333;
-                    margin: 0 6px;
-                    transition: background 0.2s, color 0.2s;
-                    display: inline-flex;
+                .specialisations .carrousel::-webkit-scrollbar { display: none; }
+
+                /* ── Carte ── */
+                .spe-carte { background: #fadeb9; flex: 0 0 320px; display: flex; flex-direction: column; }
+                .spe-image {
+                    background: #c9c4bb;
+                    height: 210px;
+                    width: 100%;
+                    display: flex;
                     align-items: center;
                     justify-content: center;
+                    font-size: 12px;
+                    letter-spacing: 1px;
+                    text-transform: uppercase;
+                    color: #6a655c;
+                    overflow: hidden;
                 }
-                .mcd-prev:hover,
-                .mcd-next:hover {
-                    background: #fff;
-                    color: var(--brand-primary, #374151);
-                    border-color: #fff;
+                .spe-image img { width: 100%; height: 100%; object-fit: cover; }
+                .spe-contenu { padding: 20px 22px 26px; }
+                .spe-contenu h3 {
+                    font-size: 13.5px;
+                    font-weight: 800;
+                    text-transform: uppercase;
+                    color: #000000;
+                    line-height: 1.45;
+                    margin-bottom: 14px;
                 }
+                .spe-tags { display: flex; flex-wrap: wrap; gap: 7px; margin-bottom: 18px; }
+                .spe-tag {
+                    background: #000000;
+                    color: #ffffff;
+                    font-size: 10px;
+                    font-weight: 600;
+                    letter-spacing: .2px;
+                    padding: 4px 9px;
+                }
+                .spe-contenu p { font-size: 12.5px; color: #5f5b54; line-height: 1.6; margin: 0; }
 
-                /* ── Responsive ── */
-                @media (max-width: 768px) {
-                    .mcd-card { flex: 0 0 100%; padding: 0; }
-                    .mcd-img { height: 220px; }
+                /* ── Navigation (manquait dans l'extrait) ── */
+                .specialisations .carrousel-nav { max-width: 1100px; margin: 22px auto 0; text-align: right; }
+                .specialisations .carrousel-nav button {
+                    width: 42px;
+                    height: 42px;
+                    border-radius: 50%;
+                    border: 1.5px solid #000;
+                    background: #fff;
+                    cursor: pointer;
+                    font-size: 22px;
+                    line-height: 1;
+                    color: #000;
+                    margin-left: 8px;
+                    transition: background .2s, color .2s;
+                }
+                .specialisations .carrousel-nav button:hover { background: #000; color: #fff; }
+
+                /* Responsive */
+                @media (max-width: 860px) {
+                    .spe-carte { flex-basis: 280px; }
                 }
             `,
 
             components: [{
                 tagName: 'section',
-                classes: ['mcd-section'],
+                classes: ['specialisations'],
                 components: [
-                    // Zone colorée — uniquement autour des cartes
                     {
-                        tagName: 'div',
-                        classes: ['mcd-colored-zone'],
-                        components: [{
-                            tagName: 'div',
-                            classes: ['mcd-viewport'],
-                            components: [{
-                                tagName: 'div',
-                                classes: ['mcd-track'],
-                                components: [
-                                    makeCard('https://placehold.co/380x195/c9c9c9/333?text=Programme+1', 'COMMUNICATION &amp; MARKETING STRATÉGIQUE', ['4 campus disponibles', 'Anglais', 'Alternance possible', 'Double diplôme international'], 'Devenez un manager complet en vous appuyant sur une double compétence Communication et Marketing.'),
-                                    makeCard('https://placehold.co/380x195/a0a0c0/111?text=Programme+2', 'COMMUNICATION &amp; MANAGEMENT ÉVÉNEMENTIEL', ['7 campus disponibles', 'Alternance possible'], 'Devenez un manager complet pour une communication stratégique, riche de sens.'),
-                                    makeCard('https://placehold.co/380x195/b0b8c0/333?text=Programme+3', 'CRÉATION &amp; STRATÉGIES PUBLICITAIRES', ['7 campus disponibles', 'Alternance possible', 'Double diplôme international'], 'Devenez un créatif, porteur de sens et d\'idées, maîtrisant les dynamiques d\'un univers publicitaire en révolution.'),
-                                    makeCard('https://placehold.co/380x195/c0b8a0/333?text=Programme+4', 'RELATIONS PUBLIQUES &amp; INFLUENCE', ['5 campus disponibles', 'Alternance possible'], 'Maîtrisez les techniques de relations presse, lobbying et communication d\'influence.')
-                                ]
-                            }]
-                        }]
+                        type: 'text',
+                        tagName: 'h2',
+                        classes: ['section-title'],
+                        editable: true,
+                        selectable: true,
+                        components: 'Quels sont les spécialisations&nbsp;?'
                     },
-
-                    // Boutons en dehors de la zone colorée
                     {
                         tagName: 'div',
-                        classes: ['mcd-nav'],
+                        classes: ['container'],
                         components: [
-                            { tagName: 'button', classes: ['mcd-prev'], selectable: true, components: '&#8249;' },
-                            { tagName: 'button', classes: ['mcd-next'], selectable: true, components: '&#8250;' }
+                            {
+                                tagName: 'div',
+                                classes: ['carrousel'],
+                                components: [
+                                    makeCard(
+                                        'Communication &amp;<br>Marketing Stratégique',
+                                        ['4 campus disponibles', 'Anglais', 'Alternance possible', 'Double diplôme international'],
+                                        'Devenez un manager complet en vous appuyant sur une double compétence Communication et Marketing.'
+                                    ),
+                                    makeCard(
+                                        'Communication &amp;<br>Management Évènementiel',
+                                        ['7 campus disponibles', 'Alternance possible'],
+                                        'Devenez un manager complet pour une communication stratégique, riche de sens.'
+                                    ),
+                                    makeCard(
+                                        'Création &amp; Stratégies<br>Publicitaires',
+                                        ['7 campus disponibles', 'Alternance possible', 'Double diplôme international'],
+                                        'Devenez un créatif, porteur de sens et d&rsquo;idées, maîtrisant les dynamiques d&rsquo;un univers publicitaire en révolution.'
+                                    )
+                                ]
+                            },
+                            {
+                                tagName: 'div',
+                                classes: ['carrousel-nav'],
+                                components: [
+                                    { tagName: 'button', classes: ['spe-prev'], selectable: true, attributes: { type: 'button', 'aria-label': 'Précédent' }, components: '&lsaquo;' },
+                                    { tagName: 'button', classes: ['spe-next'], selectable: true, attributes: { type: 'button', 'aria-label': 'Suivant' }, components: '&rsaquo;' }
+                                ]
+                            }
                         ]
                     }
                 ]
@@ -218,48 +202,19 @@ export default function(editor, categories) {
         }
     });
 
-    /* ── Script slider ── */
+    /* ── Script slider (scroll horizontal) ── */
     editor.DomComponents.addType('mcd-component', {
         model: {
             defaults: {
                 'script-props': [],
                 script: function() {
-                    var el    = this;
-                    var track = el.querySelector('.mcd-track');
-                    var next  = el.querySelector('.mcd-next');
-                    var prev  = el.querySelector('.mcd-prev');
-                    var idx   = 0;
-
-                    function getVisible() {
-                        return window.innerWidth <= 768 ? 1 : 3;
-                    }
-
-                    function update() {
-                        if (!track || !track.firstElementChild) return;
-                        var vis   = getVisible();
-                        var max   = track.children.length - vis;
-                        var cardW = track.firstElementChild.offsetWidth;
-                        idx = Math.min(Math.max(idx, 0), max);
-                        track.style.transform = 'translateX(-' + (idx * cardW) + 'px)';
-                    }
-
-                    if (next) {
-                        next.addEventListener('click', function() {
-                            var vis = getVisible();
-                            idx = idx < track.children.length - vis ? idx + 1 : 0;
-                            update();
-                        });
-                    }
-                    if (prev) {
-                        prev.addEventListener('click', function() {
-                            var vis = getVisible();
-                            idx = idx > 0 ? idx - 1 : track.children.length - vis;
-                            update();
-                        });
-                    }
-
-                    window.addEventListener('resize', update);
-                    update();
+                    var el   = this;
+                    var c    = el.querySelector('.carrousel');
+                    var prev = el.querySelector('.spe-prev');
+                    var next = el.querySelector('.spe-next');
+                    if (!c) return;
+                    if (prev) prev.addEventListener('click', function() { c.scrollBy({ left: -342, behavior: 'smooth' }); });
+                    if (next) next.addEventListener('click', function() { c.scrollBy({ left: 342, behavior: 'smooth' }); });
                 }
             }
         }
