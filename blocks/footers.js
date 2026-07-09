@@ -1,67 +1,25 @@
-// Footers des écoles — reproduction fidèle des maquettes "Maquettes headers & footers".
-// Chaque footer : fond BLANC, logo NOIR + baseline (sous/à droite du nom), icônes sociales
-// (cercles noirs, glyphe blanc), puis texte légal RGPD en dessous.
-// Couleurs codées en dur (fond blanc) et volontairement NON pilotées par --brand-header.
+// Footers des écoles — style unique (maquette officielle) :
+//   fond BLANC · logo NOIR (image, avec baseline) à gauche · réseaux sociaux
+//   (cercles noirs, glyphe blanc) à droite · texte légal RGPD avec le nom de l'école.
+// Le logo utilise l'image noire baseline-noir.png de chaque école, recadrée à la
+// MÊME hauteur (LOGO_H = 54) que les headers (imgH + margin-top mesurés au pixel).
 // Les ids de blocs (footer-<id>) correspondent aux ids de schools.json.
 export default function(editor, categories) {
     const ink = '#111111';
+    const LOGO_H = 54;
+    const MOBILE_H = 38; // hauteur logo mobile (recadrage réduit)
+
     const schools = [
-        {
-            id: 'footer-efap', label: 'EFAP Footer', category: categories.EFAP,
-            logoFont: "'Georgia','Times New Roman',serif", logo: `E<i>|</i>F<i>|</i>A<i>|</i>P`,
-            baseline: "L'école des nouveaux métiers<br>de la communication", legalName: "L'EFAP"
-        },
-        {
-            id: 'footer-brassart', label: 'BRASSART Footer', category: categories.BRASSART,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `BRASSART`,
-            baseline: "L'école des métiers<br>de la création", legalName: "BRASSART"
-        },
-        {
-            id: 'footer-cread', label: 'CREAD Footer', category: categories.CREAD,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `CREAD`,
-            baseline: "L'école des métiers<br>de l'architecture intérieure", legalName: "Le CREAD"
-        },
-        {
-            id: 'footer-esec', label: 'ÉSEC Footer', category: categories.ESEC,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `<span class="esec-box">ÉSEC</span>`,
-            baseline: "L'école des métiers<br>du cinéma et de l'audiovisuel", legalName: "L'ÉSEC",
-            extraCss: `.footer-esec .esec-box { display:inline-block; border:2px solid #D9000D; padding:4px 16px; letter-spacing:2px; }`
-        },
-        {
-            id: 'footer-icart', label: 'ICART Footer', category: categories.ICART,
-            logoFont: "'Inter',Arial,sans-serif", logo: `I<i>|</i>C<i>|</i>A<i>|</i>R<i>|</i>T`,
-            baseline: "L'école du management<br>de la culture et du marché de l'art", legalName: "L'ICART"
-        },
-        {
-            id: 'footer-ifa-paris', label: 'IFA Paris Footer', category: categories.IFA,
-            logoFont: "'Georgia','Times New Roman',serif", logo: `IFA Paris`,
-            baseline: "L'école internationale<br>des métiers de la <em>mode</em>", legalName: "IFA Paris"
-        },
-        {
-            id: 'footer-mopa', label: 'MoPA Footer', category: categories.MOPA,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `MoPA`,
-            baseline: "L'école internationale<br>du cinéma d'animation", legalName: "MoPA"
-        },
-        {
-            id: 'footer-ecole-bleue', label: 'École Bleue Footer', category: categories.BLEUE,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `<span class="bleue-logo">ECOLE<br>BLEUE</span>`,
-            baseline: "Architecture intérieure<br>et métiers du design", legalName: "L'École Bleue",
-            extraCss: `.footer-ecole-bleue .bleue-logo { display:inline-block; line-height:0.95; letter-spacing:1px; }`
-        },
-        {
-            id: 'footer-efj', label: 'EFJ Footer', category: categories.EFJ,
-            logoFont: "'Arial Black',Arial,sans-serif", logo: `E<i>|</i>F<i>|</i>J`,
-            baseline: "L'école du nouveau<br>journalisme", legalName: "L'EFJ"
-        },
-        {
-            id: 'footer-3wa', label: '3W Academy Footer', category: categories['3WA'],
-            logoFont: "'Arial Black',Arial,sans-serif",
-            logo: `<span class="wa-logo"><b>3W</b><span class="wa-sub">ACADEMY</span></span>`,
-            baseline: "L'école des nouveaux métiers<br>du code et du numérique", legalName: "La 3W Academy",
-            extraCss: `.footer-3wa .wa-logo { display:inline-flex; flex-direction:column; line-height:1; }
-                       .footer-3wa .wa-logo b { font-size:34px; }
-                       .footer-3wa .wa-logo .wa-sub { font-size:13px; letter-spacing:4px; font-weight:700; }`
-        }
+        { id: 'footer-efap',        label: 'EFAP Footer',        category: categories.EFAP,      A: 'assets/efap',        imgH: 88,  mt: -14, legalName: "L'EFAP" },
+        { id: 'footer-brassart',    label: 'BRASSART Footer',    category: categories.BRASSART,  A: 'assets/brassart',    imgH: 106, mt: -21, legalName: "BRASSART" },
+        { id: 'footer-cread',       label: 'CREAD Footer',       category: categories.CREAD,     A: 'assets/cread',       imgH: 70,  mt: -8,  legalName: "Le CREAD" },
+        { id: 'footer-esec',        label: 'ÉSEC Footer',        category: categories.ESEC,      A: 'assets/esec',        imgH: 67,  mt: -7,  legalName: "L'ÉSEC" },
+        { id: 'footer-icart',       label: 'ICART Footer',       category: categories.ICART,     A: 'assets/icart',       imgH: 85,  mt: -12, legalName: "L'ICART" },
+        { id: 'footer-ifa-paris',   label: 'IFA Paris Footer',   category: categories.IFA,       A: 'assets/ifa',         imgH: 71,  mt: -2,  legalName: "IFA Paris" },
+        { id: 'footer-mopa',        label: 'MoPA Footer',        category: categories.MOPA,      A: 'assets/mopa',        imgH: 77,  mt: -12, legalName: "MoPA" },
+        { id: 'footer-ecole-bleue', label: 'École Bleue Footer', category: categories.BLEUE,     A: 'assets/ecole-bleue', imgH: 65,  mt: -6,  legalName: "L'École Bleue" },
+        { id: 'footer-efj',         label: 'EFJ Footer',         category: categories.EFJ,       A: 'assets/efj',         imgH: 81,  mt: -13, legalName: "L'EFJ" },
+        { id: 'footer-3wa',         label: '3W Academy Footer',  category: categories['3WA'],    A: 'assets/3wa',         imgH: 65,  mt: -6,  legalName: "La 3W Academy" }
     ];
 
     // Icônes sociales : cercles noirs, glyphe blanc (identique aux maquettes).
@@ -82,8 +40,7 @@ export default function(editor, categories) {
                     <div class="ft-inner">
                         <div class="ft-top">
                             <div class="ft-brand">
-                                <div class="ft-logo">${school.logo}</div>
-                                <div class="ft-baseline">${school.baseline}</div>
+                                <span class="ft-logo"><img class="ft-logo-img" src="${school.A}/baseline-noir.png" alt="${school.label}"></span>
                             </div>
                             <div class="ft-social-row">
                                 ${socialIcons}
@@ -106,24 +63,15 @@ export default function(editor, categories) {
                     .${school.id} .ft-inner { max-width: 1240px; margin: 0 auto; }
                     .${school.id} .ft-top {
                         display: flex;
-                        align-items: flex-start;
+                        align-items: center;
                         justify-content: space-between;
                         gap: 40px;
                         flex-wrap: wrap;
                         margin-bottom: 40px;
                     }
-                    .${school.id} .ft-brand { display: flex; align-items: center; gap: 28px; }
-                    .${school.id} .ft-logo {
-                        font-family: ${school.logoFont};
-                        font-size: 30px;
-                        font-weight: 900;
-                        color: ${ink};
-                        line-height: 1;
-                        white-space: nowrap;
-                    }
-                    .${school.id} .ft-logo i { font-style: normal; font-weight: 300; opacity: 0.55; margin: 0 6px; }
-                    .${school.id} .ft-logo em { font-style: italic; }
-                    .${school.id} .ft-baseline { font-size: 12px; line-height: 1.3; font-weight: 600; color: ${ink}; }
+                    .${school.id} .ft-brand { display: flex; align-items: center; }
+                    .${school.id} .ft-logo { display: inline-block; height: ${LOGO_H}px; overflow: hidden; }
+                    .${school.id} .ft-logo-img { height: ${school.imgH}px; width: auto; display: block; margin-top: ${school.mt}px; }
                     .${school.id} .ft-social-row { display: flex; gap: 14px; }
                     .${school.id} .ft-social {
                         width: 40px; height: 40px; border-radius: 50%;
@@ -137,11 +85,12 @@ export default function(editor, categories) {
                         border-top: 1px solid #ededed; padding-top: 26px;
                     }
                     .${school.id} .ft-legal-link { color: ${ink}; text-decoration: underline; }
-                    ${school.extraCss || ''}
                     @media (max-width: 768px) {
                         .${school.id} { padding: 40px 24px 30px 24px; }
-                        .${school.id} .ft-top { flex-direction: column; gap: 24px; }
-                        .${school.id} .ft-brand { flex-direction: column; align-items: flex-start; gap: 12px; }
+                        .${school.id} .ft-top { flex-direction: column; align-items: flex-start; gap: 24px; }
+                        .${school.id} .ft-logo { height: auto; overflow: visible; max-width: 100%; }
+                        .${school.id} .ft-logo-img { height: ${Math.round(school.imgH * MOBILE_H / LOGO_H)}px; width: auto; max-width: 100%; margin-top: 0; }
+                        .${school.id} .ft-social-row { flex-wrap: wrap; }
                     }
                 </style>
             `,
