@@ -1,10 +1,14 @@
 import header from './Header/index.js';
 import footer from './Footer/index.js';
 import hero from './Hero/index.js';
+import heroCta from './HeroCta/index.js';
+import ctaFinal from './CtaFinal/index.js';
 import navigation from './Navigation/index.js';
 import programme from './Programme/index.js';
 import chiffresCles from './ChiffresCles/index.js';
 import troisRaisons from './TroisRaisons/index.js';
+import troisRaisonsVideo from './TroisRaisonsVideo/index.js';
+import alternance from './Alternance/index.js';
 import carousel from './Carousel/index.js';
 import carouselVariantA from './CarouselVariantA/index.js';
 import carouselVariantB from './CarouselVariantB/index.js';
@@ -25,6 +29,9 @@ import carousel3Campus from './Carousel3Campus/index.js';
 import blocsTexte3Col from './BlocsTexte3Col/index.js';
 import chiffresCles2 from './ChiffresCles2/index.js';
 import nosCampus from './NosCampus/index.js';
+import carouselCursus from './CarouselCursus/index.js';
+import nousContacter from './NousContacter/index.js';
+import programmeBackground from './ProgrammeBackground/index.js';
 // Formulaires EDH (6 formulaires)
 import formBrochure from '../../blocks/forms/form-brochure/index.js';
 import formJpo from '../../blocks/forms/form-jpo/index.js';
@@ -43,10 +50,14 @@ export function registerMasterComponents(editor) {
         header,
         footer,
         hero,
+        heroCta,
+        ctaFinal,
         navigation,
         programme,
         chiffresCles,
         troisRaisons,
+        troisRaisonsVideo,
+        alternance,
         carousel,
         carouselVariantA,
         carouselVariantB,
@@ -67,6 +78,9 @@ export function registerMasterComponents(editor) {
         blocsTexte3Col,
         chiffresCles2,
         nosCampus,
+        carouselCursus,
+        nousContacter,
+        programmeBackground,
         formBrochure,
         formJpo,
         formAtelier,
