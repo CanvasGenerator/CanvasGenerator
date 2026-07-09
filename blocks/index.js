@@ -4,6 +4,10 @@ import { registerMasterComponents } from '../MasterTemplate/Components/index.js'
 // Remplace les anciens fichiers dédiés header-efap/footer-efap/header-brassart/footer-brassart
 // et les blocs header-icart/footer-icart de icart/index.js.
 import headers from './headers.js';
+import brassartHeaders from './brassart-headers/index.js';
+import efapHeaders from './efap-headers/index.js';
+import wa3Headers from './3wa-headers/index.js';
+import moreSchoolHeaders from './more-school-headers/index.js';
 import footers from './footers.js';
 import hero from './hero/index.js';
 import twoColumn from './two-column/index.js';
@@ -51,7 +55,7 @@ export function registerBlocks(editor) {
 
     // Load all blocks
     [
-        headers, footers, icartBlocks,
+        headers, brassartHeaders, efapHeaders, wa3Headers, moreSchoolHeaders, footers, icartBlocks,
         hero, twoColumn, richText, ctaButton, imageCaption, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
