@@ -1,0 +1,8 @@
+services:
+  canvas:
+    build: .
+    container_name: canvas_generator
+    env_file: .env          # ton .env reste sur le serveur, jamais commité
+    ports:
+      - "127.0.0.1:5020:8000"   # exposé uniquement en local → Nginx fait le pont
+    restart: unless-stopped

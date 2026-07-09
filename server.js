@@ -17,6 +17,7 @@ const {
     resolvePublicPageByHostPath
 } = require('./api/content');
 const { handleSchoolsRoute } = require('./api/schools');
+const cronHandler = require('./api/cron');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
@@ -50,6 +51,9 @@ const mimeTypes = {
     '.gif': 'image/gif',
     '.svg': 'image/svg+xml',
     '.json': 'application/json',
+    '.woff': 'font/woff',
+    '.woff2': 'font/woff2',
+    '.ttf': 'font/ttf',
 };
 
 function escapeHtml(value = '') {
@@ -524,6 +528,19 @@ http.createServer(async (req, res) => {
                 : {};
             const handled = await handleSchoolsRoute(req, createApiResponse(res), pathname);
             if (handled) return;
+        } catch (e) {
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+            return res.end(JSON.stringify({ error: e.message }));
+        }
+    }
+
+    // ── API: Cron job ─────────────────────────────────────────────
+    if (pathname === '/api/cron') {
+        try {
+            req.body = ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)
+                ? await readJsonBody(req)
+                : {};
+            return await cronHandler(req, createApiResponse(res));
         } catch (e) {
             res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: e.message }));
