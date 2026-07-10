@@ -114,10 +114,10 @@ module.exports = async function handler(req, res) {
                 console.log(`✅ [CRON] Job ${job.id} (${job.action}) traité avec succès.`);
 
             } catch (err) {
-                console.error(`❌ [CRON] Échec du job ${job.id}:`, err.message);
+                console.error(`❌ [CRON] Échec du job ${job.id}:`, err.message, err.payload || '');
                 await supabaseRequest('PATCH', `/integration_jobs?id=eq.${job.id}`, {
                     status:     'failed',
-                    metadata:   { ...(job.metadata || {}), error: err.message },
+                    metadata:   { ...(job.metadata || {}), error: err.message, errorDetail: err.payload || null },
                     updated_at: new Date().toISOString()
                 });
                 results.push({ id: job.id, action: job.action, status: 'failed', error: err.message });
