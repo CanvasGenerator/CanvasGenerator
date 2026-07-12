@@ -22,6 +22,7 @@ const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding } = require('./js/fonts');
+const { translateHtml } = require('./lib/translate');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -2044,42 +2045,12 @@ Règles importantes :
         req.on('end', async () => {
             try {
                 const { html, targetLang } = JSON.parse(body);
-                
-                // Call Gemini Translation API
-                const apiKey = process.env.GEMINI_API_KEY_TRANSLATION;
-                if (!apiKey) {
-                    throw new Error("Clé API de traduction manquante dans l'environnement (GEMINI_API_KEY_TRANSLATION).");
-                }
 
-                const prompt = `Translate the following HTML content faithfully into ${targetLang}. 
-Preserve all HTML structure, tags, attributes, classes, and IDs exactly as they are. 
-Only translate the human-readable text content. 
-Adapt the formulations naturally to the target language (do not do a word-for-word translation). 
-Return ONLY the raw translated HTML code without any markdown formatting, backticks, or extra text.
-
-HTML to translate:
-${html}`;
-
-                console.log(`\n🤖 [AI] Demande de traduction vers ${targetLang}...`);
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.2 }
-                    })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.error?.message || 'Erreur API Gemini');
-                }
-
-                const data = await response.json();
-                let translatedHtml = data.candidates?.[0]?.content?.parts?.[0]?.text || html;
-                
-                // Nettoyage des backticks si l'IA en ajoute quand même
-                translatedHtml = translatedHtml.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim();
+                // Traduction TEXTE-SEULEMENT : on n'envoie jamais le markup au LLM,
+                // on ne traduit que les chaînes de texte puis on les réinjecte dans
+                // le HTML intact → classes/styles préservés, design non cassé.
+                console.log(`\n🤖 [AI] Demande de traduction vers ${targetLang} (texte seul, markup préservé)...`);
+                const translatedHtml = await translateHtml(html, targetLang, process.env.GEMINI_API_KEY_TRANSLATION);
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ html: translatedHtml }));

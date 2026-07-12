@@ -2,6 +2,7 @@ const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAs
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
+const { translateHtml } = require('../lib/translate');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -427,13 +428,9 @@ module.exports = async function handler(req, res) {
 
         if (req.method === 'POST' && pathname === '/api/ai/translate') {
             const { html, targetLang } = req.body || {};
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY_TRANSLATION}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: `Translate to ${targetLang}. Preserve HTML. Text: ${html}` }] }] })
-            });
-            const data = await response.json();
-            let text = data.candidates?.[0]?.content?.parts?.[0]?.text || html;
-            return res.status(200).json({ html: text.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim() });
+            // Traduction texte-seulement (markup préservé) — voir lib/translate.js
+            const translated = await translateHtml(html, targetLang, process.env.GEMINI_API_KEY_TRANSLATION);
+            return res.status(200).json({ html: translated });
         }
 
         // ==========================================
