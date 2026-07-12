@@ -3,6 +3,8 @@ const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
+const cheerio = require('cheerio');
+const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -854,7 +856,8 @@ module.exports = async function handler(req, res) {
                         // Injecter les CSS vars de l'école en tête du CSS
                         const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
                         // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        // NB : header/footer NON repeints — remplacés par les vrais blocs école.
+                        const headerOverrides = `\n/* Déclinaison couleur carousel → ${schoolId} */\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
@@ -868,6 +871,30 @@ module.exports = async function handler(req, res) {
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+
+                        // Remplacer header/footer master par les VRAIS blocs école (baseline).
+                        const schoolHeaderHtml = renderSchoolHeaderHtml(schoolId);
+                        const schoolFooterHtml = renderSchoolFooterHtml(schoolId);
+                        if (schoolHeaderHtml || schoolFooterHtml) {
+                            try {
+                                const $d = cheerio.load(schoolHtml, null, false);
+                                if (schoolHeaderHtml && $d('.mh-header').length) $d('.mh-header').first().replaceWith(schoolHeaderHtml);
+                                if (schoolFooterHtml && $d('.mf-footer').length) $d('.mf-footer').first().replaceWith(schoolFooterHtml);
+                                schoolHtml = $d.html();
+                            } catch (e) { console.warn('Swap header/footer HTML échoué:', e.message); }
+                        }
+                        // Remplace les nœuds header/footer dans le project_data (GrapesJS parse la chaîne).
+                        const swapHeaderFooter = (components) => {
+                            if (!Array.isArray(components)) return components;
+                            return components.map(node => {
+                                if (!node || typeof node !== 'object') return node;
+                                const classes = (node.classes || []).map(c => typeof c === 'string' ? c : (c && c.name));
+                                if (schoolHeaderHtml && classes.includes('mh-header')) return { tagName: 'div', components: schoolHeaderHtml };
+                                if (schoolFooterHtml && classes.includes('mf-footer')) return { tagName: 'div', components: schoolFooterHtml };
+                                if (node.components) node.components = swapHeaderFooter(node.components);
+                                return node;
+                            });
+                        };
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -1005,7 +1032,7 @@ module.exports = async function handler(req, res) {
                                         ...frame,
                                         component: frame.component ? {
                                             ...frame.component,
-                                            components: patchComponentTree(frame.component.components, colorVars)
+                                            components: swapHeaderFooter(patchComponentTree(frame.component.components, colorVars))
                                         } : frame.component
                                     }))
                                 }));
