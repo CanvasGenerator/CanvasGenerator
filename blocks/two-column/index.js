@@ -22,7 +22,7 @@ export default function(editor, categories) {
             <style>
                 .two-col-section {
                     padding: 80px 0;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .col-container {
@@ -38,12 +38,12 @@ export default function(editor, categories) {
                     font-size: 32px;
                     font-weight: 700;
                     margin-bottom: 20px;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .col-desc {
                     font-size: 18px;
                     line-height: 1.6;
-                    color: #555;
+                    color: var(--brand-muted, #6b7280);
                     margin-bottom: 30px;
                 }
                 .col-list {
@@ -55,7 +55,7 @@ export default function(editor, categories) {
                     position: relative;
                     margin-bottom: 12px;
                     font-weight: 500;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .col-list li::before {
                     content: '✓';

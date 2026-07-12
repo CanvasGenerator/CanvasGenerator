@@ -89,7 +89,7 @@ export default function(editor, categories) {
                     flex: 1;
                     max-width: 80px;
                     height: 2px;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                 }
                 .tr-list {
                     list-style: none;
@@ -126,7 +126,7 @@ export default function(editor, categories) {
                 }
                 .tr-highlight {
                     font-weight: 800;
-                    background-color: #1a1a1a;
+                    background-color: var(--brand-text, #1a1a1a);
                     color: #fff;
                     padding: 2px 6px;
                     border-radius: 3px;

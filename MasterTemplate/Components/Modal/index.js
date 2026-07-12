@@ -27,7 +27,7 @@ export default function(editor, categories) {
                 }
                 .master-modal-btn {
                     padding: 12px 24px;
-                    background: var(--brand-primary, #2563eb);
+                    background: var(--brand-button-bg, var(--brand-primary, #2563eb));
                     color: white;
                     border: none;
                     border-radius: 6px;

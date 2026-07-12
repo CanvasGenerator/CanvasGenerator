@@ -87,7 +87,7 @@ export default function (editor, categories) {
                 }
 
                 .card-inner {
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     border: 2px solid;
                     height: 100%;
                     display: flex;
@@ -117,7 +117,7 @@ export default function (editor, categories) {
                 .card-body {
                     padding: 16px;
                     font-size: 13.5px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     line-height: 1.6;
                     flex: 1;
                 }
@@ -154,13 +154,13 @@ export default function (editor, categories) {
                     height: 44px;
                     border-radius: 50%;
                     border: 2px solid #555;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                     font-size: 22px;
                     line-height: 1;
                     margin: 0 5px;
                     transition: background 0.2s, color 0.2s;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                 }
 
                 .carrous-prev:hover,

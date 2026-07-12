@@ -24,7 +24,7 @@ export default function(editor, categories) {
     text-align: center;
     padding: 64px 24px 56px;
     font-family: var(--brand-font, 'Inter', sans-serif);
-    color: #1a1a1a;
+    color: var(--brand-text, #1a1a1a);
   }
   .hero h1 {
     font-size: 42px;
@@ -43,7 +43,7 @@ export default function(editor, categories) {
   .hero .btn-cta {
     display: inline-block;
     background: #000000;
-    color: #ffffff;
+    color: var(--brand-button-text, #ffffff);
     font-family: inherit;
     font-size: 14px;
     font-weight: 600;

@@ -112,7 +112,7 @@ export default function(editor, categories) {
                     font-size: 13.5px;
                     font-weight: 800;
                     text-transform: uppercase;
-                    color: #000000;
+                    color: var(--brand-text, #1a1a1a);
                     line-height: 1.45;
                     margin-bottom: 14px;
                 }
@@ -134,7 +134,7 @@ export default function(editor, categories) {
                     height: 42px;
                     border-radius: 50%;
                     border: 1.5px solid #000;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                     font-size: 22px;
                     line-height: 1;

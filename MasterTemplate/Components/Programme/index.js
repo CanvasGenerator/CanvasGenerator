@@ -43,7 +43,7 @@ export default function(editor, categories) {
 <style>
   .mp-section {
     padding: 48px 24px;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mp-inner { max-width: 760px; margin: 0 auto; }

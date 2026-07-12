@@ -47,13 +47,13 @@ export default function(editor, categories) {
                     display: flex; flex-direction: column;
                     border-radius: 8px; overflow: hidden;
                     box-shadow: 0 4px 20px rgba(0,0,0,0.10);
-                    border: 1px solid #e2e8f0;
+                    border: 1px solid var(--brand-border, #e5e7eb);
                 }
                 .mc2b-img { width: 100%; height: 260px; object-fit: cover; display: block; }
 
                 /* Corps — fond blanc légèrement teinté */
                 .mc2b-body {
-                    padding: 22px 24px 26px; background: #fff;
+                    padding: 22px 24px 26px; background: var(--brand-background, #ffffff);
                     display: flex; flex-direction: column; gap: 12px;
                     border-top: 4px solid var(--brand-primary, #374151);
                 }
@@ -67,25 +67,25 @@ export default function(editor, categories) {
                 }
                 .mc2b-quote {
                     font-size: 14px; font-weight: 600; font-style: italic;
-                    color: #2d3748; line-height: 1.75; margin: 0;
+                    color: var(--brand-text, #1a1a1a); line-height: 1.75; margin: 0;
                 }
-                .mc2b-sep { border: none; border-top: 1px solid #e2e8f0; margin: 0; }
+                .mc2b-sep { border: none; border-top: 1px solid var(--brand-border, #e5e7eb); margin: 0; }
                 .mc2b-profile { display: flex; align-items: center; gap: 14px; }
                 .mc2b-logo {
                     height: 48px; width: 48px; object-fit: contain;
                     flex-shrink: 0; border-radius: 50%;
-                    border: 2px solid #e2e8f0; background: #f7f9fc; padding: 3px;
+                    border: 2px solid var(--brand-border, #e5e7eb); background: var(--brand-surface, #f5f5f5); padding: 3px;
                 }
                 .mc2b-info { display: flex; flex-direction: column; gap: 3px; }
                 .mc2b-name { font-size: 13.5px; font-weight: 800; color: var(--brand-primary, #374151); display: block; }
-                .mc2b-role { font-size: 12px; color: #718096; display: block; }
+                .mc2b-role { font-size: 12px; color: var(--brand-muted, #6b7280); display: block; }
 
                 /* Navigation */
                 .mc2b-nav { text-align: center; margin-top: 24px; }
                 .mc2b-prev, .mc2b-next {
                     width: 42px; height: 42px; border-radius: 50%;
                     border: 2px solid var(--brand-primary, #374151);
-                    background: #fff; cursor: pointer; font-size: 22px;
+                    background: var(--brand-background, #ffffff); cursor: pointer; font-size: 22px;
                     color: var(--brand-primary, #374151); margin: 0 6px;
                     transition: background 0.2s, color 0.2s;
                     display: inline-flex; align-items: center; justify-content: center;

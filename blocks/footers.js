@@ -53,7 +53,7 @@ export default function(editor, categories) {
                 </footer>
                 <style>
                     .${school.id} {
-                        background-color: #ffffff;
+                        background-color: var(--brand-background, #ffffff);
                         color: ${ink};
                         width: 100%;
                         margin: 0;
@@ -81,7 +81,7 @@ export default function(editor, categories) {
                     }
                     .${school.id} .ft-social svg { width: 19px; height: 19px; fill: #ffffff; }
                     .${school.id} .ft-legal {
-                        font-size: 13px; line-height: 1.7; color: #333333; margin: 0;
+                        font-size: 13px; line-height: 1.7; color: var(--brand-text, #1a1a1a); margin: 0;
                         border-top: 1px solid #ededed; padding-top: 26px;
                     }
                     .${school.id} .ft-legal-link { color: ${ink}; text-decoration: underline; }

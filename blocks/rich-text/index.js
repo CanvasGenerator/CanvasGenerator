@@ -19,7 +19,7 @@ export default function(editor, categories) {
                     font-size: 24px;
                     font-weight: 700;
                     margin-bottom: 16px;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .text-p {
                     font-size: 16px;

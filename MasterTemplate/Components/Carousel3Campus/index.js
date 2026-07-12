@@ -48,7 +48,7 @@ export default function(editor, categories) {
                 .mc3c-card-header { display: flex; align-items: center; gap: 14px; margin-bottom: 10px; }
 
                 .mc3c-badge {
-                    background: var(--brand-primary, #c0175e);
+                    background-color: var(--brand-accent, var(--brand-primary, #c0175e));
                     color: #fff; font-size: 13px; font-weight: 700;
                     padding: 4px 12px; border-radius: 2px;
                     white-space: nowrap; flex-shrink: 0;
@@ -56,7 +56,7 @@ export default function(editor, categories) {
 
                 .mc3c-line { flex: 1; border: none; border-top: 1px solid #999; margin: 0; }
 
-                .mc3c-address { font-size: 13px; color: #333; margin-bottom: 14px; }
+                .mc3c-address { font-size: 13px; color: var(--brand-text, #1a1a1a); margin-bottom: 14px; }
 
                 .mc3c-media { position: relative; width: 100%; height: 280px; overflow: hidden; background: #d1d5db; }
                 .mc3c-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -72,9 +72,9 @@ export default function(editor, categories) {
 
                 .mc3c-prev, .mc3c-next {
                     width: 44px; height: 44px; border-radius: 50%;
-                    border: 2px solid var(--brand-primary, #555); background: #fff;
+                    border: 2px solid var(--brand-primary, #555); background: var(--brand-background, #ffffff);
                     cursor: pointer; font-size: 22px; margin: 0 5px;
-                    color: #333; display: inline-flex; align-items: center; justify-content: center;
+                    color: var(--brand-text, #1a1a1a); display: inline-flex; align-items: center; justify-content: center;
                     transition: background 0.2s, color 0.2s, border-color 0.2s;
                 }
                 .mc3c-prev:hover, .mc3c-next:hover { background: var(--brand-primary, #333); color: #fff; border-color: var(--brand-primary, #333); }

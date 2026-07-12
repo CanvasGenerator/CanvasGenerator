@@ -33,7 +33,7 @@ export default function(editor, categories) {
 </section>
 <style>
   .mbt3-section {
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     padding: 56px 24px;
     font-family: var(--brand-font, 'Inter', sans-serif);
   }

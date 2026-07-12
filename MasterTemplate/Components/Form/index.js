@@ -87,28 +87,28 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .mf2-section { padding: 48px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
+  .mf2-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .mf2-inner { max-width: 640px; margin: 0 auto; }
   .mf2-campus-box { background: #e8edf2; padding: 18px 20px; margin-bottom: 24px; border-radius: 2px; position: relative; }
   .mf2-campus-box::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 10px solid #e8edf2; }
-  .mf2-label { display: block; font-size: 13px; font-weight: 600; color: #333; margin-bottom: 6px; }
+  .mf2-label { display: block; font-size: 13px; font-weight: 600; color: var(--brand-text, #1a1a1a); margin-bottom: 6px; }
   .mf2-req { color: #c0175e; margin-left: 2px; }
   .mf2-select-wrap { position: relative; }
-  .mf2-select { width: 100%; padding: 10px 36px 10px 12px; border: 1px solid #ccc; background: #fff; font-size: 14px; appearance: none; -webkit-appearance: none; border-radius: 2px; color: #333; }
-  .mf2-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 18px; color: #555; }
+  .mf2-select { width: 100%; padding: 10px 36px 10px 12px; border: 1px solid var(--brand-border, #e5e7eb); background: var(--brand-background, #ffffff); font-size: 14px; appearance: none; -webkit-appearance: none; border-radius: 2px; color: var(--brand-text, #1a1a1a); }
+  .mf2-chevron { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); pointer-events: none; font-size: 18px; color: var(--brand-muted, #6b7280); }
   .mf2-date-info { margin-top: 14px; }
-  .mf2-date-line { margin: 0 0 4px; font-size: 13px; color: #333; }
-  .mf2-date-addr { margin: 0; font-size: 12px; color: #555; }
+  .mf2-date-line { margin: 0 0 4px; font-size: 13px; color: var(--brand-text, #1a1a1a); }
+  .mf2-date-addr { margin: 0; font-size: 12px; color: var(--brand-muted, #6b7280); }
   .mf2-fields { display: flex; flex-direction: column; gap: 16px; }
   .mf2-row { }
   .mf2-full { }
   .mf2-half { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  .mf2-input { width: 100%; padding: 10px 12px; border: 1px solid #ccc; font-size: 14px; border-radius: 2px; box-sizing: border-box; }
+  .mf2-input { width: 100%; padding: 10px 12px; border: 1px solid var(--brand-border, #e5e7eb); font-size: 14px; border-radius: 2px; box-sizing: border-box; }
   .mf2-input:focus, .mf2-select:focus { outline: none; border-color: var(--brand-primary, #1f2937); }
-  .mf2-checkbox-label { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: #555; line-height: 1.4; cursor: pointer; }
+  .mf2-checkbox-label { display: flex; gap: 10px; align-items: flex-start; font-size: 13px; color: var(--brand-muted, #6b7280); line-height: 1.4; cursor: pointer; }
   .mf2-checkbox { flex-shrink: 0; margin-top: 2px; }
-  .mf2-link { color: var(--brand-primary, #1f2937); }
-  .mf2-submit { width: 100%; padding: 14px; background: var(--brand-primary, #111); color: #fff; border: none; font-size: 15px; font-weight: 700; cursor: pointer; border-radius: 2px; letter-spacing: 0.5px; transition: opacity 0.2s; }
+  .mf2-link { color: var(--brand-link, var(--brand-primary, #1f2937)); }
+  .mf2-submit { width: 100%; padding: 14px; background: var(--brand-button-bg, var(--brand-primary, #111)); color: var(--brand-button-text, #ffffff); border: none; font-size: 15px; font-weight: 700; cursor: pointer; border-radius: 2px; letter-spacing: 0.5px; transition: opacity 0.2s; }
   .mf2-submit:hover { opacity: 0.85; }
   @media(max-width:768px) { .mf2-half { grid-template-columns: 1fr; } }
 </style>

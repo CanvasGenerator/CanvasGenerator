@@ -203,7 +203,7 @@ export default function (editor, categories) {
 
                 .ctm-section {
                     padding: 60px 20px;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                 }
 
                 /* Titre bloc */
@@ -216,7 +216,7 @@ export default function (editor, categories) {
                     margin: 0;
                     font-size: 28px;
                     font-weight: 700;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                     text-transform: uppercase;
                     letter-spacing: 0.5px;
                 }
@@ -271,7 +271,7 @@ export default function (editor, categories) {
                     margin: 0;
                     font-size: 15px;
                     line-height: 1.65;
-                    color: #222;
+                    color: var(--brand-text, #1a1a1a);
                     font-style: normal;
                 }
 
@@ -298,12 +298,12 @@ export default function (editor, categories) {
                 .ctm-name {
                     font-weight: 700;
                     font-size: 13px;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                 }
 
                 .ctm-role {
                     font-size: 12px;
-                    color: #555;
+                    color: var(--brand-muted, #6b7280);
                 }
 
                 /* Navigation */
@@ -318,13 +318,13 @@ export default function (editor, categories) {
                     height: 44px;
                     border-radius: 50%;
                     border: 2px solid #555;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                     font-size: 22px;
                     line-height: 1;
                     margin: 0 5px;
                     transition: background 0.2s, color 0.2s, border-color 0.2s;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
@@ -334,7 +334,7 @@ export default function (editor, categories) {
                 .ctm-next:hover {
                     background: #333;
                     color: #fff;
-                    border-color: #333;
+                    border-color: var(--brand-text, #1a1a1a);
                 }
 
                 /* Mobile */

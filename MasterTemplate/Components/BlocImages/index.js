@@ -31,7 +31,7 @@ export default function(editor, categories) {
   .bloc-images, .bloc-images * { box-sizing: border-box; }
   .bloc-images {
     font-family: var(--brand-font, 'Inter', sans-serif);
-    background: #ffffff;
+    background: var(--brand-background, #ffffff);
     padding: 60px 20px;
   }
   .bloc-images .bi-container { max-width: 900px; margin: 0 auto; text-align: center; }
@@ -39,14 +39,14 @@ export default function(editor, categories) {
     font-size: 28px;
     font-weight: 800;
     letter-spacing: 0.5px;
-    color: #111;
+    color: var(--brand-text, #1a1a1a);
     margin-bottom: 12px;
   }
   .bloc-images .bi-subtitle {
     font-size: 13px;
     font-weight: 700;
     letter-spacing: 1px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     margin-bottom: 40px;
   }
   .bloc-images .logo-grid {

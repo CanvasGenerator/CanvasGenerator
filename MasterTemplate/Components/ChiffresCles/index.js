@@ -33,7 +33,7 @@ export default function(editor, categories) {
 <style>
   .mcc-section {
     padding: 40px 24px;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mcc-card {
