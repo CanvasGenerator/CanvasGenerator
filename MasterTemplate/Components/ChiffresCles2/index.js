@@ -39,9 +39,9 @@ export default function(editor, categories) {
 </section>
 <style>
   .mcc2-section {
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     padding: 32px 24px;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mcc2-inner {
     max-width: 900px;

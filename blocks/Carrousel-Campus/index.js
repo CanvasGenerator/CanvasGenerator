@@ -92,7 +92,7 @@ export default function (editor, categories) {
 
                 .ccp-section {
                     padding: 60px 20px;
-                    background: #f5f5f5;
+                    background: var(--brand-surface, #f5f5f5);
                 }
 
                 .ccp-container {
@@ -146,7 +146,7 @@ export default function (editor, categories) {
                 /* Adresse */
                 .ccp-address {
                     font-size: 13px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     margin-bottom: 14px;
                 }
 
@@ -189,13 +189,13 @@ export default function (editor, categories) {
                     height: 44px;
                     border-radius: 50%;
                     border: 2px solid #555;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                     font-size: 22px;
                     line-height: 1;
                     margin: 0 5px;
                     transition: background 0.2s, color 0.2s, border-color 0.2s;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     display: inline-flex;
                     align-items: center;
                     justify-content: center;
@@ -205,7 +205,7 @@ export default function (editor, categories) {
                 .ccp-next:hover {
                     background: #333;
                     color: #fff;
-                    border-color: #333;
+                    border-color: var(--brand-text, #1a1a1a);
                 }
 
                 /* Mobile */

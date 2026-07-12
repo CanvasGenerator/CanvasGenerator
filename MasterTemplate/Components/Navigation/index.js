@@ -22,12 +22,12 @@ export default function(editor, categories) {
 </nav>
 <style>
   .mn-nav {
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     border-bottom: 3px solid var(--bande-color, #1f2937);
     position: sticky;
     top: 0;
     z-index: 200;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     box-shadow: 0 2px 8px rgba(0,0,0,0.08);
   }
   .mn-inner {

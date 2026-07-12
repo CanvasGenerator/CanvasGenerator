@@ -20,7 +20,7 @@ export default function(editor, categories) {
   .mh-header {
     background: var(--brand-header, var(--brand-primary, #1a1a1a));
     color: var(--brand-header-text, #ffffff);
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     width: 100%;
   }
   .mh-inner {

@@ -9,12 +9,12 @@ export const EDH_FORM_STYLES = `
 .edh-form-section {
     padding: 40px 20px;
     background: var(--edh-form-bg, #f8f9fa);
-    font-family: var(--edh-font, 'Inter', 'Helvetica Neue', sans-serif);
+    font-family: var(--brand-font, 'Inter', sans-serif);
 }
 .edh-form-container {
     max-width: var(--edh-form-max-width, 620px);
     margin: 0 auto;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     padding: 40px;
     border-radius: var(--edh-radius, 10px);
     box-shadow: 0 4px 24px rgba(0,0,0,0.07);
@@ -27,7 +27,7 @@ export const EDH_FORM_STYLES = `
 }
 .edh-form-subtitle {
     font-size: 14px;
-    color: #666;
+    color: var(--brand-muted, #6b7280);
     margin: 0 0 28px;
 }
 
@@ -66,7 +66,7 @@ export const EDH_FORM_STYLES = `
     font-size: 14px;
     font-family: inherit;
     background: #fafafa;
-    color: #111;
+    color: var(--brand-text, #1a1a1a);
     box-sizing: border-box;
     transition: border-color 0.2s, box-shadow 0.2s;
     appearance: none;
@@ -77,7 +77,7 @@ export const EDH_FORM_STYLES = `
     outline: none;
     border-color: var(--edh-accent, #3b82f6);
     box-shadow: 0 0 0 3px color-mix(in srgb, var(--edh-accent, #3b82f6) 15%, transparent);
-    background: #fff;
+    background: var(--brand-background, #ffffff);
 }
 .edh-field-error {
     border-color: #e11d48 !important;
@@ -136,8 +136,8 @@ export const EDH_FORM_STYLES = `
     display: none; /* shown via JS when campus is selected */
 }
 .edh-event-info.visible { display: flex; gap: 20px; }
-.edh-event-date { font-weight: 700; color: #111; }
-.edh-event-detail { color: #555; }
+.edh-event-date { font-weight: 700; color: var(--brand-text, #1a1a1a); }
+.edh-event-detail { color: var(--brand-muted, #6b7280); }
 
 /* ── RGPD section ───────────────────────────────────────────────────── */
 .edh-rgpd-wrapper {
@@ -147,7 +147,7 @@ export const EDH_FORM_STYLES = `
 }
 .edh-rgpd-intro {
     font-size: 12px;
-    color: #555;
+    color: var(--brand-muted, #6b7280);
     margin: 0 0 12px;
     line-height: 1.6;
 }
@@ -162,7 +162,7 @@ export const EDH_FORM_STYLES = `
     align-items: center;
     gap: 8px;
     font-size: 13px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     cursor: pointer;
     user-select: none;
 }
@@ -180,7 +180,7 @@ export const EDH_FORM_STYLES = `
     margin-top: 24px;
     padding: 14px;
     background: var(--edh-btn-color, #111);
-    color: #fff;
+    color: var(--brand-button-text, #ffffff);
     border: none;
     border-radius: 6px;
     font-size: 15px;

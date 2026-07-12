@@ -142,9 +142,9 @@ export default function (editor, categories) {
     align-items: flex-start;
     padding: 40px 16px;
     background: transparent;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     font-size: 13px;
-    color: #222;
+    color: var(--brand-text, #1a1a1a);
 }
 
 .wbc-card {
@@ -198,7 +198,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -206,7 +206,7 @@ export default function (editor, categories) {
     transition: border-color 0.2s;
 }
 
-.wbc-type-select:focus { border-color: #666; }
+.wbc-type-select:focus { border-color: var(--brand-muted, #6b7280); }
 
 .wbc-event-card {
     display: none;
@@ -227,7 +227,7 @@ export default function (editor, categories) {
 .wbc-event-right {
     flex: 0 0 auto;
     font-size: 12px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.5;
     text-align: right;
 }
@@ -256,7 +256,7 @@ export default function (editor, categories) {
 
 .wbc-event-detail {
     font-size: 12px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.6;
     padding-left: 0;
     white-space: pre-line;
@@ -304,7 +304,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -312,7 +312,7 @@ export default function (editor, categories) {
 }
 
 .wbc-input:focus,
-.wbc-select:focus { border-color: #666; }
+.wbc-select:focus { border-color: var(--brand-muted, #6b7280); }
 
 .wbc-input.err,
 .wbc-select.err { border-color: #c00; }
@@ -359,7 +359,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -378,7 +378,7 @@ export default function (editor, categories) {
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -400,7 +400,7 @@ export default function (editor, categories) {
 
 .wbc-rgpd-label {
     font-size: 11px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.5;
     cursor: pointer;
 }
@@ -416,7 +416,7 @@ export default function (editor, categories) {
     align-items: center;
     padding: 14px;
     background: #000;
-    color: #fff;
+    color: var(--brand-button-text, #ffffff);
     border: none;
     border-radius: 0;
     font-size: 14px;
@@ -445,12 +445,12 @@ export default function (editor, categories) {
     font-size: 16px;
     font-weight: 700;
     margin: 0 0 8px;
-    color: #111;
+    color: var(--brand-text, #1a1a1a);
 }
 
 .wbc-success p {
     font-size: 13px;
-    color: #555;
+    color: var(--brand-muted, #6b7280);
     margin: 0;
 }
 

@@ -29,7 +29,7 @@ export default function(editor, categories) {
                 }
                 .bande-brand-text {
                     color: #ffffff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     font-size: 24px;
                     font-weight: 700;
                     letter-spacing: 0.05em;

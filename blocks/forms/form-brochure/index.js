@@ -114,14 +114,14 @@ export default function (editor, categories) {
 .brf-section {
     display: flex; justify-content: center; align-items: flex-start;
     padding: 40px 16px; background: transparent;
-    font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #222;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: var(--brand-text, #1a1a1a);
 }
 .brf-card {
     width: 100%; max-width: 520px;
     background: #F4EFEA; padding: 24px 24px 28px;
 }
-.brf-title { font-size: 18px; font-weight: 700; color: #111; margin: 0 0 4px; }
-.brf-subtitle { font-size: 12px; color: #666; margin: 0 0 18px; }
+.brf-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
+.brf-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .brf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .brf-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .brf-row .brf-field { margin-bottom: 0; }
@@ -139,10 +139,10 @@ export default function (editor, categories) {
 .brf-input, .brf-select {
     width: 100%; height: 46px; padding: 0 14px;
     border: 1px solid #000; border-radius: 0;
-    font-size: 13px; font-family: inherit; color: #000; background: #fff;
+    font-size: 13px; font-family: inherit; color: #000; background: var(--brand-background, #ffffff);
     outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
 }
-.brf-input:focus, .brf-select:focus { border-color: #666; }
+.brf-input:focus, .brf-select:focus { border-color: var(--brand-muted, #6b7280); }
 .brf-input.err, .brf-select.err { border-color: #c00; }
 .brf-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
 .brf-err-msg.show { display: block; }
@@ -186,7 +186,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -198,7 +198,7 @@ export default function (editor, categories) {
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -216,12 +216,12 @@ export default function (editor, categories) {
     font-weight: 700;
     color: #000;
 }
-.brf-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
+.brf-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
 .brf-rgpd-label a { color: #000; text-decoration: underline; }
 .brf-submit-wrap { display: block; width: 100%; }
 .brf-submit {
     width: 100%; display: inline-flex; justify-content: center; align-items: center;
-    padding: 14px; background: #000; color: #fff;
+    padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
     border: none; border-radius: 0; font-size: 14px; font-weight: 700;
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
@@ -231,10 +231,10 @@ export default function (editor, categories) {
 .brf-submit:hover { background: #222; }
 .brf-submit:disabled { background: #888; cursor: not-allowed; }
 .brf-success { display: none; padding: 16px 0 8px; text-align: center; }
-.brf-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: #111; }
-.brf-success p { font-size: 13px; color: #555; margin: 0 0 16px; }
+.brf-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
+.brf-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0 0 16px; }
 .brf-brochure-list { text-align: left; background: #fafafa; border-radius: 4px; padding: 14px 18px; }
-.brf-brochure-list p { font-size: 12px; font-weight: 700; margin: 0 0 8px; color: #333; }
+.brf-brochure-list p { font-size: 12px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
 .brf-brochure-list ul { margin: 0; padding-left: 16px; }
 .brf-brochure-list li { margin-bottom: 6px; }
 .brf-brochure-list a { font-size: 13px; color: #1a56db; }

@@ -99,14 +99,14 @@ export default function (editor, categories) {
 .cnd-section {
     display: flex; justify-content: center; align-items: flex-start;
     padding: 40px 16px; background: transparent;
-    font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #222;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: var(--brand-text, #1a1a1a);
 }
 .cnd-card {
     width: 100%; max-width: 520px;
     background: #F4EFEA; padding: 24px 24px 28px;
 }
-.cnd-title { font-size: 18px; font-weight: 700; color: #111; margin: 0 0 4px; }
-.cnd-subtitle { font-size: 12px; color: #666; margin: 0 0 18px; }
+.cnd-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
+.cnd-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .cnd-row .cnd-field { margin-bottom: 0; }
@@ -124,10 +124,10 @@ export default function (editor, categories) {
 .cnd-input, .cnd-select {
     width: 100%; height: 46px; padding: 0 14px;
     border: 1px solid #000; border-radius: 0;
-    font-size: 13px; font-family: inherit; color: #000; background: #fff;
+    font-size: 13px; font-family: inherit; color: #000; background: var(--brand-background, #ffffff);
     outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
 }
-.cnd-input:focus, .cnd-select:focus { border-color: #666; }
+.cnd-input:focus, .cnd-select:focus { border-color: var(--brand-muted, #6b7280); }
 .cnd-input.err, .cnd-select.err { border-color: #c00; }
 .cnd-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
 .cnd-err-msg.show { display: block; }
@@ -171,7 +171,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -183,7 +183,7 @@ export default function (editor, categories) {
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -201,12 +201,12 @@ export default function (editor, categories) {
     font-weight: 700;
     color: #000;
 }
-.cnd-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
+.cnd-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
 .cnd-rgpd-label a { color: #000; text-decoration: underline; }
 .cnd-submit-wrap { display: block; width: 100%; }
 .cnd-submit {
     width: 100%; display: inline-flex; justify-content: center; align-items: center;
-    padding: 14px; background: #000; color: #fff;
+    padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
     border: none; border-radius: 0; font-size: 14px; font-weight: 700;
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
@@ -216,8 +216,8 @@ export default function (editor, categories) {
 .cnd-submit:hover { background: #222; }
 .cnd-submit:disabled { background: #888; cursor: not-allowed; }
 .cnd-success { display: none; padding: 16px 0 8px; text-align: center; }
-.cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: #111; }
-.cnd-success p { font-size: 13px; color: #555; margin: 0; }
+.cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
+.cnd-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0; }
 .cnd-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;

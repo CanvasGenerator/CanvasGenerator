@@ -31,8 +31,8 @@ export default function(editor, categories) {
             <style>
                 .keyfig-section {
                     padding: 32px 20px;
-                    background-color: #ffffff;
-                    font-family: 'Inter', sans-serif;
+                    background-color: var(--brand-background, #ffffff);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .keyfig-card {
                     max-width: 920px;
@@ -87,7 +87,7 @@ export default function(editor, categories) {
                     min-width: 220px;
                     padding: 14px 24px;
                     background-color: var(--bande-color, #a8174f);
-                    color: #ffffff;
+                    color: var(--brand-button-text, #ffffff);
                     text-decoration: none;
                     text-align: center;
                     font-size: 13px;

@@ -12,7 +12,7 @@ export default function(editor, categories) {
                     margin: 40px auto;
                     max-width: 900px;
                     padding: 0 20px;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .caption-img {
                     width: 100%;
@@ -22,7 +22,7 @@ export default function(editor, categories) {
                 .img-caption {
                     text-align: center;
                     font-size: 14px;
-                    color: #777;
+                    color: var(--brand-muted, #6b7280);
                     font-style: italic;
                 }
             </style>

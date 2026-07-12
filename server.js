@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl } = require('./lib/sfmc');
 const {
     handleContentRoute,
     syncLegacyProjectToContent,
@@ -21,6 +21,10 @@ const cronHandler = require('./api/cron');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
+const { normalizeBranding, fontStackById } = require('./js/fonts');
+const { translateHtml } = require('./lib/translate');
+const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
+const { ensureFormAnchors, extractFormIds } = require('./lib/api-shared');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -273,7 +277,9 @@ function normalizeSchool(school = {}) {
                 ? school.default_blocks
                 : [],
         customHeadCode: school.customHeadCode || school.custom_head_code || '',
-        customBodyCode: school.customBodyCode || school.custom_body_code || ''
+        customBodyCode: school.customBodyCode || school.custom_body_code || '',
+        // Branding : font par défaut + fonts disponibles + palette 16 rôles.
+        branding: normalizeBranding(school.branding, school)
     };
 }
 
@@ -311,6 +317,7 @@ function schoolDbPayload(school) {
         default_blocks: school.defaultBlocks,
         custom_head_code: school.customHeadCode || '',
         custom_body_code: school.customBodyCode || '',
+        branding: school.branding || null,
         deleted: school.deleted
     };
 }
@@ -347,6 +354,15 @@ async function readSchoolsForApi() {
                 if (dbRaw.show_faq != null)         dbOverrides.showFaq        = dbRaw.show_faq;
                 dbOverrides.deleted = Boolean(dbRaw.deleted);
                 const base = merged.get(id) || { id };
+                // Branding : la valeur éditée en DB prime ; sinon on dérive des
+                // couleurs de schools.json (couleurs = source de vérité).
+                const colorContext = {
+                    color:          base.color          || dbRaw.color,
+                    secondaryColor: base.secondaryColor || dbRaw.secondary_color,
+                };
+                dbOverrides.branding = dbRaw.branding
+                    ? normalizeBranding(dbRaw.branding, colorContext)
+                    : normalizeBranding(base.branding, colorContext);
                 merged.set(id, { ...base, ...dbOverrides });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -678,13 +694,20 @@ http.createServer(async (req, res) => {
                 console.log('🔴 is_original_language:', data.is_original_language);
                 console.log('🔴 page_group_id:', data.page_group_id);
 
-                const { projectName, html, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
+                const { projectName, html: submittedHtml, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
                 if (!projectName) {
                     res.writeHead(400);
                     return res.end('Project name is required');
+                }
+
+                // Ancrer les formulaires (id stable pour les liens #form_id)
+                const { html, formIds } = ensureFormAnchors(submittedHtml);
+                if (properties) {
+                    properties.rawHtml = html;
+                    properties.formIds = formIds;
                 }
 
                 // Code marketing personnalisé (école + page)
@@ -873,10 +896,14 @@ http.createServer(async (req, res) => {
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
                 await applyCustomMarketingCode(projectName, mergedProperties);
-                const baseHtml = mergedProperties.rawHtml || extractBodyContent(project.html || '') || '';
+                const anchoredBody = ensureFormAnchors(
+                    mergedProperties.rawHtml || extractBodyContent(project.html || '') || ''
+                );
+                mergedProperties.rawHtml = anchoredBody.html;
+                mergedProperties.formIds = anchoredBody.formIds;
                 const freshHtml = buildStoredHtml({
                     projectName,
-                    html: baseHtml,
+                    html: anchoredBody.html,
                     css: project.css || '',
                     properties: mergedProperties
                 });
@@ -1125,6 +1152,9 @@ http.createServer(async (req, res) => {
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
                             .replace(/LOGO_ECOLE/g, schoolLogo);
 
+                        const branding = normalizeBranding(school.branding, school);
+                        const schoolFont = fontStackById(branding.defaultFont);
+
                         // Patcher les balises <style> inline dans le HTML body
                         const colorVarsForHtml = { colorHeader, primary, secondary, colorCarousel };
                         schoolHtml = schoolHtml.replace(
@@ -1134,10 +1164,30 @@ http.createServer(async (req, res) => {
                         );
 
                         // Injecter les CSS vars de l'école en tête du CSS
-                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
-                        // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
-                        const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
+                        const colors = branding.colors;
+                        const colorsVarsArray = Object.entries(colors).map(([key, val]) => `--brand-${key.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${val};`);
+                        const schoolVars = `:root { --brand-font: ${schoolFont}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; ${colorsVarsArray.join(' ')} }\n`;
+
+                        // Règles d'override complètes pour TOUS les composants master
+                        // Ecrase toutes les couleurs hardcodées (#E9A036, #bd2bf3, etc.) via !important
+                        // NB : header & footer NE sont PAS repeints ici — ils sont
+                        // remplacés par les vrais blocs école (auto-stylés, maquette figée).
+                        const brandOverrides = `
+/* DÉCLINAISON ÉCOLE : ${schoolId} */
+.mc2a-section,.mc2b-section,.mc2c-section,.mcva-section,.mcd-colored-zone,.mc3c-section,.mce-section,.mcb-gray-zone,.mtr-content-col,.mhc-cta-section,.mcf-section{background-color:${colorCarousel}!important;background:${colorCarousel}!important;}
+.mc1-section,.mc1b-section,.mbc-section,.mbt-section,.mnc-section,.mns-section,.mna-section,.mnb-section,.malt-section,.mta-section,.mtr-section,.mbi-section{background-color:${colors.background}!important;}
+.mta-step,.mta-steps-grid,.mta-pane{background-color:${colors.surface}!important;background:${colors.surface}!important;}
+.mta-badge,.mtr-keyword,.mc-badge,.mbadge,.mhc-badge,.mcf-badge,.mnc-badge{background-color:${colors.secondary}!important;background:${colors.secondary}!important;color:${colors.buttonText}!important;}
+.mta-tab-hd,.mta-mob-tab{background-color:${colors.primary}!important;background:${colors.primary}!important;}
+.mta-tab-hd[data-tab="1"],.mta-mob-tab[data-tab="1"]{background-color:${colors.secondary}!important;background:${colors.secondary}!important;}
+.mta-tab-hd[data-tab="2"],.mta-mob-tab[data-tab="2"]{background-color:${colors.accent}!important;background:${colors.accent}!important;}
+.mta-tab-hd.mta-active,.mta-mob-tab.mta-active{background-color:${colors.background}!important;background:${colors.background}!important;}
+.mc-cta-btn,.mc-btn,.mhc-btn,.mcf-btn,.mnc-btn,.mct-btn,.mbc-btn,.mns-btn,.form-submit,[class*="-cta-btn"],[class*="-btn-primary"]{background-color:${colors.buttonBackground}!important;background:${colors.buttonBackground}!important;color:${colors.buttonText}!important;border-color:${colors.buttonBackground}!important;}
+.mc-cta-btn:hover,.mc-btn:hover,.mhc-btn:hover,.mcf-btn:hover,.mnc-btn:hover,.mct-btn:hover,.mbc-btn:hover,.mns-btn:hover,.form-submit:hover,[class*="-cta-btn"]:hover,[class*="-btn-primary"]:hover{background-color:${colors.buttonHover}!important;background:${colors.buttonHover}!important;border-color:${colors.buttonHover}!important;}
+a.mf-link,a[class*="-link"]{color:${colors.link}!important;}
+a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
+`;
+                        const schoolCss = schoolVars + patchCssString(masterCss, colorVarsForHtml) + brandOverrides;
 
                         // Construire les propriétés du projet décliné
                         const newProjectName = `school-${schoolId}__${displayName}__FR`;
@@ -1149,6 +1199,19 @@ http.createServer(async (req, res) => {
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+
+                        // Remplacer header/footer générique du master par les VRAIS
+                        // header (baseline) + footer de l'école (logos PNG maquette).
+                        const schoolHeaderHtml = renderSchoolHeaderHtml(schoolId);
+                        const schoolFooterHtml = renderSchoolFooterHtml(schoolId);
+                        if (schoolHeaderHtml || schoolFooterHtml) {
+                            try {
+                                const $d = cheerio.load(schoolHtml, null, false);
+                                if (schoolHeaderHtml && $d('.mh-header').length) $d('.mh-header').first().replaceWith(schoolHeaderHtml);
+                                if (schoolFooterHtml && $d('.mf-footer').length) $d('.mf-footer').first().replaceWith(schoolFooterHtml);
+                                schoolHtml = $d.html();
+                            } catch (e) { console.warn('Swap header/footer HTML échoué:', e.message); }
+                        }
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -1195,9 +1258,79 @@ http.createServer(async (req, res) => {
                         try {
                             finalProjectData = JSON.parse(projectDataStr);
 
+                            // 2.5 Correction des logos SVG dans le projectData
+                            if (Array.isArray(finalProjectData.pages)) {
+                                const fixSvgNodes = (components) => {
+                                    if (!Array.isArray(components)) return;
+                                    components.forEach(c => {
+                                        if (c.type === 'textnode' && c.content && c.content.trim().startsWith('<svg')) {
+                                            delete c.type;
+                                            c.components = c.content;
+                                            delete c.content;
+                                        }
+                                        if (c.components) fixSvgNodes(c.components);
+                                    });
+                                };
+
+                                // Remplace les nœuds header/footer master par les vrais
+                                // blocs école. GrapesJS parse la chaîne HTML assignée à
+                                // .components au chargement (même mécanisme que fixSvgNodes).
+                                const swapHeaderFooter = (components) => {
+                                    if (!Array.isArray(components)) return components;
+                                    return components.map(node => {
+                                        if (!node || typeof node !== 'object') return node;
+                                        const classes = (node.classes || []).map(c => typeof c === 'string' ? c : (c && c.name));
+                                        if (schoolHeaderHtml && classes.includes('mh-header')) return { tagName: 'div', components: schoolHeaderHtml };
+                                        if (schoolFooterHtml && classes.includes('mf-footer')) return { tagName: 'div', components: schoolFooterHtml };
+                                        if (node.components) node.components = swapHeaderFooter(node.components);
+                                        return node;
+                                    });
+                                };
+
+                                finalProjectData.pages.forEach(page => {
+                                    if (!page.frames) return;
+                                    page.frames.forEach(frame => {
+                                        if (frame.component && Array.isArray(frame.component.components)) {
+                                            fixSvgNodes(frame.component.components);
+                                            frame.component.components = swapHeaderFooter(frame.component.components);
+                                        }
+                                    });
+                                });
+
+                            const styleObj = {
+                                '--brand-font':          schoolFont,
+                                     '--brand-primary-rgb':   rgb,
+                                     '--brand-header':        colorHeader,
+                                     '--brand-header-text':   headerText,
+                                     '--brand-carousel':      colorCarousel,
+                                     '--brand-primary':       colors.primary,
+                                     '--brand-secondary':     colors.secondary,
+                                     '--brand-accent':        colors.accent,
+                                     '--brand-background':    colors.background,
+                                     '--brand-surface':       colors.surface,
+                                     '--brand-text':          colors.text,
+                                     '--brand-muted':         colors.mutedText,
+                                     '--brand-border':        colors.border,
+                                     '--brand-button-background': colors.buttonBackground,
+                                     '--brand-button-hover':  colors.buttonHover,
+                                     '--brand-button-text':   colors.buttonText,
+                                     '--brand-link':          colors.link,
+                                     '--brand-link-hover':    colors.linkHover
+                                 };
+
+                                 // Injecter les variables dans project_data styles (écrase les anciennes :root)
+                                 if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
+                                 finalProjectData.styles = finalProjectData.styles.filter(r => {
+                                     const sel = r.selectors || [];
+                                     const selAdd = r.selectorsAdd || '';
+                                     return !((Array.isArray(sel) && sel.length === 1 && sel[0] === ':root') || selAdd === ':root');
+                                 });
+                                 finalProjectData.styles.unshift({ selectors: [':root'], style: styleObj });
+                            }
+
                             // Couleurs hardcodées des composants master qui doivent devenir brand-primary
                             const MASTER_PRIMARY_COLORS = new Set([
-                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000'
+                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000', '#f3f4f6', '#ffffff'
                             ]);
                             // Propriétés CSS où la couleur doit être celle de l'école (pas le texte)
                             const BRAND_BG_PROPS = new Set([
@@ -1271,24 +1404,6 @@ http.createServer(async (req, res) => {
                                     return changed ? { ...rule, style: newStyle } : rule;
                                 });
                             }
-
-                            // 4. Ajouter/mettre à jour la règle :root avec les vraies couleurs
-                            if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
-                            finalProjectData.styles = finalProjectData.styles.filter(r => {
-                                const sel = r.selectors;
-                                return !(Array.isArray(sel) && sel.length === 1 && sel[0] === ':root');
-                            });
-                            finalProjectData.styles.unshift({
-                                selectors: [':root'],
-                                style: {
-                                    '--brand-primary':      primary,
-                                    '--brand-secondary':    secondary,
-                                    '--brand-primary-rgb':  rgb,
-                                    '--brand-header':       colorHeader,
-                                    '--brand-header-text':  headerText,
-                                    '--brand-carousel':     colorCarousel
-                                }
-                            });
 
                             // 5. Patcher les balises <style> inline dans l'arbre des composants GrapesJS
                             // (project_data.pages[].frames[].component) — ces styles ne sont PAS
@@ -1423,6 +1538,25 @@ http.createServer(async (req, res) => {
             } catch (e) {
                 console.error('❌ Error creating Form Asset:', e.message);
                 res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Upload Image to SFMC ─────────────────────────────────────
+    if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { name, schoolId, dataUrl } = JSON.parse(body);
+                const result = await uploadImageFromDataUrl({ name, schoolId, dataUrl });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error uploading image to SFMC:', e.message);
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message, payload: e.payload }));
             }
         });
@@ -1843,7 +1977,7 @@ Règles importantes :
             console.log(`\n📋 CMS: Récupération de toutes les pages`);
             const result = await supabaseRequest(
                 'GET',
-                '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
+                '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
             );
             
             if (!Array.isArray(result)) {
@@ -1870,6 +2004,7 @@ Règles importantes :
                     lang,
                     seoTitle:             props.seoTitle || '',
                     seoDescription:       props.seoDescription || '',
+                    formIds:              Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:           p.created_at,
                     source:               'legacy',
                     status:               props.status || 'draft',
@@ -1902,7 +2037,10 @@ Règles importantes :
                         : existing?.is_original_language,
                     page_group_id: page.page_group_id !== undefined
                         ? page.page_group_id
-                        : existing?.page_group_id
+                        : existing?.page_group_id,
+                    formIds: Array.isArray(page.formIds)
+                        ? page.formIds
+                        : (existing?.formIds || [])
                 });
             });
             const pages = [...merged.values()].sort((a, b) => {
@@ -2031,42 +2169,12 @@ Règles importantes :
         req.on('end', async () => {
             try {
                 const { html, targetLang } = JSON.parse(body);
-                
-                // Call Gemini Translation API
-                const apiKey = process.env.GEMINI_API_KEY_TRANSLATION;
-                if (!apiKey) {
-                    throw new Error("Clé API de traduction manquante dans l'environnement (GEMINI_API_KEY_TRANSLATION).");
-                }
 
-                const prompt = `Translate the following HTML content faithfully into ${targetLang}. 
-Preserve all HTML structure, tags, attributes, classes, and IDs exactly as they are. 
-Only translate the human-readable text content. 
-Adapt the formulations naturally to the target language (do not do a word-for-word translation). 
-Return ONLY the raw translated HTML code without any markdown formatting, backticks, or extra text.
-
-HTML to translate:
-${html}`;
-
-                console.log(`\n🤖 [AI] Demande de traduction vers ${targetLang}...`);
-                const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        contents: [{ parts: [{ text: prompt }] }],
-                        generationConfig: { temperature: 0.2 }
-                    })
-                });
-
-                if (!response.ok) {
-                    const err = await response.json();
-                    throw new Error(err.error?.message || 'Erreur API Gemini');
-                }
-
-                const data = await response.json();
-                let translatedHtml = data.candidates?.[0]?.content?.parts?.[0]?.text || html;
-                
-                // Nettoyage des backticks si l'IA en ajoute quand même
-                translatedHtml = translatedHtml.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim();
+                // Traduction TEXTE-SEULEMENT : on n'envoie jamais le markup au LLM,
+                // on ne traduit que les chaînes de texte puis on les réinjecte dans
+                // le HTML intact → classes/styles préservés, design non cassé.
+                console.log(`\n🤖 [AI] Demande de traduction vers ${targetLang} (texte seul, markup préservé)...`);
+                const translatedHtml = await translateHtml(html, targetLang, process.env.GEMINI_API_KEY_TRANSLATION);
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ html: translatedHtml }));
@@ -2125,7 +2233,7 @@ ${html}`;
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(html);
+            res.end(ensureFormAnchors(html).html);
         } catch (e) {
             console.log(`❌ Erreur Preview:`, e.message);
             res.writeHead(500);
@@ -2164,7 +2272,7 @@ ${html}`;
                 }
 
                 res.writeHead(200, { 'Content-Type': 'text/html' });
-                return res.end(resolved.version.html);
+                return res.end(ensureFormAnchors(resolved.version.html).html);
             }
         } catch (e) {
             if (!isMissingContentSchemaError(e)) {

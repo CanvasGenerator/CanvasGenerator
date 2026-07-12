@@ -31,12 +31,12 @@ export default function(editor, categories) {
                 .form-section {
                     padding: 50px 0;
                     background-color: #f9f9f9;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .form-container {
                     max-width: 500px;
                     margin: 0 auto;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     padding: 40px;
                     border-radius: 8px;
                     box-shadow: 0 4px 15px rgba(0,0,0,0.05);
@@ -46,7 +46,7 @@ export default function(editor, categories) {
                     font-weight: 700;
                     margin-bottom: 24px;
                     text-align: center;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .sfmc-form {
                     display: flex;
@@ -65,7 +65,7 @@ export default function(editor, categories) {
                 }
                 .form-input {
                     padding: 12px 16px;
-                    border: 1px solid #ddd;
+                    border: 1px solid var(--brand-border, #e5e7eb);
                     border-radius: 6px;
                     font-size: 14px;
                     font-family: inherit;
@@ -84,13 +84,13 @@ export default function(editor, categories) {
                 .checkbox-group label {
                     font-weight: 400;
                     font-size: 12px;
-                    color: #666;
+                    color: var(--brand-muted, #6b7280);
                     cursor: pointer;
                 }
                 .form-submit-btn {
                     margin-top: 16px;
                     background-color: var(--brand-secondary, #3b82f6);
-                    color: #fff;
+                    color: var(--brand-button-text, #ffffff);
                     border: none;
                     padding: 14px;
                     border-radius: 6px;

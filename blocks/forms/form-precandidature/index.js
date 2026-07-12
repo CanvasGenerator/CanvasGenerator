@@ -120,14 +120,14 @@ export default function (editor, categories) {
 .pc-section {
     display: flex; justify-content: center; align-items: flex-start;
     padding: 40px 16px; background: transparent;
-    font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #222;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: var(--brand-text, #1a1a1a);
 }
 .pc-card {
     width: 100%; max-width: 520px;
     background: #F4EFEA; padding: 24px 24px 28px;
 }
-.pc-title { font-size: 18px; font-weight: 700; color: #111; margin: 0 0 4px; }
-.pc-subtitle { font-size: 12px; color: #666; margin: 0 0 18px; }
+.pc-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
+.pc-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .pc-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
 .pc-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .pc-row .pc-field { margin-bottom: 0; }
@@ -144,10 +144,10 @@ export default function (editor, categories) {
 .pc-input, .pc-select {
     width: 100%; height: 46px; padding: 0 14px;
     border: 1px solid #000; border-radius: 0;
-    font-size: 13px; font-family: inherit; color: #000; background: #fff;
+    font-size: 13px; font-family: inherit; color: #000; background: var(--brand-background, #ffffff);
     outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
 }
-.pc-input:focus, .pc-select:focus { border-color: #666; }
+.pc-input:focus, .pc-select:focus { border-color: var(--brand-muted, #6b7280); }
 .pc-input.err, .pc-select.err { border-color: #c00; }
 .pc-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
 .pc-err-msg.show { display: block; }
@@ -191,7 +191,7 @@ export default function (editor, categories) {
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -204,7 +204,7 @@ export default function (editor, categories) {
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -222,12 +222,12 @@ export default function (editor, categories) {
     font-weight: 700;
     color: #000;
 }
-.pc-rgpd-label { font-size: 11px; color: #333; line-height: 1.5; cursor: pointer; }
+.pc-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
 .pc-rgpd-label a { color: #000; text-decoration: underline; }
 .pc-submit-wrap { display: block; width: 100%; }
 .pc-submit {
     width: 100%; display: inline-flex; justify-content: center; align-items: center;
-    padding: 14px; background: #000; color: #fff;
+    padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
     border: none; border-radius: 0; font-size: 14px; font-weight: 700;
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
@@ -237,8 +237,8 @@ export default function (editor, categories) {
 .pc-submit:hover { background: #222; }
 .pc-submit:disabled { background: #888; cursor: not-allowed; }
 .pc-success { display: none; text-align: center; padding: 20px 0 8px; }
-.pc-success h3 { font-size: 16px; font-weight: 700; color: #111; margin: 0 0 8px; }
-.pc-success p { font-size: 13px; color: #555; margin: 0; }
+.pc-success h3 { font-size: 16px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 8px; }
+.pc-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0; }
 .pc-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;

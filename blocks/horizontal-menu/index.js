@@ -41,12 +41,12 @@ export default function(editor, categories) {
                     display: none;
                 }
                 .hm-nav-bar {
-                    background-color: #ffffff;
+                    background-color: var(--brand-background, #ffffff);
                     border-bottom: 1px solid #eaeaea;
                     position: sticky;
                     top: 0;
                     z-index: 999;
-                    font-family: 'Inter', Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .hm-scroll-container {
                     width: 100%;
@@ -73,7 +73,7 @@ export default function(editor, categories) {
                     flex-shrink: 0;
                 }
                 .hm-nav-item {
-                    color: #000000;
+                    color: var(--brand-text, #1a1a1a);
                     text-decoration: none;
                     font-size: 11px;
                     font-weight: 800;

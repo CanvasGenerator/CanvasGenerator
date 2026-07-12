@@ -23,27 +23,27 @@ export default function(editor, categories) {
     background: #fbdeba;
     text-align: center;
     padding: 52px 24px 60px;
-    font-family: 'Montserrat', Arial, Helvetica, sans-serif;
-    color: #1a1a1a;
+    font-family: var(--brand-font, 'Inter', sans-serif);
+    color: var(--brand-text, #1a1a1a);
   }
   .cta-final h2 {
     font-size: 32px;
     font-weight: 800;
     text-transform: uppercase;
-    color: #000000;
+    color: var(--brand-text, #1a1a1a);
     letter-spacing: .5px;
     margin: 0;
   }
   .cta-final p {
     font-size: 13.5px;
     font-weight: 700;
-    color: #000000;
+    color: var(--brand-text, #1a1a1a);
     margin: 18px 0 30px;
   }
   .cta-final .btn-cta-final {
     display: inline-block;
     background: #000000;
-    color: #ffffff;
+    color: var(--brand-button-text, #ffffff);
     font-family: inherit;
     font-size: 13px;
     font-weight: 600;

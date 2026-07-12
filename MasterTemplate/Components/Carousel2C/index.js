@@ -42,7 +42,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2c-component',
             styles: `
-                .mc2c-section { padding: 0; background: var(--brand-carousel, #f7f9fc); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
+                .mc2c-section { padding: 0; background: var(--brand-carousel, #f7f9fc); font-family: var(--brand-font, 'Inter', sans-serif); max-width: 1100px; margin: 0 auto; }
                 .mc2c-viewport { max-width: 820px; margin: 0 auto; overflow: hidden; }
                 .mc2c-track { display: flex; transition: transform 0.42s ease; }
 
@@ -52,7 +52,7 @@ export default function(editor, categories) {
                     display: flex; min-height: 400px;
                     border-radius: 8px; overflow: hidden;
                     box-shadow: 0 6px 28px rgba(0,0,0,0.10);
-                    border: 1px solid #e2e8f0;
+                    border: 1px solid var(--brand-border, #e5e7eb);
                 }
 
                 /* Colonne image gauche 44% */
@@ -62,7 +62,7 @@ export default function(editor, categories) {
                 /* Colonne droite — fond blanc */
                 .mc2c-text-col {
                     flex: 1;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     padding: 36px 34px 32px;
                     display: flex; flex-direction: column;
                     justify-content: space-between; gap: 18px;
@@ -73,35 +73,35 @@ export default function(editor, categories) {
                 .mc2c-bigquote {
                     font-size: 64px; line-height: 0.8;
                     color: var(--brand-primary, #374151);
-                    font-family: Georgia, serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     opacity: 0.5;
                     margin-bottom: -12px;
                 }
                 .mc2c-quote {
                     font-size: 15px; font-weight: 600; font-style: italic;
-                    color: #2d3748; line-height: 1.78; margin: 0; flex: 1;
+                    color: var(--brand-text, #1a1a1a); line-height: 1.78; margin: 0; flex: 1;
                 }
 
                 /* Profil */
                 .mc2c-profile {
                     display: flex; align-items: center; gap: 14px;
-                    border-top: 1px solid #e2e8f0; padding-top: 18px;
+                    border-top: 1px solid var(--brand-border, #e5e7eb); padding-top: 18px;
                 }
                 .mc2c-logo {
                     height: 52px; width: 52px; object-fit: contain;
                     flex-shrink: 0; border-radius: 50%;
-                    border: 2px solid #e2e8f0; background: #f7f9fc; padding: 4px;
+                    border: 2px solid var(--brand-border, #e5e7eb); background: var(--brand-surface, #f5f5f5); padding: 4px;
                 }
                 .mc2c-info { display: flex; flex-direction: column; gap: 4px; }
                 .mc2c-name { font-size: 14px; font-weight: 800; color: var(--brand-primary, #374151); display: block; }
-                .mc2c-role { font-size: 12.5px; color: #718096; display: block; }
+                .mc2c-role { font-size: 12.5px; color: var(--brand-muted, #6b7280); display: block; }
 
                 /* Navigation */
-                .mc2c-nav { text-align: center; padding: 22px 0 28px; background: #f7f9fc; }
+                .mc2c-nav { text-align: center; padding: 22px 0 28px; background: var(--brand-surface, #f5f5f5); }
                 .mc2c-prev, .mc2c-next {
                     width: 42px; height: 42px; border-radius: 50%;
                     border: 2px solid var(--brand-primary, #374151);
-                    background: #fff; cursor: pointer; font-size: 22px;
+                    background: var(--brand-background, #ffffff); cursor: pointer; font-size: 22px;
                     color: var(--brand-primary, #374151); margin: 0 6px;
                     transition: background 0.2s, color 0.2s;
                     display: inline-flex; align-items: center; justify-content: center;

@@ -27,7 +27,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2a-component',
             styles: `
-                .mc2a-section { padding: 48px 20px; background: var(--brand-carousel, #fff); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
+                .mc2a-section { padding: 48px 20px; background: var(--brand-carousel, #fff); font-family: var(--brand-font, 'Inter', sans-serif); max-width: 1100px; margin: 0 auto; }
                 .mc2a-viewport { max-width: 560px; margin: 0 auto; overflow: hidden; }
                 .mc2a-track { display: flex; transition: transform 0.42s ease; }
 
@@ -44,7 +44,7 @@ export default function(editor, categories) {
                 /* Badge */
                 .mc2a-tag {
                     position: absolute; top: 16px; left: 16px;
-                    background: var(--brand-primary, #374151);
+                    background-color: var(--brand-accent, var(--brand-primary, #374151));
                     color: #fff;
                     font-size: 11px; font-weight: 700; text-transform: uppercase;
                     letter-spacing: 0.08em; padding: 5px 13px; border-radius: 4px;
@@ -53,16 +53,16 @@ export default function(editor, categories) {
                 /* Corps */
                 .mc2a-body {
                     padding: 24px 26px 28px;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     display: flex; flex-direction: column; gap: 10px;
                     border-top: 4px solid var(--brand-primary, #374151);
                 }
-                .mc2a-title { font-size: 20px; font-weight: 800; color: #1a1a2e; margin: 0; line-height: 1.3; }
-                .mc2a-desc { font-size: 13.5px; color: #555; line-height: 1.7; margin: 0; }
+                .mc2a-title { font-size: 20px; font-weight: 800; color: var(--brand-text, #1a1a1a); margin: 0; line-height: 1.3; }
+                .mc2a-desc { font-size: 13.5px; color: var(--brand-muted, #6b7280); line-height: 1.7; margin: 0; }
                 .mc2a-link {
                     display: inline-block; margin-top: 4px;
                     font-size: 13px; font-weight: 700;
-                    color: var(--brand-primary, #374151);
+                    color: var(--brand-link, var(--brand-primary, #374151));
                     text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
                 }
 
@@ -71,7 +71,7 @@ export default function(editor, categories) {
                 .mc2a-prev, .mc2a-next {
                     width: 42px; height: 42px; border-radius: 50%;
                     border: 2px solid var(--brand-primary, #374151);
-                    background: #fff; cursor: pointer; font-size: 22px;
+                    background: var(--brand-background, #ffffff); cursor: pointer; font-size: 22px;
                     color: var(--brand-primary, #374151); margin: 0 6px;
                     transition: background 0.2s, color 0.2s;
                     display: inline-flex; align-items: center; justify-content: center;

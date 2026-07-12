@@ -26,7 +26,7 @@ export default function(editor, categories) {
                     background-color: var(--brand-primary, #1f2937);
                     background-size: cover;
                     background-position: center;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .master-hero-overlay {
                     position: absolute;
@@ -58,8 +58,8 @@ export default function(editor, categories) {
                     justify-content: center;
                 }
                 .master-btn-primary {
-                    background-color: var(--brand-primary, #2563eb);
-                    color: #ffffff;
+                    background: var(--brand-button-bg, var(--brand-primary, #2563eb));
+                    color: var(--brand-button-text, #ffffff);
                     padding: 14px 28px;
                     border-radius: 4px;
                     text-decoration: none;
@@ -71,7 +71,7 @@ export default function(editor, categories) {
                 }
                 .master-btn-secondary {
                     background-color: transparent;
-                    color: #ffffff;
+                    color: var(--brand-button-text, #ffffff);
                     border: 2px solid #ffffff;
                     padding: 12px 28px;
                     border-radius: 4px;
@@ -80,8 +80,8 @@ export default function(editor, categories) {
                     transition: background-color 0.2s, color 0.2s;
                 }
                 .master-btn-secondary:hover {
-                    background-color: #ffffff;
-                    color: #111827;
+                    background-color: var(--brand-background, #ffffff);
+                    color: var(--brand-text, #1a1a1a);
                 }
             </style>
         `,

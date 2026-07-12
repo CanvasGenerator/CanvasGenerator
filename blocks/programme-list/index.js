@@ -20,8 +20,8 @@ export default function(editor, categories) {
             <style>
                 .programme-section {
                     padding: 40px 0;
-                    font-family: 'Inter', sans-serif;
-                    background-color: #fff;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
+                    background-color: var(--brand-background, #ffffff);
                     color: #000;
                 }
                 .programme-container {

@@ -26,7 +26,7 @@ export default function(editor, categories) {
                     justify-content: center;
                     text-align: center;
                     color: #fff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .hero-overlay {
                     position: absolute;
@@ -58,7 +58,7 @@ export default function(editor, categories) {
                     justify-content: center;
                 }
                 .btn-main {
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     color: var(--brand-primary, #000);
                     padding: 16px 32px;
                     border-radius: 8px;
@@ -72,7 +72,7 @@ export default function(editor, categories) {
                 }
                 .btn-alt {
                     background: rgba(255, 255, 255, 0.1);
-                    color: #fff;
+                    color: var(--brand-button-text, #ffffff);
                     padding: 16px 32px;
                     border-radius: 8px;
                     text-decoration: none;

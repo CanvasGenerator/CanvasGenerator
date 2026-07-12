@@ -34,7 +34,7 @@ export default function(editor, categories) {
 <style>
   .programme-bg, .programme-bg * { box-sizing: border-box; }
   .programme-bg {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     background: #4b3a8e;
     padding: 50px 20px;
   }
@@ -46,7 +46,7 @@ export default function(editor, categories) {
     margin: 0 0 28px;
   }
   .programme-bg .pbg-card {
-    background: #ffffff;
+    background: var(--brand-background, #ffffff);
     max-width: 700px;
     margin: 0 auto 28px;
     padding: 28px 32px;
@@ -74,11 +74,11 @@ export default function(editor, categories) {
     margin-top: 1px;
   }
   .programme-bg .pbg-checklist li strong { font-weight: 700; }
-  .programme-bg .pbg-note { font-size: 0.8rem; color: #666; margin: 0; }
+  .programme-bg .pbg-note { font-size: 0.8rem; color: var(--brand-muted, #6b7280); margin: 0; }
   .programme-bg .pbg-btn-wrapper { text-align: center; }
   .programme-bg .pbg-btn {
     display: inline-block;
-    background: #ffffff;
+    background: var(--brand-background, #ffffff);
     color: #4b3a8e;
     font-weight: 700;
     font-size: 0.85rem;

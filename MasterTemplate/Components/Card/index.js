@@ -15,11 +15,11 @@ export default function(editor, categories) {
             </div>
             <style>
                 .master-card {
-                    background-color: #ffffff;
+                    background-color: var(--brand-background, #ffffff);
                     border: 1px solid var(--border-color, #e5e7eb);
                     border-radius: 8px;
                     overflow: hidden;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
                     transition: transform 0.2s, box-shadow 0.2s;
                     max-width: 350px;
@@ -50,7 +50,7 @@ export default function(editor, categories) {
                     margin: 0 0 20px 0;
                 }
                 .master-card-link {
-                    color: var(--brand-primary, #2563eb);
+                    color: var(--brand-link, var(--brand-primary, #2563eb));
                     font-weight: 600;
                     text-decoration: none;
                     font-size: 14px;

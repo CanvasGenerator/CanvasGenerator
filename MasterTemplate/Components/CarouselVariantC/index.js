@@ -38,13 +38,13 @@ export default function(editor, categories) {
                 /* ── Conteneur ── */
                 .mcc-section {
                     padding: 32px 24px;
-                    background: #fff;
-                    font-family: Arial, sans-serif;
+                    background: var(--brand-background, #ffffff);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .mcc-wrapper {
                     max-width: 1100px;
                     margin: 0 auto;
-                    border: 1px solid #ddd;
+                    border: 1px solid var(--brand-border, #e5e7eb);
                     padding: 20px 20px 24px;
                     box-sizing: border-box;
                 }
@@ -53,7 +53,7 @@ export default function(editor, categories) {
                 .mcc-title {
                     font-size: 14px;
                     font-weight: 800;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                     text-transform: uppercase;
                     letter-spacing: 1px;
                     text-align: center;
@@ -79,7 +79,7 @@ export default function(editor, categories) {
                 .mcc-caption {
                     font-size: 10.5px;
                     font-weight: 700;
-                    color: #222;
+                    color: var(--brand-text, #1a1a1a);
                     text-transform: uppercase;
                     letter-spacing: 0.3px;
                     line-height: 1.35;
@@ -99,14 +99,14 @@ export default function(editor, categories) {
                     border: none;
                     cursor: pointer;
                     font-size: 22px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     padding: 4px 8px;
                     line-height: 1;
                 }
                 .mcc-counter {
                     font-size: 13px;
                     font-weight: 600;
-                    color: #555;
+                    color: var(--brand-muted, #6b7280);
                     min-width: 36px;
                     text-align: center;
                 }

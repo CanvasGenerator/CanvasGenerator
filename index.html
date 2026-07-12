@@ -14,10 +14,14 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Fonts auto-hébergées des écoles (Gotham, Space Grotesk) -->
+    <link rel="stylesheet" href="css/fonts.css">
     <!-- Custom UI Styles -->
     <link rel="stylesheet" href="css/builder.css">
     <link rel="stylesheet" href="css/form-generator.css">
     <link rel="stylesheet" href="css/component-builder.css">
+    <!-- Registre des fonts + helpers branding (expose window.ReetainFonts) -->
+    <script src="js/fonts.js"></script>
     <!-- External Libraries (local) -->
     <script src="vendor/grapesjs/grapes.min.js"></script>
     <script src="vendor/jszip/jszip.min.js"></script>
@@ -40,6 +44,8 @@
                 <div class="school-indicator" id="school-indicator" style="display:none">
                     <span class="school-dot" id="school-dot"></span>
                     <span class="school-label" id="school-label"></span>
+                </div>
+                <div class="project-id-badge" id="project-id-badge" style="display:none; font-family:monospace; background:#e5e7eb; color:#374151; padding:4px 8px; border-radius:6px; font-size:12px; margin-left:8px; cursor:pointer; font-weight:600; border:1px solid #d1d5db;">
                 </div>
                 <div class="toolbar-divider"></div>
                 <nav class="toolbar-menu">
@@ -196,7 +202,7 @@
     <!-- Modals -->
     <!-- Modal Ouverture École (Dashboard) -->
     <div id="school-open-modal" class="modal-overlay hidden">
-        <div class="modal-content" style="max-width: 600px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
+        <div class="modal-content" style="max-width: 800px; width: 90%; max-height: 80vh; display: flex; flex-direction: column;">
             <div class="modal-header">
                 <h3>Tableau de bord de l'école</h3>
                 <button class="close-modal" id="btn-close-dashboard">&times;</button>

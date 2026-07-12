@@ -138,9 +138,9 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     align-items: flex-start;
     padding: 40px 16px;
     background: transparent;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     font-size: 13px;
-    color: #222;
+    color: var(--brand-text, #1a1a1a);
 }
 
 .jpo-card {
@@ -198,7 +198,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-family: inherit;
     font-weight: 600;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -207,7 +207,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-campus-select:focus {
-    border-color: #666;
+    border-color: var(--brand-muted, #6b7280);
 }
 
 .jpo-event-card {
@@ -232,7 +232,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-event-right {
     flex: 0 0 auto;
     font-size: 12px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.5;
     text-align: right;
 }
@@ -261,7 +261,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-event-detail {
     font-size: 12px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.6;
     padding-left: 0;
     white-space: pre-line;
@@ -320,7 +320,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -329,7 +329,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-input:focus,
 .jpo-select:focus {
-    border-color: #666;
+    border-color: var(--brand-muted, #6b7280);
 }
 
 .jpo-input.err,
@@ -398,7 +398,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -417,7 +417,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -439,7 +439,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-rgpd-label {
     font-size: 11px;
-    color: #333;
+    color: var(--brand-text, #1a1a1a);
     line-height: 1.5;
     cursor: pointer;
 }
@@ -461,7 +461,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     align-items: center;
     padding: 14px;
     background: #000;
-    color: #fff;
+    color: var(--brand-button-text, #ffffff);
     border: none;
     border-radius: 0;
     font-size: 14px;
@@ -496,12 +496,12 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-size: 16px;
     font-weight: 700;
     margin: 0 0 8px;
-    color: #111;
+    color: var(--brand-text, #1a1a1a);
 }
 
 .jpo-success p {
     font-size: 13px;
-    color: #555;
+    color: var(--brand-muted, #6b7280);
     margin: 0;
 }
 

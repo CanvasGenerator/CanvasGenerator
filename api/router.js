@@ -1,7 +1,10 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require('../lib/api-shared');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
+const { translateHtml } = require('../lib/translate');
+const cheerio = require('cheerio');
+const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -212,7 +215,7 @@ module.exports = async function handler(req, res) {
         // 1. Pages API (Dashboard)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/pages') {
-            const result = await supabaseRequest('GET',     '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
+            const result = await supabaseRequest('GET',     '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
             const legacyPages = (result || []).map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
@@ -234,6 +237,7 @@ module.exports = async function handler(req, res) {
                     keywords:     props.keywords || '',
                     canonical:    props.canonical || '',
                     schemaLd:     props.schemaLd || '',
+                    formIds:      Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       props.status || 'draft',
@@ -266,7 +270,10 @@ module.exports = async function handler(req, res) {
                         : existing?.is_original_language,
                     page_group_id: page.page_group_id !== undefined
                         ? page.page_group_id
-                        : existing?.page_group_id
+                        : existing?.page_group_id,
+                    formIds: Array.isArray(page.formIds)
+                        ? page.formIds
+                        : (existing?.formIds || [])
                 });
             });
 
@@ -397,6 +404,15 @@ module.exports = async function handler(req, res) {
         if (req.method === 'POST' && pathname === '/api/sfmc/create-form-asset') {
             return res.status(200).json(await createFormAsset(req.body));
         }
+        if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
+            try {
+                const { name, schoolId, dataUrl } = req.body || {};
+                return res.status(200).json(await uploadImageFromDataUrl({ name, schoolId, dataUrl }));
+            } catch (e) {
+                console.error('❌ Error uploading image to SFMC:', e.message);
+                return res.status(e.status || 500).json({ error: e.message, payload: e.payload });
+            }
+        }
 
         // ==========================================
         // 5. AI API
@@ -427,13 +443,9 @@ module.exports = async function handler(req, res) {
 
         if (req.method === 'POST' && pathname === '/api/ai/translate') {
             const { html, targetLang } = req.body || {};
-            const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${process.env.GEMINI_API_KEY_TRANSLATION}`, {
-                method: 'POST', headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ contents: [{ parts: [{ text: `Translate to ${targetLang}. Preserve HTML. Text: ${html}` }] }] })
-            });
-            const data = await response.json();
-            let text = data.candidates?.[0]?.content?.parts?.[0]?.text || html;
-            return res.status(200).json({ html: text.replace(/^```html\s*/i, '').replace(/\s*```$/i, '').trim() });
+            // Traduction texte-seulement (markup préservé) — voir lib/translate.js
+            const translated = await translateHtml(html, targetLang, process.env.GEMINI_API_KEY_TRANSLATION);
+            return res.status(200).json({ html: translated });
         }
 
         // ==========================================
@@ -568,11 +580,15 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html, css, projectData, properties: rawProperties } = req.body || {};
+            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+            // Ancrer les formulaires (id stable pour les liens #form_id)
+            const { html, formIds } = ensureFormAnchors(submittedHtml);
 
             const properties = Object.assign({}, rawProperties || {});
             properties.rawHtml = html;
+            properties.formIds = formIds;
 
             // ── Résoudre les flags de traduction ──────────────────────────────
             const existingRow = await supabaseRequest(
@@ -676,11 +692,14 @@ module.exports = async function handler(req, res) {
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
             await applyCustomMarketingCode(projectName, mergedProperties);
-            const rawBodyHtml = mergedProperties.rawHtml
-                || extractBodyContent(project.html || '');
+            const anchoredBody = ensureFormAnchors(
+                mergedProperties.rawHtml || extractBodyContent(project.html || '')
+            );
+            mergedProperties.rawHtml = anchoredBody.html;
+            mergedProperties.formIds = anchoredBody.formIds;
             const freshHtml = buildStoredHtml({
                 projectName,
-                html:       rawBodyHtml,
+                html:       anchoredBody.html,
                 css:        project.css || '',
                 properties: mergedProperties
             });
@@ -757,7 +776,7 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(html);
+            return res.status(200).send(ensureFormAnchors(html).html);
         }
 
         if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
@@ -784,7 +803,7 @@ module.exports = async function handler(req, res) {
                 }
 
                 res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(resolved.version.html);
+                return res.status(200).send(ensureFormAnchors(resolved.version.html).html);
             }
         }
         // ==========================================
@@ -857,7 +876,8 @@ module.exports = async function handler(req, res) {
                         // Injecter les CSS vars de l'école en tête du CSS
                         const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
                         // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
+                        // NB : header/footer NON repeints — remplacés par les vrais blocs école.
+                        const headerOverrides = `\n/* Déclinaison couleur carousel → ${schoolId} */\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
@@ -871,6 +891,30 @@ module.exports = async function handler(req, res) {
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+
+                        // Remplacer header/footer master par les VRAIS blocs école (baseline).
+                        const schoolHeaderHtml = renderSchoolHeaderHtml(schoolId);
+                        const schoolFooterHtml = renderSchoolFooterHtml(schoolId);
+                        if (schoolHeaderHtml || schoolFooterHtml) {
+                            try {
+                                const $d = cheerio.load(schoolHtml, null, false);
+                                if (schoolHeaderHtml && $d('.mh-header').length) $d('.mh-header').first().replaceWith(schoolHeaderHtml);
+                                if (schoolFooterHtml && $d('.mf-footer').length) $d('.mf-footer').first().replaceWith(schoolFooterHtml);
+                                schoolHtml = $d.html();
+                            } catch (e) { console.warn('Swap header/footer HTML échoué:', e.message); }
+                        }
+                        // Remplace les nœuds header/footer dans le project_data (GrapesJS parse la chaîne).
+                        const swapHeaderFooter = (components) => {
+                            if (!Array.isArray(components)) return components;
+                            return components.map(node => {
+                                if (!node || typeof node !== 'object') return node;
+                                const classes = (node.classes || []).map(c => typeof c === 'string' ? c : (c && c.name));
+                                if (schoolHeaderHtml && classes.includes('mh-header')) return { tagName: 'div', components: schoolHeaderHtml };
+                                if (schoolFooterHtml && classes.includes('mf-footer')) return { tagName: 'div', components: schoolFooterHtml };
+                                if (node.components) node.components = swapHeaderFooter(node.components);
+                                return node;
+                            });
+                        };
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -1008,7 +1052,7 @@ module.exports = async function handler(req, res) {
                                         ...frame,
                                         component: frame.component ? {
                                             ...frame.component,
-                                            components: patchComponentTree(frame.component.components, colorVars)
+                                            components: swapHeaderFooter(patchComponentTree(frame.component.components, colorVars))
                                         } : frame.component
                                     }))
                                 }));

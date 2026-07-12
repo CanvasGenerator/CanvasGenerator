@@ -46,7 +46,7 @@ export default function(editor, categories) {
 </section>
 <style>
   .mtr-section {
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     overflow: hidden;
   }
   .mtr-inner {

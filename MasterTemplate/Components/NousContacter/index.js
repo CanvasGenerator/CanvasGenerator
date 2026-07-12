@@ -29,17 +29,17 @@ export default function(editor, categories) {
 <style>
   .nous-contacter, .nous-contacter * { box-sizing: border-box; }
   .nous-contacter {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     padding: 40px 20px;
-    background: #ffffff;
-    color: #1a1a1a;
+    background: var(--brand-background, #ffffff);
+    color: var(--brand-text, #1a1a1a);
   }
   .nous-contacter .nc-titre {
     text-align: center;
     font-size: 1.8rem;
     letter-spacing: 1px;
     margin: 0 0 32px;
-    color: #111;
+    color: var(--brand-text, #1a1a1a);
   }
   .nous-contacter .nc-grid {
     display: grid;

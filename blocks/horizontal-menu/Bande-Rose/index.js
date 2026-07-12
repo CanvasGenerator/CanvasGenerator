@@ -11,7 +11,7 @@ export default function(editor, categories) {
             <style>
                 .bande-rose-wrapper {
                     width: 100%;
-                    background-color: #ffffff;
+                    background-color: var(--brand-background, #ffffff);
                 }
                 .bande-rose-container {
                     width: 100%;

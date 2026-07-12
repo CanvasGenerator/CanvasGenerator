@@ -13,13 +13,13 @@ export default function(editor, categories) {
                     padding: 40px;
                     max-width: 800px;
                     margin: 0 auto;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .text-title {
                     font-size: 24px;
                     font-weight: 700;
                     margin-bottom: 16px;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .text-p {
                     font-size: 16px;

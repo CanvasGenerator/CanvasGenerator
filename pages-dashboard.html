@@ -11,6 +11,31 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/builder.css">
+    <style>
+        /* Badges des ancres de formulaires (#form_id) */
+        .cms-page-formids {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 4px;
+            margin-top: 4px;
+        }
+        .cms-formid-chip {
+            display: inline-flex;
+            align-items: center;
+            gap: 4px;
+            font-family: 'SF Mono', Menlo, Consolas, monospace;
+            font-size: 10.5px;
+            color: #1d4ed8;
+            background: #eef2ff;
+            border: 1px solid #c7d2fe;
+            border-radius: 6px;
+            padding: 2px 7px;
+            cursor: pointer;
+            transition: background .15s;
+        }
+        .cms-formid-chip:hover { background: #e0e7ff; }
+        .cms-formid-chip i { font-size: 9px; opacity: .6; }
+    </style>
 </head>
 
 <body class="cms-page">
@@ -575,6 +600,29 @@
             return 'cms-badge-status-draft';
         }
 
+        // ── Ancres de formulaires (#form_id) ──────────────────────────────────
+        // Affiche les ids des formulaires présents sur la page ; un clic copie
+        // le lien direct (url-publique#form_id) à utiliser dans les liens externes.
+        function getFormIdsHtml(page) {
+            const ids = Array.isArray(page.formIds) ? page.formIds : [];
+            if (!ids.length) return '';
+            return `<div class="cms-page-formids">${ids.map(id => `
+                <button class="cms-formid-chip" type="button" title="Copier le lien d'ancrage vers ce formulaire"
+                    onclick="copyFormAnchor('${escAttr(page.public_url || '')}', '${escAttr(id)}')">
+                    <i class="fas fa-anchor"></i>#${escHtml(id)}
+                </button>`).join('')}</div>`;
+        }
+
+        async function copyFormAnchor(publicUrl, formId) {
+            const link = publicUrl ? `${publicUrl}#${formId}` : `#${formId}`;
+            try {
+                await navigator.clipboard.writeText(link);
+                alert(`Lien copié : ${link}`);
+            } catch {
+                window.prompt('Copiez le lien du formulaire :', link);
+            }
+        }
+
         // ── NEW: type badge helpers ────────────────────────────────────────────
         function getTypeBadge(page) {
             const isOriginal = String(page.is_original_language) !== 'false';
@@ -811,6 +859,7 @@
                         <div class="cms-page-title">${escHtml(p.title || p.project_name)}</div>
                         ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
                         ${getPublicUrlLabel(p) ? `<div class="cms-page-seotitle"><i class="fas fa-link" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${p.public_url ? `<a href="${escAttr(p.public_url)}" target="_blank" rel="noopener">${escHtml(p.public_url)}</a>` : escHtml(getPublicUrlLabel(p))}</div>` : ''}
+                        ${getFormIdsHtml(p)}
                     </td>
                     <td><span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span></td>
                     <td><span class="cms-badge cms-badge-lang">${escHtml(p.lang || 'FR')}</span></td>
@@ -858,6 +907,7 @@
                             ${escHtml(original.title || original.project_name)}
                         </div>
                         ${original.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(original.seoTitle)}</div>` : ''}
+                        ${getFormIdsHtml(original)}
                     </td>
                     <td><span class="cms-badge cms-badge-school">${escHtml(original.school || '—')}</span></td>
                     <td><span class="cms-badge cms-badge-lang">${escHtml(original.lang || 'FR')}</span></td>
@@ -881,6 +931,7 @@
                                 ${escHtml(t.title || t.project_name)}
                             </div>
                             ${t.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(t.seoTitle)}</div>` : ''}
+                            ${getFormIdsHtml(t)}
                         </td>
                         <td><span class="cms-badge cms-badge-school">${escHtml(t.school || '—')}</span></td>
                         <td><span class="cms-badge cms-badge-lang">${escHtml(t.lang || '—')}</span></td>

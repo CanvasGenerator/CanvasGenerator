@@ -1,5 +1,6 @@
 import { initStorage } from './storage.js';
 import { initExport } from './export.js';
+import { createSfmcUploadHandler } from './image-upload.js';
 import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
 import { FormGenerator } from './form-generator.js';
@@ -121,6 +122,40 @@ let currentProjectIsNew = true;
 let currentProjectLanguage = 'FR'; 
 let currentStructuredPageId = null;
 
+function updatePageIdBadge() {
+    const badge = document.getElementById('project-id-badge');
+    if (!badge) return;
+    
+    const schoolId = window.CURRENT_SCHOOL?.id || new URLSearchParams(window.location.search).get('school')?.toLowerCase();
+    const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+    
+    if (fullName && !currentProjectIsNew) {
+        // Strip the school prefix to match SFMC logic (e.g. school-mopa__MyPage__FR -> MyPage__FR)
+        const sfmcName = fullName.replace(new RegExp(`^school-[^_]+__`), '');
+        
+        badge.innerText = 'Nom SFMC : ' + sfmcName;
+        badge.style.display = 'inline-block';
+        badge.setAttribute('title', "Cliquez pour copier le nom de l'Asset pour SFMC");
+        
+        badge.onclick = function() {
+            navigator.clipboard.writeText(sfmcName).then(() => {
+                const original = badge.innerText;
+                badge.innerText = 'Copié !';
+                setTimeout(() => badge.innerText = original, 1500);
+            });
+        };
+
+        try {
+            const url = new URL(window.location);
+            url.searchParams.set('project', fullName);
+            url.searchParams.delete('pageId'); // Nettoyage de l'ancien paramètre
+            window.history.replaceState({}, '', url);
+        } catch(e) {}
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
     const schoolId = params.get('school')?.toLowerCase();
@@ -174,6 +209,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 populateProperties(project.properties || {});
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
+                updatePageIdBadge();
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
@@ -239,12 +275,16 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     currentProjectLanguage = language;
     document.getElementById('language-switcher').value = language;
 
+    // IMPORTANT : écrire le fullName en localStorage AVANT updatePageIdBadge(),
+    // car le badge + l'URL (?project=) sont lus depuis localStorage. Sinon le
+    // badge/URL reflètent l'ancienne page (bug « l'URL ne change pas »).
     localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
     if (legacyProjectName) {
         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, legacyProjectName);
     } else {
         localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
     }
+    updatePageIdBadge();
 
     const overlay = document.getElementById('welcome-overlay');
     if (overlay) overlay.classList.add('hidden');
@@ -283,11 +323,20 @@ function initEditor(schoolId) {
             stepsBeforeSave: 1,
             key: storageKey,
         },
+        assetManager: {
+            // Les images uploadées sont publiées dans SFMC Content Builder et
+            // référencées par leur URL publique (jamais embarquées en base64).
+            embedAsBase64: false,
+            uploadFile: createSfmcUploadHandler(() => editor, schoolId),
+        },
         blockManager: { appendTo: '#blocks' },
         styleManager: { appendTo: '#styles-container' },
         layerManager: { appendTo: '#layers-container' },
         traitManager: { appendTo: '#traits-container' },
         panels: { defaults: [] },
+        // NB : les @font-face (Gotham, Space Grotesk) sont chargés dans l'iframe
+        // canvas via injectBrandVariables (link explicite en URL absolue), plus
+        // fiable que l'option canvas.styles.
         deviceManager: {
             devices: [
                 { name: 'Desktop', width: '' },
@@ -314,6 +363,8 @@ function initEditor(schoolId) {
     editor.on('load', () => {
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
+        restrictFontSelector(editor, CURRENT_SCHOOL);
+        addFontStyleControl(editor);
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
@@ -977,6 +1028,62 @@ function extractBodyHtml(html = '') {
     return bodyMatch ? bodyMatch[1] : value;
 }
 
+// Restreint la liste de fonts du Style Manager aux SEULES fonts configurées
+// pour l'école (font par défaut + fonts supplémentaires). Le marketeur ne peut
+// donc choisir que parmi celles-ci ; le mécanisme de changement par composant
+// reste inchangé (écrit un font-family inline qui prime sur --brand-font).
+function restrictFontSelector(editor, school) {
+    const RF = window.ReetainFonts;
+    if (!RF || !editor) return;
+    try {
+        const branding = RF.normalizeBranding(school && school.branding, school || {});
+        const fonts = branding.availableFonts.map(id => RF.fontById(id)).filter(Boolean);
+        if (!fonts.length) return;
+        const options = fonts.map(f => ({ id: f.stack, value: f.stack, name: f.name + ' (Défaut)', label: f.name + ' (Défaut)' }));
+        if (RF.GOOGLE_FONTS) {
+            options.push({ id: '', value: '', name: '--- Google Fonts ---', label: '--- Google Fonts ---' });
+            options.push(...RF.GOOGLE_FONTS.map(f => ({ id: f.stack, value: f.stack, name: f.name, label: f.name })));
+        }
+        const sm = editor.StyleManager;
+        const prop = sm.getProperty('typography', 'font-family');
+        if (!prop) return;
+        if (typeof prop.setOptions === 'function') prop.setOptions(options);
+        else prop.set('options', options);
+        sm.render();
+    } catch (e) {
+        console.warn('restrictFontSelector: impossible de restreindre les fonts', e);
+    }
+}
+
+// Ajoute un contrôle "Font Style" (Normal / Italic) au secteur Typography :
+// GrapesJS ne l'expose pas par défaut. Idempotent (n'ajoute pas 2 fois).
+function addFontStyleControl(editor) {
+    if (!editor) return;
+    try {
+        const sm = editor.StyleManager;
+        if (sm.getProperty('typography', 'font-style')) return; // déjà présent
+        sm.addProperty('typography', {
+            name: 'Font Style',
+            property: 'font-style',
+            type: 'select',
+            defaults: 'normal',
+            default: 'normal',
+            // `list` (anciennes versions GrapesJS) + `options` (récentes)
+            list: [
+                { value: 'normal', name: 'Normal' },
+                { value: 'italic', name: 'Italic' }
+            ],
+            options: [
+                { id: 'normal', label: 'Normal' },
+                { id: 'italic', label: 'Italic' }
+            ]
+        }, { at: 3 }); // placé juste après Font Weight
+        sm.render();
+    } catch (e) {
+        console.warn('addFontStyleControl: impossible d’ajouter le contrôle italique', e);
+    }
+}
+
 function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
     const primary = school.color || '#3b82f6';
@@ -988,7 +1095,45 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (school.id === 'brassart') bandeColor = '#bc0b5d';
     if (school.id === 'efap') bandeColor = '#1a1a1a';
     if (school.id === 'cread') bandeColor = '#d4af37';
-    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor}; }`;
+
+    // Branding : font par défaut + palette 16 rôles (normalizeBranding garantit
+    // un objet complet, dérivé des couleurs de l'école si non configuré).
+    const RF = window.ReetainFonts;
+    const branding = RF ? RF.normalizeBranding(school.branding, school) : (school.branding || {});
+    const c = branding.colors || {};
+    // Résolution du stack de font RÉSILIENTE : on n'échoue pas si ReetainFonts
+    // n'est pas chargé → la font choisie pour l'école s'applique quand même.
+    const FONT_STACKS = {
+        'gotham': "'Gotham', Arial, sans-serif",
+        'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif"
+    };
+    const FONT_NAMES = { 'gotham': 'Gotham', 'space-grotesk': 'Space Grotesk' };
+    const brandFont =
+        (RF && RF.fontStackById(branding.defaultFont)) ||
+        FONT_STACKS[branding.defaultFont] ||
+        FONT_STACKS.gotham;
+    // Nom de famille (pas le stack) pour forcer le préchargement de la police.
+    const brandFontName =
+        (RF && RF.fontById(branding.defaultFont) && RF.fontById(branding.defaultFont).name) ||
+        FONT_NAMES[branding.defaultFont] || 'Gotham';
+    // Rôles de couleurs → CSS vars consommées par les blocs.
+    const roleVars = `
+      --brand-font: ${brandFont};
+      --brand-background: ${c.background || '#ffffff'};
+      --brand-surface: ${c.surface || '#f5f5f5'};
+      --brand-text: ${c.text || '#1a1a1a'};
+      --brand-muted: ${c.mutedText || '#6b7280'};
+      --brand-border: ${c.border || '#e5e7eb'};
+      --brand-accent: ${c.accent || secondary};
+      --brand-button-bg: ${c.buttonBackground || primary};
+      --brand-button-hover: ${c.buttonHover || primary};
+      --brand-button-text: ${c.buttonText || '#ffffff'};
+      --brand-link: ${c.link || primary};
+      --brand-link-hover: ${c.linkHover || primary};
+      --brand-success: ${c.success || '#16a34a'};
+      --brand-warning: ${c.warning || '#f59e0b'};
+      --brand-error: ${c.error || '#dc2626'};`;
+    const css = `:root { --brand-primary: ${c.primary || primary}; --brand-secondary: ${c.secondary || secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor};${roleVars} }`;
 
     // Règles directes avec !important pour overrider les couleurs hardcodées
     // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici
@@ -998,6 +1143,16 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
 .mh-header { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
 .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
 .mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }`;
+
+    // Font par défaut de l'école appliquée à la racine du canvas. La font-family
+    // s'hérite naturellement en CSS : tout composant déposé qui ne fixe pas SA
+    // propre font hérite donc automatiquement de celle-ci, en poids/style normal.
+    // SANS !important et faible spécificité → un override de font sur un composant
+    // précis (via le Style Manager, sélecteur #id) prime toujours.
+    const fontBaseCss = `
+body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-serif); }
+[data-gjs-type] { font-family: inherit; font-weight: normal; font-style: normal; }
+[data-gjs-type] * { font-family: inherit; }`;
 
     if (intoMainDoc) {
         let style = document.getElementById('brand-variables-main');
@@ -1017,13 +1172,41 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
             try {
                 const doc = editor.Canvas.getDocument();
                 if (!doc) return false;
+                // 1. Charger les @font-face (Gotham, Space Grotesk) DANS l'iframe.
+                // On l'injecte explicitement ici (en plus de canvas.styles) car
+                // cette option ne charge pas toujours la feuille dans l'iframe.
+                // URL absolue → les url() relatives de fonts.css résolvent bien.
+                if (!doc.getElementById('brand-fonts-link')) {
+                    const link = doc.createElement('link');
+                    link.id = 'brand-fonts-link';
+                    link.rel = 'stylesheet';
+                    link.href = location.origin + '/css/fonts.css';
+                    doc.head.appendChild(link);
+                }
+                if (!doc.getElementById('google-fonts-link')) {
+                    const gLink = doc.createElement('link');
+                    gLink.id = 'google-fonts-link';
+                    gLink.rel = 'stylesheet';
+                    gLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+                    doc.head.appendChild(gLink);
+                }
+                // 2. Variables de marque + font par défaut.
                 let style = doc.getElementById('brand-variables');
                 if (!style) {
                     style = doc.createElement('style');
                     style.id = 'brand-variables';
                     doc.head.appendChild(style);
                 }
-                style.innerHTML = css + headerOverrideCss;
+                style.innerHTML = css + headerOverrideCss + fontBaseCss;
+                // 3. Forcer le chargement de la font de l'école (regular + bold)
+                // pour qu'elle soit rendue immédiatement, sans attendre un repaint
+                // (les @font-face sont chargés paresseusement par défaut).
+                try {
+                    if (doc.fonts && doc.fonts.load) {
+                        doc.fonts.load("400 1em '" + brandFontName + "'");
+                        doc.fonts.load("700 1em '" + brandFontName + "'");
+                    }
+                } catch(e) { /* noop */ }
                 return true;
             } catch(e) { return false; }
         }
@@ -1706,18 +1889,68 @@ function initUI(editor) {
             if (selectedLanguage !== originalLanguage && selectedLanguage !== 'FR') {
                 try {
                     showLoading(`Traduction en cours vers ${selectedLanguage}... Cela peut prendre quelques secondes.`);
+                    
+                    const pd = editor.getProjectData();
+                    const targets = [];
+                    
+                    function walk(node) {
+                        const type = node.type || 'default';
+                        const tagName = (node.tagName || '').toLowerCase();
+                        
+                        // On limite strictement l'extraction du 'content' aux composants de type texte/bouton.
+                        // Cela protège les iframes, vidéos et structures complexes.
+                        const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
+                                           ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
+
+                        if (isTextLike && node.content && typeof node.content === 'string') {
+                            // Vérifie qu'il y a au moins une lettre pour éviter de traduire du code ou des symboles
+                            if (/[a-zA-ZÀ-ÿ]/.test(node.content)) {
+                                targets.push({ obj: node, prop: 'content' });
+                            }
+                        }
+                        
+                        if (node.attributes) {
+                            ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
+                                if (node.attributes[attr] && typeof node.attributes[attr] === 'string') {
+                                    if (/[a-zA-ZÀ-ÿ]/.test(node.attributes[attr])) {
+                                        targets.push({ obj: node.attributes, prop: attr });
+                                    }
+                                }
+                            });
+                        }
+                        if (node.components) {
+                            node.components.forEach(walk);
+                        }
+                    }
+                    pd.pages.forEach(p => p.frames.forEach(f => walk(f.component)));
+                    
+                    // Construit un faux HTML contenant tous les textes à traduire
+                    let htmlToTranslate = '';
+                    targets.forEach((t, i) => {
+                        htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`;
+                    });
+
                     const translateRes = await fetch('/api/ai/translate', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ html: finalHtml, targetLang: selectedLanguage })
+                        body: JSON.stringify({ html: htmlToTranslate, targetLang: selectedLanguage })
                     });
 
                     if (!translateRes.ok) throw new Error(await translateRes.text());
                     const translateData = await translateRes.json();
-                    finalHtml = translateData.html;
                     
-                    // Update the canvas to show translated content
-                    editor.setComponents(finalHtml);
+                    // On récupère les textes traduits
+                    const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
+                    targets.forEach((t, i) => {
+                        const el = doc.getElementById('t' + i);
+                        if (el) {
+                            t.obj[t.prop] = el.innerHTML;
+                        }
+                    });
+                    
+                    // Update the canvas to show translated content with ALL CSS and traits preserved!
+                    editor.loadProjectData(pd);
+                    finalHtml = editor.getHtml(); // update HTML after loading project data
                 } catch (e) {
                     hideLoading();
                     console.error(e);
@@ -1762,7 +1995,14 @@ function initUI(editor) {
                     localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, newFullName);
                 } else if (!localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`)) {
                     localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-                }                currentProjectLanguage = selectedLanguage;
+                }
+                
+                currentProjectLanguage = selectedLanguage;
+                
+                if (savedPageId) {
+                    currentStructuredPageId = savedPageId;
+                }
+                updatePageIdBadge(); // Mets à jour le badge et l'URL
                 
                 hideLoading();
                 await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
@@ -1837,16 +2077,48 @@ function initUI(editor) {
                     if (lang !== 'FR') {
                         try {
                             showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
+                            
+                            // Même logique que pour les projets existants : on traduit via projectData
+                            // pour éviter de casser le design (setComponents reset le state GrapesJS)
+                            const pd = editor.getProjectData();
+                            const targets = [];
+                            function walkNew(node) {
+                                const type = node.type || 'default';
+                                const tagName = (node.tagName || '').toLowerCase();
+                                const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
+                                                   ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
+                                if (isTextLike && node.content && typeof node.content === 'string') {
+                                    if (/[a-zA-ZÀ-ÿ]/.test(node.content)) targets.push({ obj: node, prop: 'content' });
+                                }
+                                if (node.attributes) {
+                                    ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
+                                        if (node.attributes[attr] && /[a-zA-ZÀ-ÿ]/.test(node.attributes[attr]))
+                                            targets.push({ obj: node.attributes, prop: attr });
+                                    });
+                                }
+                                if (node.components) node.components.forEach(walkNew);
+                            }
+                            pd.pages.forEach(p => p.frames.forEach(f => walkNew(f.component)));
+
+                            let htmlToTranslate = '';
+                            targets.forEach((t, i) => { htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`; });
+
                             const translateRes = await fetch('/api/ai/translate', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ html: finalBodyHtml, targetLang: lang })
+                                body: JSON.stringify({ html: htmlToTranslate, targetLang: lang })
                             });
 
                             if (!translateRes.ok) throw new Error(await translateRes.text());
                             const translateData = await translateRes.json();
-                            finalBodyHtml = translateData.html;
-                            editor.setComponents(finalBodyHtml);
+                            
+                            const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
+                            targets.forEach((t, i) => {
+                                const el = doc.getElementById('t' + i);
+                                if (el) t.obj[t.prop] = el.innerHTML;
+                            });
+                            editor.loadProjectData(pd);
+                            finalBodyHtml = editor.getHtml();
                         } catch (e) {
                             hideLoading();
                             console.error(e);
@@ -1889,11 +2161,21 @@ function initUI(editor) {
                         const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
                         if (!res.ok) throw new Error(await res.text());
                         
+                        const saveData = await res.json();
+                        if (saveData && saveData.page_id) {
+                            currentStructuredPageId = saveData.page_id;
+                            updatePageIdBadge();
+                        }
+
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
                         document.getElementById('language-switcher').value = lang;
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
+                        if (lang === 'FR') {
+                            localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
+                        }
+                        updatePageIdBadge(); // Met à jour le badge ET l'URL avec le bon nom (incl. langue)
                         
                         hideLoading();
                         
@@ -2026,6 +2308,7 @@ function initUI(editor) {
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
             currentStructuredPageId = project.page_id || null;
+            updatePageIdBadge();
             
             // Extract and set current language
             const parts = fullName.replace(`school-${schoolId}__`, '').split('__');

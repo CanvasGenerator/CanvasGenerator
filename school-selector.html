@@ -9,6 +9,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Fonts auto-hébergées (aperçu des noms de fonts dans le formulaire branding) -->
+    <link rel="stylesheet" href="css/fonts.css">
+    <!-- Registre des fonts + helpers branding (expose window.ReetainFonts) -->
+    <script src="js/fonts.js"></script>
     <style>
         :root {
             --bg-main: #F7F8FA;
@@ -343,11 +347,13 @@
         .admin-modal {
             width: min(720px, 100%);
             max-height: 90vh;
-            overflow: auto;
+            display: flex;
+            flex-direction: column;
             background: #fff;
             border-radius: 10px;
             border: 1px solid var(--border-color);
             box-shadow: 0 24px 60px rgba(15, 22, 33, 0.22);
+            overflow: hidden;
         }
 
         .admin-modal-header,
@@ -357,6 +363,9 @@
             justify-content: space-between;
             padding: 18px 22px;
             border-bottom: 1px solid var(--border-color);
+            flex-shrink: 0;
+            background: #fff;
+            z-index: 10;
         }
 
         .admin-modal-footer {
@@ -368,6 +377,8 @@
 
         .admin-modal-body {
             padding: 22px;
+            overflow-y: auto;
+            flex: 1;
         }
 
         .admin-grid {
@@ -521,10 +532,137 @@
             color: #145C47;
         }
 
+        /* Font par défaut : verrouillée dans la liste des fonts disponibles */
+        .block-option.is-locked {
+            cursor: not-allowed;
+            opacity: 0.75;
+        }
+        .block-option.is-locked::after {
+            content: 'par défaut';
+            margin-left: auto;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
         .block-picker-meta {
             margin-top: 6px;
             color: var(--text-muted);
             font-size: 12px;
+        }
+
+        /* ── Palette de couleurs par groupes ── */
+        .color-group {
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            overflow: hidden;
+            margin-bottom: 10px;
+            background: var(--bg-surface);
+        }
+        .color-group-header {
+            display: flex;
+            align-items: baseline;
+            gap: 10px;
+            padding: 10px 14px;
+            background: var(--bg-main);
+            border-bottom: 1px solid var(--border-color);
+        }
+        .color-group-title {
+            font-size: 13px;
+            font-weight: 600;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+        .color-group-desc {
+            font-size: 11.5px;
+            color: var(--text-muted);
+            line-height: 1.4;
+        }
+        .color-group-items {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(170px, 1fr));
+            gap: 0;
+        }
+        .color-role-item {
+            position: relative;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            padding: 10px 14px;
+            border-right: 1px solid var(--border-color);
+            border-bottom: 1px solid var(--border-color);
+            cursor: pointer;
+            transition: background var(--transition);
+        }
+        .color-role-item:hover { background: #f9fafb; }
+        .color-swatch {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            border: 2px solid rgba(0,0,0,0.08);
+            flex-shrink: 0;
+            cursor: pointer;
+            transition: transform 0.15s, box-shadow 0.15s;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.12);
+        }
+        .color-swatch:hover {
+            transform: scale(1.1);
+            box-shadow: 0 3px 10px rgba(0,0,0,0.18);
+        }
+        .color-role-info {
+            flex: 1;
+            min-width: 0;
+        }
+        .color-role-info label {
+            display: block;
+            font-size: 12px;
+            font-weight: 500;
+            color: var(--text-main);
+            cursor: pointer;
+            margin-bottom: 2px;
+        }
+        .color-hex-preview {
+            font-size: 11px;
+            color: var(--text-muted);
+            font-family: 'Courier New', monospace;
+            letter-spacing: 0.03em;
+        }
+        .color-input-hidden {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            opacity: 0;
+            cursor: pointer;
+            border: none;
+            padding: 0;
+        }
+
+        /* ── En-têtes de section du formulaire école ── */
+        .form-section-title {
+            grid-column: 1 / -1;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--text-main);
+            border-top: 1px solid var(--border-color);
+            padding-top: 16px;
+            margin-top: 10px;
+        }
+        .form-section-title:first-child {
+            border-top: none;
+            padding-top: 0;
+            margin-top: 0;
+        }
+        .form-section-title i { color: var(--accent); font-size: 13px; }
+        .form-section-desc {
+            grid-column: 1 / -1;
+            font-size: 12px;
+            color: var(--text-muted);
+            line-height: 1.45;
+            margin: -6px 0 4px;
         }
 
         .history-list {
@@ -900,6 +1038,9 @@
             <div class="admin-modal-body">
                 <div id="school-admin-error" class="admin-error"></div>
                 <div class="admin-grid" id="school-form">
+
+                    <!-- ═══ Informations générales ═══ -->
+                    <div class="form-section-title"><i class="fas fa-info-circle"></i> Informations générales</div>
                     <div class="admin-field">
                         <label for="school-id">Identifiant</label>
                         <input id="school-id" type="text" placeholder="ex: efj">
@@ -929,51 +1070,86 @@
                         <div id="school-base-url-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field">
-                        <label for="school-color">Couleur principale</label>
-                        <input id="school-color" type="color" value="#3b82f6">
-                    </div>
-                    <div class="admin-field">
-                        <label for="school-secondary-color">Couleur secondaire</label>
-                        <input id="school-secondary-color" type="color" value="#1a1a1a">
-                    </div>
-                    <div class="admin-field">
-                        <label for="school-color-header">Couleur header / footer</label>
-                        <input id="school-color-header" type="color" value="#3b82f6">
-                    </div>
-                    <div class="admin-field">
-                        <label for="school-color-carousel">Couleur carousel</label>
-                        <input id="school-color-carousel" type="color" value="#3b82f6">
-                    </div>
-                    <div class="admin-field">
-                        <label for="school-header-text-color">Texte / logo header (blanc ou noir)</label>
-                        <input id="school-header-text-color" type="color" value="#ffffff">
-                    </div>
-                    <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
                     </div>
-                    <div class="admin-field full">
-                        <label for="school-logo">Logo (code SVG — <code>fill="currentColor"</code> pour blanc/noir auto)</label>
-                        <textarea id="school-logo" rows="4" placeholder='Collez ici le code SVG du logo. Utilisez fill="currentColor" pour qu&#39;il soit blanc dans le header et noir dans le footer.' style="font-family:monospace;font-size:12px;"></textarea>
-                        <div id="school-logo-feedback" class="field-feedback"></div>
+
+                    <!-- ═══ Typographie ═══ -->
+                    <div class="form-section-title"><i class="fas fa-font"></i> Typographie</div>
+                    <div class="form-section-desc">La font par défaut est appliquée à tous les nouveaux composants. Le marketeur ne pourra choisir que parmi les fonts sélectionnées.</div>
+                    <div class="admin-field">
+                        <label for="school-default-font">Font par défaut</label>
+                        <select id="school-default-font"></select>
+                        <div id="school-default-font-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field full">
-                        <label>Blocs par défaut</label>
+                        <label>Fonts disponibles</label>
+                        <div id="school-available-fonts" class="block-picker"></div>
+                    </div>
+
+                    <!-- ═══ Palette de couleurs ═══ -->
+                    <div class="form-section-title"><i class="fas fa-palette"></i> Palette de couleurs</div>
+                    <div class="form-section-desc">Définissez la charte graphique de l'école. Ces couleurs seront appliquées automatiquement à tous les composants.</div>
+                    <div class="admin-field full" id="school-colors-wrapper" style="margin-top:0;">
+                        <div id="school-colors-groups"></div>
+                    </div>
+                    <!-- Couleurs héritées (templates anciens) — repliées sous un accordéon -->
+                    <div class="admin-field full" style="margin-top:0;">
+                        <details style="border:1px solid var(--border-color);border-radius:8px;overflow:hidden;">
+                            <summary style="padding:10px 14px;font-size:12.5px;font-weight:500;color:var(--text-secondary);cursor:pointer;background:var(--bg-main);list-style:none;display:flex;align-items:center;gap:6px;">
+                                <i class="fas fa-sliders-h" style="font-size:11px;"></i>
+                                Paramètres avancés du header / carousel
+                            </summary>
+                            <div style="padding:14px;display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                <div class="admin-field" style="margin:0;">
+                                    <label for="school-color" style="font-size:12px;">Couleur principale (legacy)</label>
+                                    <input id="school-color" type="color" value="#3b82f6">
+                                </div>
+                                <div class="admin-field" style="margin:0;">
+                                    <label for="school-secondary-color" style="font-size:12px;">Couleur secondaire (legacy)</label>
+                                    <input id="school-secondary-color" type="color" value="#1a1a1a">
+                                </div>
+                                <div class="admin-field" style="margin:0;">
+                                    <label for="school-color-header" style="font-size:12px;">Couleur header / footer</label>
+                                    <input id="school-color-header" type="color" value="#3b82f6">
+                                </div>
+                                <div class="admin-field" style="margin:0;">
+                                    <label for="school-color-carousel" style="font-size:12px;">Couleur carousel</label>
+                                    <input id="school-color-carousel" type="color" value="#3b82f6">
+                                </div>
+                                <div class="admin-field" style="margin:0;">
+                                    <label for="school-header-text-color" style="font-size:12px;">Texte header (blanc/noir)</label>
+                                    <input id="school-header-text-color" type="color" value="#ffffff">
+                                </div>
+                            </div>
+                        </details>
+                    </div>
+
+
+                    <!-- ═══ Blocs par défaut ═══ -->
+                    <div class="form-section-title"><i class="fas fa-th-large"></i> Blocs par défaut</div>
+                    <div class="admin-field full">
                         <div id="school-default-blocks" class="block-picker"></div>
                         <div id="school-default-blocks-meta" class="block-picker-meta">0 bloc sélectionné</div>
                         <div id="school-default-blocks-feedback" class="field-feedback"></div>
                     </div>
+
+                    <!-- ═══ Code marketing ═══ -->
+                    <div class="form-section-title"><i class="fas fa-code"></i> Code marketing</div>
+                    <div class="form-section-desc">Injecté sur toutes les pages de l'école (ex : Google Tag Manager, Analytics).</div>
                     <div class="admin-field full">
-                        <label for="school-head-code">Code marketing — &lt;head&gt; (commun à toutes les pages de l'école)</label>
+                        <label for="school-head-code">Code &lt;head&gt;</label>
                         <textarea id="school-head-code" rows="4" placeholder="Collez ici le script à insérer dans le &lt;head&gt; (ex : Google Tag Manager, Analytics…)" style="font-family:monospace;font-size:12px;"></textarea>
                         <div id="school-head-code-feedback" class="field-feedback"></div>
                     </div>
                     <div class="admin-field full">
-                        <label for="school-body-code">Code marketing — bas de &lt;body&gt;</label>
+                        <label for="school-body-code">Code bas de &lt;body&gt;</label>
                         <textarea id="school-body-code" rows="3" placeholder="Collez ici le code à insérer avant &lt;/body&gt; (ex : le &lt;noscript&gt; de GTM)" style="font-family:monospace;font-size:12px;"></textarea>
                         <div id="school-body-code-feedback" class="field-feedback"></div>
                     </div>
-                    <div class="admin-field full" style="display:flex;align-items:center;padding:12px 0;border-top:1px solid #f0f0f0;margin-top:4px;">
+
+                    <!-- ═══ FAQ ═══ -->
+                    <div class="admin-field full" style="display:flex;align-items:center;padding:12px 0;border-top:1px solid var(--border-color);margin-top:4px;">
                         <button type="button" id="btn-open-faq-modal" class="admin-btn" style="gap:6px;">
                             <i class="fas fa-question-circle"></i> Gérer les FAQs
                         </button>
@@ -1501,6 +1677,135 @@
             });
         }
 
+        // ── Branding : fonts + palette 16 couleurs ────────────────────────
+        // Garantit que la font par défaut est toujours cochée ET verrouillée
+        // dans la liste des fonts disponibles (règle métier).
+        function syncAvailableFontsWithDefault() {
+            const defaultFont = document.getElementById('school-default-font').value;
+            document.querySelectorAll('[data-available-font]').forEach(input => {
+                if (input.value === defaultFont) {
+                    input.checked = true;
+                    input.disabled = true;
+                    input.closest('.block-option')?.classList.add('is-locked');
+                } else {
+                    input.disabled = false;
+                    input.closest('.block-option')?.classList.remove('is-locked');
+                }
+            });
+        }
+
+        function renderBrandingControls(rawBranding) {
+            const F = window.ReetainFonts;
+            const branding = F.normalizeBranding(rawBranding, {});
+
+            // Font par défaut (select)
+            const sel = document.getElementById('school-default-font');
+            sel.innerHTML = F.PROJECT_FONTS
+                .map(f => `<option value="${escHtml(f.id)}">${escHtml(f.name)}</option>`)
+                .join('');
+            sel.value = branding.defaultFont;
+            sel.onchange = syncAvailableFontsWithDefault;
+
+            // Fonts disponibles (checkboxes, aperçu dans la font elle-même)
+            const avail = document.getElementById('school-available-fonts');
+            avail.innerHTML = F.PROJECT_FONTS.map(f => `
+                <label class="block-option">
+                    <input type="checkbox" value="${escHtml(f.id)}" data-available-font>
+                    <span style="font-family:${f.stack};">${escHtml(f.name)}</span>
+                </label>`).join('');
+            const selected = new Set(branding.availableFonts);
+            avail.querySelectorAll('[data-available-font]').forEach(input => {
+                input.checked = selected.has(input.value);
+            });
+            syncAvailableFontsWithDefault();
+
+            // Palette 16 rôles organisée par groupes visuels
+            const colorGroups = [
+                {
+                    label: '🎨 Couleurs principales',
+                    desc: 'Couleurs phares de la charte graphique de l\'école.',
+                    keys: ['primary', 'secondary', 'accent']
+                },
+                {
+                    label: '📄 Arrière-plans & Surfaces',
+                    desc: 'Couleurs de fond des pages et des sections.',
+                    keys: ['background', 'surface']
+                },
+                {
+                    label: '✍️ Textes',
+                    desc: 'Couleurs des textes principaux et secondaires.',
+                    keys: ['text', 'mutedText', 'border']
+                },
+                {
+                    label: '🔘 Boutons',
+                    desc: 'Apparence des boutons d\'action sur les pages.',
+                    keys: ['buttonBackground', 'buttonHover', 'buttonText']
+                },
+                {
+                    label: '🔗 Liens',
+                    desc: 'Couleurs des liens cliquables.',
+                    keys: ['link', 'linkHover']
+                },
+                {
+                    label: '⚡ États & Messages',
+                    desc: 'Couleurs des messages de succès, avertissement et erreur.',
+                    keys: ['success', 'warning', 'error']
+                }
+            ];
+
+            const container = document.getElementById('school-colors-groups');
+            container.innerHTML = colorGroups.map(group => {
+                const rolesInGroup = F.COLOR_ROLES.filter(r => group.keys.includes(r.key));
+                const items = rolesInGroup.map(role => {
+                    const val = branding.colors[role.key];
+                    const safe = /^#[0-9a-fA-F]{6}$/.test(val) ? val : '#000000';
+                    return `
+                    <div class="color-role-item">
+                        <div class="color-swatch" style="background:${safe};" data-swatch="${role.key}"></div>
+                        <div class="color-role-info">
+                            <label for="school-brand-color-${role.key}">${escHtml(role.label)}</label>
+                            <div class="color-hex-preview" id="hex-preview-${role.key}">${safe}</div>
+                        </div>
+                        <input id="school-brand-color-${role.key}" type="color" value="${safe}" class="color-input-hidden">
+                    </div>`;
+                }).join('');
+                return `
+                <div class="color-group">
+                    <div class="color-group-header">
+                        <span class="color-group-title">${group.label}</span>
+                        <span class="color-group-desc">${group.desc}</span>
+                    </div>
+                    <div class="color-group-items">${items}</div>
+                </div>`;
+            }).join('');
+
+            // Rendre les swatches cliquables (ouvre le color picker natif) + sync preview
+            container.querySelectorAll('.color-role-item').forEach(item => {
+                const swatch = item.querySelector('.color-swatch');
+                const input  = item.querySelector('.color-input-hidden');
+                const hex    = item.querySelector('.color-hex-preview');
+                swatch.addEventListener('click', () => input.click());
+                input.addEventListener('input', () => {
+                    swatch.style.background = input.value;
+                    hex.textContent = input.value;
+                });
+            });
+        }
+
+        function collectBrandingFromForm() {
+            const F = window.ReetainFonts;
+            const defaultFont = document.getElementById('school-default-font').value;
+            const availableFonts = [...document.querySelectorAll('[data-available-font]:checked')]
+                .map(input => input.value);
+            const colors = {};
+            F.COLOR_ROLES.forEach(role => {
+                const input = document.getElementById('school-brand-color-' + role.key);
+                if (input) colors[role.key] = input.value;
+            });
+            // normalizeBranding garantit un objet complet + default font incluse.
+            return F.normalizeBranding({ defaultFont, availableFonts, colors }, {});
+        }
+
         function openSchoolModal(school = null) {
             editingSchoolId = school?.id || null;
             showAdminError('school-admin-error', '');
@@ -1520,12 +1825,20 @@
             setValue('school-color-carousel', school?.colorCarousel || school?.color || '#3b82f6');
             setValue('school-header-text-color', school?.headerTextColor || '#ffffff');
             setValue('school-emoji', school?.emoji || '🏫');
-            setValue('school-logo', school?.logo || '');
+            if (document.getElementById('school-logo')) {
+                setValue('school-logo', school?.logo || '');
+            }
             setValue('school-head-code', school?.customHeadCode || '');
             setValue('school-body-code', school?.customBodyCode || '');
             validateCustomCode('school-head-code', 'school-head-code-feedback');
             validateCustomCode('school-body-code', 'school-body-code-feedback');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
+            // Branding : fonts + palette. Pour une nouvelle école, on dérive
+            // depuis la couleur principale saisie (défaut sinon).
+            renderBrandingControls(school?.branding || (school ? null : { colors: {
+                primary: document.getElementById('school-color').value,
+                secondary: document.getElementById('school-secondary-color').value,
+            }}));
             // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
             document.getElementById('btn-open-faq-modal').style.display = school ? 'inline-flex' : 'none';
             document.getElementById('school-admin-modal').style.display = 'flex';
@@ -1621,11 +1934,12 @@
                 colorCarousel: document.getElementById('school-color-carousel').value,
                 headerTextColor: document.getElementById('school-header-text-color').value,
                 emoji: document.getElementById('school-emoji').value.trim() || '🏫',
-                logo: document.getElementById('school-logo').value,
+                logo: document.getElementById('school-logo') ? document.getElementById('school-logo').value : '',
                 defaultBlocks: getDefaultBlocksSelection(),
                 showFaq: true,
                 customHeadCode: document.getElementById('school-head-code').value,
-                customBodyCode: document.getElementById('school-body-code').value
+                customBodyCode: document.getElementById('school-body-code').value,
+                branding: collectBrandingFromForm()
             };
         }
 
