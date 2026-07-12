@@ -24,6 +24,7 @@ const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
+const { ensureFormAnchors, extractFormIds } = require('./lib/api-shared');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -693,13 +694,20 @@ http.createServer(async (req, res) => {
                 console.log('🔴 is_original_language:', data.is_original_language);
                 console.log('🔴 page_group_id:', data.page_group_id);
 
-                const { projectName, html, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
+                const { projectName, html: submittedHtml, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
                 if (!projectName) {
                     res.writeHead(400);
                     return res.end('Project name is required');
+                }
+
+                // Ancrer les formulaires (id stable pour les liens #form_id)
+                const { html, formIds } = ensureFormAnchors(submittedHtml);
+                if (properties) {
+                    properties.rawHtml = html;
+                    properties.formIds = formIds;
                 }
 
                 // Code marketing personnalisé (école + page)
@@ -888,10 +896,14 @@ http.createServer(async (req, res) => {
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
                 await applyCustomMarketingCode(projectName, mergedProperties);
-                const baseHtml = mergedProperties.rawHtml || extractBodyContent(project.html || '') || '';
+                const anchoredBody = ensureFormAnchors(
+                    mergedProperties.rawHtml || extractBodyContent(project.html || '') || ''
+                );
+                mergedProperties.rawHtml = anchoredBody.html;
+                mergedProperties.formIds = anchoredBody.formIds;
                 const freshHtml = buildStoredHtml({
                     projectName,
-                    html: baseHtml,
+                    html: anchoredBody.html,
                     css: project.css || '',
                     properties: mergedProperties
                 });
@@ -1946,7 +1958,7 @@ Règles importantes :
             console.log(`\n📋 CMS: Récupération de toutes les pages`);
             const result = await supabaseRequest(
                 'GET',
-                '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
+                '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
             );
             
             if (!Array.isArray(result)) {
@@ -1973,6 +1985,7 @@ Règles importantes :
                     lang,
                     seoTitle:             props.seoTitle || '',
                     seoDescription:       props.seoDescription || '',
+                    formIds:              Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:           p.created_at,
                     source:               'legacy',
                     status:               props.status || 'draft',
@@ -2005,7 +2018,10 @@ Règles importantes :
                         : existing?.is_original_language,
                     page_group_id: page.page_group_id !== undefined
                         ? page.page_group_id
-                        : existing?.page_group_id
+                        : existing?.page_group_id,
+                    formIds: Array.isArray(page.formIds)
+                        ? page.formIds
+                        : (existing?.formIds || [])
                 });
             });
             const pages = [...merged.values()].sort((a, b) => {
@@ -2198,7 +2214,7 @@ Règles importantes :
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(html);
+            res.end(ensureFormAnchors(html).html);
         } catch (e) {
             console.log(`❌ Erreur Preview:`, e.message);
             res.writeHead(500);
@@ -2237,7 +2253,7 @@ Règles importantes :
                 }
 
                 res.writeHead(200, { 'Content-Type': 'text/html' });
-                return res.end(resolved.version.html);
+                return res.end(ensureFormAnchors(resolved.version.html).html);
             }
         } catch (e) {
             if (!isMissingContentSchemaError(e)) {

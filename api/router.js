@@ -1,5 +1,5 @@
 const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource } = require('../lib/api-shared');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
@@ -215,7 +215,7 @@ module.exports = async function handler(req, res) {
         // 1. Pages API (Dashboard)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/pages') {
-            const result = await supabaseRequest('GET',     '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
+            const result = await supabaseRequest('GET',     '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
             const legacyPages = (result || []).map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
@@ -237,6 +237,7 @@ module.exports = async function handler(req, res) {
                     keywords:     props.keywords || '',
                     canonical:    props.canonical || '',
                     schemaLd:     props.schemaLd || '',
+                    formIds:      Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       props.status || 'draft',
@@ -269,7 +270,10 @@ module.exports = async function handler(req, res) {
                         : existing?.is_original_language,
                     page_group_id: page.page_group_id !== undefined
                         ? page.page_group_id
-                        : existing?.page_group_id
+                        : existing?.page_group_id,
+                    formIds: Array.isArray(page.formIds)
+                        ? page.formIds
+                        : (existing?.formIds || [])
                 });
             });
 
@@ -567,11 +571,15 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html, css, projectData, properties: rawProperties } = req.body || {};
+            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
+
+            // Ancrer les formulaires (id stable pour les liens #form_id)
+            const { html, formIds } = ensureFormAnchors(submittedHtml);
 
             const properties = Object.assign({}, rawProperties || {});
             properties.rawHtml = html;
+            properties.formIds = formIds;
 
             // ── Résoudre les flags de traduction ──────────────────────────────
             const existingRow = await supabaseRequest(
@@ -675,11 +683,14 @@ module.exports = async function handler(req, res) {
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
             await applyCustomMarketingCode(projectName, mergedProperties);
-            const rawBodyHtml = mergedProperties.rawHtml
-                || extractBodyContent(project.html || '');
+            const anchoredBody = ensureFormAnchors(
+                mergedProperties.rawHtml || extractBodyContent(project.html || '')
+            );
+            mergedProperties.rawHtml = anchoredBody.html;
+            mergedProperties.formIds = anchoredBody.formIds;
             const freshHtml = buildStoredHtml({
                 projectName,
-                html:       rawBodyHtml,
+                html:       anchoredBody.html,
                 css:        project.css || '',
                 properties: mergedProperties
             });
@@ -756,7 +767,7 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(html);
+            return res.status(200).send(ensureFormAnchors(html).html);
         }
 
         if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
@@ -783,7 +794,7 @@ module.exports = async function handler(req, res) {
                 }
 
                 res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(resolved.version.html);
+                return res.status(200).send(ensureFormAnchors(resolved.version.html).html);
             }
         }
         // ==========================================
