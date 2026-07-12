@@ -121,6 +121,40 @@ let currentProjectIsNew = true;
 let currentProjectLanguage = 'FR'; 
 let currentStructuredPageId = null;
 
+function updatePageIdBadge() {
+    const badge = document.getElementById('project-id-badge');
+    if (!badge) return;
+    
+    const schoolId = window.CURRENT_SCHOOL?.id || new URLSearchParams(window.location.search).get('school')?.toLowerCase();
+    const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+    
+    if (fullName && !currentProjectIsNew) {
+        // Strip the school prefix to match SFMC logic (e.g. school-mopa__MyPage__FR -> MyPage__FR)
+        const sfmcName = fullName.replace(new RegExp(`^school-[^_]+__`), '');
+        
+        badge.innerText = 'Nom SFMC : ' + sfmcName;
+        badge.style.display = 'inline-block';
+        badge.setAttribute('title', "Cliquez pour copier le nom de l'Asset pour SFMC");
+        
+        badge.onclick = function() {
+            navigator.clipboard.writeText(sfmcName).then(() => {
+                const original = badge.innerText;
+                badge.innerText = 'Copié !';
+                setTimeout(() => badge.innerText = original, 1500);
+            });
+        };
+
+        try {
+            const url = new URL(window.location);
+            url.searchParams.set('project', fullName);
+            url.searchParams.delete('pageId'); // Nettoyage de l'ancien paramètre
+            window.history.replaceState({}, '', url);
+        } catch(e) {}
+    } else {
+        badge.style.display = 'none';
+    }
+}
+
 document.addEventListener('DOMContentLoaded', async () => {
     const params = new URLSearchParams(window.location.search);
     const schoolId = params.get('school')?.toLowerCase();
@@ -174,6 +208,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 populateProperties(project.properties || {});
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
+                updatePageIdBadge();
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
@@ -239,12 +274,16 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     currentProjectLanguage = language;
     document.getElementById('language-switcher').value = language;
 
+    // IMPORTANT : écrire le fullName en localStorage AVANT updatePageIdBadge(),
+    // car le badge + l'URL (?project=) sont lus depuis localStorage. Sinon le
+    // badge/URL reflètent l'ancienne page (bug « l'URL ne change pas »).
     localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
     if (legacyProjectName) {
         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, legacyProjectName);
     } else {
         localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
     }
+    updatePageIdBadge();
 
     const overlay = document.getElementById('welcome-overlay');
     if (overlay) overlay.classList.add('hidden');
@@ -1843,18 +1882,68 @@ function initUI(editor) {
             if (selectedLanguage !== originalLanguage && selectedLanguage !== 'FR') {
                 try {
                     showLoading(`Traduction en cours vers ${selectedLanguage}... Cela peut prendre quelques secondes.`);
+                    
+                    const pd = editor.getProjectData();
+                    const targets = [];
+                    
+                    function walk(node) {
+                        const type = node.type || 'default';
+                        const tagName = (node.tagName || '').toLowerCase();
+                        
+                        // On limite strictement l'extraction du 'content' aux composants de type texte/bouton.
+                        // Cela protège les iframes, vidéos et structures complexes.
+                        const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
+                                           ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
+
+                        if (isTextLike && node.content && typeof node.content === 'string') {
+                            // Vérifie qu'il y a au moins une lettre pour éviter de traduire du code ou des symboles
+                            if (/[a-zA-ZÀ-ÿ]/.test(node.content)) {
+                                targets.push({ obj: node, prop: 'content' });
+                            }
+                        }
+                        
+                        if (node.attributes) {
+                            ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
+                                if (node.attributes[attr] && typeof node.attributes[attr] === 'string') {
+                                    if (/[a-zA-ZÀ-ÿ]/.test(node.attributes[attr])) {
+                                        targets.push({ obj: node.attributes, prop: attr });
+                                    }
+                                }
+                            });
+                        }
+                        if (node.components) {
+                            node.components.forEach(walk);
+                        }
+                    }
+                    pd.pages.forEach(p => p.frames.forEach(f => walk(f.component)));
+                    
+                    // Construit un faux HTML contenant tous les textes à traduire
+                    let htmlToTranslate = '';
+                    targets.forEach((t, i) => {
+                        htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`;
+                    });
+
                     const translateRes = await fetch('/api/ai/translate', {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ html: finalHtml, targetLang: selectedLanguage })
+                        body: JSON.stringify({ html: htmlToTranslate, targetLang: selectedLanguage })
                     });
 
                     if (!translateRes.ok) throw new Error(await translateRes.text());
                     const translateData = await translateRes.json();
-                    finalHtml = translateData.html;
                     
-                    // Update the canvas to show translated content
-                    editor.setComponents(finalHtml);
+                    // On récupère les textes traduits
+                    const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
+                    targets.forEach((t, i) => {
+                        const el = doc.getElementById('t' + i);
+                        if (el) {
+                            t.obj[t.prop] = el.innerHTML;
+                        }
+                    });
+                    
+                    // Update the canvas to show translated content with ALL CSS and traits preserved!
+                    editor.loadProjectData(pd);
+                    finalHtml = editor.getHtml(); // update HTML after loading project data
                 } catch (e) {
                     hideLoading();
                     console.error(e);
@@ -1899,7 +1988,14 @@ function initUI(editor) {
                     localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, newFullName);
                 } else if (!localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`)) {
                     localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-                }                currentProjectLanguage = selectedLanguage;
+                }
+                
+                currentProjectLanguage = selectedLanguage;
+                
+                if (savedPageId) {
+                    currentStructuredPageId = savedPageId;
+                }
+                updatePageIdBadge(); // Mets à jour le badge et l'URL
                 
                 hideLoading();
                 await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
@@ -1974,16 +2070,48 @@ function initUI(editor) {
                     if (lang !== 'FR') {
                         try {
                             showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
+                            
+                            // Même logique que pour les projets existants : on traduit via projectData
+                            // pour éviter de casser le design (setComponents reset le state GrapesJS)
+                            const pd = editor.getProjectData();
+                            const targets = [];
+                            function walkNew(node) {
+                                const type = node.type || 'default';
+                                const tagName = (node.tagName || '').toLowerCase();
+                                const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
+                                                   ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
+                                if (isTextLike && node.content && typeof node.content === 'string') {
+                                    if (/[a-zA-ZÀ-ÿ]/.test(node.content)) targets.push({ obj: node, prop: 'content' });
+                                }
+                                if (node.attributes) {
+                                    ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
+                                        if (node.attributes[attr] && /[a-zA-ZÀ-ÿ]/.test(node.attributes[attr]))
+                                            targets.push({ obj: node.attributes, prop: attr });
+                                    });
+                                }
+                                if (node.components) node.components.forEach(walkNew);
+                            }
+                            pd.pages.forEach(p => p.frames.forEach(f => walkNew(f.component)));
+
+                            let htmlToTranslate = '';
+                            targets.forEach((t, i) => { htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`; });
+
                             const translateRes = await fetch('/api/ai/translate', {
                                 method: 'POST',
                                 headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ html: finalBodyHtml, targetLang: lang })
+                                body: JSON.stringify({ html: htmlToTranslate, targetLang: lang })
                             });
 
                             if (!translateRes.ok) throw new Error(await translateRes.text());
                             const translateData = await translateRes.json();
-                            finalBodyHtml = translateData.html;
-                            editor.setComponents(finalBodyHtml);
+                            
+                            const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
+                            targets.forEach((t, i) => {
+                                const el = doc.getElementById('t' + i);
+                                if (el) t.obj[t.prop] = el.innerHTML;
+                            });
+                            editor.loadProjectData(pd);
+                            finalBodyHtml = editor.getHtml();
                         } catch (e) {
                             hideLoading();
                             console.error(e);
@@ -2026,11 +2154,21 @@ function initUI(editor) {
                         const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
                         if (!res.ok) throw new Error(await res.text());
                         
+                        const saveData = await res.json();
+                        if (saveData && saveData.page_id) {
+                            currentStructuredPageId = saveData.page_id;
+                            updatePageIdBadge();
+                        }
+
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
                         document.getElementById('language-switcher').value = lang;
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
+                        if (lang === 'FR') {
+                            localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
+                        }
+                        updatePageIdBadge(); // Met à jour le badge ET l'URL avec le bon nom (incl. langue)
                         
                         hideLoading();
                         
@@ -2163,6 +2301,7 @@ function initUI(editor) {
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
             currentStructuredPageId = project.page_id || null;
+            updatePageIdBadge();
             
             // Extract and set current language
             const parts = fullName.replace(`school-${schoolId}__`, '').split('__');
