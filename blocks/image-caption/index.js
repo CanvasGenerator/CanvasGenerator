@@ -22,7 +22,7 @@ export default function(editor, categories) {
                 .img-caption {
                     text-align: center;
                     font-size: 14px;
-                    color: #777;
+                    color: var(--brand-muted, #6b7280);
                     font-style: italic;
                 }
             </style>

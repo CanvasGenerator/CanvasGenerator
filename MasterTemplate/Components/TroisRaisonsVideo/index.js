@@ -110,7 +110,7 @@ export default function(editor, categories) {
                 styles: `
   .pourquoi{background:var(--brand-carousel, #e8a99b);}
   .pourquoi *{box-sizing:border-box;}
-  .pourquoi-grille{display:grid;grid-template-columns:1fr 1.2fr;align-items:stretch;font-family: var(--brand-font, 'Inter', sans-serif);color:#1a1a1a;line-height:1.5;}
+  .pourquoi-grille{display:grid;grid-template-columns:1fr 1.2fr;align-items:stretch;font-family: var(--brand-font, 'Inter', sans-serif);color: var(--brand-text, #1a1a1a);line-height:1.5;}
 
   /* --- Bloc vidéo --- */
   .pourquoi .bloc-video{position:relative;background:#3a2f2c;min-height:420px;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#ffffff;overflow:hidden;padding:24px;cursor:pointer;}

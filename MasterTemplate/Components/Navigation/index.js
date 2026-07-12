@@ -22,7 +22,7 @@ export default function(editor, categories) {
 </nav>
 <style>
   .mn-nav {
-    background: #fff;
+    background: var(--brand-background, #ffffff);
     border-bottom: 3px solid var(--bande-color, #1f2937);
     position: sticky;
     top: 0;

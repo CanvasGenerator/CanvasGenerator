@@ -94,7 +94,7 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .ma-section { padding: 48px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
+  .ma-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .ma-inner { max-width: 900px; margin: 0 auto; }
   .ma-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; }
@@ -103,13 +103,13 @@ export default function(editor, categories) {
   .ma-q span { font-size: 14px; color: var(--text-main, #222); line-height: 1.4; flex: 1; }
   .ma-toggle {
     width: 32px; height: 32px; border-radius: 50%; border: 2px solid #bbb;
-    background: #fff; font-size: 20px; line-height: 1; color: #555;
+    background: var(--brand-background, #ffffff); font-size: 20px; line-height: 1; color: var(--brand-muted, #6b7280);
     cursor: pointer; flex-shrink: 0; display: flex; align-items: center; justify-content: center;
     transition: all 0.2s;
   }
   .ma-item.ma-open .ma-toggle { border-color: var(--brand-primary,#1f2937); color: var(--brand-primary,#1f2937); }
   .ma-a { padding: 0 4px 16px; }
-  .ma-a p { margin: 0; font-size: 13.5px; color: #555; line-height: 1.65; }
+  .ma-a p { margin: 0; font-size: 13.5px; color: var(--brand-muted, #6b7280); line-height: 1.65; }
   @media(max-width:768px) { .ma-section { padding: 32px 16px; } }
 </style>`,
         attributes: { class: 'fa fa-list-ul' }

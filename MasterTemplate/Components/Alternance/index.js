@@ -110,7 +110,7 @@ export default function(editor, categories) {
                 name: 'Alternance (vidéo + texte)',
                 styles: `
   .alternance, .alternance * { box-sizing: border-box; }
-  .alternance { background:#a6a7cf; padding:56px 24px; font-family: var(--brand-font, 'Inter', sans-serif); color:#1a1a1a; line-height:1.5; }
+  .alternance { background:#a6a7cf; padding:56px 24px; font-family: var(--brand-font, 'Inter', sans-serif); color: var(--brand-text, #1a1a1a); line-height:1.5; }
   .alternance .container { max-width:1140px; margin:0 auto; padding:0 24px; }
   .alternance-grille { display:grid; grid-template-columns:1fr 1fr; gap:44px; align-items:start; }
 

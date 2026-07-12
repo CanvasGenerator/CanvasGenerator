@@ -120,8 +120,8 @@ export default function (editor, categories) {
 
             <style>
                 .sfmc-snippet-logic, .sfmc-snippet-messages { display: none !important; }
-                .form-core-section { padding: 60px 20px; background: #f1f5f9; font-family: 'Outfit', sans-serif; }
-                .form-core-container { max-width: 480px; margin: 0 auto; background: #ffffff; padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
+                .form-core-section { padding: 60px 20px; background: var(--brand-surface, #f5f5f5); font-family: 'Outfit', sans-serif; }
+                .form-core-container { max-width: 480px; margin: 0 auto; background: var(--brand-background, #ffffff); padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
                 .sf-logo-badge { width: 40px; height: 40px; background: #00A1E0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; color: white; font-size: 18px; }
                 .form-header-premium { text-align: center; margin-bottom: 25px; }
                 .form-title { font-size: 22px; font-weight: 800; color: #1e293b; margin: 0; }
@@ -130,7 +130,7 @@ export default function (editor, categories) {
                 .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
                 .form-group-core { display: flex; flex-direction: column; gap: 5px; }
                 .form-group-core label { font-size: 11px; font-weight: 700; text-transform: uppercase; color: #64748b; }
-                .form-group-core input, .form-select-core { padding: 12px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; background: #f8fafc; }
+                .form-group-core input, .form-select-core { padding: 12px 14px; border: 1px solid var(--brand-border, #e5e7eb); border-radius: 8px; font-size: 14px; background: #f8fafc; }
                 .form-core-submit { margin-top: 5px; background: #00A1E0; color: white; border: none; padding: 15px; border-radius: 8px; font-size: 14px; font-weight: 700; cursor: pointer; display: flex; align-items: center; justify-content: center; gap: 10px; }
             </style>
         `,

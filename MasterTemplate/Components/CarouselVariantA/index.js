@@ -57,7 +57,7 @@ export default function(editor, categories) {
                 }
 
                 .mcva-badge {
-                    background: var(--brand-primary, #374151);
+                    background-color: var(--brand-accent, var(--brand-primary, #374151));
                     color: #fff;
                     font-size: 11px;
                     font-weight: 800;
@@ -79,15 +79,15 @@ export default function(editor, categories) {
 
                 .mcva-body {
                     padding: 14px 12px 16px;
-                    border: 1px solid #e5e7eb;
+                    border: 1px solid var(--brand-border, #e5e7eb);
                     border-top: none;
                     flex: 1;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                 }
 
                 .mcva-desc {
                     font-size: 13px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     line-height: 1.6;
                     margin: 0 0 10px;
                 }
@@ -109,9 +109,9 @@ export default function(editor, categories) {
                 .mcva-nav { text-align: center; margin-top: 20px; }
                 .mcva-prev, .mcva-next {
                     width: 40px; height: 40px; border-radius: 50%;
-                    border: 2px solid var(--brand-primary, #555); background: #fff;
+                    border: 2px solid var(--brand-primary, #555); background: var(--brand-background, #ffffff);
                     cursor: pointer; font-size: 22px; margin: 0 6px;
-                    color: #333; display: inline-flex;
+                    color: var(--brand-text, #1a1a1a); display: inline-flex;
                     align-items: center; justify-content: center;
                     transition: background 0.2s, color 0.2s;
                 }

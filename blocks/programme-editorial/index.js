@@ -41,9 +41,9 @@ export default function(editor, categories) {
             <style>
                 .progx-section {
                     padding: 56px 20px;
-                    background-color: #ffffff;
+                    background-color: var(--brand-background, #ffffff);
                     font-family: var(--brand-font, 'Inter', sans-serif);
-                    color: #111111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .progx-container {
                     max-width: 900px;
@@ -76,18 +76,18 @@ export default function(editor, categories) {
                     font-size: 18px;
                     font-weight: 700;
                     line-height: 1;
-                    color: #111111;
+                    color: var(--brand-text, #1a1a1a);
                     transform: translateY(2px);
                 }
                 .progx-text {
                     font-size: 18px;
                     font-weight: 400;
                     line-height: 1.35;
-                    color: #1a1a1a;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 .progx-text strong {
                     font-weight: 800;
-                    color: #111111;
+                    color: var(--brand-text, #1a1a1a);
                 }
                 @media (max-width: 768px) {
                     .progx-section {

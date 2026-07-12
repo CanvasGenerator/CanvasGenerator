@@ -21,7 +21,7 @@ export default function(editor, categories) {
                 .programme-section {
                     padding: 40px 0;
                     font-family: var(--brand-font, 'Inter', sans-serif);
-                    background-color: #fff;
+                    background-color: var(--brand-background, #ffffff);
                     color: #000;
                 }
                 .programme-container {

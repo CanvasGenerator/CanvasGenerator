@@ -251,14 +251,14 @@ export default function(editor, categories) {
                     color: #ffffff;
                 }
                 .mta-tab-hd.mta-active {
-                    background: #ffffff;
+                    background: var(--brand-background, #ffffff);
                     border-bottom: 1px solid #ffffff;
                     margin-bottom: -1px;
                     z-index: 10;
                     position: relative;
                 }
-                .mta-tab-hd.mta-active .mta-tab-hd-sub  { color: #000000; }
-                .mta-tab-hd.mta-active .mta-tab-hd-title { color: #000000; }
+                .mta-tab-hd.mta-active .mta-tab-hd-sub  { color: var(--brand-text, #1a1a1a); }
+                .mta-tab-hd.mta-active .mta-tab-hd-title { color: var(--brand-text, #1a1a1a); }
 
                 /* ── Steps grid ── */
                 .mta-pane { display: none; }
@@ -269,13 +269,13 @@ export default function(editor, categories) {
                     grid-template-columns: 1fr 1fr 1fr;
                     align-items: start;
                     padding: 0;
-                    background: #ffffff;
+                    background: var(--brand-background, #ffffff);
                 }
                 .mta-step {
                     padding: 24px 20px;
                     border-right: 1px solid #e0e0e0;
                     border-bottom: 1px solid #e0e0e0;
-                    background: #ffffff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                 }
                 .mta-step:last-child { border-right: none; }
@@ -285,12 +285,12 @@ export default function(editor, categories) {
                     align-items: flex-start;
                     gap: 12px;
                 }
-                .mta-step-icon { flex-shrink: 0; color: #111; margin-top: 2px; }
+                .mta-step-icon { flex-shrink: 0; color: var(--brand-text, #1a1a1a); margin-top: 2px; }
                 .mta-step-body { flex: 1; }
                 .mta-badge {
                     display: inline-block;
                     background: var(--brand-secondary, #f29c38);
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                     font-size: 11px;
                     font-weight: 800;
                     padding: 3px 8px;
@@ -301,7 +301,7 @@ export default function(editor, categories) {
                 .mta-step-label {
                     font-size: 15px;
                     font-weight: 800;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                     margin: 0;
                     cursor: pointer;
                     line-height: 1.3;
@@ -309,14 +309,14 @@ export default function(editor, categories) {
                 .mta-step-label .mta-expand-icon {
                     font-size: 11px;
                     margin-left: 6px;
-                    color: #111;
+                    color: var(--brand-text, #1a1a1a);
                     vertical-align: middle;
                 }
                 .mta-step-details {
                     margin: 12px 0 0;
                     padding: 12px 0 0 16px;
                     font-size: 13px;
-                    color: #555;
+                    color: var(--brand-muted, #6b7280);
                     line-height: 1.6;
                     border-top: 1px solid #000000;
                     display: none;
@@ -343,9 +343,9 @@ export default function(editor, categories) {
                     }
                     .mta-mob-tab .mta-tab-hd-sub   { color: rgba(255,255,255,0.9); }
                     .mta-mob-tab .mta-tab-hd-title { color: #ffffff; }
-                    .mta-mob-tab.mta-active { background: #ffffff; border-bottom: 1px solid #e0e0e0; }
-                    .mta-mob-tab.mta-active .mta-tab-hd-sub   { color: #000000; }
-                    .mta-mob-tab.mta-active .mta-tab-hd-title { color: #000000; }
+                    .mta-mob-tab.mta-active { background: var(--brand-background, #ffffff); border-bottom: 1px solid #e0e0e0; }
+                    .mta-mob-tab.mta-active .mta-tab-hd-sub   { color: var(--brand-text, #1a1a1a); }
+                    .mta-mob-tab.mta-active .mta-tab-hd-title { color: var(--brand-text, #1a1a1a); }
                 }
             `,
             components: [{

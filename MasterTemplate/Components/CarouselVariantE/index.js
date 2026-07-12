@@ -83,7 +83,7 @@ export default function(editor, categories) {
 
                 /* Header clair avec accent de marque */
                 .mce-card-header {
-                    background: #f7f9fc;
+                    background: var(--brand-surface, #f5f5f5);
                     color: var(--brand-primary, #374151);
                     font-size: 13px;
                     font-weight: 800;
@@ -95,7 +95,7 @@ export default function(editor, categories) {
                     display: flex;
                     align-items: center;
                     border-top: 4px solid var(--brand-primary, #374151);
-                    border-bottom: 1px solid #e2e8f0;
+                    border-bottom: 1px solid var(--brand-border, #e5e7eb);
                 }
 
                 /* Corps blanc */
@@ -108,11 +108,11 @@ export default function(editor, categories) {
                     flex-direction: column;
                     justify-content: space-between;
                     gap: 16px;
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                 }
                 .mce-card-text {
                     font-size: 12px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     line-height: 1.65;
                 }
                 /* Bullets dans le texte */
@@ -155,10 +155,10 @@ export default function(editor, categories) {
                     height: 40px;
                     border-radius: 50%;
                     border: 2px solid var(--brand-primary, #555);
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     cursor: pointer;
                     font-size: 20px;
-                    color: #333;
+                    color: var(--brand-text, #1a1a1a);
                     margin: 0 6px;
                     transition: background 0.2s, color 0.2s;
                     display: inline-flex;
@@ -167,7 +167,7 @@ export default function(editor, categories) {
                 }
                 .mce-prev:hover,
                 .mce-next:hover {
-                    background: #fff;
+                    background: var(--brand-background, #ffffff);
                     color: var(--brand-primary, #374151);
                     border-color: #fff;
                 }

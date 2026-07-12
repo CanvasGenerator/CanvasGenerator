@@ -80,10 +80,10 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .mnc-section { padding: 40px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
+  .mnc-section { padding: 40px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .mnc-inner { max-width: 900px; margin: 0 auto; text-align: center; }
   .mnc-title {
-    font-size: 22px; font-weight: 900; color: #111;
+    font-size: 22px; font-weight: 900; color: var(--brand-text, #1a1a1a);
     letter-spacing: 2px; margin: 0 0 24px; text-transform: uppercase;
   }
   .mnc-list {
@@ -91,7 +91,7 @@ export default function(editor, categories) {
     align-items: center; gap: 6px 4px; line-height: 1.8;
   }
   .mnc-campus-name {
-    font-size: 13px; font-weight: 700; color: #222;
+    font-size: 13px; font-weight: 700; color: var(--brand-text, #1a1a1a);
     letter-spacing: 1px; white-space: nowrap; padding: 0 4px;
   }
   .mnc-dot {
