@@ -54,7 +54,7 @@ export default function(editor, categories) {
                 'script-props': [],
                 styles: `
   .cursus, .cursus * { box-sizing: border-box; }
-  .cursus { background:#c3c8e6; padding:56px 24px 48px; font-family:'Montserrat',Arial,Helvetica,sans-serif; color:#1a1a1a; line-height:1.5; }
+  .cursus { background:#c3c8e6; padding:56px 24px 48px; font-family: var(--brand-font, 'Inter', sans-serif); color:#1a1a1a; line-height:1.5; }
   .cursus .section-title { font-size:28px; font-weight:800; text-transform:uppercase; letter-spacing:1px; text-align:center; }
   .cursus .container { max-width:1140px; margin:0 auto; padding:0 24px; }
 

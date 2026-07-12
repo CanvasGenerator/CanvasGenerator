@@ -23,7 +23,7 @@ export default function(editor, categories) {
     background: #fbdeba;
     text-align: center;
     padding: 52px 24px 60px;
-    font-family: 'Montserrat', Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     color: #1a1a1a;
   }
   .cta-final h2 {

@@ -41,7 +41,7 @@ export default function(editor, categories) {
   .mcc2-section {
     background: #fff;
     padding: 32px 24px;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mcc2-inner {
     max-width: 900px;

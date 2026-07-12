@@ -80,7 +80,7 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .mnc-section { padding: 40px 24px; background: #fff; font-family: Arial, sans-serif; }
+  .mnc-section { padding: 40px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
   .mnc-inner { max-width: 900px; margin: 0 auto; text-align: center; }
   .mnc-title {
     font-size: 22px; font-weight: 900; color: #111;

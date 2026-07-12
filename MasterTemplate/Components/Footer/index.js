@@ -36,7 +36,7 @@ export default function(editor, categories) {
   </div>
 </footer>
 <style>
-  .mf-footer { background:var(--brand-footer, #ffffff); color:#111; padding:40px 24px; font-family:Arial,sans-serif; border-top:1px solid #ececec; }
+  .mf-footer { background:var(--brand-footer, #ffffff); color:#111; padding:40px 24px; font-family: var(--brand-font, 'Inter', sans-serif); border-top:1px solid #ececec; }
   .mf-inner { max-width:1200px; margin:0 auto; display:flex; gap:48px; align-items:flex-start; }
   .mf-brand { flex:0 0 auto; min-width:180px; }
   .mf-logo { color:#111; display:flex; align-items:center; font-weight:800; font-size:22px; letter-spacing:1px; margin-bottom:10px; }

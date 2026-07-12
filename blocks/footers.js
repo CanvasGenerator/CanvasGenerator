@@ -58,7 +58,7 @@ export default function(editor, categories) {
                         width: 100%;
                         margin: 0;
                         padding: 50px 90px 40px 90px;
-                        font-family: 'Inter', sans-serif;
+                        font-family: var(--brand-font, 'Inter', sans-serif);
                     }
                     .${school.id} .ft-inner { max-width: 1240px; margin: 0 auto; }
                     .${school.id} .ft-top {

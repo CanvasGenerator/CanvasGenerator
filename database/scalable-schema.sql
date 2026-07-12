@@ -168,8 +168,13 @@ create table if not exists "Schools" (
   color_light text,
   emoji text,
   default_blocks jsonb default '[]'::jsonb,
+  -- Branding école : { defaultFont, availableFonts[], colors{16 rôles} }
+  branding jsonb,
   deleted boolean default false
 );
+
+-- Migration (bases existantes) : ajouter la colonne branding si absente.
+alter table if exists "Schools" add column if not exists branding jsonb;
 
 create index if not exists idx_entities_organization on entities(organization_id);
 create index if not exists idx_folders_entity_parent on folders(entity_id, parent_id);

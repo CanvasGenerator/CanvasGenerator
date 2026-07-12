@@ -32,7 +32,7 @@ export default function(editor, categories) {
                 .keyfig-section {
                     padding: 32px 20px;
                     background-color: #ffffff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .keyfig-card {
                     max-width: 920px;

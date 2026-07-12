@@ -34,7 +34,7 @@ export default function(editor, categories) {
 <style>
   .programme-bg, .programme-bg * { box-sizing: border-box; }
   .programme-bg {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     background: #4b3a8e;
     padding: 50px 20px;
   }

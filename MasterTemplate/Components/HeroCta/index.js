@@ -23,7 +23,7 @@ export default function(editor, categories) {
     background: #f9dfbc;
     text-align: center;
     padding: 64px 24px 56px;
-    font-family: 'Montserrat', Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     color: #1a1a1a;
   }
   .hero h1 {

@@ -44,7 +44,7 @@ export default function(editor, categories) {
         content: {
             type: 'mcva-component',
             styles: `
-                .mcva-section { padding: 40px 20px; background: var(--brand-carousel, #fff); font-family: Arial, sans-serif; }
+                .mcva-section { padding: 40px 20px; background: var(--brand-carousel, #fff); font-family: var(--brand-font, 'Inter', sans-serif); }
                 .mcva-viewport { max-width: 1100px; margin: 0 auto; overflow: hidden; }
                 .mcva-track { display: flex; transition: transform 0.42s cubic-bezier(0.25,0.46,0.45,0.94); }
 

@@ -42,7 +42,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2c-component',
             styles: `
-                .mc2c-section { padding: 0; background: var(--brand-carousel, #f7f9fc); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
+                .mc2c-section { padding: 0; background: var(--brand-carousel, #f7f9fc); font-family: var(--brand-font, 'Inter', sans-serif); max-width: 1100px; margin: 0 auto; }
                 .mc2c-viewport { max-width: 820px; margin: 0 auto; overflow: hidden; }
                 .mc2c-track { display: flex; transition: transform 0.42s ease; }
 
@@ -73,7 +73,7 @@ export default function(editor, categories) {
                 .mc2c-bigquote {
                     font-size: 64px; line-height: 0.8;
                     color: var(--brand-primary, #374151);
-                    font-family: Georgia, serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     opacity: 0.5;
                     margin-bottom: -12px;
                 }

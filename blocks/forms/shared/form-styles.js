@@ -9,7 +9,7 @@ export const EDH_FORM_STYLES = `
 .edh-form-section {
     padding: 40px 20px;
     background: var(--edh-form-bg, #f8f9fa);
-    font-family: var(--edh-font, 'Inter', 'Helvetica Neue', sans-serif);
+    font-family: var(--brand-font, 'Inter', sans-serif);
 }
 .edh-form-container {
     max-width: var(--edh-form-max-width, 620px);

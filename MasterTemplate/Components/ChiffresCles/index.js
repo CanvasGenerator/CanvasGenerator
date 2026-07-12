@@ -34,7 +34,7 @@ export default function(editor, categories) {
   .mcc-section {
     padding: 40px 24px;
     background: #fff;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mcc-card {
     max-width: 860px;

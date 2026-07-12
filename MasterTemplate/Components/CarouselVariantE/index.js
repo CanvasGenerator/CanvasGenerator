@@ -60,7 +60,7 @@ export default function(editor, categories) {
                 .mce-section {
                     padding: 36px 20px;
                     background: var(--brand-carousel, var(--brand-primary, #374151));
-                    font-family: Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .mce-viewport {
                     max-width: 1100px;

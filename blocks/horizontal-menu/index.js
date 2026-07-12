@@ -46,7 +46,7 @@ export default function(editor, categories) {
                     position: sticky;
                     top: 0;
                     z-index: 999;
-                    font-family: 'Inter', Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .hm-scroll-container {
                     width: 100%;

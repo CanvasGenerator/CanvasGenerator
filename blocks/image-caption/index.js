@@ -12,7 +12,7 @@ export default function(editor, categories) {
                     margin: 40px auto;
                     max-width: 900px;
                     padding: 0 20px;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .caption-img {
                     width: 100%;

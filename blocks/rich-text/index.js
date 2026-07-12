@@ -13,7 +13,7 @@ export default function(editor, categories) {
                     padding: 40px;
                     max-width: 800px;
                     margin: 0 auto;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .text-title {
                     font-size: 24px;

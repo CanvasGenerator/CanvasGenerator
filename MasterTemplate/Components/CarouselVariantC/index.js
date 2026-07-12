@@ -39,7 +39,7 @@ export default function(editor, categories) {
                 .mcc-section {
                     padding: 32px 24px;
                     background: #fff;
-                    font-family: Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .mcc-wrapper {
                     max-width: 1100px;

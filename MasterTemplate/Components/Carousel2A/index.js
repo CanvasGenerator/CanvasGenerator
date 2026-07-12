@@ -27,7 +27,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc2a-component',
             styles: `
-                .mc2a-section { padding: 48px 20px; background: var(--brand-carousel, #fff); font-family: Arial, sans-serif; max-width: 1100px; margin: 0 auto; }
+                .mc2a-section { padding: 48px 20px; background: var(--brand-carousel, #fff); font-family: var(--brand-font, 'Inter', sans-serif); max-width: 1100px; margin: 0 auto; }
                 .mc2a-viewport { max-width: 560px; margin: 0 auto; overflow: hidden; }
                 .mc2a-track { display: flex; transition: transform 0.42s ease; }
 

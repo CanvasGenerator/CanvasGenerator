@@ -37,7 +37,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc3c-component',
             styles: `
-                .mc3c-section { padding: 60px 20px; background: var(--brand-carousel, #f5f5f5); font-family: Arial, sans-serif; }
+                .mc3c-section { padding: 60px 20px; background: var(--brand-carousel, #f5f5f5); font-family: var(--brand-font, 'Inter', sans-serif); }
                 .mc3c-container { max-width: 1100px; margin: 0 auto; overflow: hidden; }
                 .mc3c-track { display: flex; transition: transform 0.45s cubic-bezier(0.25,0.46,0.45,0.94); }
 

@@ -288,6 +288,9 @@ function initEditor(schoolId) {
         layerManager: { appendTo: '#layers-container' },
         traitManager: { appendTo: '#traits-container' },
         panels: { defaults: [] },
+        // NB : les @font-face (Gotham, Space Grotesk) sont chargés dans l'iframe
+        // canvas via injectBrandVariables (link explicite en URL absolue), plus
+        // fiable que l'option canvas.styles.
         deviceManager: {
             devices: [
                 { name: 'Desktop', width: '' },
@@ -314,6 +317,8 @@ function initEditor(schoolId) {
     editor.on('load', () => {
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
+        restrictFontSelector(editor, CURRENT_SCHOOL);
+        addFontStyleControl(editor);
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
@@ -977,6 +982,62 @@ function extractBodyHtml(html = '') {
     return bodyMatch ? bodyMatch[1] : value;
 }
 
+// Restreint la liste de fonts du Style Manager aux SEULES fonts configurées
+// pour l'école (font par défaut + fonts supplémentaires). Le marketeur ne peut
+// donc choisir que parmi celles-ci ; le mécanisme de changement par composant
+// reste inchangé (écrit un font-family inline qui prime sur --brand-font).
+function restrictFontSelector(editor, school) {
+    const RF = window.ReetainFonts;
+    if (!RF || !editor) return;
+    try {
+        const branding = RF.normalizeBranding(school && school.branding, school || {});
+        const fonts = branding.availableFonts.map(id => RF.fontById(id)).filter(Boolean);
+        if (!fonts.length) return;
+        const options = fonts.map(f => ({ id: f.stack, value: f.stack, name: f.name + ' (Défaut)', label: f.name + ' (Défaut)' }));
+        if (RF.GOOGLE_FONTS) {
+            options.push({ id: '', value: '', name: '--- Google Fonts ---', label: '--- Google Fonts ---' });
+            options.push(...RF.GOOGLE_FONTS.map(f => ({ id: f.stack, value: f.stack, name: f.name, label: f.name })));
+        }
+        const sm = editor.StyleManager;
+        const prop = sm.getProperty('typography', 'font-family');
+        if (!prop) return;
+        if (typeof prop.setOptions === 'function') prop.setOptions(options);
+        else prop.set('options', options);
+        sm.render();
+    } catch (e) {
+        console.warn('restrictFontSelector: impossible de restreindre les fonts', e);
+    }
+}
+
+// Ajoute un contrôle "Font Style" (Normal / Italic) au secteur Typography :
+// GrapesJS ne l'expose pas par défaut. Idempotent (n'ajoute pas 2 fois).
+function addFontStyleControl(editor) {
+    if (!editor) return;
+    try {
+        const sm = editor.StyleManager;
+        if (sm.getProperty('typography', 'font-style')) return; // déjà présent
+        sm.addProperty('typography', {
+            name: 'Font Style',
+            property: 'font-style',
+            type: 'select',
+            defaults: 'normal',
+            default: 'normal',
+            // `list` (anciennes versions GrapesJS) + `options` (récentes)
+            list: [
+                { value: 'normal', name: 'Normal' },
+                { value: 'italic', name: 'Italic' }
+            ],
+            options: [
+                { id: 'normal', label: 'Normal' },
+                { id: 'italic', label: 'Italic' }
+            ]
+        }, { at: 3 }); // placé juste après Font Weight
+        sm.render();
+    } catch (e) {
+        console.warn('addFontStyleControl: impossible d’ajouter le contrôle italique', e);
+    }
+}
+
 function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
     const primary = school.color || '#3b82f6';
@@ -988,7 +1049,45 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (school.id === 'brassart') bandeColor = '#bc0b5d';
     if (school.id === 'efap') bandeColor = '#1a1a1a';
     if (school.id === 'cread') bandeColor = '#d4af37';
-    const css = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor}; }`;
+
+    // Branding : font par défaut + palette 16 rôles (normalizeBranding garantit
+    // un objet complet, dérivé des couleurs de l'école si non configuré).
+    const RF = window.ReetainFonts;
+    const branding = RF ? RF.normalizeBranding(school.branding, school) : (school.branding || {});
+    const c = branding.colors || {};
+    // Résolution du stack de font RÉSILIENTE : on n'échoue pas si ReetainFonts
+    // n'est pas chargé → la font choisie pour l'école s'applique quand même.
+    const FONT_STACKS = {
+        'gotham': "'Gotham', Arial, sans-serif",
+        'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif"
+    };
+    const FONT_NAMES = { 'gotham': 'Gotham', 'space-grotesk': 'Space Grotesk' };
+    const brandFont =
+        (RF && RF.fontStackById(branding.defaultFont)) ||
+        FONT_STACKS[branding.defaultFont] ||
+        FONT_STACKS.gotham;
+    // Nom de famille (pas le stack) pour forcer le préchargement de la police.
+    const brandFontName =
+        (RF && RF.fontById(branding.defaultFont) && RF.fontById(branding.defaultFont).name) ||
+        FONT_NAMES[branding.defaultFont] || 'Gotham';
+    // Rôles de couleurs → CSS vars consommées par les blocs.
+    const roleVars = `
+      --brand-font: ${brandFont};
+      --brand-background: ${c.background || '#ffffff'};
+      --brand-surface: ${c.surface || '#f5f5f5'};
+      --brand-text: ${c.text || '#1a1a1a'};
+      --brand-muted: ${c.mutedText || '#6b7280'};
+      --brand-border: ${c.border || '#e5e7eb'};
+      --brand-accent: ${c.accent || secondary};
+      --brand-button-bg: ${c.buttonBackground || primary};
+      --brand-button-hover: ${c.buttonHover || primary};
+      --brand-button-text: ${c.buttonText || '#ffffff'};
+      --brand-link: ${c.link || primary};
+      --brand-link-hover: ${c.linkHover || primary};
+      --brand-success: ${c.success || '#16a34a'};
+      --brand-warning: ${c.warning || '#f59e0b'};
+      --brand-error: ${c.error || '#dc2626'};`;
+    const css = `:root { --brand-primary: ${c.primary || primary}; --brand-secondary: ${c.secondary || secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor};${roleVars} }`;
 
     // Règles directes avec !important pour overrider les couleurs hardcodées
     // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici
@@ -998,6 +1097,16 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
 .mh-header { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
 .mf-footer { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }
 .mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }`;
+
+    // Font par défaut de l'école appliquée à la racine du canvas. La font-family
+    // s'hérite naturellement en CSS : tout composant déposé qui ne fixe pas SA
+    // propre font hérite donc automatiquement de celle-ci, en poids/style normal.
+    // SANS !important et faible spécificité → un override de font sur un composant
+    // précis (via le Style Manager, sélecteur #id) prime toujours.
+    const fontBaseCss = `
+body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-serif); }
+[data-gjs-type] { font-family: inherit; font-weight: normal; font-style: normal; }
+[data-gjs-type] * { font-family: inherit; }`;
 
     if (intoMainDoc) {
         let style = document.getElementById('brand-variables-main');
@@ -1017,13 +1126,41 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
             try {
                 const doc = editor.Canvas.getDocument();
                 if (!doc) return false;
+                // 1. Charger les @font-face (Gotham, Space Grotesk) DANS l'iframe.
+                // On l'injecte explicitement ici (en plus de canvas.styles) car
+                // cette option ne charge pas toujours la feuille dans l'iframe.
+                // URL absolue → les url() relatives de fonts.css résolvent bien.
+                if (!doc.getElementById('brand-fonts-link')) {
+                    const link = doc.createElement('link');
+                    link.id = 'brand-fonts-link';
+                    link.rel = 'stylesheet';
+                    link.href = location.origin + '/css/fonts.css';
+                    doc.head.appendChild(link);
+                }
+                if (!doc.getElementById('google-fonts-link')) {
+                    const gLink = doc.createElement('link');
+                    gLink.id = 'google-fonts-link';
+                    gLink.rel = 'stylesheet';
+                    gLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+                    doc.head.appendChild(gLink);
+                }
+                // 2. Variables de marque + font par défaut.
                 let style = doc.getElementById('brand-variables');
                 if (!style) {
                     style = doc.createElement('style');
                     style.id = 'brand-variables';
                     doc.head.appendChild(style);
                 }
-                style.innerHTML = css + headerOverrideCss;
+                style.innerHTML = css + headerOverrideCss + fontBaseCss;
+                // 3. Forcer le chargement de la font de l'école (regular + bold)
+                // pour qu'elle soit rendue immédiatement, sans attendre un repaint
+                // (les @font-face sont chargés paresseusement par défaut).
+                try {
+                    if (doc.fonts && doc.fonts.load) {
+                        doc.fonts.load("400 1em '" + brandFontName + "'");
+                        doc.fonts.load("700 1em '" + brandFontName + "'");
+                    }
+                } catch(e) { /* noop */ }
                 return true;
             } catch(e) { return false; }
         }

@@ -33,7 +33,7 @@ export default function(editor, categories) {
                         color: ${school.fg};
                         width: 100%;
                         margin: 0;
-                        font-family: 'Inter', sans-serif;
+                        font-family: var(--brand-font, 'Inter', sans-serif);
                     }
                     .${school.id} .hdr-inner {
                         display: flex;

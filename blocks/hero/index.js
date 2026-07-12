@@ -26,7 +26,7 @@ export default function(editor, categories) {
                     justify-content: center;
                     text-align: center;
                     color: #fff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .hero-overlay {
                     position: absolute;

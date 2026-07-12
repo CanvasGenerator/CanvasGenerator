@@ -10,12 +10,12 @@ export default function(editor, categories) {
                 .cta-wrap {
                     padding: 40px;
                     text-align: center;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .primary-cta {
                     display: inline-block;
-                    background: var(--brand-primary, #3b82f6);
-                    color: #fff;
+                    background: var(--brand-button-bg, var(--brand-primary, #3b82f6));
+                    color: var(--brand-button-text, #fff);
                     padding: 14px 40px;
                     border-radius: 50px;
                     text-decoration: none;
@@ -25,7 +25,7 @@ export default function(editor, categories) {
                     transition: all 0.3s;
                 }
                 .primary-cta:hover {
-                    background: var(--brand-secondary, #2563eb);
+                    background: var(--brand-button-hover, var(--brand-secondary, #2563eb));
                     transform: translateY(-3px);
                     box-shadow: 0 15px 30px rgba(var(--brand-primary-rgb, 59, 130, 246), 0.3);
                 }

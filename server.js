@@ -21,6 +21,7 @@ const cronHandler = require('./api/cron');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
+const { normalizeBranding } = require('./js/fonts');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -273,7 +274,9 @@ function normalizeSchool(school = {}) {
                 ? school.default_blocks
                 : [],
         customHeadCode: school.customHeadCode || school.custom_head_code || '',
-        customBodyCode: school.customBodyCode || school.custom_body_code || ''
+        customBodyCode: school.customBodyCode || school.custom_body_code || '',
+        // Branding : font par défaut + fonts disponibles + palette 16 rôles.
+        branding: normalizeBranding(school.branding, school)
     };
 }
 
@@ -311,6 +314,7 @@ function schoolDbPayload(school) {
         default_blocks: school.defaultBlocks,
         custom_head_code: school.customHeadCode || '',
         custom_body_code: school.customBodyCode || '',
+        branding: school.branding || null,
         deleted: school.deleted
     };
 }
@@ -347,6 +351,15 @@ async function readSchoolsForApi() {
                 if (dbRaw.show_faq != null)         dbOverrides.showFaq        = dbRaw.show_faq;
                 dbOverrides.deleted = Boolean(dbRaw.deleted);
                 const base = merged.get(id) || { id };
+                // Branding : la valeur éditée en DB prime ; sinon on dérive des
+                // couleurs de schools.json (couleurs = source de vérité).
+                const colorContext = {
+                    color:          base.color          || dbRaw.color,
+                    secondaryColor: base.secondaryColor || dbRaw.secondary_color,
+                };
+                dbOverrides.branding = dbRaw.branding
+                    ? normalizeBranding(dbRaw.branding, colorContext)
+                    : normalizeBranding(base.branding, colorContext);
                 merged.set(id, { ...base, ...dbOverrides });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
