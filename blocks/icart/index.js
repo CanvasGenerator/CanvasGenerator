@@ -31,7 +31,7 @@ export default function(editor, categories) {
                 .hm-icart-wrapper {
                     width: 100%;
                     position: relative;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .hm-icart-band-top {
                     width: 100%;
@@ -100,7 +100,7 @@ export default function(editor, categories) {
                     display: flex;
                     align-items: center;
                     justify-content: center;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .bande-orange-icart .bande-orange-text {
                     color: #fff;
@@ -138,7 +138,7 @@ export default function(editor, categories) {
             <style>
                 .programme-icart {
                     padding: 40px 0;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     background-color: #fff;
                 }
                 .programme-icart .programme-container {
@@ -224,7 +224,7 @@ export default function(editor, categories) {
                 </div>
             </section>
             <style>
-                .trois-raisons-icart { font-family: 'Inter', sans-serif; overflow: hidden; }
+                .trois-raisons-icart { font-family: var(--brand-font, 'Inter', sans-serif); overflow: hidden; }
                 .tr-grid { display: grid; grid-template-columns: 1fr 1fr; }
                 .tr-photo { position: relative; min-height: 400px; }
                 .tr-photo-img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -276,7 +276,7 @@ export default function(editor, categories) {
                 </div>
             </section>
             <style>
-                .keyfig-icart { padding: 32px 20px; background-color: #fff; font-family: 'Inter', sans-serif; }
+                .keyfig-icart { padding: 32px 20px; background-color: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
                 .keyfig-card { max-width: 920px; margin: 0 auto; padding: 28px 32px; background-color: #f3f3f3; display: flex; align-items: center; justify-content: space-between; gap: 32px; }
                 .keyfig-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px 34px; flex: 1; }
                 .keyfig-number { color: ${icartColor}; font-size: 34px; font-weight: 700; }
@@ -311,7 +311,7 @@ export default function(editor, categories) {
         content: {
             type: 'carrousel-campus-component',
             styles: `
-                .ccp-section { padding: 60px 20px; background: #f5f5f5; font-family: 'Inter', sans-serif; }
+                .ccp-section { padding: 60px 20px; background: #f5f5f5; font-family: var(--brand-font, 'Inter', sans-serif); }
                 .ccp-container { max-width: 620px; margin: auto; overflow: hidden; }
                 .ccp-track { display: flex; transition: transform 0.45s; }
                 .ccp-slide { flex: 0 0 100%; }
@@ -375,7 +375,7 @@ export default function(editor, categories) {
         content: {
             type: 'carrousel-temoignages-component',
             styles: `
-                .ctm-section { padding: 60px 20px; background: #fff; font-family: 'Inter', sans-serif; }
+                .ctm-section { padding: 60px 20px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
                 .ctm-header { max-width: 900px; margin: 0 auto 32px; }
                 .ctm-title-bloc { font-size: 28px; font-weight: 700; text-transform: uppercase; }
                 .ctm-container { max-width: 900px; margin: auto; overflow: hidden; }

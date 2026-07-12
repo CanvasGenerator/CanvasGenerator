@@ -43,7 +43,7 @@ export default function(editor, categories) {
             styles: `
                 .mcb-section {
                     padding: 40px;
-                    font-family: Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     background: transparent;
                 }
 

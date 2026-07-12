@@ -33,7 +33,7 @@ export default function(editor, categories) {
                     border-radius: 6px;
                     cursor: pointer;
                     font-weight: bold;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 /* La modale est cachée par défaut (display: none). Géré via JS */
                 .master-modal-overlay {
@@ -44,7 +44,7 @@ export default function(editor, categories) {
                     z-index: 9999;
                     justify-content: center;
                     align-items: center;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .master-modal-content {
                     background: var(--bg-surface, #ffffff);

@@ -31,7 +31,7 @@ export default function(editor, categories) {
                 .form-section {
                     padding: 50px 0;
                     background-color: #f9f9f9;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .form-container {
                     max-width: 500px;

@@ -19,7 +19,7 @@ export default function(editor, categories) {
                     border: 1px solid var(--border-color, #e5e7eb);
                     border-radius: 8px;
                     overflow: hidden;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
                     transition: transform 0.2s, box-shadow 0.2s;
                     max-width: 350px;

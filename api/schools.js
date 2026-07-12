@@ -1,5 +1,6 @@
 const { readSchools, findSchoolById } = require('../lib/schools');
 const { supabaseRequest, slugify } = require('../lib/api-shared');
+const { normalizeBranding } = require('../js/fonts');
 
 const DEFAULT_ORGANIZATION = {
     name: 'Reetain Holding',
@@ -12,17 +13,27 @@ async function readSchoolsForApi() {
         const schools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
         if (Array.isArray(schools)) {
             const merged = new Map(baseSchools.map(school => [school.id, school]));
-            schools.map(normalizeSchool).forEach(school => {
+            schools.forEach(raw => {
+                const school = normalizeSchool(raw);
                 if (school.deleted) { merged.delete(school.id); return; }
                 const base = merged.get(school.id) || {};
                 // Toutes les couleurs viennent toujours de schools.json
+                const colorContext = {
+                    color:          base.color          || school.color,
+                    secondaryColor: base.secondaryColor || school.secondaryColor,
+                };
                 merged.set(school.id, {
                     ...school,
-                    color:         base.color         || school.color,
-                    secondaryColor: base.secondaryColor || school.secondaryColor,
+                    ...colorContext,
                     colorHeader:   base.colorHeader   || school.colorHeader,
                     colorCarousel: base.colorCarousel || school.colorCarousel,
                     colorLight:    base.colorLight    || school.colorLight,
+                    // Branding : la valeur EXPLICITEMENT stockée en DB prime
+                    // (édition consultant) ; sinon on dérive des couleurs de
+                    // schools.json (source de vérité des couleurs).
+                    branding: raw.branding
+                        ? normalizeBranding(raw.branding, colorContext)
+                        : normalizeBranding(base.branding, colorContext),
                 });
             });
             return [...merged.values()].sort((a, b) => a.name.localeCompare(b.name));
@@ -63,7 +74,10 @@ function normalizeSchool(school = {}) {
                : true,
         // Code marketing personnalisé (GTM, Analytics…) injecté dans TOUTES les pages de l'école
         customHeadCode: school.customHeadCode || school.custom_head_code || '',
-        customBodyCode: school.customBodyCode || school.custom_body_code || ''
+        customBodyCode: school.customBodyCode || school.custom_body_code || '',
+        // Branding : font par défaut + fonts disponibles + palette 16 rôles.
+        // Dérivé des couleurs historiques (color/secondaryColor) si absent.
+        branding: normalizeBranding(school.branding, school)
     };
 }
 
@@ -102,6 +116,7 @@ function schoolDbPayload(school) {
         show_faq: school.showFaq !== undefined ? school.showFaq : true,
         custom_head_code: school.customHeadCode || '',
         custom_body_code: school.customBodyCode || '',
+        branding: school.branding || null,
         deleted: school.deleted
     };
 }

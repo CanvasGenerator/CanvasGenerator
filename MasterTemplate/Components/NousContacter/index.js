@@ -29,7 +29,7 @@ export default function(editor, categories) {
 <style>
   .nous-contacter, .nous-contacter * { box-sizing: border-box; }
   .nous-contacter {
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     padding: 40px 20px;
     background: #ffffff;
     color: #1a1a1a;

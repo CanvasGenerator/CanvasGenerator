@@ -25,7 +25,7 @@ export default function(editor, categories) {
                 .master-content-section {
                     padding: 80px 24px;
                     background-color: var(--bg-surface, #ffffff);
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .master-content-container {
                     max-width: 1200px;

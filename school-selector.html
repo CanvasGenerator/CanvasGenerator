@@ -9,6 +9,10 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500&display=swap" rel="stylesheet">
+    <!-- Fonts auto-hébergées (aperçu des noms de fonts dans le formulaire branding) -->
+    <link rel="stylesheet" href="css/fonts.css">
+    <!-- Registre des fonts + helpers branding (expose window.ReetainFonts) -->
+    <script src="js/fonts.js"></script>
     <style>
         :root {
             --bg-main: #F7F8FA;
@@ -521,6 +525,18 @@
             color: #145C47;
         }
 
+        /* Font par défaut : verrouillée dans la liste des fonts disponibles */
+        .block-option.is-locked {
+            cursor: not-allowed;
+            opacity: 0.75;
+        }
+        .block-option.is-locked::after {
+            content: 'par défaut';
+            margin-left: auto;
+            font-size: 10px;
+            color: var(--text-muted);
+        }
+
         .block-picker-meta {
             margin-top: 6px;
             color: var(--text-muted);
@@ -948,6 +964,29 @@
                         <label for="school-header-text-color">Texte / logo header (blanc ou noir)</label>
                         <input id="school-header-text-color" type="color" value="#ffffff">
                     </div>
+
+                    <!-- ── Branding : Fonts ─────────────────────────────────── -->
+                    <div class="admin-field full" style="border-top:1px solid #f0f0f0;padding-top:14px;margin-top:6px;">
+                        <label style="font-weight:600;font-size:14px;">Fonts</label>
+                        <div class="block-picker-meta" style="margin-top:2px;">La font par défaut est appliquée à tous les nouveaux composants. Le marketeur ne pourra choisir que parmi les fonts sélectionnées.</div>
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-default-font">Font par défaut</label>
+                        <select id="school-default-font"></select>
+                        <div id="school-default-font-feedback" class="field-feedback"></div>
+                    </div>
+                    <div class="admin-field full">
+                        <label>Fonts disponibles</label>
+                        <div id="school-available-fonts" class="block-picker"></div>
+                    </div>
+
+                    <!-- ── Branding : Couleurs (16 rôles) ───────────────────── -->
+                    <div class="admin-field full" style="border-top:1px solid #f0f0f0;padding-top:14px;margin-top:6px;">
+                        <label style="font-weight:600;font-size:14px;">Couleurs de l'école</label>
+                        <div class="block-picker-meta" style="margin-top:2px;">Couleurs par défaut appliquées automatiquement aux composants des landing pages de cette école.</div>
+                        <div id="school-colors-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:10px 14px;margin-top:10px;"></div>
+                    </div>
+
                     <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
@@ -1501,6 +1540,75 @@
             });
         }
 
+        // ── Branding : fonts + palette 16 couleurs ────────────────────────
+        // Garantit que la font par défaut est toujours cochée ET verrouillée
+        // dans la liste des fonts disponibles (règle métier).
+        function syncAvailableFontsWithDefault() {
+            const defaultFont = document.getElementById('school-default-font').value;
+            document.querySelectorAll('[data-available-font]').forEach(input => {
+                if (input.value === defaultFont) {
+                    input.checked = true;
+                    input.disabled = true;
+                    input.closest('.block-option')?.classList.add('is-locked');
+                } else {
+                    input.disabled = false;
+                    input.closest('.block-option')?.classList.remove('is-locked');
+                }
+            });
+        }
+
+        function renderBrandingControls(rawBranding) {
+            const F = window.ReetainFonts;
+            const branding = F.normalizeBranding(rawBranding, {});
+
+            // Font par défaut (select)
+            const sel = document.getElementById('school-default-font');
+            sel.innerHTML = F.PROJECT_FONTS
+                .map(f => `<option value="${escHtml(f.id)}">${escHtml(f.name)}</option>`)
+                .join('');
+            sel.value = branding.defaultFont;
+            sel.onchange = syncAvailableFontsWithDefault;
+
+            // Fonts disponibles (checkboxes, aperçu dans la font elle-même)
+            const avail = document.getElementById('school-available-fonts');
+            avail.innerHTML = F.PROJECT_FONTS.map(f => `
+                <label class="block-option">
+                    <input type="checkbox" value="${escHtml(f.id)}" data-available-font>
+                    <span style="font-family:${f.stack};">${escHtml(f.name)}</span>
+                </label>`).join('');
+            const selected = new Set(branding.availableFonts);
+            avail.querySelectorAll('[data-available-font]').forEach(input => {
+                input.checked = selected.has(input.value);
+            });
+            syncAvailableFontsWithDefault();
+
+            // Palette 16 rôles (inputs color générés depuis COLOR_ROLES)
+            const grid = document.getElementById('school-colors-grid');
+            grid.innerHTML = F.COLOR_ROLES.map(role => {
+                const val = branding.colors[role.key];
+                const safe = /^#[0-9a-fA-F]{6}$/.test(val) ? val : '#000000';
+                return `
+                <div class="admin-field" style="margin:0;">
+                    <label for="school-brand-color-${role.key}" style="font-size:12px;">${escHtml(role.label)}</label>
+                    <input id="school-brand-color-${role.key}" type="color" value="${safe}">
+                </div>`;
+            }).join('');
+        }
+
+        function collectBrandingFromForm() {
+            const F = window.ReetainFonts;
+            const defaultFont = document.getElementById('school-default-font').value;
+            const availableFonts = [...document.querySelectorAll('[data-available-font]:checked')]
+                .map(input => input.value);
+            const colors = {};
+            F.COLOR_ROLES.forEach(role => {
+                const input = document.getElementById('school-brand-color-' + role.key);
+                if (input) colors[role.key] = input.value;
+            });
+            // normalizeBranding garantit un objet complet + default font incluse.
+            return F.normalizeBranding({ defaultFont, availableFonts, colors }, {});
+        }
+
         function openSchoolModal(school = null) {
             editingSchoolId = school?.id || null;
             showAdminError('school-admin-error', '');
@@ -1526,6 +1634,12 @@
             validateCustomCode('school-head-code', 'school-head-code-feedback');
             validateCustomCode('school-body-code', 'school-body-code-feedback');
             setDefaultBlocksSelection(school?.defaultBlocks || fallbackDefaultBlocks);
+            // Branding : fonts + palette. Pour une nouvelle école, on dérive
+            // depuis la couleur principale saisie (défaut sinon).
+            renderBrandingControls(school?.branding || (school ? null : { colors: {
+                primary: document.getElementById('school-color').value,
+                secondary: document.getElementById('school-secondary-color').value,
+            }}));
             // Bouton "Gérer les FAQs" visible uniquement en modification (école existante)
             document.getElementById('btn-open-faq-modal').style.display = school ? 'inline-flex' : 'none';
             document.getElementById('school-admin-modal').style.display = 'flex';
@@ -1625,7 +1739,8 @@
                 defaultBlocks: getDefaultBlocksSelection(),
                 showFaq: true,
                 customHeadCode: document.getElementById('school-head-code').value,
-                customBodyCode: document.getElementById('school-body-code').value
+                customBodyCode: document.getElementById('school-body-code').value,
+                branding: collectBrandingFromForm()
             };
         }
 

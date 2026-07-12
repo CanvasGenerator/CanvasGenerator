@@ -94,7 +94,7 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .ma-section { padding: 48px 24px; background: #fff; font-family: Arial, sans-serif; }
+  .ma-section { padding: 48px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
   .ma-inner { max-width: 900px; margin: 0 auto; }
   .ma-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
   .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; }

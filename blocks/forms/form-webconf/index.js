@@ -142,7 +142,7 @@ export default function (editor, categories) {
     align-items: flex-start;
     padding: 40px 16px;
     background: transparent;
-    font-family: Arial, Helvetica, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     font-size: 13px;
     color: #222;
 }

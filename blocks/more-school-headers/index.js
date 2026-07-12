@@ -96,7 +96,7 @@ export default function(editor, categories) {
                         .${v.id} .hdr-logo { display: inline-block; height: ${LOGO_H}px; overflow: hidden; flex-shrink: 0; }
                         .${v.id} .hdr-logo-img { height: ${v.imgH}px; width: auto; display: block; margin-top: ${v.mt}px; }
                         .${v.id} .hdr-lang {
-                            font-family: 'Inter', Arial, sans-serif; font-size: 15px; font-weight: 700;
+                            font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                             letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
                         }
                         @media (max-width: 768px) {

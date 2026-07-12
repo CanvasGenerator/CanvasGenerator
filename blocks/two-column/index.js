@@ -23,7 +23,7 @@ export default function(editor, categories) {
                 .two-col-section {
                     padding: 80px 0;
                     background: #fff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .col-container {
                     max-width: 1200px;

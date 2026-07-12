@@ -42,7 +42,7 @@ export default function(editor, categories) {
                 .progx-section {
                     padding: 56px 20px;
                     background-color: #ffffff;
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     color: #111111;
                 }
                 .progx-container {

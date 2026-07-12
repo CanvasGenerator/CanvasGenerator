@@ -67,7 +67,7 @@ export default function(editor, categories) {
                 .specialisations {
                     background: #f1ede9;
                     padding: 56px 24px 48px;
-                    font-family: 'Montserrat', Arial, Helvetica, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .specialisations .section-title {
                     max-width: 1100px;

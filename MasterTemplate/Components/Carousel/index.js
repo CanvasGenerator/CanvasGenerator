@@ -8,7 +8,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc-programmes',
             styles: `
-                .mcp-section { padding: 48px 20px; background: #fff; font-family: Arial, sans-serif; }
+                .mcp-section { padding: 48px 20px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
                 .mcp-viewport { max-width: 1100px; margin: 0 auto; overflow: hidden; }
                 .mcp-track { display: flex; transition: transform 0.42s cubic-bezier(0.25,0.46,0.45,0.94); }
                 .mcp-card { flex: 0 0 calc(100%/3); padding: 8px; box-sizing: border-box; }
@@ -87,7 +87,7 @@ export default function(editor, categories) {
         content: {
             type: 'mc-temoignages',
             styles: `
-                .mct-section { padding: 48px 20px; background: #fff; font-family: Arial, sans-serif; }
+                .mct-section { padding: 48px 20px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
                 .mct-inner { max-width: 720px; margin: 0 auto; }
                 .mct-slides { overflow: hidden; }
                 .mct-track { display: flex; transition: transform 0.42s ease; }

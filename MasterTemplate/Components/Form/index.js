@@ -87,7 +87,7 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .mf2-section { padding: 48px 24px; background: #fff; font-family: Arial, sans-serif; }
+  .mf2-section { padding: 48px 24px; background: #fff; font-family: var(--brand-font, 'Inter', sans-serif); }
   .mf2-inner { max-width: 640px; margin: 0 auto; }
   .mf2-campus-box { background: #e8edf2; padding: 18px 20px; margin-bottom: 24px; border-radius: 2px; position: relative; }
   .mf2-campus-box::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 10px solid #e8edf2; }

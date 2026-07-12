@@ -211,7 +211,7 @@ export default function(editor, categories) {
             styles: `
                 /* ── Container ── */
                 .mta-section {
-                    font-family: Arial, sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     padding: 40px 20px;
                 }
                 .mta-wrapper {

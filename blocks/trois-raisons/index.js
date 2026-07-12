@@ -43,7 +43,7 @@ export default function(editor, categories) {
             </section>
             <style>
                 .trois-raisons-section {
-                    font-family: 'Inter', sans-serif;
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                     overflow: hidden;
                 }
                 .trois-raisons-grid {

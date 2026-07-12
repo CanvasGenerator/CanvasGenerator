@@ -120,7 +120,7 @@ export default function (editor, categories) {
 .pc-section {
     display: flex; justify-content: center; align-items: flex-start;
     padding: 40px 16px; background: transparent;
-    font-family: Arial, Helvetica, sans-serif; font-size: 13px; color: #222;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: #222;
 }
 .pc-card {
     width: 100%; max-width: 520px;

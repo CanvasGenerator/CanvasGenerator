@@ -26,7 +26,7 @@ export default function(editor, categories) {
                     background-color: var(--brand-primary, #1f2937);
                     background-size: cover;
                     background-position: center;
-                    font-family: var(--font-family, 'Inter', sans-serif);
+                    font-family: var(--brand-font, 'Inter', sans-serif);
                 }
                 .master-hero-overlay {
                     position: absolute;

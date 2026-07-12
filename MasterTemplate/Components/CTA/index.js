@@ -18,7 +18,7 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .mc-section { padding: 48px 24px; background: var(--bg-surface, #f8f8f8); font-family: Arial, sans-serif; }
+  .mc-section { padding: 48px 24px; background: var(--bg-surface, #f8f8f8); font-family: var(--brand-font, 'Inter', sans-serif); }
   .mc-inner { max-width: 900px; margin: 0 auto; display: flex; justify-content: space-between; align-items: center; gap: 32px; }
   .mc-title { font-size: 24px; font-weight: 800; color: var(--text-main, #111); margin: 0 0 8px; }
   .mc-subtitle { font-size: 15px; color: #666; margin: 0; }
@@ -75,7 +75,7 @@ export default function(editor, categories) {
     border-right: 1px solid rgba(255,255,255,0.15);
     background: var(--brand-primary, #1f2937);
     transition: opacity 0.2s;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .msc-btn:last-child { border-right: none; }
   .msc-btn:hover { opacity: 0.85; }

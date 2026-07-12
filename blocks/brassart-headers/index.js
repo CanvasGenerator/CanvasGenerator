@@ -50,7 +50,7 @@ export default function(editor, categories) {
                         height: auto; width: auto; display: block; object-fit: contain;
                     }
                     .${v.id} .hdr-lang {
-                        font-family: 'Inter', Arial, sans-serif; font-size: 15px; font-weight: 700;
+                        font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                         letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
                     }
                     @media (max-width: 768px) {

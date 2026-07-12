@@ -30,7 +30,7 @@ export default function(editor, categories) {
             styles: `
   .bloc-images, .bloc-images * { box-sizing: border-box; }
   .bloc-images {
-    font-family: 'Helvetica Neue', Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
     background: #ffffff;
     padding: 60px 20px;
   }

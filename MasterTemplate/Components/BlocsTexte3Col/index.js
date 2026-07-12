@@ -35,7 +35,7 @@ export default function(editor, categories) {
   .mbt3-section {
     background: #fff;
     padding: 56px 24px;
-    font-family: Arial, sans-serif;
+    font-family: var(--brand-font, 'Inter', sans-serif);
   }
   .mbt3-inner {
     max-width: 1100px;
