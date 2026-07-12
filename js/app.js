@@ -1,5 +1,6 @@
 import { initStorage } from './storage.js';
 import { initExport } from './export.js';
+import { createSfmcUploadHandler } from './image-upload.js';
 import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
 import { FormGenerator } from './form-generator.js';
@@ -321,6 +322,12 @@ function initEditor(schoolId) {
             autosave: true,
             stepsBeforeSave: 1,
             key: storageKey,
+        },
+        assetManager: {
+            // Les images uploadées sont publiées dans SFMC Content Builder et
+            // référencées par leur URL publique (jamais embarquées en base64).
+            embedAsBase64: false,
+            uploadFile: createSfmcUploadHandler(() => editor, schoolId),
         },
         blockManager: { appendTo: '#blocks' },
         styleManager: { appendTo: '#styles-container' },

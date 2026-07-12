@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -403,6 +403,15 @@ module.exports = async function handler(req, res) {
         }
         if (req.method === 'POST' && pathname === '/api/sfmc/create-form-asset') {
             return res.status(200).json(await createFormAsset(req.body));
+        }
+        if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
+            try {
+                const { name, schoolId, dataUrl } = req.body || {};
+                return res.status(200).json(await uploadImageFromDataUrl({ name, schoolId, dataUrl }));
+            } catch (e) {
+                console.error('❌ Error uploading image to SFMC:', e.message);
+                return res.status(e.status || 500).json({ error: e.message, payload: e.payload });
+            }
         }
 
         // ==========================================
