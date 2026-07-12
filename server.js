@@ -21,8 +21,9 @@ const cronHandler = require('./api/cron');
 const { listBlocks, getDefaultBlockIds } = require('./blocks/registry');
 const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
-const { normalizeBranding } = require('./js/fonts');
+const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
+const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -1139,6 +1140,9 @@ http.createServer(async (req, res) => {
                             .replace(/NOM_COMPLET_ECOLE/g, schoolFullName)
                             .replace(/LOGO_ECOLE/g, schoolLogo);
 
+                        const branding = normalizeBranding(school.branding, school);
+                        const schoolFont = fontStackById(branding.defaultFont);
+
                         // Patcher les balises <style> inline dans le HTML body
                         const colorVarsForHtml = { colorHeader, primary, secondary, colorCarousel };
                         schoolHtml = schoolHtml.replace(
@@ -1148,10 +1152,30 @@ http.createServer(async (req, res) => {
                         );
 
                         // Injecter les CSS vars de l'école en tête du CSS
-                        const schoolVars = `:root { --brand-primary: ${primary}; --brand-secondary: ${secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; }\n`;
-                        // Règles directes à la FIN du CSS pour overrider toute valeur hardcodée
-                        const headerOverrides = `\n/* Déclinaison couleur header/footer/carousel → ${schoolId} */\n.mh-header, .header-efap, .header-brassart { background-color: ${colorHeader} !important; background: ${colorHeader} !important; }\n.mc2a-section, .mc2b-section, .mc2c-section, .mcva-section, .mcd-colored-zone, .mc3c-section, .mce-section, .mcb-gray-zone { background-color: ${colorCarousel} !important; background: ${colorCarousel} !important; }\n`;
-                        const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
+                        const colors = branding.colors;
+                        const colorsVarsArray = Object.entries(colors).map(([key, val]) => `--brand-${key.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${val};`);
+                        const schoolVars = `:root { --brand-font: ${schoolFont}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-header-text: ${headerText}; --brand-carousel: ${colorCarousel}; ${colorsVarsArray.join(' ')} }\n`;
+
+                        // Règles d'override complètes pour TOUS les composants master
+                        // Ecrase toutes les couleurs hardcodées (#E9A036, #bd2bf3, etc.) via !important
+                        // NB : header & footer NE sont PAS repeints ici — ils sont
+                        // remplacés par les vrais blocs école (auto-stylés, maquette figée).
+                        const brandOverrides = `
+/* DÉCLINAISON ÉCOLE : ${schoolId} */
+.mc2a-section,.mc2b-section,.mc2c-section,.mcva-section,.mcd-colored-zone,.mc3c-section,.mce-section,.mcb-gray-zone,.mtr-content-col,.mhc-cta-section,.mcf-section{background-color:${colorCarousel}!important;background:${colorCarousel}!important;}
+.mc1-section,.mc1b-section,.mbc-section,.mbt-section,.mnc-section,.mns-section,.mna-section,.mnb-section,.malt-section,.mta-section,.mtr-section,.mbi-section{background-color:${colors.background}!important;}
+.mta-step,.mta-steps-grid,.mta-pane{background-color:${colors.surface}!important;background:${colors.surface}!important;}
+.mta-badge,.mtr-keyword,.mc-badge,.mbadge,.mhc-badge,.mcf-badge,.mnc-badge{background-color:${colors.secondary}!important;background:${colors.secondary}!important;color:${colors.buttonText}!important;}
+.mta-tab-hd,.mta-mob-tab{background-color:${colors.primary}!important;background:${colors.primary}!important;}
+.mta-tab-hd[data-tab="1"],.mta-mob-tab[data-tab="1"]{background-color:${colors.secondary}!important;background:${colors.secondary}!important;}
+.mta-tab-hd[data-tab="2"],.mta-mob-tab[data-tab="2"]{background-color:${colors.accent}!important;background:${colors.accent}!important;}
+.mta-tab-hd.mta-active,.mta-mob-tab.mta-active{background-color:${colors.background}!important;background:${colors.background}!important;}
+.mc-cta-btn,.mc-btn,.mhc-btn,.mcf-btn,.mnc-btn,.mct-btn,.mbc-btn,.mns-btn,.form-submit,[class*="-cta-btn"],[class*="-btn-primary"]{background-color:${colors.buttonBackground}!important;background:${colors.buttonBackground}!important;color:${colors.buttonText}!important;border-color:${colors.buttonBackground}!important;}
+.mc-cta-btn:hover,.mc-btn:hover,.mhc-btn:hover,.mcf-btn:hover,.mnc-btn:hover,.mct-btn:hover,.mbc-btn:hover,.mns-btn:hover,.form-submit:hover,[class*="-cta-btn"]:hover,[class*="-btn-primary"]:hover{background-color:${colors.buttonHover}!important;background:${colors.buttonHover}!important;border-color:${colors.buttonHover}!important;}
+a.mf-link,a[class*="-link"]{color:${colors.link}!important;}
+a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
+`;
+                        const schoolCss = schoolVars + patchCssString(masterCss, colorVarsForHtml) + brandOverrides;
 
                         // Construire les propriétés du projet décliné
                         const newProjectName = `school-${schoolId}__${displayName}__FR`;
@@ -1163,6 +1187,19 @@ http.createServer(async (req, res) => {
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+
+                        // Remplacer header/footer générique du master par les VRAIS
+                        // header (baseline) + footer de l'école (logos PNG maquette).
+                        const schoolHeaderHtml = renderSchoolHeaderHtml(schoolId);
+                        const schoolFooterHtml = renderSchoolFooterHtml(schoolId);
+                        if (schoolHeaderHtml || schoolFooterHtml) {
+                            try {
+                                const $d = cheerio.load(schoolHtml, null, false);
+                                if (schoolHeaderHtml && $d('.mh-header').length) $d('.mh-header').first().replaceWith(schoolHeaderHtml);
+                                if (schoolFooterHtml && $d('.mf-footer').length) $d('.mf-footer').first().replaceWith(schoolFooterHtml);
+                                schoolHtml = $d.html();
+                            } catch (e) { console.warn('Swap header/footer HTML échoué:', e.message); }
+                        }
 
                         // Construire le HTML final stocké
                         const fullHtml = buildStoredHtml({
@@ -1209,9 +1246,79 @@ http.createServer(async (req, res) => {
                         try {
                             finalProjectData = JSON.parse(projectDataStr);
 
+                            // 2.5 Correction des logos SVG dans le projectData
+                            if (Array.isArray(finalProjectData.pages)) {
+                                const fixSvgNodes = (components) => {
+                                    if (!Array.isArray(components)) return;
+                                    components.forEach(c => {
+                                        if (c.type === 'textnode' && c.content && c.content.trim().startsWith('<svg')) {
+                                            delete c.type;
+                                            c.components = c.content;
+                                            delete c.content;
+                                        }
+                                        if (c.components) fixSvgNodes(c.components);
+                                    });
+                                };
+
+                                // Remplace les nœuds header/footer master par les vrais
+                                // blocs école. GrapesJS parse la chaîne HTML assignée à
+                                // .components au chargement (même mécanisme que fixSvgNodes).
+                                const swapHeaderFooter = (components) => {
+                                    if (!Array.isArray(components)) return components;
+                                    return components.map(node => {
+                                        if (!node || typeof node !== 'object') return node;
+                                        const classes = (node.classes || []).map(c => typeof c === 'string' ? c : (c && c.name));
+                                        if (schoolHeaderHtml && classes.includes('mh-header')) return { tagName: 'div', components: schoolHeaderHtml };
+                                        if (schoolFooterHtml && classes.includes('mf-footer')) return { tagName: 'div', components: schoolFooterHtml };
+                                        if (node.components) node.components = swapHeaderFooter(node.components);
+                                        return node;
+                                    });
+                                };
+
+                                finalProjectData.pages.forEach(page => {
+                                    if (!page.frames) return;
+                                    page.frames.forEach(frame => {
+                                        if (frame.component && Array.isArray(frame.component.components)) {
+                                            fixSvgNodes(frame.component.components);
+                                            frame.component.components = swapHeaderFooter(frame.component.components);
+                                        }
+                                    });
+                                });
+
+                            const styleObj = {
+                                '--brand-font':          schoolFont,
+                                     '--brand-primary-rgb':   rgb,
+                                     '--brand-header':        colorHeader,
+                                     '--brand-header-text':   headerText,
+                                     '--brand-carousel':      colorCarousel,
+                                     '--brand-primary':       colors.primary,
+                                     '--brand-secondary':     colors.secondary,
+                                     '--brand-accent':        colors.accent,
+                                     '--brand-background':    colors.background,
+                                     '--brand-surface':       colors.surface,
+                                     '--brand-text':          colors.text,
+                                     '--brand-muted':         colors.mutedText,
+                                     '--brand-border':        colors.border,
+                                     '--brand-button-background': colors.buttonBackground,
+                                     '--brand-button-hover':  colors.buttonHover,
+                                     '--brand-button-text':   colors.buttonText,
+                                     '--brand-link':          colors.link,
+                                     '--brand-link-hover':    colors.linkHover
+                                 };
+
+                                 // Injecter les variables dans project_data styles (écrase les anciennes :root)
+                                 if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
+                                 finalProjectData.styles = finalProjectData.styles.filter(r => {
+                                     const sel = r.selectors || [];
+                                     const selAdd = r.selectorsAdd || '';
+                                     return !((Array.isArray(sel) && sel.length === 1 && sel[0] === ':root') || selAdd === ':root');
+                                 });
+                                 finalProjectData.styles.unshift({ selectors: [':root'], style: styleObj });
+                            }
+
                             // Couleurs hardcodées des composants master qui doivent devenir brand-primary
                             const MASTER_PRIMARY_COLORS = new Set([
-                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000'
+                                '#1a1a1a', '#1f2937', '#374151', '#e69b35', '#9b26b6', '#111111', '#000000', '#f3f4f6', '#ffffff'
                             ]);
                             // Propriétés CSS où la couleur doit être celle de l'école (pas le texte)
                             const BRAND_BG_PROPS = new Set([
@@ -1285,24 +1392,6 @@ http.createServer(async (req, res) => {
                                     return changed ? { ...rule, style: newStyle } : rule;
                                 });
                             }
-
-                            // 4. Ajouter/mettre à jour la règle :root avec les vraies couleurs
-                            if (!Array.isArray(finalProjectData.styles)) finalProjectData.styles = [];
-                            finalProjectData.styles = finalProjectData.styles.filter(r => {
-                                const sel = r.selectors;
-                                return !(Array.isArray(sel) && sel.length === 1 && sel[0] === ':root');
-                            });
-                            finalProjectData.styles.unshift({
-                                selectors: [':root'],
-                                style: {
-                                    '--brand-primary':      primary,
-                                    '--brand-secondary':    secondary,
-                                    '--brand-primary-rgb':  rgb,
-                                    '--brand-header':       colorHeader,
-                                    '--brand-header-text':  headerText,
-                                    '--brand-carousel':     colorCarousel
-                                }
-                            });
 
                             // 5. Patcher les balises <style> inline dans l'arbre des composants GrapesJS
                             // (project_data.pages[].frames[].component) — ces styles ne sont PAS

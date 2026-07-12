@@ -13,6 +13,9 @@ import hero from './hero/index.js';
 import twoColumn from './two-column/index.js';
 import richText from './rich-text/index.js';
 import ctaButton from './cta-button/index.js';
+import stickyCta from './sticky-cta/index.js';
+import insertionVideo from './insertion-video/index.js';
+import admissionTabs from './admission-tabs/index.js';
 import imageCaption from './image-caption/index.js';
 import spacer from './spacer/index.js';
 import horizontalMenu from './horizontal-menu/index.js';
@@ -50,13 +53,16 @@ export function registerBlocks(editor) {
         IFA: 'IFA PARIS Components',
         BLEUE: 'ÉCOLE BLEUE Components',
         ESSENTIAL: 'Essential Blocks',
-        FORMS: 'Form Blocks'
+        FORMS: 'Form Blocks',
+        // 'Master Template' : catégorie visible aussi bien en mode Master qu'en mode école
+        // (le filtre du mode Master ne garde que 'master template' et 'form blocks').
+        MASTER: 'Master Template'
     };
 
     // Load all blocks
     [
         headers, brassartHeaders, efapHeaders, wa3Headers, moreSchoolHeaders, footers, icartBlocks,
-        hero, twoColumn, richText, ctaButton, imageCaption, spacer,
+        hero, twoColumn, richText, ctaButton, stickyCta, insertionVideo, admissionTabs, imageCaption, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
         carousel, CarrouselTemoignages,
