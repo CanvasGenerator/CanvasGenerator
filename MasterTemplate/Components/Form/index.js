@@ -77,7 +77,7 @@ export default function(editor, categories) {
       <div class="mf2-row mf2-full">
         <label class="mf2-checkbox-label">
           <input type="checkbox" class="mf2-checkbox">
-          <span>J'accepte d'être contacté(e) par l'école pour les finalités décrites <a href="#" class="mf2-link">ici</a></span>
+          <span>J'accepte d'être contacté(e) par l'école pour les finalités décrites <a href="#" class="mf2-link" onclick="mf2ScrollToLegal(event)">ici</a></span>
         </label>
       </div>
       <div class="mf2-row mf2-full">
@@ -91,7 +91,7 @@ export default function(editor, categories) {
   .mf2-inner { max-width: 640px; margin: 0 auto; }
   .mf2-campus-box { background: #e8edf2; padding: 18px 20px; margin-bottom: 24px; border-radius: 2px; position: relative; }
   .mf2-campus-box::after { content: ''; position: absolute; bottom: -10px; left: 50%; transform: translateX(-50%); width: 0; height: 0; border-left: 10px solid transparent; border-right: 10px solid transparent; border-top: 10px solid #e8edf2; }
-  .mf2-label { display: block; font-size: 13px; font-weight: 600; color: var(--brand-text, #1a1a1a); margin-bottom: 6px; }
+  .mf2-label { display: block; font-size: 13px; font-weight: 600; color: var(--mf2-label-color, var(--brand-text, #1a1a1a)); margin-bottom: 6px; }
   .mf2-req { color: #c0175e; margin-left: 2px; }
   .mf2-select-wrap { position: relative; }
   .mf2-select { width: 100%; padding: 10px 36px 10px 12px; border: 1px solid var(--brand-border, #e5e7eb); background: var(--brand-background, #ffffff); font-size: 14px; appearance: none; -webkit-appearance: none; border-radius: 2px; color: var(--brand-text, #1a1a1a); }
@@ -113,6 +113,19 @@ export default function(editor, categories) {
   @media(max-width:768px) { .mf2-half { grid-template-columns: 1fr; } }
 </style>
 <script>
+// Ancre « ici » (RGPD) → défile vers le footer / la politique de confidentialité.
+function mf2ScrollToLegal(e) {
+  if (e && e.preventDefault) e.preventDefault();
+  var doc = document;
+  var target = doc.querySelector('footer .ft-legal-link')
+            || doc.querySelector('footer')
+            || doc.querySelector('[class*="footer"]');
+  if (target && target.scrollIntoView) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } else {
+    window.scrollTo({ top: doc.body.scrollHeight, behavior: 'smooth' });
+  }
+}
 function mf2CampusChange(sel) {
   var dateInfo = document.getElementById('mf2-date-info');
   var addr = document.getElementById('mf2-addr');
@@ -134,5 +147,37 @@ function mf2CampusChange(sel) {
 }
 </script>`,
         attributes: { class: 'fa fa-wpforms' }
+    });
+
+    // Réglage « Couleur des labels » : colore TOUS les noms de champs d'un coup
+    // (campus inclus), via la variable CSS --mf2-label-color. Fiable, indépendant
+    // du double-clic label par label (qui bute sur le label campus dans le bloc gris).
+    editor.DomComponents.addType('master-form', {
+        isComponent: el => el.classList && el.classList.contains('mf2-section'),
+        model: {
+            defaults: {
+                name: 'Formulaire Inscription',
+                'label-color': '',
+                traits: [
+                    {
+                        type: 'color',
+                        name: 'label-color',
+                        label: 'Couleur des labels',
+                        changeProp: 1
+                    }
+                ]
+            },
+            init() {
+                try {
+                    const st = this.getStyle() || {};
+                    if (st['--mf2-label-color']) this.set('label-color', st['--mf2-label-color'], { silent: true });
+                } catch (e) { /* pas bloquant */ }
+                this.on('change:label-color', this.updateLabelColor);
+            },
+            updateLabelColor() {
+                const c = this.get('label-color');
+                if (c) this.addStyle({ '--mf2-label-color': c });
+            }
+        }
     });
 }

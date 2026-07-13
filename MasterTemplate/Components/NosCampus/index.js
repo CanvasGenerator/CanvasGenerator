@@ -33,9 +33,23 @@ export default function(editor, categories) {
                     { attributes: { class: 'fa fa-clone' },               command: 'tlb-clone' },
                     { attributes: { class: 'fa fa-trash-o' },             command: 'tlb-delete' }
                 ],
+                'script-props': ['data-campus-prefix', 'data-campus-separator'],
+                traits: [
+                    {
+                        type: 'text',
+                        name: 'data-campus-prefix',
+                        label: 'Préfixe de ville',
+                        placeholder: 'ex: 📍 '
+                    },
+                    {
+                        type: 'text',
+                        name: 'data-campus-separator',
+                        label: 'Séparateur',
+                        placeholder: 'ex:  ·  '
+                    }
+                ],
                 /* Runtime script: for exported pages with mode="all",
                    fetch campuses from the API and render them dynamically */
-                'script-props': [],
                 script: function() {
                     var section = this;
                     var mode = section.getAttribute('data-campus-mode');
@@ -44,6 +58,9 @@ export default function(editor, categories) {
                     var list = section.querySelector('.mnc-list');
                     if (!list) return;
 
+                    var prefix = section.getAttribute('data-campus-prefix') || '';
+                    var separator = section.getAttribute('data-campus-separator') || ' · ';
+
                     // Try to fetch fresh campus list from API
                     var baseUrl = window.__LP_API_BASE || '';
                     fetch(baseUrl + '/api/campuses')
@@ -51,8 +68,8 @@ export default function(editor, categories) {
                         .then(function(campuses) {
                             if (!Array.isArray(campuses) || campuses.length === 0) return;
                             var html = campuses.map(function(c) {
-                                return '<span class="mnc-campus-name">' + c.name.toUpperCase() + '</span>';
-                            }).join('<span class="mnc-dot">·</span>');
+                                return '<span class="mnc-campus-name">' + prefix + c.name.toUpperCase() + '</span>';
+                            }).join('<span class="mnc-dot">' + separator + '</span>');
                             list.innerHTML = html;
                         })
                         .catch(function() { /* keep static content */ });
@@ -62,7 +79,44 @@ export default function(editor, categories) {
 
         view: {
             init() {
-                this.listenTo(this.model, 'change:attributes', this.render);
+                this.listenTo(this.model, 'change:attributes', this.handleAttrChange);
+            },
+            handleAttrChange() {
+                const component = this.model;
+                const attrs = component.getAttributes();
+                const ids = (attrs['data-campus-ids'] || '').split(',').filter(Boolean);
+                const prefix = attrs['data-campus-prefix'] || '';
+                const separator = attrs['data-campus-separator'] || ' · ';
+                const mode = attrs['data-campus-mode'] || '';
+
+                const listComp = component.find('.mnc-list')[0];
+                if (!listComp) return;
+
+                const allCampuses = window.__LP_CAMPUSES || [];
+                let selectedCampuses = [];
+                if (mode === 'all') {
+                    selectedCampuses = allCampuses;
+                } else {
+                    selectedCampuses = allCampuses.filter(c => ids.includes(c.id));
+                }
+
+                if (selectedCampuses.length) {
+                    const escapeHtml = (str) => {
+                        if (!str) return '';
+                        return String(str)
+                            .replace(/&/g, '&amp;')
+                            .replace(/</g, '&lt;')
+                            .replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;')
+                            .replace(/'/g, '&#39;');
+                    };
+                    const namesHtml = selectedCampuses.map(c =>
+                        `<span class="mnc-campus-name">${prefix}${escapeHtml(c.name.toUpperCase())}</span>`
+                    ).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
+                    listComp.components(namesHtml);
+                } else {
+                    listComp.components('<span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d\'outils pour choisir vos campus.</span>');
+                }
             }
         }
     });
@@ -71,11 +125,11 @@ export default function(editor, categories) {
         label: 'Nos Campus',
         category: cat,
         content: `
-<section class="mnc-section" data-gjs-type="mc-nos-campus" data-campus-mode="" data-campus-ids="">
+<section class="mnc-section" data-gjs-type="mc-nos-campus" data-campus-mode="" data-campus-ids="" data-campus-prefix="" data-campus-separator="">
   <div class="mnc-inner">
     <h2 class="mnc-title">NOS CAMPUS</h2>
     <div class="mnc-list">
-      <span class="mnc-placeholder">📍 Cliquez sur le bouton 📌 dans la barre d'outils pour choisir vos campus.</span>
+      <span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d'outils pour choisir vos campus.</span>
     </div>
   </div>
 </section>
