@@ -345,6 +345,12 @@ function initEditor(schoolId) {
     initExport(editor);
     initAiAssistant(editor);
     registerBlocks(editor);
+    // Filtrage synchrone dès l'enregistrement des blocs : ne pas dépendre uniquement
+    // de l'événement asynchrone editor.on('load') (dont le timing varie selon le
+    // cache/vitesse de chargement) sinon les composants des autres écoles peuvent
+    // rester affichés ("parfois ça bug"). Le filtre est idempotent : rappelé sur
+    // 'load', il ne retire rien de plus.
+    filterBlocksBySchool(editor, schoolId);
 
     // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
@@ -1270,27 +1276,50 @@ function filterBlocksBySchool(editor, schoolId) {
     ];
     
     const otherSchools = allSchoolsList.filter(s => s !== targetSchoolId);
+
+    // Libellé exact de la catégorie de l'école courante (ex : "ÉSEC Components",
+    // "3W ACADEMY Components", "IFA PARIS Components"). CURRENT_SCHOOL.name correspond
+    // EXACTEMENT au préfixe des catégories "<name> Components" (cf. blocks/index.js),
+    // donc on compare au libellé courant plutôt que de reconstruire "<id> components"
+    // depuis l'id — sinon les écoles à accent/espace (ÉSEC, IFA PARIS, ÉCOLE BLEUE,
+    // 3W ACADEMY) ne matchent jamais et leurs composants fuitent.
+    const currentCategoryLabel = `${CURRENT_SCHOOL?.name || ''} components`.trim().toLowerCase();
+
+    // Catégories qui se terminent aussi par " components" mais NE sont PAS rattachées
+    // à une école : à conserver en mode école.
+    const keepCategoryLabels = new Set(['master components', 'custom components', currentCategoryLabel]);
+
     const blocksToRemove = [];
 
     allBlocks.forEach(block => {
-        const id = block.get('id').toLowerCase();
-        const category = block.get('category');
-        const categoryLabel = ((typeof category === 'object' ? category.get('id') : category) || '').toLowerCase();
-        
-        // 1. Check if the category belongs to another school (e.g. 'brassart components', 'efap components')
-        const belongsToOtherSchoolCategory = otherSchools.some(school => 
-            categoryLabel === `${school} components` || categoryLabel === school
+        let id, categoryLabel, blockId;
+        try {
+            blockId = block.get('id');
+            id = String(blockId || '').toLowerCase();
+            const category = block.get('category');
+            categoryLabel = ((typeof category === 'object' && category ? category.get('id') : category) || '')
+                .toString().toLowerCase();
+        } catch (e) {
+            return; // un bloc mal formé ne doit pas interrompre le filtrage des autres
+        }
+
+        // Toujours conserver les blocs par défaut de l'école courante.
+        if ((CURRENT_SCHOOL?.defaultBlocks || []).includes(blockId)) return;
+
+        // 1. Catégorie brandée "<école> Components" : appartient à une autre école dès
+        //    qu'elle finit par " components" sans être une catégorie à conserver.
+        const isSchoolBrandedCategory = / components$/.test(categoryLabel);
+        const belongsToOtherSchoolCategory =
+            (isSchoolBrandedCategory && !keepCategoryLabels.has(categoryLabel)) ||
+            otherSchools.some(school => categoryLabel === school); // ancien format court "brassart"
+
+        // 2. Id spécifique à une autre école (header-brassart, footer-efap, header-mopa-blanc…)
+        const belongsToOtherSchoolId = otherSchools.some(school =>
+            id.endsWith(`-${school}`) || id.includes(`-${school}-`) || id === school
         );
-        
-        // 2. Check if the block ID is school-specific and belongs to another school (e.g. 'header-brassart', 'footer-efap')
-        const belongsToOtherSchoolId = otherSchools.some(school => {
-            return id.endsWith(`-${school}`) || id.includes(`-${school}-`) || id === school;
-        });
 
-        const isRequiredByDefault = (CURRENT_SCHOOL?.defaultBlocks || []).includes(block.get('id'));
-
-        if ((belongsToOtherSchoolCategory || belongsToOtherSchoolId) && !isRequiredByDefault) {
-            blocksToRemove.push(block.get('id'));
+        if (belongsToOtherSchoolCategory || belongsToOtherSchoolId) {
+            blocksToRemove.push(blockId);
         }
     });
 
