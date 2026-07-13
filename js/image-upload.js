@@ -1,21 +1,22 @@
 /**
- * Upload d'images vers SFMC depuis le builder.
+ * Gestion des images uploadées dans le builder.
  *
- * Flux : fichier local → compression si trop lourd → POST /api/sfmc/upload-image
- * → l'image est publiée dans Content Builder et son URL publique remplace
- * le fichier local dans le HTML de la page.
+ * Flux : fichier local → compression si trop lourd → l'image reste dans la page
+ * en data URL (base64). C'est au moment de l'envoi du contenu vers SFMC
+ * (syncProjectToSfmc côté serveur) que chaque image inline est publiée dans
+ * Content Builder et remplacée par son URL publique.
  *
  * Limites :
  *  - SFMC refuse les images > 5 Mo (SFMC_MAX_IMAGE_BYTES).
- *  - Le corps de requête est limité à ~4,5 Mo sur Vercel ; comme l'image
- *    transite en base64 (+37 %), on compresse dès que le binaire dépasse
- *    TARGET_IMAGE_BYTES (3 Mo) pour rester sous les deux plafonds.
+ *  - L'image transite en base64 dans le HTML sauvegardé (+37 %) : on compresse
+ *    dès que le binaire dépasse TARGET_IMAGE_BYTES (3 Mo) pour limiter le poids
+ *    de la page avant publication.
  */
 
 const SFMC_MAX_IMAGE_BYTES = 5 * 1024 * 1024;
 const TARGET_IMAGE_BYTES = 3 * 1024 * 1024;
 
-// Types acceptés tels quels par le backend (assets image SFMC)
+// Types publiables tels quels dans SFMC (assets image)
 const PASSTHROUGH_TYPES = ['image/png', 'image/jpeg', 'image/gif'];
 
 function fileToDataUrl(file) {
@@ -61,10 +62,10 @@ function renameExtension(filename, ext) {
 }
 
 /**
- * Retourne { dataUrl, name } prêt à envoyer au backend.
+ * Retourne { dataUrl, name } prêt à être inséré dans la page.
  * Compresse (ré-encode via canvas) uniquement si nécessaire.
  */
-async function prepareImageForUpload(file) {
+export async function prepareImageForUpload(file) {
     const isPassthrough = PASSTHROUGH_TYPES.includes(file.type);
     if (isPassthrough && file.size <= TARGET_IMAGE_BYTES) {
         return { dataUrl: await fileToDataUrl(file), name: file.name };
@@ -108,35 +109,11 @@ async function prepareImageForUpload(file) {
 }
 
 /**
- * Compresse si besoin puis publie l'image dans SFMC Content Builder.
- * Retourne { url, id, name, action } — url est l'URL publique SFMC.
- */
-export async function uploadImageAsset(file, schoolId) {
-    const { dataUrl, name } = await prepareImageForUpload(file);
-
-    const response = await fetch('/api/sfmc/upload-image', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name, schoolId, dataUrl })
-    });
-
-    let payload = null;
-    try { payload = await response.json(); } catch (e) { /* réponse non-JSON */ }
-
-    if (!response.ok) {
-        throw new Error((payload && payload.error) || `Upload SFMC échoué (HTTP ${response.status})`);
-    }
-    if (!payload || !payload.url) {
-        throw new Error('SFMC n\'a pas renvoyé d\'URL publiée pour l\'image');
-    }
-    return payload;
-}
-
-/**
  * Handler GrapesJS `assetManager.uploadFile` : intercepte les fichiers déposés
- * ou sélectionnés, les publie dans SFMC et ajoute l'URL publiée à l'Asset Manager.
+ * ou sélectionnés, les compresse si besoin et les ajoute à l'Asset Manager en
+ * data URL. La publication SFMC a lieu plus tard, à l'envoi de la page.
  */
-export function createSfmcUploadHandler(getEditor, schoolId) {
+export function createImageUploadHandler(getEditor) {
     return async (ev) => {
         const files = Array.from((ev.dataTransfer ? ev.dataTransfer.files : ev.target.files) || []);
         const editor = getEditor();
@@ -147,13 +124,12 @@ export function createSfmcUploadHandler(getEditor, schoolId) {
                 continue;
             }
             try {
-                alert(`Upload de "${file.name}" vers SFMC…`);
-                const { url } = await uploadImageAsset(file, schoolId);
-                editor.AssetManager.add({ src: url, name: file.name });
-                alert(`Image "${file.name}" publiée sur SFMC`);
+                const { dataUrl, name } = await prepareImageForUpload(file);
+                editor.AssetManager.add({ src: dataUrl, name });
+                alert(`Image "${file.name}" ajoutée — elle sera publiée sur SFMC lors de l'envoi de la page`);
             } catch (e) {
-                console.error('Upload image SFMC:', e);
-                alert(`Erreur upload "${file.name}" : ${e.message}`);
+                console.error('Ajout image:', e);
+                alert(`Erreur image "${file.name}" : ${e.message}`);
             }
         }
     };

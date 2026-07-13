@@ -4,7 +4,8 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
+const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
     syncLegacyProjectToContent,
@@ -804,38 +805,17 @@ http.createServer(async (req, res) => {
                     content: contentSync
                 }));
 
-                // 3. Tâche en arrière-plan (non-bloquante) pour le nettoyage et l'envoi SFMC
+                // 3. Mise en file SFMC (comme Vercel) : le cron worker nettoie le HTML,
+                // publie les images inline dans SFMC, remplace leurs URLs puis envoie la page.
                 (async () => {
                     try {
-                        console.log(`\n🧹 [BACKGROUND] Nettoyage du HTML pour SFMC...`);
-                        const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
-                        console.log(`✅ [BACKGROUND] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
-
-                        // Mise à jour de Supabase (Projects) avec html_sfmc
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            html_sfmc: cleanedHtmlForSfmc
+                        const jobResult = await enqueueOrProcessInline({
+                            projectName, fullHtml, css, projectData, properties,
+                            source: 'server.js/save'
                         });
-
-                        // Mise à jour de page_versions avec html_sfmc
-                        if (contentSync && contentSync.versionId) {
-                            await supabaseRequest('PATCH', `/page_versions?id=eq.${encodeURIComponent(contentSync.versionId)}`, {
-                                html_sfmc: cleanedHtmlForSfmc
-                            });
-                        }
-
-                        if (isSfmcConfigured()) {
-                            console.log(`☁️  [BACKGROUND] Envoi de la version HTML nettoyée à SFMC...`);
-                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtmlForSfmc });
-                            console.log(
-                                `☁️  [BACKGROUND] SFMC sync: ${sfmcResult.action}` +
-                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
-                                (sfmcResult.id ? ` (id=${sfmcResult.id})` : '')
-                            );
-                        } else {
-                            console.log('⏭️  [BACKGROUND] SFMC sync skipped (env vars not configured).');
-                        }
+                        console.log(`☁️  [BACKGROUND] SFMC sync: ${jobResult.action}` + (jobResult.error ? ` (${jobResult.error})` : ''));
                     } catch (bgError) {
-                        console.error(`❌ [BACKGROUND] Erreur lors de la tâche asynchrone:`, bgError);
+                        console.error(`❌ [BACKGROUND] Erreur lors de la mise en file SFMC:`, bgError);
                     }
                 })();
 
@@ -921,37 +901,18 @@ http.createServer(async (req, res) => {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ message: 'SEO saved! Background sync started.', projectName }));
 
-                // 5. Tâche en arrière-plan : nettoyage + SFMC + page_versions
+                // 5. Mise en file SFMC (comme Vercel) : traitement par le cron worker
                 (async () => {
                     try {
-                        console.log(`\n🧹 [BACKGROUND/SEO] Nettoyage HTML pour SFMC...`);
-                        const cleanedHtml = cleanHtmlForSfmc(freshHtml);
-                        console.log(`✅ [BACKGROUND/SEO] Nettoyage terminé (${freshHtml.length} → ${cleanedHtml.length} octets)`);
-
-                        // Mise à jour html_sfmc dans Projects
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            html_sfmc: cleanedHtml
-                        });
-
-                        // Synchronisation avec la table page_versions (Content API)
-                        const contentSync = await syncLegacyProjectToContent({
+                        const jobResult = await enqueueOrProcessInline({
                             projectName,
-                            html: freshHtml,
-                            html_sfmc: cleanedHtml,
-                            css: project.css || '',
+                            fullHtml:    freshHtml,
+                            css:         project.css || '',
                             projectData: project.project_data,
-                            properties: mergedProperties
+                            properties:  mergedProperties,
+                            source:      'server.js/save-seo'
                         });
-
-                        if (isSfmcConfigured()) {
-                            console.log(`☁️  [BACKGROUND/SEO] Envoi vers SFMC...`);
-                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtml });
-                            console.log(`☁️  [BACKGROUND/SEO] SFMC sync: ${sfmcResult.action}` +
-                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
-                                (sfmcResult.id   ? ` (id=${sfmcResult.id})`  : ''));
-                        } else {
-                            console.log('⏭️  [BACKGROUND/SEO] SFMC skipped (non configuré).');
-                        }
+                        console.log(`☁️  [BACKGROUND/SEO] SFMC sync: ${jobResult.action}` + (jobResult.error ? ` (${jobResult.error})` : ''));
                     } catch (bgErr) {
                         console.error(`❌ [BACKGROUND/SEO] Erreur:`, bgErr.message);
                     }
@@ -1538,25 +1499,6 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
             } catch (e) {
                 console.error('❌ Error creating Form Asset:', e.message);
                 res.writeHead(500);
-                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
-            }
-        });
-        return;
-    }
-
-    // ── API: Upload Image to SFMC ─────────────────────────────────────
-    if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', async () => {
-            try {
-                const { name, schoolId, dataUrl } = JSON.parse(body);
-                const result = await uploadImageFromDataUrl({ name, schoolId, dataUrl });
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify(result));
-            } catch (e) {
-                console.error('❌ Error uploading image to SFMC:', e.message);
-                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message, payload: e.payload }));
             }
         });
@@ -2344,3 +2286,27 @@ Règles importantes :
     console.log(`📚 Dashboard: http://localhost:${port}/`);
     console.log(`🔨 Builder direct: http://localhost:${port}/?school=efap`);
 });
+
+// ── Scheduler local : équivalent du Vercel Cron ──────────────────────
+// Traite périodiquement la file integration_jobs via le cron worker
+// (api/cron.js) : nettoyage HTML, publication des images inline dans SFMC,
+// remplacement des URLs, puis envoi de la page vers SFMC.
+const CRON_INTERVAL_MS = parseInt(process.env.CRON_INTERVAL_MS || '30000', 10);
+const cronTimer = setInterval(async () => {
+    try {
+        const result = await cronHandler({ method: 'GET' }, {
+            status() { return this; },
+            json(payload) { return payload; }
+        });
+        if (result && result.error) {
+            if (isMissingContentSchemaError({ message: result.error })) {
+                console.warn('⏭️  [CRON local] Table integration_jobs absente — scheduler désactivé (traitement inline actif).');
+                clearInterval(cronTimer);
+            } else {
+                console.error('❌ [CRON local] Erreur:', result.error);
+            }
+        }
+    } catch (e) {
+        console.error('❌ [CRON local] Erreur:', e.message);
+    }
+}, CRON_INTERVAL_MS);
