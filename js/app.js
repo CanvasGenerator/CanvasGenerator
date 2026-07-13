@@ -1,6 +1,6 @@
 import { initStorage } from './storage.js';
 import { initExport } from './export.js';
-import { createImageUploadHandler } from './image-upload.js';
+import { createImageUploadHandler, publishInlineImagesInString, collectAssetNames, applyImageMapToEditor } from './image-upload.js';
 import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
 import { FormGenerator } from './form-generator.js';
@@ -2096,7 +2096,13 @@ function initUI(editor) {
 
         try {
             showLoading('Sauvegarde en cours...');
-            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+            // Publier chaque image inline dans SFMC (une requête par image) pour
+            // garder le payload de /api/save sous la limite Vercel de 4,5 Mo
+            const { body: saveBody, mapping } = await publishInlineImagesInString(
+                JSON.stringify(projectData), fullName, collectAssetNames(editor)
+            );
+            applyImageMapToEditor(editor, mapping);
+            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
             hideLoading();
             if (!res.ok) throw new Error(await res.text());
             await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès et synchronisé avec Salesforce !' });
@@ -2120,10 +2126,9 @@ function initUI(editor) {
         const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
         showLoading('Sauvegarde en cours...');
         try {
-            const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const imgProjectName = localStorage.getItem(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentFullName`)
+                || `school-${CURRENT_SCHOOL?.id || 'unknown'}__page`;
+            const versionPayload = JSON.stringify({
                     html: finalHtml,
                     css: editor.getCss(),
                     project_data: editor.getProjectData(),
@@ -2141,7 +2146,15 @@ function initUI(editor) {
                             schemaLd: propsToSave.schemaLd || ''
                         }
                     }
-                })
+            });
+            const { body: versionBody, mapping } = await publishInlineImagesInString(
+                versionPayload, imgProjectName, collectAssetNames(editor)
+            );
+            applyImageMapToEditor(editor, mapping);
+            const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: versionBody
             });
             if (!res.ok) throw new Error(await res.text());
             hideLoading();
@@ -2282,9 +2295,13 @@ function initUI(editor) {
             };
 
             try {
-                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                const { body: saveBody, mapping } = await publishInlineImagesInString(
+                    JSON.stringify(projectData), newFullName, collectAssetNames(editor)
+                );
+                applyImageMapToEditor(editor, mapping);
+                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
                 if (!res.ok) throw new Error(await res.text());
-                
+
                 const saveData = await res.json();
                 const savedPageId = saveData.page_id || saveData.content?.pageId || null;
                 
@@ -2463,9 +2480,13 @@ function initUI(editor) {
                     };
 
                     try {
-                        const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                        const { body: saveBody, mapping } = await publishInlineImagesInString(
+                            JSON.stringify(projectData), fullName, collectAssetNames(editor)
+                        );
+                        applyImageMapToEditor(editor, mapping);
+                        const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
                         if (!res.ok) throw new Error(await res.text());
-                        
+
                         const saveData = await res.json();
                         if (saveData && saveData.page_id) {
                             currentStructuredPageId = saveData.page_id;
@@ -2784,8 +2805,9 @@ window.duplicateProject = (fullName) => {
 
                 console.log('🔴 projectData envoyé:', JSON.stringify(projectData).substring(0, 300));
 
-                const saveRes = await fetch('/api/save', { 
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                const { body: translateBody } = await publishInlineImagesInString(JSON.stringify(projectData), newFullName);
+                const saveRes = await fetch('/api/save', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: translateBody
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 
@@ -2838,8 +2860,9 @@ window.duplicateProject = (fullName) => {
                     projectData: sourceProject.project_data 
                 };
 
-                const saveRes = await fetch('/api/save', { 
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                const { body: duplicateBody } = await publishInlineImagesInString(JSON.stringify(projectData), newFullName);
+                const saveRes = await fetch('/api/save', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: duplicateBody
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 
