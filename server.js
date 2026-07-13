@@ -2299,7 +2299,14 @@ Règles importantes :
                 res.writeHead(500);
                 res.end('Server error');
             } else {
-                res.writeHead(200, { 'Content-Type': 'text/html' });
+                res.writeHead(200, {
+                    'Content-Type': 'text/html',
+                    // HTML : jamais mis en cache → recharge toujours la dernière version
+                    // des scripts référencés (évite d'avoir à vider le cache navigateur).
+                    'Cache-Control': 'no-cache, no-store, must-revalidate',
+                    'Pragma': 'no-cache',
+                    'Expires': '0',
+                });
                 res.end(content, 'utf-8');
             }
         });
@@ -2313,12 +2320,20 @@ Règles importantes :
     const extname = String(path.extname(filePath)).toLowerCase();
     const contentType = mimeTypes[extname] || 'application/octet-stream';
 
+    // Le code applicatif (JS/CSS/HTML/JSON) ne doit jamais être servi depuis le cache
+    // navigateur, sinon une modif n'est prise en compte qu'après vidage manuel du cache.
+    // Les assets lourds et figés (images, polices, vendor) peuvent rester cachés.
+    const noCacheExt = ['.js', '.css', '.html', '.json'];
+    const cacheHeaders = noCacheExt.includes(extname)
+        ? { 'Cache-Control': 'no-cache, no-store, must-revalidate', 'Pragma': 'no-cache', 'Expires': '0' }
+        : { 'Cache-Control': 'public, max-age=86400' };
+
     fs.readFile(filePath, (error, content) => {
         if (error) {
             res.writeHead(error.code == 'ENOENT' ? 404 : 500);
             res.end(error.code == 'ENOENT' ? 'File not found' : 'Server error');
         } else {
-            res.writeHead(200, { 'Content-Type': contentType });
+            res.writeHead(200, { 'Content-Type': contentType, ...cacheHeaders });
             res.end(content, 'utf-8');
         }
     });
