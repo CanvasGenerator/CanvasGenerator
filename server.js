@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl } = require('./lib/sfmc');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -1499,6 +1499,26 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
             } catch (e) {
                 console.error('❌ Error creating Form Asset:', e.message);
                 res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Upload Image to SFMC (une requête par image, envoyée à la
+    // sauvegarde pour garder le payload de /api/save sous la limite Vercel) ──
+    if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { name, schoolId, projectName, dataUrl } = JSON.parse(body);
+                const result = await uploadImageFromDataUrl({ name, schoolId, projectName, dataUrl });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error uploading image to SFMC:', e.message);
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message, payload: e.payload }));
             }
         });
