@@ -151,24 +151,34 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     overflow: visible;
 }
 
+.jpo-header {
+    text-align: center;
+    margin-bottom: 22px;
+}
+.jpo-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #111;
+    line-height: 1.25;
+}
+.jpo-subtitle {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #6b6b6b;
+}
+
 .jpo-campus-zone {
     background: transparent;
     padding: 0 0 10px 0;
 }
 
-.jpo-campus-zone .jpo-label {
-    font-size: 11px;
-    font-weight: 700;
-    text-transform: uppercase;
-    letter-spacing: 0.05em;
-    color: #4a4a4a;
-    margin-bottom: 6px;
-    display: block;
-}
-
-.jpo-campus-zone .jpo-label .req {
-    color: inherit;
-}
+/* NB : pas de règle spécifique « .jpo-campus-zone .jpo-label » — le label campus
+   utilise la règle générale « .jpo-label » (identique). Sinon sa spécificité plus
+   forte empêcherait de modifier sa couleur depuis le panneau Styles. */
 
 .jpo-campus-select-wrap {
     position: relative;
@@ -212,45 +222,47 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-event-card {
     display: none;
-    padding: 16px 0 0;
-    position: relative;
+    margin-top: 16px;
+    background: transparent;
+    border: 1px solid #e6e1da;
+    border-radius: 8px;
+    padding: 16px 18px;
 }
 
 .jpo-event-inner {
-    background: transparent;
-    border-radius: 0;
     display: flex;
-    gap: 16px;
-    align-items: flex-start;
-    margin-bottom: 12px;
+    align-items: stretch;
+    gap: 18px;
 }
 
-.jpo-event-left {
+.jpo-event-col {
     flex: 1;
-}
-
-.jpo-event-right {
-    flex: 0 0 auto;
-    font-size: 12px;
-    color: var(--brand-text, #1a1a1a);
-    line-height: 1.5;
-    text-align: right;
-}
-
-.jpo-event-date-row {
     display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-bottom: 4px;
+    gap: 10px;
+    align-items: flex-start;
+    min-width: 0;
 }
 
-.jpo-radio-icon {
-    width: 18px;
-    height: 18px;
-    border: 1.5px solid #000;
-    border-radius: 50%;
+.jpo-event-ico {
+    width: 20px;
+    height: 20px;
     flex-shrink: 0;
-    margin-top: 2px;
+    color: #333;
+    margin-top: 1px;
+}
+
+.jpo-event-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.jpo-event-sep {
+    width: 1px;
+    background: #e0dad2;
+    align-self: stretch;
+    flex-shrink: 0;
 }
 
 .jpo-event-date {
@@ -259,12 +271,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     color: #000;
 }
 
-.jpo-event-detail {
+.jpo-event-detail,
+.jpo-event-right {
     font-size: 12px;
-    color: var(--brand-text, #1a1a1a);
-    line-height: 1.6;
-    padding-left: 0;
+    color: #555;
+    line-height: 1.5;
     white-space: pre-line;
+    text-align: left;
 }
 
 .jpo-pointer {
@@ -372,17 +385,35 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 46px;
+    padding: 0 8px;
+    border: 1px solid #000;
+    background: var(--brand-background, #ffffff);
+    box-sizing: border-box;
+}
+
+/* Drapeau français dessiné en CSS (fiable sur tous les OS, pas d'emoji) */
+.jpo-flag {
+    width: 20px;
+    height: 14px;
+    flex-shrink: 0;
+    border-radius: 2px;
+    background: linear-gradient(to right, #0055A4 0 33.33%, #ffffff 33.33% 66.66%, #EF4135 66.66% 100%);
+    box-shadow: 0 0 0 1px rgba(0,0,0,.1);
 }
 
 .jpo-phone-prefix-wrap::after {
     content: '';
     position: absolute;
-    right: 14px;
+    right: 8px;
     top: 50%;
-    width: 8px;
-    height: 8px;
+    width: 7px;
+    height: 7px;
     border-right: 1.5px solid #000;
     border-bottom: 1.5px solid #000;
     transform: translateY(-70%) rotate(45deg);
@@ -390,15 +421,16 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-phone-prefix {
-    width: 100%;
-    height: 46px;
-    padding: 0 24px 0 12px;
-    border: 1px solid #000;
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 14px 0 0;
+    border: none;
     border-radius: 0;
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: var(--brand-background, #ffffff);
+    background: transparent;
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -474,7 +506,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-submit::after {
-    content: ' →';
+    content: '';
 }
 
 .jpo-submit:hover {
@@ -547,6 +579,12 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 <!-- ═══════════ CARD ═══════════ -->
 <div class="jpo-card">
 
+    ${(formTitle || formSubtitle) ? `
+    <div class="jpo-header">
+        ${formTitle ? `<h2 class="jpo-title">${formTitle}</h2>` : ''}
+        ${formSubtitle ? `<p class="jpo-subtitle">${formSubtitle}</p>` : ''}
+    </div>` : ''}
+
     <div class="jpo-campus-zone">
         <label class="jpo-label">Campus<span class="req">*</span></label>
         <div class="jpo-campus-select-wrap">
@@ -556,14 +594,20 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         </div>
         <div class="jpo-event-card">
             <div class="jpo-event-inner">
-                <div class="jpo-event-left">
-                    <div class="jpo-event-date-row">
-                        <div class="jpo-radio-icon"></div>
+                <div class="jpo-event-col">
+                    <svg class="jpo-event-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><rect x="3" y="4.5" width="18" height="16.5" rx="2"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4" stroke-linecap="round"/></svg>
+                    <div class="jpo-event-col-body">
                         <span class="jpo-event-date"></span>
+                        <span class="jpo-event-detail"></span>
                     </div>
-                    <div class="jpo-event-detail"></div>
                 </div>
-                <div class="jpo-event-right"></div>
+                <div class="jpo-event-sep"></div>
+                <div class="jpo-event-col">
+                    <svg class="jpo-event-ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z" stroke-linejoin="round"/><circle cx="12" cy="10" r="2.6"/></svg>
+                    <div class="jpo-event-col-body">
+                        <span class="jpo-event-right"></span>
+                    </div>
+                </div>
             </div>
         </div>
     </div>
@@ -635,14 +679,15 @@ ${showVousEtes ? `
                 <label class="jpo-label">${t.mobile}<span class="req">*</span></label>
                 <div class="jpo-phone-wrap">
                     <div class="jpo-phone-prefix-wrap">
-                        <select class="jpo-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <span class="jpo-flag" aria-hidden="true"></span>
+                        <select class="jpo-phone-prefix" aria-label="Indicatif pays">
+                            <option value="+33" selected>+33</option>
+                            <option value="+32">+32</option>
+                            <option value="+41">+41</option>
+                            <option value="+352">+352</option>
+                            <option value="+1">+1</option>
+                            <option value="+44">+44</option>
+                            <option value="+212">+212</option>
                         </select>
                     </div>
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -800,7 +845,8 @@ export function attachEventFormLogic(editor) {
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
         });
 
-        /* Scoped updateEventCard */
+        /* Scoped updateEventCard — colonne gauche : date + heures + conférence ;
+           colonne droite : « Campus <ville> » + adresse (comme la maquette). */
         function updateCard(val) {
             const cardEl = card.querySelector('.jpo-event-card');
             const dateEl = card.querySelector('.jpo-event-date');
@@ -808,13 +854,14 @@ export function attachEventFormLogic(editor) {
             const confEl = card.querySelector('.jpo-event-right');
             const hidden = card.querySelector('input[name="EventDate"]');
             const ev = (jpoEvents[lang] || jpoEvents.fr)[val];
+            const opt = campusSelect.options[campusSelect.selectedIndex];
+            const campusName = opt ? opt.text : val;
             if (ev && ev.date) {
                 if (dateEl) dateEl.textContent = ev.date;
-                if (addrEl) addrEl.innerHTML = ev.hours + '<br>' + ev.address.replace(/\n/g, '<br>');
-                if (confEl) {
-                    if (ev.conf) { confEl.style.display = ''; confEl.innerHTML = ev.conf.replace(/\n/g, '<br>'); }
-                    else         { confEl.style.display = 'none'; confEl.innerHTML = ''; }
-                }
+                // Gauche : heures + conférence
+                if (addrEl) addrEl.innerHTML = ev.hours + (ev.conf ? '<br>' + ev.conf.replace(/\n/g, '<br>') : '');
+                // Droite : nom du campus (gras) + adresse
+                if (confEl) confEl.innerHTML = '<strong>Campus ' + campusName + '</strong><br>' + ev.address.replace(/\n/g, '<br>');
                 if (hidden) hidden.value = ev.date;
                 if (cardEl) cardEl.style.display = 'block';
             } else {

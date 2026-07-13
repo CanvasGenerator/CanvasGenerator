@@ -226,7 +226,7 @@ export default function (editor, categories) {
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
 .brf-submit::after {
-    content: ' →';
+    content: '';
 }
 .brf-submit:hover { background: #222; }
 .brf-submit:disabled { background: #888; cursor: not-allowed; }

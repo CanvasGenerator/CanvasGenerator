@@ -9,6 +9,18 @@
                     "value": "frame-ancestors 'self' https://*.exacttarget.com https://*.marketingcloudapps.com"
                 }
             ]
+        },
+        {
+            "source": "/(.*)\\.(js|mjs|css|json|html)",
+            "headers": [
+                { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+            ]
+        },
+        {
+            "source": "/",
+            "headers": [
+                { "key": "Cache-Control", "value": "no-cache, must-revalidate" }
+            ]
         }
     ],
     "rewrites": [
