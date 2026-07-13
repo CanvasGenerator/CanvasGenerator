@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -28,42 +28,7 @@ function extractBodyContent(fullHtml) {
     return match ? match[1] : fullHtml;
 }
 
-/**
- * Tente de créer un job dans integration_jobs.
- * Si la table n'existe pas (env local), exécute le traitement en ligne directement.
- */
-async function enqueueOrProcessInline({ projectName, fullHtml, css, projectData, properties, source }) {
-    try {
-        await supabaseRequest('POST', '/integration_jobs', {
-            target:       'sfmc',
-            action:       'sync_project',
-            status:       'pending',
-            payload:      { projectName, html: fullHtml },
-            metadata:     { source, enqueuedBy: 'router.js' },
-            scheduled_at: new Date().toISOString()
-        });
-        return { skipped: false, action: 'queued' };
-    } catch (e) {
-        if (!isMissingContentSchemaError(e)) {
-            console.error('Failed to create integration job:', e.message);
-            return { skipped: false, action: 'job_failed', error: e.message };
-        }
-        // ── Fallback local : table absente, traitement immédiat ──────────────
-        console.warn('⚠️  [FALLBACK] integration_jobs absente — traitement synchrone en cours...');
-        try {
-            const cleaned = cleanHtmlForSfmc(fullHtml);
-            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                html_sfmc: cleaned
-            });
-            await syncLegacyProjectToContent({ projectName, html: fullHtml, html_sfmc: cleaned, css, projectData, properties });
-            if (isSfmcConfigured()) await syncProjectToSfmc({ projectName, fullHtml: cleaned });
-            return { skipped: false, action: 'processed_inline' };
-        } catch (syncErr) {
-            console.error('Inline processing failed:', syncErr.message);
-            return { skipped: false, action: 'inline_failed', error: syncErr.message };
-        }
-    }
-}
+const { enqueueOrProcessInline } = require('../lib/sfmc-sync');
 
 // ── Translation group ID ──────────────────────────────────────────────────
 function generateGroupId() {
@@ -403,15 +368,6 @@ module.exports = async function handler(req, res) {
         }
         if (req.method === 'POST' && pathname === '/api/sfmc/create-form-asset') {
             return res.status(200).json(await createFormAsset(req.body));
-        }
-        if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
-            try {
-                const { name, schoolId, dataUrl } = req.body || {};
-                return res.status(200).json(await uploadImageFromDataUrl({ name, schoolId, dataUrl }));
-            } catch (e) {
-                console.error('❌ Error uploading image to SFMC:', e.message);
-                return res.status(e.status || 500).json({ error: e.message, payload: e.payload });
-            }
         }
 
         // ==========================================
