@@ -429,7 +429,7 @@ export default function (editor, categories) {
 }
 
 .wbc-submit::after {
-    content: ' →';
+    content: '';
 }
 
 .wbc-submit:hover { background: #222; }

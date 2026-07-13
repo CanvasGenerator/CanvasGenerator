@@ -118,8 +118,14 @@ const BLOCK_THUMBNAILS = {
 
 let CURRENT_SCHOOL = null;
 let currentProjectIsNew = true;
-let currentProjectLanguage = 'FR'; 
+let currentProjectLanguage = 'FR';
 let currentStructuredPageId = null;
+
+// Blocs-formulaires déplacés de l'onglet Blocks vers l'onglet Forms.
+// On capture leur contenu ici pour (1) les afficher dans l'onglet Forms et
+// (2) que le template par défaut (qui utilise form-sfmc) fonctionne encore.
+let formBlocksCache = [];        // [{ id, label, media, content }]
+const formBlocksContentById = {}; // { id: content } — pour loadDefaultTemplate
 
 function updatePageIdBadge() {
     const badge = document.getElementById('project-id-badge');
@@ -351,6 +357,8 @@ function initEditor(schoolId) {
     // rester affichés ("parfois ça bug"). Le filtre est idempotent : rappelé sur
     // 'load', il ne retire rien de plus.
     filterBlocksBySchool(editor, schoolId);
+    // Déplace les blocs-formulaires de l'onglet Blocks vers l'onglet Forms.
+    extractFormBlocks(editor);
 
     // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
@@ -364,6 +372,7 @@ function initEditor(schoolId) {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
         addFontStyleControl(editor);
+        setDecorationTitles(editor);
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
@@ -393,10 +402,8 @@ function initEditor(schoolId) {
             }
             parent = parent.parent();
         }
-        // Ouvrir le picker automatiquement quand le bloc FAQ est droppé
-        if (component.get('type') === 'ma-faq-section') {
-            setTimeout(() => editor.Commands.run('open-faq-picker'), 150);
-        }
+        // NB : l'ouverture auto du picker FAQ se fait sur block:drag:stop (dépôt manuel),
+        // PAS ici — sinon elle se déclenchait aussi au chargement d'une page enregistrée.
     });
 
     // 2. Clic sur un enfant → rediriger la sélection vers le ma-faq-section parent
@@ -542,9 +549,18 @@ function initEditor(schoolId) {
         }
     });
     // ── Campus block : auto-open picker on drop + child redirect ─────────
-    editor.on('component:add', (component) => {
-        if (component.get('type') === 'mc-nos-campus') {
-            setTimeout(() => editor.Commands.run('open-campus-picker'), 150);
+    // NB : l'ouverture auto du picker Campus se fait sur block:drag:stop (dépôt manuel),
+    // PAS sur component:add — sinon elle se déclenchait aussi au chargement d'une page.
+
+    // Ouverture auto des pickers UNIQUEMENT lors d'un dépôt manuel de bloc depuis
+    // le panneau (pas au chargement d'une page enregistrée).
+    editor.on('block:drag:stop', (component) => {
+        if (!component || typeof component.get !== 'function') return;
+        const type = component.get('type');
+        if (type === 'mc-nos-campus') {
+            setTimeout(() => { editor.select(component); editor.Commands.run('open-campus-picker'); }, 150);
+        } else if (type === 'ma-faq-section') {
+            setTimeout(() => { editor.select(component); editor.Commands.run('open-faq-picker'); }, 150);
         }
     });
 
@@ -602,46 +618,173 @@ function initEditor(schoolId) {
                     : '';
             }
 
-            fetch('/api/campuses')
-                .then(r => r.json())
-                .then(campuses => {
-                    // Gérer le cas où l'API renvoie une erreur (ex: table non créée dans Supabase)
-                    if (!Array.isArray(campuses)) {
-                        console.error('Erreur API Campus:', campuses);
-                        body.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">
-                            Erreur de base de données.<br><br>Avez-vous bien exécuté le script SQL <b>007_add_campus_tables.sql</b> dans Supabase ?
-                        </div>`;
-                        return;
-                    }
+            function loadCampusesList() {
+                body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Chargement…</div>';
+                fetch('/api/campuses')
+                    .then(r => r.json())
+                    .then(campuses => {
+                        if (!Array.isArray(campuses)) {
+                            console.error('Erreur API Campus:', campuses);
+                            body.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">
+                                Erreur de base de données.<br><br>Avez-vous bien exécuté le script SQL <b>007_add_campus_tables.sql</b> dans Supabase ?
+                            </div>`;
+                            return;
+                        }
 
-                    allCampuses = campuses;
-                    countEl.textContent = `${campuses.length} campus disponible${campuses.length > 1 ? 's' : ''}`;
+                        allCampuses = campuses;
+                        window.__LP_CAMPUSES = campuses; // Cache globally for trait changes
+                        countEl.textContent = `${campuses.length} campus disponible${campuses.length > 1 ? 's' : ''}`;
 
-                    if (campuses.length === 0) {
-                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus dans la base de données. Ajoutez-en un !</div>';
-                        return;
-                    }
+                        if (campuses.length === 0) {
+                            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus dans la base de données. Ajoutez-en un !</div>';
+                            return;
+                        }
 
-                    body.innerHTML = campuses.map(campus => `
-                        <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 20px;border-bottom:1px solid #f3f4f6;cursor:pointer;">
-                            <input type="checkbox" value="${escapeHtml(campus.id)}"
-                                ${existingMode === 'all' || existingIds.includes(campus.id) ? 'checked' : ''}
-                                style="margin-top:3px;width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;">
-                            <div style="min-width:0;">
-                                <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(campus.name)}</div>
-                                <div style="font-size:11px;color:#9ca3af;margin-top:2px;">ID: ${escapeHtml(campus.id)}</div>
+                        // Generate the HTML rows with edit & delete buttons
+                        body.innerHTML = campuses.map(campus => `
+                            <div class="campus-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid #f3f4f6;" data-id="${escapeHtml(campus.id)}">
+                                <label style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;margin:0;">
+                                    <input type="checkbox" value="${escapeHtml(campus.id)}"
+                                        ${existingMode === 'all' || existingIds.includes(campus.id) ? 'checked' : ''}
+                                        style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;margin:0;">
+                                    <div style="min-width:0;">
+                                        <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(campus.name)}</div>
+                                        <div style="font-size:11px;color:#9ca3af;margin-top:1px;">ID: ${escapeHtml(campus.id)}</div>
+                                    </div>
+                                </label>
+                                <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
+                                    <button type="button" class="btn-edit-campus" data-id="${escapeHtml(campus.id)}" data-name="${escapeHtml(campus.name)}" style="border:none;background:none;color:#4b5563;cursor:pointer;padding:6px;font-size:14px;border-radius:4px;" title="Modifier le nom">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <button type="button" class="btn-delete-campus" data-id="${escapeHtml(campus.id)}" data-name="${escapeHtml(campus.name)}" style="border:none;background:none;color:#ef4444;cursor:pointer;padding:6px;font-size:14px;border-radius:4px;" title="Supprimer le campus">
+                                        <i class="fas fa-trash-alt"></i>
+                                    </button>
+                                </div>
                             </div>
-                        </label>
-                    `).join('');
+                        `).join('');
 
-                    body.querySelectorAll('input[type=checkbox]').forEach(cb => {
-                        cb.addEventListener('change', updateSelCount);
+                        body.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                            cb.addEventListener('change', updateSelCount);
+                        });
+
+                        // Set up edit/delete event listeners
+                        body.querySelectorAll('.btn-edit-campus').forEach(btn => {
+                            btn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const id = btn.getAttribute('data-id');
+                                const currentName = btn.getAttribute('data-name');
+                                const newName = prompt("Modifier le nom du campus :", currentName);
+                                if (newName && newName.trim() && newName.trim() !== currentName) {
+                                    btn.disabled = true;
+                                    fetch(`/api/campuses/${encodeURIComponent(id)}`, {
+                                        method: 'PUT',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({ name: newName.trim() })
+                                    })
+                                    .then(r => {
+                                        // Use text() not json() — server may return empty body
+                                        if (!r.ok) throw new Error('HTTP ' + r.status);
+                                        return r.text();
+                                    })
+                                    .then(() => {
+                                        loadCampusesList();
+                                    })
+                                    .catch(err => {
+                                        console.error(err);
+                                        alert("Erreur lors de la modification du campus : " + err.message);
+                                        btn.disabled = false;
+                                    });
+                                }
+                            };
+                        });
+
+                        body.querySelectorAll('.btn-delete-campus').forEach(btn => {
+                            btn.onclick = (e) => {
+                                e.preventDefault();
+                                e.stopPropagation();
+                                const id = btn.getAttribute('data-id');
+                                const name = btn.getAttribute('data-name');
+                                if (confirm(`Êtes-vous sûr de vouloir supprimer le campus "${name}" ?`)) {
+                                    fetch(`/api/campuses/${encodeURIComponent(id)}`, {
+                                        method: 'DELETE'
+                                    })
+                                    .then(() => {
+                                        loadCampusesList();
+                                    })
+                                    .catch(err => {
+                                        console.error(err);
+                                        alert("Erreur lors de la suppression du campus.");
+                                    });
+                                }
+                            };
+                        });
+
+                        updateSelCount();
+                    })
+                    .catch(() => {
+                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">Erreur de chargement des campus.</div>';
                     });
-                    updateSelCount();
+            }
+
+            // Initial load
+            loadCampusesList();
+
+            // Setup the Add form events
+            const inputNewName = document.getElementById('new-campus-name');
+            const btnAdd = document.getElementById('btn-add-campus');
+            inputNewName.value = '';
+
+            function generateSlug(str) {
+                return str
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '') // remove accents
+                    .replace(/[^a-z0-9\s-]/g, '')
+                    .trim()
+                    .replace(/\s+/g, '-');
+            }
+
+            function handleAddCampus() {
+                const name = inputNewName.value.trim();
+                if (!name) return;
+                const id = generateSlug(name);
+
+                // Visual feedback
+                btnAdd.disabled = true;
+                btnAdd.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
+
+                fetch('/api/campuses', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id, name })
                 })
-                .catch(() => {
-                    body.innerHTML = '<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">Erreur de chargement des campus.</div>';
+                .then(r => {
+                    // Use text() not json() — server may return empty body on success
+                    if (!r.ok) throw new Error('HTTP ' + r.status);
+                    return r.text();
+                })
+                .then(() => {
+                    inputNewName.value = '';
+                    loadCampusesList();
+                })
+                .catch(err => {
+                    console.error(err);
+                    alert("Erreur lors de l'ajout du campus : " + err.message);
+                })
+                .finally(() => {
+                    btnAdd.disabled = false;
+                    btnAdd.innerHTML = '<i class="fas fa-plus"></i> Ajouter';
                 });
+            }
+
+            btnAdd.onclick = handleAddCampus;
+            inputNewName.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleAddCampus();
+                }
+            };
 
             // Tout cocher / décocher
             document.getElementById('btn-campus-select-all').onclick = () => {
@@ -666,12 +809,17 @@ function initEditor(schoolId) {
                     'data-campus-mode': mode
                 });
 
+                // Get prefix and separator from attributes or use defaults
+                const attrs = component.getAttributes();
+                const prefix = attrs['data-campus-prefix'] || '';
+                const separator = attrs['data-campus-separator'] || ' · ';
+
                 // Reconstruire le contenu HTML de la liste
                 const listComp = component.find('.mnc-list')[0];
                 if (listComp && selectedCampuses.length) {
                     const namesHtml = selectedCampuses.map(c =>
-                        `<span class="mnc-campus-name">${escapeHtml(c.name.toUpperCase())}</span>`
-                    ).join('<span class="mnc-dot">·</span>');
+                        `<span class="mnc-campus-name">${prefix}${escapeHtml(c.name.toUpperCase())}</span>`
+                    ).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
                     listComp.components(namesHtml);
 
                     // Lock children
@@ -683,7 +831,7 @@ function initEditor(schoolId) {
                     };
                     lockAll(component);
                 } else if (listComp && selectedCampuses.length === 0) {
-                    listComp.components('<span class="mnc-placeholder">Aucun campus sélectionné.</span>');
+                    listComp.components('<span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d\'outils pour choisir vos campus.</span>');
                 }
 
                 closeModal();
@@ -696,6 +844,8 @@ function initEditor(schoolId) {
                 document.getElementById('btn-campus-config-close').onclick   = null;
                 document.getElementById('btn-campus-select-all').onclick     = null;
                 document.getElementById('btn-campus-deselect-all').onclick   = null;
+                btnAdd.onclick = null;
+                inputNewName.onkeydown = null;
             }
 
             document.getElementById('btn-campus-config-confirm').onclick = confirmSelection;
@@ -1083,6 +1233,33 @@ function addFontStyleControl(editor) {
     }
 }
 
+// Donne un titre lisible aux contrôles « Ombre » (box-shadow) et « Arrière-plan »
+// (background) de la Décoration, via le NOM natif GrapesJS → le libellé s'affiche
+// au-dessus du contrôle, avec son bouton « + » natif à côté de la barre.
+// Méthode fiable (indépendante du nom de classe CSS), n'ajoute/retire aucune fonction.
+function setDecorationTitles(editor) {
+    if (!editor) return;
+    try {
+        const sm = editor.StyleManager;
+        const names = { 'box-shadow': 'Ombre', 'background': 'Arrière-plan' };
+        const sectors = sm.getSectors ? sm.getSectors() : null;
+        if (!sectors || typeof sectors.forEach !== 'function') return;
+        sectors.forEach(sector => {
+            const props = typeof sector.getProperties === 'function'
+                ? sector.getProperties()
+                : (sector.get && sector.get('properties'));
+            if (!props || typeof props.forEach !== 'function') return;
+            props.forEach(p => {
+                const id = (p.get('property') || p.get('id') || '').toString();
+                if (names[id]) p.set('name', names[id]);
+            });
+        });
+        sm.render();
+    } catch (e) {
+        console.warn('setDecorationTitles: impossible de renommer box-shadow/background', e);
+    }
+}
+
 function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
     const primary = school.color || '#3b82f6';
@@ -1225,6 +1402,15 @@ function injectComponentFixedStyles(editor) {
     try {
         const doc = editor.Canvas.getDocument();
         if (!doc) return;
+
+        // Inject FontAwesome stylesheet link if it doesn't exist
+        if (!doc.querySelector('link[href*="fontawesome"]')) {
+            const link = doc.createElement('link');
+            link.rel = 'stylesheet';
+            link.href = 'vendor/fontawesome/css/all.min.css';
+            doc.head.appendChild(link);
+        }
+
         let style = doc.getElementById('component-fixed-styles');
         if (!style) {
             style = doc.createElement('style');
@@ -1329,6 +1515,29 @@ function filterBlocksBySchool(editor, schoolId) {
     bm.render();
 }
 
+// Déplace les blocs-formulaires (id commençant par « form- » ou « master-form »)
+// hors de l'onglet Blocks : on capture leur contenu puis on les retire du
+// BlockManager. L'onglet Forms les réaffiche via formBlocksCache. Idempotent.
+function extractFormBlocks(editor) {
+    if (formBlocksCache.length) return;
+    const bm = editor.BlockManager;
+    const isForm = id => /^form-/.test(String(id || '')) || id === 'master-form';
+    const toMove = [...bm.getAll().models].filter(b => isForm(b.get('id')));
+    toMove.forEach(b => {
+        const id = b.get('id');
+        const content = b.get('content');
+        formBlocksCache.push({
+            id,
+            label: b.get('label') || id,
+            media: b.get('media') || '',
+            content
+        });
+        formBlocksContentById[id] = content;
+    });
+    toMove.forEach(b => bm.remove(b.get('id')));
+    bm.render();
+}
+
 async function loadCustomComponents(editor, schoolId) {
     if (!schoolId || schoolId === 'master') return;
     try {
@@ -1381,7 +1590,10 @@ function loadDefaultTemplate(editor) {
     const defaultBlocks = CURRENT_SCHOOL?.defaultBlocks || ['hero', 'rich-text', 'cta-button'];
     defaultBlocks.forEach(blockId => {
         const block = editor.BlockManager.get(blockId);
-        if (block) editor.addComponents(block.get('content'));
+        // Les blocs-formulaires ont été retirés du BlockManager (déplacés dans l'onglet
+        // Forms) → on récupère leur contenu depuis le cache pour le template par défaut.
+        const content = block ? block.get('content') : formBlocksContentById[blockId];
+        if (content) editor.addComponents(content);
     });
 }
 
@@ -1468,10 +1680,27 @@ function initUI(editor) {
     // Init Properties panel
     initProperties();
 
-    // Devices
-    document.getElementById('device-desktop').onclick = () => editor.setDevice('Desktop');
-    document.getElementById('device-tablet').onclick = () => editor.setDevice('Tablet');
-    document.getElementById('device-mobile').onclick = () => editor.setDevice('Mobile');
+    // Devices — bascule le device GrapesJS + met le bouton actif en surbrillance.
+    // (Avant : la classe .active n'était jamais basculée → aucun retour visuel.)
+    const deviceButtons = {
+        Desktop: document.getElementById('device-desktop'),
+        Tablet:  document.getElementById('device-tablet'),
+        Mobile:  document.getElementById('device-mobile'),
+    };
+    function setActiveDeviceBtn(name) {
+        Object.keys(deviceButtons).forEach(n => {
+            const btn = deviceButtons[n];
+            if (btn) btn.classList.toggle('active', n === name);
+        });
+    }
+    Object.keys(deviceButtons).forEach(name => {
+        const btn = deviceButtons[name];
+        if (btn) btn.onclick = () => { editor.setDevice(name); setActiveDeviceBtn(name); };
+    });
+    // Garde les boutons synchronisés si le device change autrement.
+    editor.on('change:device', () => {
+        try { setActiveDeviceBtn(editor.getDevice()); } catch (e) {}
+    });
 
     // Language Switcher
     const languageSwitcher = document.getElementById('language-switcher');
@@ -1582,25 +1811,60 @@ function initUI(editor) {
         };
     });
 
+    const FORMS_SECTION_TITLE = 'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;padding:12px 4px 6px;';
+
     async function loadSchoolForms() {
         const container = document.getElementById('forms-list');
-        if (!CURRENT_SCHOOL) return;
+        if (!container) return;
 
-        container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #6b7280;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>';
+        // ── Section 1 : blocs-formulaires (déplacés depuis l'onglet Blocks) ──
+        const blockItems = formBlocksCache.map(fb => `
+            <div class="form-list-item" data-form-block-id="${escapeHtml(fb.id)}">
+                <i class="fas fa-file-lines"></i>
+                <div class="form-list-item-content">
+                    <div class="form-list-item-name">${escapeHtml(fb.label)}</div>
+                    <div class="form-list-item-meta">Bloc formulaire</div>
+                </div>
+                <i class="fas fa-plus" style="font-size: 0.8rem; opacity: 0.5"></i>
+            </div>
+        `).join('');
 
+        const blockSection = formBlocksCache.length
+            ? `<div style="${FORMS_SECTION_TITLE}">Blocs formulaires</div>${blockItems}`
+            : '';
+
+        container.innerHTML = `
+            ${blockSection}
+            <div style="${FORMS_SECTION_TITLE}">Formulaires de l'école (SFMC)</div>
+            <div id="sfmc-forms-list"><div style="text-align:center; padding: 1rem; color: #6b7280;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div></div>
+        `;
+
+        // Insertion des blocs-formulaires au clic (via cache, pas d'inline onclick)
+        container.querySelectorAll('[data-form-block-id]').forEach(el => {
+            el.onclick = () => {
+                const fb = formBlocksCache.find(x => x.id === el.getAttribute('data-form-block-id'));
+                if (fb && fb.content) editor.addComponents(fb.content);
+            };
+        });
+
+        // ── Section 2 : formulaires SFMC de l'école (base de données) ──
+        const sfmc = document.getElementById('sfmc-forms-list');
+        if (!CURRENT_SCHOOL) {
+            if (sfmc) sfmc.innerHTML = '';
+            return;
+        }
         try {
             const response = await fetch(`/api/forms/${CURRENT_SCHOOL.id}`);
             const forms = await response.json();
 
             if (!Array.isArray(forms) || forms.length === 0) {
-                container.innerHTML = `<div style="text-align:center; padding: 2rem; color: #6b7280;">
-                    ${forms.error ? 'Erreur: ' + forms.error : 'Aucun formulaire trouvé.'}
+                if (sfmc) sfmc.innerHTML = `<div style="text-align:center; padding: 1rem; color: #9ca3af; font-size:12px;">
+                    ${forms && forms.error ? 'Erreur: ' + forms.error : 'Aucun formulaire SFMC.'}
                 </div>`;
                 return;
             }
 
-            container.innerHTML = forms.map(f => {
-                // Prepare form data for insertion
+            sfmc.innerHTML = forms.map(f => {
                 const formData = JSON.stringify({
                     html: f.html,
                     css: f.css,
@@ -1621,7 +1885,7 @@ function initUI(editor) {
 
         } catch (e) {
             console.error('Error loading forms:', e);
-            container.innerHTML = '<div style="text-align:center; padding: 2rem; color: #ef4444;">Erreur de chargement.</div>';
+            if (sfmc) sfmc.innerHTML = '<div style="text-align:center; padding: 1rem; color: #ef4444; font-size:12px;">Erreur de chargement.</div>';
         }
     }
 
@@ -1645,6 +1909,17 @@ function initUI(editor) {
             alert(`Formulaire "${name}" inséré avec succès.`);
         }
     };
+
+    // Undo / Redo — les boutons existaient dans le HTML mais n'étaient branchés à rien.
+    // On les câble sur l'UndoManager de GrapesJS (activé par défaut).
+    const btnUndo = document.getElementById('btn-undo');
+    if (btnUndo) {
+        btnUndo.onclick = () => { try { editor.UndoManager.undo(); } catch (e) { console.warn('undo', e); } };
+    }
+    const btnRedo = document.getElementById('btn-redo');
+    if (btnRedo) {
+        btnRedo.onclick = () => { try { editor.UndoManager.redo(); } catch (e) { console.warn('redo', e); } };
+    }
 
     // Sidebar Toggles
     const btnClear = document.getElementById('btn-clear');

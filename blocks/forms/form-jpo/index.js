@@ -17,9 +17,9 @@ export default function (editor, categories) {
         category: categories.FORMS,
         content: buildEventBlock({
             typeEvenement: 'JPO', nomAction: 'Inscription_JPO',
-            submitLabel: "Je m'inscris",
-            formTitle: 'Inscription Journée Portes Ouvertes',
-            formSubtitle: 'Venez découvrir nos formations et rencontrer nos équipes.',
+            submitLabel: 'Réserver ma place',
+            formTitle: "S'inscrire aux portes ouvertes",
+            formSubtitle: 'Admission hors Parcoursup – places limitées',
             lang: 'fr', showVousEtes: true, showChild: true
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }

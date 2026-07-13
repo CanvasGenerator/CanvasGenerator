@@ -211,7 +211,7 @@ export default function (editor, categories) {
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
 }
 .cnd-submit::after {
-    content: ' →';
+    content: '';
 }
 .cnd-submit:hover { background: #222; }
 .cnd-submit:disabled { background: #888; cursor: not-allowed; }
