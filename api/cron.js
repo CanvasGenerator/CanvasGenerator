@@ -1,5 +1,5 @@
 const { supabaseRequest } = require('../lib/api-shared');
-const { syncProjectToSfmc, isSfmcConfigured } = require('../lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 const { syncLegacyProjectToContent } = require('./content');
 
@@ -49,8 +49,13 @@ module.exports = async function handler(req, res) {
 
                     // ── 3. Nettoyage lourd du HTML pour SFMC (Cheerio) ────────────
                     console.log(`\n🧹 [CRON] Nettoyage HTML pour "${projectName}" (source: ${htmlSource})...`);
-                    const cleanedHtml = cleanHtmlForSfmc(rawHtml);
+                    let cleanedHtml = cleanHtmlForSfmc(rawHtml);
                     console.log(`✅ [CRON] Nettoyage terminé (${rawHtml.length} → ${cleanedHtml.length} octets)`);
+
+                    // ── 3b. Publier les images inline dans SFMC et remplacer les data URLs ──
+                    if (isSfmcConfigured()) {
+                        cleanedHtml = await replaceInlineImagesWithSfmcUrls(cleanedHtml, projectName);
+                    }
 
                     // ── 4. Mettre à jour html_sfmc dans la table Projects ─────────
                     await supabaseRequest(
@@ -90,7 +95,7 @@ module.exports = async function handler(req, res) {
                     if (!version) throw new Error(`Version ${versionId} not found`);
 
                     // Toujours nettoyer depuis le html brut
-                    const htmlToSend = version.html
+                    let htmlToSend = version.html
                         ? cleanHtmlForSfmc(version.html)
                         : '';
                     console.log(`\n🧹 [CRON] Nettoyage HTML pour la version publiée (page: ${pageId})`);
@@ -99,6 +104,8 @@ module.exports = async function handler(req, res) {
                     const name = legacyProjectName || `page-${pageId}`;
 
                     if (isSfmcConfigured()) {
+                        // Publier les images inline dans SFMC et remplacer les data URLs
+                        htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, name);
                         console.log(`☁️  [CRON] Publication SFMC pour "${name}"...`);
                         await syncProjectToSfmc({ projectName: name, fullHtml: htmlToSend });
                     }
