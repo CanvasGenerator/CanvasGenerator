@@ -1266,28 +1266,30 @@ function filterBlocksBySchool(editor, schoolId) {
         return;
     }
     const targetSchoolId = schoolId.toLowerCase();
-    
-    // List of all known schools in the ecosystem.
-    // IMPORTANT : ces ids doivent correspondre EXACTEMENT aux ids de schools.json
-    // (et aux suffixes des blocs header-<id> / footer-<id>), sinon le filtre supprime
-    // par erreur les blocs de l'école courante (ex : 'ifa-paris' vs 'ifa').
-    const allSchoolsList = [
-        'efap', 'brassart', 'icart', 'efj', 'mopa', 'cread', 'esec', '3wa', 'ifa-paris', 'ecole-bleue'
-    ];
-    
+
+    // Libellés EXACTS des catégories "<École> Components" par id d'école — miroir des
+    // libellés définis dans blocks/index.js. On NE se base PAS sur CURRENT_SCHOOL.name
+    // (qui provient de la BDD Supabase et peut différer, ex : "3WA" vs "3W ACADEMY"),
+    // sinon le filtre risque de supprimer les composants de l'école COURANTE elle-même.
+    // On ne retire que les catégories explicitement rattachées aux AUTRES écoles ;
+    // tout le reste (Essential Blocks, Form Blocks, Master Template, école courante)
+    // est conservé.
+    const SCHOOL_CATEGORY_LABELS = {
+        'efap':        'efap components',
+        'brassart':    'brassart components',
+        'icart':       'icart components',
+        'efj':         'efj components',
+        'mopa':        'mopa components',
+        'cread':       'cread components',
+        'esec':        'ésec components',
+        '3wa':         '3w academy components',
+        'ifa-paris':   'ifa paris components',
+        'ecole-bleue': 'école bleue components',
+    };
+
+    const allSchoolsList = Object.keys(SCHOOL_CATEGORY_LABELS);
     const otherSchools = allSchoolsList.filter(s => s !== targetSchoolId);
-
-    // Libellé exact de la catégorie de l'école courante (ex : "ÉSEC Components",
-    // "3W ACADEMY Components", "IFA PARIS Components"). CURRENT_SCHOOL.name correspond
-    // EXACTEMENT au préfixe des catégories "<name> Components" (cf. blocks/index.js),
-    // donc on compare au libellé courant plutôt que de reconstruire "<id> components"
-    // depuis l'id — sinon les écoles à accent/espace (ÉSEC, IFA PARIS, ÉCOLE BLEUE,
-    // 3W ACADEMY) ne matchent jamais et leurs composants fuitent.
-    const currentCategoryLabel = `${CURRENT_SCHOOL?.name || ''} components`.trim().toLowerCase();
-
-    // Catégories qui se terminent aussi par " components" mais NE sont PAS rattachées
-    // à une école : à conserver en mode école.
-    const keepCategoryLabels = new Set(['master components', 'custom components', currentCategoryLabel]);
+    const otherSchoolCategoryLabels = new Set(otherSchools.map(s => SCHOOL_CATEGORY_LABELS[s]));
 
     const blocksToRemove = [];
 
@@ -1306,11 +1308,9 @@ function filterBlocksBySchool(editor, schoolId) {
         // Toujours conserver les blocs par défaut de l'école courante.
         if ((CURRENT_SCHOOL?.defaultBlocks || []).includes(blockId)) return;
 
-        // 1. Catégorie brandée "<école> Components" : appartient à une autre école dès
-        //    qu'elle finit par " components" sans être une catégorie à conserver.
-        const isSchoolBrandedCategory = / components$/.test(categoryLabel);
+        // 1. Catégorie appartenant explicitement à une AUTRE école.
         const belongsToOtherSchoolCategory =
-            (isSchoolBrandedCategory && !keepCategoryLabels.has(categoryLabel)) ||
+            otherSchoolCategoryLabels.has(categoryLabel) ||
             otherSchools.some(school => categoryLabel === school); // ancien format court "brassart"
 
         // 2. Id spécifique à une autre école (header-brassart, footer-efap, header-mopa-blanc…)
