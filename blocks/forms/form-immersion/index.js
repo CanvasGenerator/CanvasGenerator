@@ -297,7 +297,7 @@ ${hidden}
             <div class="imf-field">
                 <label class="imf-label">${t.campus}<span class="req">*</span></label>
                 <div class="imf-sel-wrap">
-                    <select class="imf-select imf-campus" name="Campus" required>
+                    <select class="imf-select imf-campus lp-campus-select" name="Campus" required>
                         ${campusOptions}
                     </select>
                 </div>
