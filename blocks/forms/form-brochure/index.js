@@ -337,7 +337,7 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
             <div class="brf-field">
                 <label class="brf-label">${t.campus}<span class="req">*</span></label>
                 <div class="brf-sel-wrap">
-                    <select class="brf-select" name="Campus" required>
+                    <select class="brf-select lp-campus-select" name="Campus" required>
                         ${campusOptions}
                     </select>
                 </div>

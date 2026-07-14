@@ -3,10 +3,17 @@ export default function(editor, categories) {
 
     /* ══════════════════════════════════════════════════════
        BLOC GrapesJS : Nos Campus
-       Affiche la liste des campus sélectionnés via un picker.
-       Si data-campus-mode="all", tous les campus de la BDD
-       sont affichés (et mis à jour dynamiquement).
+       Affiche la liste des campus SÉLECTIONNÉS AU NIVEAU DE LA PAGE
+       (bouton « Campus » de la barre d'outils → js/campus.js).
+       Source unique : window.LPCampus.getResolvedCampuses().
     ══════════════════════════════════════════════════════ */
+
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
 
     editor.DomComponents.addType('mc-nos-campus', {
 
@@ -21,14 +28,6 @@ export default function(editor, categories) {
                 removable: true,
                 copyable: true,
                 toolbar: [
-                    {
-                        attributes: {
-                            class: 'fa fa-map-marker',
-                            title: 'Choisir les campus',
-                            style: 'color:#1a7a5e;font-size:15px;'
-                        },
-                        command: 'open-campus-picker'
-                    },
                     { attributes: { class: 'fa fa-arrows', cursor: true }, command: 'tlb-move' },
                     { attributes: { class: 'fa fa-clone' },               command: 'tlb-clone' },
                     { attributes: { class: 'fa fa-trash-o' },             command: 'tlb-delete' }
@@ -48,75 +47,78 @@ export default function(editor, categories) {
                         placeholder: 'ex:  ·  '
                     }
                 ],
-                /* Runtime script: for exported pages with mode="all",
-                   fetch campuses from the API and render them dynamically */
+                /* Runtime script (page exportée) : amélioration progressive.
+                   Le contenu réel est déjà "bake" dans le HTML par l'éditeur ;
+                   ce script re-synchronise depuis l'API si elle est joignable. */
                 script: function() {
                     var section = this;
-                    var mode = section.getAttribute('data-campus-mode');
-                    if (mode !== 'all') return; // static content, nothing to do
-
                     var list = section.querySelector('.mnc-list');
                     if (!list) return;
 
-                    var prefix = section.getAttribute('data-campus-prefix') || '';
+                    var prefix    = section.getAttribute('data-campus-prefix') || '';
                     var separator = section.getAttribute('data-campus-separator') || ' · ';
+                    var ids       = window.__LP_CAMPUS_IDS || [];
+                    var baseUrl   = window.__LP_API_BASE || '';
 
-                    // Try to fetch fresh campus list from API
-                    var baseUrl = window.__LP_API_BASE || '';
+                    function esc(s) {
+                        return String(s == null ? '' : s)
+                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                    }
+
                     fetch(baseUrl + '/api/campuses')
                         .then(function(r) { return r.json(); })
-                        .then(function(campuses) {
-                            if (!Array.isArray(campuses) || campuses.length === 0) return;
-                            var html = campuses.map(function(c) {
-                                return '<span class="mnc-campus-name">' + prefix + c.name.toUpperCase() + '</span>';
-                            }).join('<span class="mnc-dot">' + separator + '</span>');
-                            list.innerHTML = html;
+                        .then(function(all) {
+                            if (!Array.isArray(all)) return;
+                            var campuses = all;
+                            if (ids && ids.length) {
+                                var byId = {};
+                                all.forEach(function(c) { byId[c.id] = c; });
+                                campuses = ids.map(function(id) { return byId[id]; }).filter(Boolean);
+                            }
+                            if (!campuses.length) return; // garde le contenu bake
+                            list.innerHTML = campuses.map(function(c) {
+                                return '<span class="mnc-campus-name">' + prefix + esc((c.name || '').toUpperCase()) + '</span>';
+                            }).join('<span class="mnc-dot">' + esc(separator) + '</span>');
                         })
-                        .catch(function() { /* keep static content */ });
+                        .catch(function() { /* garde le contenu bake */ });
                 }
             }
         },
 
         view: {
             init() {
-                this.listenTo(this.model, 'change:attributes', this.handleAttrChange);
+                this._onCampusChange = () => this.renderCampuses();
+                document.addEventListener('lp:campuses-changed', this._onCampusChange);
+                this.listenTo(this.model, 'change:attributes', this.renderCampuses);
+                setTimeout(() => this.renderCampuses(), 0);
             },
-            handleAttrChange() {
+            removed() {
+                document.removeEventListener('lp:campuses-changed', this._onCampusChange);
+            },
+            renderCampuses() {
                 const component = this.model;
                 const attrs = component.getAttributes();
-                const ids = (attrs['data-campus-ids'] || '').split(',').filter(Boolean);
                 const prefix = attrs['data-campus-prefix'] || '';
                 const separator = attrs['data-campus-separator'] || ' · ';
-                const mode = attrs['data-campus-mode'] || '';
 
                 const listComp = component.find('.mnc-list')[0];
                 if (!listComp) return;
 
-                const allCampuses = window.__LP_CAMPUSES || [];
-                let selectedCampuses = [];
-                if (mode === 'all') {
-                    selectedCampuses = allCampuses;
-                } else {
-                    selectedCampuses = allCampuses.filter(c => ids.includes(c.id));
-                }
+                const campuses = (window.LPCampus && window.LPCampus.getResolvedCampuses)
+                    ? window.LPCampus.getResolvedCampuses() : [];
 
-                if (selectedCampuses.length) {
-                    const escapeHtml = (str) => {
-                        if (!str) return '';
-                        return String(str)
-                            .replace(/&/g, '&amp;')
-                            .replace(/</g, '&lt;')
-                            .replace(/>/g, '&gt;')
-                            .replace(/"/g, '&quot;')
-                            .replace(/'/g, '&#39;');
-                    };
-                    const namesHtml = selectedCampuses.map(c =>
-                        `<span class="mnc-campus-name">${prefix}${escapeHtml(c.name.toUpperCase())}</span>`
+                if (campuses.length) {
+                    const namesHtml = campuses.map(c =>
+                        `<span class="mnc-campus-name">${prefix}${escapeHtml((c.name || '').toUpperCase())}</span>`
                     ).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
                     listComp.components(namesHtml);
                 } else {
-                    listComp.components('<span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d\'outils pour choisir vos campus.</span>');
+                    listComp.components('<span class="mnc-placeholder">📍 Aucun campus. Cliquez sur <b>Campus</b> dans la barre d\'outils pour en sélectionner.</span>');
                 }
+                // Verrouille les enfants (contenu piloté par la page)
+                listComp.components().each(child => {
+                    child.set({ editable: false, selectable: false, hoverable: false, draggable: false });
+                });
             }
         }
     });
@@ -125,11 +127,11 @@ export default function(editor, categories) {
         label: 'Nos Campus',
         category: cat,
         content: `
-<section class="mnc-section" data-gjs-type="mc-nos-campus" data-campus-mode="" data-campus-ids="" data-campus-prefix="" data-campus-separator="">
+<section class="mnc-section" data-gjs-type="mc-nos-campus" data-campus-prefix="" data-campus-separator="">
   <div class="mnc-inner">
     <h2 class="mnc-title">NOS CAMPUS</h2>
     <div class="mnc-list">
-      <span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d'outils pour choisir vos campus.</span>
+      <span class="mnc-placeholder">📍 Aucun campus. Cliquez sur <b>Campus</b> dans la barre d'outils pour en sélectionner.</span>
     </div>
   </div>
 </section>
