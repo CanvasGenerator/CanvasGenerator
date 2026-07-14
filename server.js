@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, listCampuses, upsertCampus, deleteCampus } = require('./lib/sfmc');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -166,12 +166,21 @@ function wrapCustomCode(code, zone) {
     return c ? `<!-- custom-${zone}:start -->${c}<!-- custom-${zone}:end -->` : '';
 }
 
+function buildCampusRuntimeTag(properties = {}) {
+    const ids = Array.isArray(properties.campusIds) ? properties.campusIds : [];
+    const apiBase = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL
+        ? (process.env.PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`)
+        : '';
+    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};</script>`;
+}
+
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
     const title = properties?.seoTitle || properties?.title || projectName || '';
     const desc = properties?.seoDescription || '';
     const keywords = properties?.keywords || '';
     const canonical = properties?.canonical || '';
     const schemaLd = properties?.schemaLd || '';
+    const campusTag = buildCampusRuntimeTag(properties);
     const headCode = wrapCustomCode(properties.customHeadCode, 'head');
     const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
     // anti-doublon : retirer un éventuel code déjà injecté
@@ -205,6 +214,10 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
             $('head').append(`\n    <script type="application/ld+json">${schemaLd}</script>`);
         }
 
+        // Config campus (sélection de la page) pour le runtime des composants
+        $('script[data-lp-campus-config]').remove();
+        $('head').append(`\n    ${campusTag.replace('<script>', '<script data-lp-campus-config>')}`);
+
         // Code marketing personnalisé (GTM, Analytics…)
         if (headCode) $('head').append(`\n    ${headCode}`);
         if (bodyCode) $('body').append(`\n    ${bodyCode}`);
@@ -228,6 +241,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     <title>${escapeHtml(title)}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     ${seoTags}
+    ${campusTag}
     <style>${css}</style>
 </head>
 <body>${html}${bodyCode}</body>
@@ -1824,11 +1838,15 @@ Règles importantes :
         });
         return;
     }
-    // ── API: Campus CRUD ──────────────────────────────────────────────
+    // ── API: Campus CRUD (source = Data Extension SFMC) ───────────────
     if (pathname.startsWith('/api/campuses')) {
         try {
+            if (!isSfmcConfigured()) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' }));
+            }
             if (req.method === 'GET') {
-                const result = await supabaseRequest('GET', '/campuses?order=name.asc');
+                const result = await listCampuses();
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result || []));
             }
@@ -1836,13 +1854,18 @@ Règles importantes :
                 let body = '';
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
-                    const { id, name, slug } = JSON.parse(body || '{}');
-                    if (!id || !name) {
-                        res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
+                    try {
+                        const { id, name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        if (!id || !name) {
+                            res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
+                        }
+                        const result = await upsertCampus({ id, name, slug: slug || id, image_url, address, link });
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify(result));
+                    } catch (e) {
+                        res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: e.message }));
                     }
-                    const result = await supabaseRequest('POST', '/campuses', { id, name, slug: slug || id }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
                 });
                 return;
             }
@@ -1851,22 +1874,27 @@ Règles importantes :
                 let body = '';
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
-                    const { name, slug } = JSON.parse(body || '{}');
-                    if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
-                    const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, { name, slug: slug || campusId }, { 'Prefer': 'return=representation' });
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                    try {
+                        const { name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
+                        const result = await upsertCampus({ id: campusId, name, slug: slug || campusId, image_url, address, link });
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify(result));
+                    } catch (e) {
+                        res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: e.message }));
+                    }
                 });
                 return;
             }
             if (req.method === 'DELETE') {
                 const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-                await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
+                const result = await deleteCampus(campusId);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify({ message: 'Campus supprimé' }));
+                return res.end(JSON.stringify(result));
             }
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: e.message }));
         }
     }
