@@ -13,115 +13,43 @@ export default function(editor, categories) {
         check:    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
     };
 
-    /* ══════════════════════════════════════════════════════
-       Fonction utilitaire : construit le HTML intérieur
-       d'une carte étape à partir des attributs data-*
-    ══════════════════════════════════════════════════════ */
-    function buildStepHTML(attrs) {
-        const step  = attrs['data-step']  || '1';
-        const title = attrs['data-title'] || 'Titre de l\'étape';
-        const iconId = attrs['data-icon-id'] || 'computer';
-        const icon  = STEP_ICONS[iconId] || STEP_ICONS.computer;
-
-        // Collect non-empty items
-        const items = ['data-item1','data-item2','data-item3','data-item4']
-            .map(k => (attrs[k] || '').trim())
-            .filter(Boolean);
-
-        const hasItems = items.length > 0;
-        const liHTML   = items.map(i => `<li>${i}</li>`).join('');
-        const expandAttr = hasItems ? ' data-expandable="true"' : '';
-        const expandIcon = hasItems ? ` <span class="mta-expand-icon">\u02C5</span>` : '';
-        const detailsHTML = hasItems
-            ? `<ul class="mta-step-details">${liHTML}</ul>`
-            : '';
-
-        return `
-            <div class="mta-step-head">
-                <div class="mta-step-icon">${icon}</div>
-                <div class="mta-step-body">
-                    <span class="mta-badge">\u00C9tape <strong>${step}</strong></span>
-                    <p class="mta-step-label"${expandAttr}>${title}${expandIcon}</p>
-                    ${detailsHTML}
-                </div>
-            </div>`;
-    }
+    const ICON_OPTIONS = [
+        { id: 'computer', name: '🖥️ Ordinateur' },
+        { id: 'clock',    name: '🕐 Horloge'    },
+        { id: 'users',    name: '👥 Personnes'  },
+        { id: 'chart',    name: '📈 Graphique'  },
+        { id: 'file',     name: '📄 Fichier'    },
+        { id: 'check',    name: '✅ Validation' },
+    ];
 
     /* ══════════════════════════════════════════════════════
-       COMPOSANT PERSONNALISÉ : mta-step-card
-       → Panneau de droite avec champs simples pour le user
+       COMPOSANT : mta-step-icon
+       → Icône seule, choisie via un trait (panneau de droite).
+         Ne réécrit QUE son propre innerHTML, donc les textes
+         voisins de la carte restent éditables librement.
     ══════════════════════════════════════════════════════ */
-    editor.DomComponents.addType('mta-step-card', {
-
+    editor.DomComponents.addType('mta-step-icon', {
         model: {
             defaults: {
-                name: '\u00C9tape',
+                name: 'Icône',
                 tagName: 'div',
-                classes: ['mta-step'],
+                classes: ['mta-step-icon'],
+                selectable: true,
+                editable: false,
                 droppable: false,
-                highlightable: true,
-                attributes: {
-                    'data-step':    '1',
-                    'data-title':   'Titre de l\'étape',
-                    'data-icon-id': 'computer',
-                    'data-item1':   '',
-                    'data-item2':   '',
-                    'data-item3':   '',
-                    'data-item4':   '',
-                },
-
-                /* ── Traits = champs visibles dans le panneau de droite ── */
+                draggable: false,
+                copyable: false,
+                removable: false,
+                attributes: { 'data-icon-id': 'computer' },
                 traits: [
-                    {
-                        type:  'text',
-                        label: '📝 Titre',
-                        name:  'data-title',
-                        placeholder: 'Ex : Candidature en ligne',
-                    },
                     {
                         type:    'select',
                         label:   '🎨 Icône',
                         name:    'data-icon-id',
-                        options: [
-                            { id: 'computer', name: '🖥️ Ordinateur' },
-                            { id: 'clock',    name: '🕐 Horloge'    },
-                            { id: 'users',    name: '👥 Personnes'  },
-                            { id: 'chart',    name: '📈 Graphique'  },
-                            { id: 'file',     name: '📄 Fichier'    },
-                            { id: 'check',    name: '✅ Validation' },
-                        ],
-                    },
-                    {
-                        type:  'text',
-                        label: '• Détail 1',
-                        name:  'data-item1',
-                        placeholder: 'Laisser vide pour masquer',
-                    },
-                    {
-                        type:  'text',
-                        label: '• Détail 2',
-                        name:  'data-item2',
-                        placeholder: 'Laisser vide pour masquer',
-                    },
-                    {
-                        type:  'text',
-                        label: '• Détail 3',
-                        name:  'data-item3',
-                        placeholder: 'Laisser vide pour masquer',
-                    },
-                    {
-                        type:  'text',
-                        label: '• Détail 4',
-                        name:  'data-item4',
-                        placeholder: 'Laisser vide pour masquer',
+                        options: ICON_OPTIONS,
                     },
                 ],
-
-                /* ── Script runtime (page finale exportée) ── */
-                'script-props': [
-                    'data-step','data-title','data-icon-id',
-                    'data-item1','data-item2','data-item3','data-item4'
-                ],
+                'script-props': ['data-icon-id'],
                 script: function(props) {
                     var ICONS = {
                         computer: '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>',
@@ -131,74 +59,137 @@ export default function(editor, categories) {
                         file:     '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>',
                         check:    '<svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
                     };
-                    var step   = props['data-step']    || '1';
-                    var title  = props['data-title']   || '';
-                    var iconId = props['data-icon-id'] || 'computer';
-                    var icon   = ICONS[iconId] || ICONS.computer;
-                    var items  = [props['data-item1'], props['data-item2'], props['data-item3'], props['data-item4']]
-                                    .filter(function(s) { return s && s.trim(); });
-                    var hasItems   = items.length > 0;
-                    var liHTML     = items.map(function(i) { return '<li>' + i + '</li>'; }).join('');
-                    var expandAttr = hasItems ? ' data-expandable="true"' : '';
-                    var expandIcon = hasItems ? ' <span class="mta-expand-icon">\u02C5</span>' : '';
-                    var detailsHTML = hasItems ? '<ul class="mta-step-details">' + liHTML + '</ul>' : '';
-
-                    this.innerHTML =
-                        '<div class="mta-step-head">' +
-                            '<div class="mta-step-icon">' + icon + '</div>' +
-                            '<div class="mta-step-body">' +
-                                '<span class="mta-badge">\u00C9tape <strong>' + step + '</strong></span>' +
-                                '<p class="mta-step-label"' + expandAttr + '>' + title + expandIcon + '</p>' +
-                                detailsHTML +
-                            '</div>' +
-                        '</div>';
-
-                    // expand/collapse listener
-                    var label = this.querySelector('[data-expandable]');
-                    if (label) {
-                        label.addEventListener('click', function() {
-                            var details = label.parentElement.querySelector('.mta-step-details');
-                            var ic = label.querySelector('.mta-expand-icon');
-                            if (!details) return;
-                            var open = details.classList.toggle('mta-open');
-                            if (ic) ic.textContent = open ? '\u02C4' : '\u02C5';
-                        });
-                    }
+                    var id = props['data-icon-id'] || 'computer';
+                    this.innerHTML = ICONS[id] || ICONS.computer;
                 }
             }
         },
-
-        /* ── Vue éditeur : re-render + expand/collapse dans le canvas ── */
         view: {
-            /* Délégation d'événement sur le conteneur mta-step :
-               fonctionne même après que innerHTML est réécrit */
-            events: {
-                'click .mta-step-label[data-expandable]': 'toggleDetails',
-                'click .mta-expand-icon': 'toggleDetails',
-            },
-
-            toggleDetails(e) {
-                e.stopPropagation();
-                const label   = this.el.querySelector('.mta-step-label[data-expandable]');
-                const details = this.el.querySelector('.mta-step-details');
-                const icon    = this.el.querySelector('.mta-expand-icon');
-                if (!details || !label) return;
-                const open = details.classList.toggle('mta-open');
-                if (icon) icon.textContent = open ? '\u02C4' : '\u02C5';
-            },
-
             init() {
-                this.listenTo(this.model, 'change:attributes', this.renderStepContent);
+                this.listenTo(this.model, 'change:attributes:data-icon-id', this.renderIcon);
             },
             onRender() {
-                this.renderStepContent();
+                this.renderIcon();
             },
-            renderStepContent() {
-                const attrs = this.model.getAttributes();
-                this.el.innerHTML = buildStepHTML(attrs);
+            renderIcon() {
+                const id = this.model.getAttributes()['data-icon-id'] || 'computer';
+                this.el.innerHTML = STEP_ICONS[id] || STEP_ICONS.computer;
             }
         }
     });
+
+    /* ══════════════════════════════════════════════════════
+       Helpers de construction (composants ÉDITABLES en place)
+    ══════════════════════════════════════════════════════ */
+
+    // Les deux libellés d'un onglet (sous-titre + titre)
+    function tabLabelComps(sub, title) {
+        return [
+            { type: 'text', tagName: 'span',   classes: ['mta-tab-hd-sub'],   editable: true, selectable: true, components: sub   },
+            { type: 'text', tagName: 'strong', classes: ['mta-tab-hd-title'], editable: true, selectable: true, components: title },
+        ];
+    }
+
+    // Une carte étape (« encart ») : icône (trait) + textes éditables
+    function makeStep(data) {
+        const items = (data.items || []).filter(Boolean);
+
+        const bodyComps = [
+            {
+                type: 'text', tagName: 'span', classes: ['mta-badge'],
+                editable: true, selectable: true,
+                components: 'Étape <strong>' + data.step + '</strong>',
+            },
+            {
+                type: 'text', tagName: 'p', classes: ['mta-step-label'],
+                editable: true, selectable: true,
+                attributes: items.length ? { 'data-expandable': 'true' } : {},
+                components: data.title + (items.length ? ' <span class="mta-expand-icon">˅</span>' : ''),
+            },
+        ];
+
+        if (items.length) {
+            bodyComps.push({
+                tagName: 'ul', classes: ['mta-step-details'], selectable: true,
+                components: items.map(t => ({
+                    type: 'text', tagName: 'li', editable: true, selectable: true, components: t,
+                })),
+            });
+        }
+
+        return {
+            tagName: 'div', classes: ['mta-step'],
+            selectable: true, draggable: true, copyable: true, removable: true,
+            components: [{
+                tagName: 'div', classes: ['mta-step-head'],
+                components: [
+                    { type: 'mta-step-icon', attributes: { 'data-icon-id': data.iconId } },
+                    { tagName: 'div', classes: ['mta-step-body'], components: bodyComps },
+                ]
+            }]
+        };
+    }
+
+    /* ── Données par défaut du bloc ── */
+    const TABS = [
+        { sub: 'Admission classes préparatoires', title: 'Arts Appliqués' },
+        { sub: 'Admission Programme',                  title: 'Game Design / Jeux Vidéo' },
+        { sub: 'Admission Programme',                  title: 'Audiovisuel' },
+    ];
+
+    const PANES = [
+        [ /* Arts Appliqués */
+            { step: '1', title: 'Candidature en ligne',                    iconId: 'computer', items: ['Formulaire en ligne', 'Choix du programme'] },
+            { step: '2', title: 'Création du dossier de candidature', iconId: 'file',     items: ['Bulletin de notes', 'Book créatif', 'Une production à réaliser chez soi'] },
+            { step: '3', title: 'Entretien individuel de motivation',      iconId: 'users',    items: ['Entretien de 20 minutes', 'Présentation de votre projet'] },
+            { step: '4', title: 'Résultats d\'admission',             iconId: 'chart',    items: ['Réponse par email', 'Délai de 2 semaines'] },
+        ],
+        [ /* Game Design */
+            { step: '1', title: 'Candidature en ligne',                    iconId: 'computer', items: ['Formulaire en ligne', 'Choix du programme'] },
+            { step: '2', title: 'Création du dossier de candidature', iconId: 'file',     items: ['Bulletin de notes', 'Book créatif', 'Une production à réaliser chez soi'] },
+            { step: '3', title: 'Entretien individuel de motivation',      iconId: 'users',    items: ['Entretien de 20 minutes', 'Présentation de votre projet'] },
+            { step: '4', title: 'Résultats d\'admission',             iconId: 'chart',    items: ['Réponse par email', 'Délai de 2 semaines'] },
+        ],
+        [ /* Audiovisuel */
+            { step: '1', title: 'Candidature en ligne',                    iconId: 'computer', items: ['Formulaire en ligne', 'Choix du programme'] },
+            { step: '2', title: 'Dossier de candidature',                  iconId: 'file',     items: ['Bulletin de notes', 'Lettre de motivation', 'CV artistique'] },
+            { step: '3', title: 'Entretien individuel de motivation',      iconId: 'users',    items: ['Entretien de 20 minutes', 'Présentation de votre projet'] },
+            { step: '4', title: 'Résultats d\'admission',             iconId: 'chart',    items: ['Réponse par email', 'Délai de 2 semaines'] },
+        ],
+    ];
+
+    /* ── En-têtes desktop ── */
+    const headerComps = TABS.map((t, i) => ({
+        tagName: 'div',
+        classes: i === 0 ? ['mta-tab-hd', 'mta-active'] : ['mta-tab-hd'],
+        attributes: { 'data-tab': String(i) },
+        components: tabLabelComps(t.sub, t.title),
+    }));
+
+    /* ── Onglets mobiles + panneaux (interleavés) ── */
+    const bodyComps = [];
+    TABS.forEach((t, i) => {
+        bodyComps.push({
+            tagName: 'div',
+            classes: i === 0 ? ['mta-mob-tab', 'mta-active'] : ['mta-mob-tab'],
+            attributes: { 'data-tab': String(i) },
+            components: tabLabelComps(t.sub, t.title),
+        });
+        bodyComps.push({
+            tagName: 'div',
+            classes: i === 0 ? ['mta-pane', 'mta-pane-active'] : ['mta-pane'],
+            attributes: { 'data-pane': String(i) },
+            components: [{
+                tagName: 'div', classes: ['mta-steps-grid'],
+                components: PANES[i].map(makeStep),
+            }],
+        });
+    });
+
+    const wrapperComps = [
+        { tagName: 'div', classes: ['mta-headers'], components: headerComps },
+        ...bodyComps,
+    ];
 
     /* ══════════════════════════════════════════════════════
        BLOC GrapesJS : Onglets Admission
@@ -354,246 +345,8 @@ export default function(editor, categories) {
                 components: [{
                     tagName: 'div',
                     classes: ['mta-wrapper'],
-                    id: 'mta-wrapper',
-                    components: [
-
-                        /* ── Tab headers (desktop) ── */
-                        {
-                            tagName: 'div',
-                            classes: ['mta-headers'],
-                            components: [
-                                {
-                                    tagName: 'div', classes: ['mta-tab-hd', 'mta-active'],
-                                    attributes: { 'data-tab': '0' },
-                                    components: [
-                                        { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission classes pr\u00E9paratoires' },
-                                        { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Arts Appliqu\u00E9s' }
-                                    ]
-                                },
-                                {
-                                    tagName: 'div', classes: ['mta-tab-hd'],
-                                    attributes: { 'data-tab': '1' },
-                                    components: [
-                                        { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission Programme' },
-                                        { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Game Design / Jeux Vid\u00E9o' }
-                                    ]
-                                },
-                                {
-                                    tagName: 'div', classes: ['mta-tab-hd'],
-                                    attributes: { 'data-tab': '2' },
-                                    components: [
-                                        { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission Programme' },
-                                        { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Audiovisuel' }
-                                    ]
-                                }
-                            ]
-                        },
-
-                        /* ══ Mob Tab 0 ══ */
-                        {
-                            tagName: 'div', classes: ['mta-mob-tab', 'mta-active'],
-                            attributes: { 'data-tab': '0' },
-                            components: [
-                                { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission classes pr\u00E9paratoires' },
-                                { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Arts Appliqu\u00E9s' }
-                            ]
-                        },
-                        /* ══ Pane 0 : Arts Appliqués ══ */
-                        {
-                            tagName: 'div', classes: ['mta-pane', 'mta-pane-active'],
-                            attributes: { 'data-pane': '0' },
-                            components: [{
-                                tagName: 'div', classes: ['mta-steps-grid'],
-                                components: [
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '1',
-                                            'data-title':   'Candidature en ligne',
-                                            'data-icon-id': 'computer',
-                                            'data-item1':   'Formulaire en ligne',
-                                            'data-item2':   'Choix du programme',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '2',
-                                            'data-title':   'Cr\u00E9ation du dossier de candidature',
-                                            'data-icon-id': 'file',
-                                            'data-item1':   'Bulletin de notes',
-                                            'data-item2':   'Book cr\u00E9atif',
-                                            'data-item3':   'Une production \u00E0 r\u00E9aliser chez soi',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '3',
-                                            'data-title':   'Entretien individuel de motivation',
-                                            'data-icon-id': 'users',
-                                            'data-item1':   'Entretien de 20 minutes',
-                                            'data-item2':   'Pr\u00E9sentation de votre projet',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '4',
-                                            'data-title':   'R\u00E9sultats d\'admission',
-                                            'data-icon-id': 'chart',
-                                            'data-item1':   'R\u00E9ponse par email',
-                                            'data-item2':   'D\u00E9lai de 2 semaines',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    }
-                                ]
-                            }]
-                        },
-
-                        /* ══ Mob Tab 1 ══ */
-                        {
-                            tagName: 'div', classes: ['mta-mob-tab'],
-                            attributes: { 'data-tab': '1' },
-                            components: [
-                                { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission Programme' },
-                                { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Game Design / Jeux Vid\u00E9o' }
-                            ]
-                        },
-                        /* ══ Pane 1 : Game Design ══ */
-                        {
-                            tagName: 'div', classes: ['mta-pane'],
-                            attributes: { 'data-pane': '1' },
-                            components: [{
-                                tagName: 'div', classes: ['mta-steps-grid'],
-                                components: [
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '1',
-                                            'data-title':   'Candidature en ligne',
-                                            'data-icon-id': 'computer',
-                                            'data-item1':   'Formulaire en ligne',
-                                            'data-item2':   'Choix du programme',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '2',
-                                            'data-title':   'Cr\u00E9ation du dossier de candidature',
-                                            'data-icon-id': 'file',
-                                            'data-item1':   'Bulletin de notes',
-                                            'data-item2':   'Book cr\u00E9atif',
-                                            'data-item3':   'Une production \u00E0 r\u00E9aliser chez soi',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '3',
-                                            'data-title':   'Entretien individuel de motivation',
-                                            'data-icon-id': 'users',
-                                            'data-item1':   'Entretien de 20 minutes',
-                                            'data-item2':   'Pr\u00E9sentation de votre projet',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '4',
-                                            'data-title':   'R\u00E9sultats d\'admission',
-                                            'data-icon-id': 'chart',
-                                            'data-item1':   'R\u00E9ponse par email',
-                                            'data-item2':   'D\u00E9lai de 2 semaines',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    }
-                                ]
-                            }]
-                        },
-
-                        /* ══ Mob Tab 2 ══ */
-                        {
-                            tagName: 'div', classes: ['mta-mob-tab'],
-                            attributes: { 'data-tab': '2' },
-                            components: [
-                                { tagName: 'span', classes: ['mta-tab-hd-sub'],   components: 'Admission Programme' },
-                                { tagName: 'strong', classes: ['mta-tab-hd-title'], components: 'Audiovisuel' }
-                            ]
-                        },
-                        /* ══ Pane 2 : Audiovisuel ══ */
-                        {
-                            tagName: 'div', classes: ['mta-pane'],
-                            attributes: { 'data-pane': '2' },
-                            components: [{
-                                tagName: 'div', classes: ['mta-steps-grid'],
-                                components: [
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '1',
-                                            'data-title':   'Candidature en ligne',
-                                            'data-icon-id': 'computer',
-                                            'data-item1':   'Formulaire en ligne',
-                                            'data-item2':   'Choix du programme',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '2',
-                                            'data-title':   'Dossier de candidature',
-                                            'data-icon-id': 'file',
-                                            'data-item1':   'Bulletin de notes',
-                                            'data-item2':   'Lettre de motivation',
-                                            'data-item3':   'CV artistique',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '3',
-                                            'data-title':   'Entretien individuel de motivation',
-                                            'data-icon-id': 'users',
-                                            'data-item1':   'Entretien de 20 minutes',
-                                            'data-item2':   'Pr\u00E9sentation de votre projet',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    },
-                                    {
-                                        type: 'mta-step-card',
-                                        attributes: {
-                                            'data-step':    '4',
-                                            'data-title':   'R\u00E9sultats d\'admission',
-                                            'data-icon-id': 'chart',
-                                            'data-item1':   'R\u00E9ponse par email',
-                                            'data-item2':   'D\u00E9lai de 2 semaines',
-                                            'data-item3':   '',
-                                            'data-item4':   '',
-                                        }
-                                    }
-                                ]
-                            }]
-                        }
-
-                    ] // end mta-wrapper components
+                    attributes: { id: 'mta-wrapper' },
+                    components: wrapperComps,
                 }]
             }]
         },
@@ -608,7 +361,9 @@ export default function(editor, categories) {
             defaults: {
                 'script-props': [],
                 script: function() {
-                    var wrapper = document.getElementById('mta-wrapper');
+                    // `this` = l'élément racine du composant (scopé par GrapesJS),
+                    // donc on ne dépend pas de l'export de l'id #mta-wrapper.
+                    var wrapper = this.querySelector('.mta-wrapper') || document.getElementById('mta-wrapper');
                     if (!wrapper) return;
 
                     var tabHds  = wrapper.querySelectorAll('.mta-tab-hd');
@@ -648,7 +403,7 @@ export default function(editor, categories) {
                             var icon    = label.querySelector('.mta-expand-icon');
                             if (!details) return;
                             var open = details.classList.toggle('mta-open');
-                            if (icon) icon.textContent = open ? '\u02C4' : '\u02C5';
+                            if (icon) icon.textContent = open ? '˄' : '˅';
                         });
                     });
                 }

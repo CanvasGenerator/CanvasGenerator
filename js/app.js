@@ -382,7 +382,7 @@ function initEditor(schoolId) {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
         addFontStyleControl(editor);
-        setDecorationTitles(editor);
+        setStyleManagerLabels(editor);
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
@@ -1008,30 +1008,111 @@ function addFontStyleControl(editor) {
     }
 }
 
-// Donne un titre lisible aux contrôles « Ombre » (box-shadow) et « Arrière-plan »
-// (background) de la Décoration, via le NOM natif GrapesJS → le libellé s'affiche
-// au-dessus du contrôle, avec son bouton « + » natif à côté de la barre.
+// Donne un libellé français clair à CHAQUE propriété du Style Manager, via le NOM
+// natif GrapesJS → le libellé s'affiche au-dessus du contrôle (y compris pour les
+// composites « Bordure », « Arrondi des angles » et les empilements « Ombre »,
+// « Arrière-plan » qui gardent leur bouton « + » natif).
 // Méthode fiable (indépendante du nom de classe CSS), n'ajoute/retire aucune fonction.
-function setDecorationTitles(editor) {
+function setStyleManagerLabels(editor) {
     if (!editor) return;
     try {
         const sm = editor.StyleManager;
-        const names = { 'box-shadow': 'Ombre', 'background': 'Arrière-plan' };
+        const names = {
+            // ── Général ──
+            'display':          'Affichage',
+            'float':            'Alignement flottant',
+            'position':         'Position',
+            'top':              'Haut',
+            'right':            'Droite',
+            'left':             'Gauche',
+            'bottom':           'Bas',
+            // ── Flex ──
+            'flex-direction':   'Direction (flex)',
+            'flex-wrap':        'Retour à la ligne',
+            'justify-content':  'Alignement horizontal',
+            'align-items':      'Alignement vertical',
+            'align-content':    'Alignement du contenu',
+            'order':            'Ordre',
+            'flex-basis':       'Taille de base',
+            'flex-grow':        'Facteur d’agrandissement',
+            'flex-shrink':      'Facteur de rétrécissement',
+            'align-self':       'Alignement individuel',
+            // ── Dimensions ──
+            'width':            'Largeur',
+            'height':           'Hauteur',
+            'max-width':        'Largeur maximale',
+            'min-height':       'Hauteur minimale',
+            'margin':           'Marges extérieures',
+            'padding':          'Marges intérieures',
+            // ── Typographie ──
+            'font-family':      'Police',
+            'font-size':        'Taille du texte',
+            'font-weight':      'Graisse',
+            'font-style':       'Style (italique)',
+            'letter-spacing':   'Espacement des lettres',
+            'color':            'Couleur du texte',
+            'line-height':      'Interligne',
+            'text-align':       'Alignement du texte',
+            'text-shadow':      'Ombre du texte',
+            // ── Décorations ──
+            'background-color': 'Couleur de fond',
+            'border-radius':    'Arrondi des angles',
+            'border':           'Bordure',
+            'border-width':     'Épaisseur',
+            'border-style':     'Style',
+            'border-color':     'Couleur',
+            'box-shadow':       'Ombre',
+            'background':       'Arrière-plan (image)',
+            // ── Extra ──
+            'opacity':          'Opacité',
+            'transition':       'Transition (animation)',
+            'transform':        'Transformation',
+        };
         const sectors = sm.getSectors ? sm.getSectors() : null;
         if (!sectors || typeof sectors.forEach !== 'function') return;
+        // Titres de secteurs en français (clé = nom natif GrapesJS en minuscules)
+        const sectorNames = {
+            'general':     'Général',
+            'flex':        'Disposition (flex)',
+            'dimension':   'Dimensions',
+            'typography':  'Typographie',
+            'decorations': 'Décorations',
+            'extra':       'Effets & avancé',
+        };
         sectors.forEach(sector => {
+            const sid = (sector.get('name') || sector.get('id') || '').toString().toLowerCase();
+            if (sectorNames[sid]) sector.set('name', sectorNames[sid]);
+
             const props = typeof sector.getProperties === 'function'
                 ? sector.getProperties()
                 : (sector.get && sector.get('properties'));
             if (!props || typeof props.forEach !== 'function') return;
-            props.forEach(p => {
+            // Renomme la propriété + descend dans les sous-propriétés des
+            // composites (ex. Bordure → Épaisseur / Style / Couleur).
+            const applyName = p => {
                 const id = (p.get('property') || p.get('id') || '').toString();
                 if (names[id]) p.set('name', names[id]);
-            });
+                const sub = typeof p.getProperties === 'function' ? p.getProperties() : null;
+                if (sub && typeof sub.forEach === 'function') sub.forEach(applyName);
+            };
+            props.forEach(applyName);
         });
         sm.render();
+
+        // GrapesJS 0.23 ne rafraîchit pas le titre des secteurs après set('name'),
+        // on synchronise donc les libellés déjà rendus depuis les modèles (français).
+        const cont = document.querySelector('#styles-container');
+        if (cont) {
+            const labelEls = cont.querySelectorAll('.gjs-sm-sector-label');
+            const secs = sm.getSectors();
+            labelEls.forEach((el, i) => {
+                const s = secs.at ? secs.at(i) : secs[i];
+                const nm = s && s.get('name');
+                if (nm) el.textContent = nm;
+            });
+        }
     } catch (e) {
-        console.warn('setDecorationTitles: impossible de renommer box-shadow/background', e);
+        console.warn('setStyleManagerLabels: impossible de renommer les propriétés', e);
     }
 }
 

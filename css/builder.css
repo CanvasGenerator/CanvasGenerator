@@ -3450,7 +3450,7 @@ body { overflow: auto; height: auto; }
    Haut gauche / Haut droite / Bas gauche / Bas droite : champs larges,
    valeurs entièrement visibles (comme marge/padding). On cible via :has()
    sur les sous-coins → robuste quel que soit le nom du composite. */
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) {
     display: flex !important;
     flex-direction: column !important;
     gap: 8px !important;
@@ -3458,7 +3458,7 @@ body { overflow: auto; height: auto; }
     background: var(--bg-surface-soft) !important;
     border-radius: var(--radius-lg) !important;
 }
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) > .gjs-sm-property {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) > .gjs-sm-property {
     display: flex !important;
     align-items: center !important;
     gap: 10px !important;
@@ -3467,14 +3467,14 @@ body { overflow: auto; height: auto; }
     padding: 0 !important;
 }
 /* Libellés français des coins */
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) > .gjs-sm-property > .gjs-sm-label {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) > .gjs-sm-property > .gjs-sm-label {
     display: none !important;
 }
 #styles-container .gjs-sm-property__border-top-left-radius::before { content: "Haut gauche" !important; }
 #styles-container .gjs-sm-property__border-top-right-radius::before { content: "Haut droite" !important; }
 #styles-container .gjs-sm-property__border-bottom-left-radius::before { content: "Bas gauche" !important; }
 #styles-container .gjs-sm-property__border-bottom-right-radius::before { content: "Bas droite" !important; }
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) > .gjs-sm-property::before {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) > .gjs-sm-property::before {
     flex: 0 0 84px !important;
     font-size: 11px !important;
     font-weight: 600 !important;
@@ -3483,26 +3483,26 @@ body { overflow: auto; height: auto; }
     color: var(--text-secondary) !important;
 }
 /* Le champ prend toute la largeur restante */
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) .gjs-fields {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) .gjs-fields {
     flex: 1 1 auto !important;
     width: auto !important;
     min-width: 0 !important;
 }
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) .gjs-field {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) .gjs-field {
     flex: 1 1 auto !important;
     width: 100% !important;
     box-sizing: border-box !important;
     min-height: 42px !important;
     background: var(--bg-surface) !important;
 }
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) .gjs-field input {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) .gjs-field input {
     height: 40px !important;
     font-size: 15px !important;
     font-weight: 500 !important;
     text-align: left !important;
     padding-left: 12px !important;
 }
-#styles-container .gjs-sm-properties:has(.gjs-sm-property__border-top-left-radius) .gjs-field-units {
+#styles-container .gjs-sm-properties:has(> .gjs-sm-property__border-top-left-radius) .gjs-field-units {
     padding-left: 6px !important;
     font-size: 11px !important;
     font-weight: 600 !important;
