@@ -11,7 +11,7 @@ export default function(editor, categories) {
 
     const schools = [
         { id: 'footer-efap',        label: 'EFAP Footer',        category: categories.EFAP,      A: 'assets/efap',        imgH: 88,  mt: -14, legalName: "L'EFAP" },
-        { id: 'footer-brassart',    label: 'BRASSART Footer',    category: categories.BRASSART,  A: 'assets/brassart',    imgH: 106, mt: -21, legalName: "BRASSART" },
+        { id: 'footer-brassart',    label: 'BRASSART Footer',    category: categories.BRASSART,  A: 'assets/brassart',    imgH: 34,  mt: 10,  legalName: "BRASSART" },
         { id: 'footer-cread',       label: 'CREAD Footer',       category: categories.CREAD,     A: 'assets/cread',       imgH: 70,  mt: -8,  legalName: "Le CREAD" },
         { id: 'footer-esec',        label: 'ÉSEC Footer',        category: categories.ESEC,      A: 'assets/esec',        imgH: 67,  mt: -7,  legalName: "L'ÉSEC" },
         { id: 'footer-icart',       label: 'ICART Footer',       category: categories.ICART,     A: 'assets/icart',       imgH: 85,  mt: -12, legalName: "L'ICART" },
@@ -22,16 +22,20 @@ export default function(editor, categories) {
         { id: 'footer-3wa',         label: '3W Academy Footer',  category: categories['3WA'],    A: 'assets/3wa',         imgH: 65,  mt: -6,  legalName: "La 3W Academy" }
     ];
 
-    // Icônes sociales : cercles noirs, glyphe blanc (identique aux maquettes).
+    // Icônes sociales : jeu fourni par le client — cercles noirs, glyphes blancs
+    // (couleurs codées en dur dans les SVG). Classe .reseau-icone.
     const socialIcons = `
-        <a href="#" class="ft-social" aria-label="Instagram"><svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 1.366.062 2.633.332 3.608 1.308.975.975 1.245 2.242 1.308 3.608.058 1.266.07 1.646.07 4.85s-.012 3.584-.07 4.85c-.063 1.366-.333 2.633-1.308 3.608-.975.975-2.242 1.245-3.608 1.308-1.266.058-1.646.07-4.85.07s-3.584-.012-4.85-.07c-1.366-.063-2.633-.333-3.608-1.308-.975-.975-1.245-2.242-1.308-3.608-.058-1.266-.07-1.646-.07-4.85s.012-3.584.07-4.85c.062-1.366.332-2.633 1.308-3.608.975-.975 2.242-1.245 3.608-1.308 1.266-.058 1.646-.07 4.85-.07zm0-2.163c-3.259 0-3.667.014-4.947.072-1.35.061-2.68.327-3.684 1.332C2.364 2.409 2.098 3.739 2.037 5.088 1.979 6.368 1.965 6.776 1.965 10.035s.014 3.667.072 4.947c.061 1.35.327 2.68 1.332 3.684 1.004 1.004 2.335 1.27 3.684 1.332 1.28.058 1.688.072 4.947.072s3.667-.014 4.947-.072c1.35-.061 2.68-.327 3.684-1.332 1.004-1.004 1.27-2.335 1.332-3.684.058-1.28.072-1.688.072-4.947s-.014-3.667-.072-4.947c-.061-1.35-.327-2.68-1.332-3.684-1.004-1.004-2.335-1.27-3.684-1.332-1.28-.058-1.688-.072-4.947-.072zM12 4.878a5.157 5.157 0 100 10.314 5.157 5.157 0 000-10.314zm0 8.541a3.384 3.384 0 110-6.768 3.384 3.384 0 010 6.768zm7.541-8.541a1.206 1.206 0 11-2.412 0 1.206 1.206 0 012.412 0z"/></svg></a>
-        <a href="#" class="ft-social" aria-label="Facebook"><svg viewBox="0 0 24 24"><path d="M22.675 0h-21.35c-.732 0-1.325.593-1.325 1.325v21.351c0 .731.593 1.324 1.325 1.324h11.495v-9.294h-3.128v-3.622h3.128v-2.671c0-3.1 1.893-4.788 4.659-4.788 1.325 0 2.463.099 2.795.143v3.24l-1.918.001c-1.504 0-1.795.715-1.795 1.763v2.313h3.587l-.467 3.622h-3.12v9.293h6.116c.73 0 1.323-.593 1.323-1.325v-21.35c0-.732-.593-1.325-1.325-1.325z"/></svg></a>
-        <a href="#" class="ft-social" aria-label="TikTok"><svg viewBox="0 0 24 24"><path d="M12.525.02c1.31-.032 2.62-.019 3.93-.006.156 5.225 4.056 5.59 5.535 5.893v3.916c-2.8-.127-5.232-1.416-6.037-3.213-.017 4.77-.031 9.542-.044 14.313-.157 8.164-11.412 8.503-12.32 1.032-.602-4.856 3.349-8.127 7.973-7.188 0 1.5.001 3.001.002 4.502-2.733-.581-5.124.837-4.746 3.227.621 2.358 4.83 2.461 5.427-.493.18-7.76.115-15.525.05-23.287l.23-.7z"/></svg></a>
-        <a href="#" class="ft-social" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z"/></svg></a>
-        <a href="#" class="ft-social" aria-label="YouTube"><svg viewBox="0 0 24 24"><path d="M23.498 6.186a3.016 3.016 0 00-2.122-2.136C19.505 3.545 12 3.545 12 3.545s-7.505 0-9.377.505a3.017 3.017 0 00-2.122 2.136C0 8.055 0 12 0 12s0 3.945.501 5.814a3.017 3.017 0 002.122 2.136C4.495 20.455 12 20.455 12 20.455s7.505 0 9.377-.505a3.015 3.015 0 002.122-2.136C24 15.945 24 12 24 12s0-3.945-.502-5.814zM9.545 15.568V8.432L15.818 12l-6.273 3.568z"/></svg></a>
+        <a href="#" class="reseau-icone" aria-label="Instagram"><svg viewBox="0 0 24 24"><g fill="none" stroke="#ffffff" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="4.5"/><circle cx="12" cy="12" r="3.6"/><circle cx="16.9" cy="7.1" r="1.15" fill="#ffffff" stroke="none"/></g></svg></a>
+        <a href="#" class="reseau-icone" aria-label="Facebook"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M13.4 20v-6.2h2.1l.32-2.42H13.4V9.83c0-.7.2-1.18 1.2-1.18h1.3V6.48c-.23-.03-1-.1-1.9-.1-1.88 0-3.17 1.15-3.17 3.26v1.74H8.7v2.42h2.13V20h2.57z"/></svg></a>
+        <a href="#" class="reseau-icone" aria-label="TikTok"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.78.12V9.77a5.76 5.76 0 0 0-.78-.05 5.68 5.68 0 1 0 5.68 5.68V9.29a7.35 7.35 0 0 0 4.3 1.38V7.58a4.34 4.34 0 0 1-3.24-1.76z"/></svg></a>
+        <a href="#" class="reseau-icone" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M6.94 8.5H4.2V19.6h2.74V8.5zM5.57 7.34a1.62 1.62 0 1 0 0-3.24 1.62 1.62 0 0 0 0 3.24zM19.8 13.5c0-3.03-1.62-4.44-3.78-4.44-1.74 0-2.52.96-2.96 1.63V8.5h-2.74c.04.78 0 11.1 0 11.1h2.74v-6.2c0-.33.02-.66.12-.9.27-.66.87-1.35 1.89-1.35 1.33 0 1.99 1.02 1.99 2.51v5.94h2.74V13.5z"/></svg></a>
+        <a href="#" class="reseau-icone" aria-label="YouTube"><svg viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="17" height="11" rx="3" fill="#ffffff"/><polygon points="10.4,9.5 15.2,12 10.4,14.5" fill="#000000"/></svg></a>
     `;
 
     schools.forEach(school => {
+        // Brassart / IFA Paris / ICART ont des logos larges → on garde une hauteur
+        // modérée (sinon ils débordent). Les autres écoles peuvent être un peu plus grandes.
+        const logoH = ['footer-brassart', 'footer-ifa-paris', 'footer-icart'].includes(school.id) ? 46 : 58;
         editor.BlockManager.add(school.id, {
             label: school.label,
             category: school.category || 'Footers',
@@ -53,7 +57,9 @@ export default function(editor, categories) {
                 </footer>
                 <style>
                     .${school.id} {
-                        background-color: var(--brand-background, #ffffff);
+                        /* Footer TOUJOURS en noir & blanc, quelle que soit l'école
+                           (on n'utilise PAS --brand-background qui peut être coloré). */
+                        background-color: #ffffff;
                         color: ${ink};
                         width: 100%;
                         margin: 0;
@@ -65,23 +71,26 @@ export default function(editor, categories) {
                         display: flex;
                         align-items: center;
                         justify-content: space-between;
-                        gap: 40px;
-                        flex-wrap: wrap;
+                        gap: 32px;
+                        flex-wrap: nowrap;
                         margin-bottom: 40px;
                     }
-                    .${school.id} .ft-brand { display: flex; align-items: center; }
-                    .${school.id} .ft-logo { display: inline-block; height: ${LOGO_H}px; overflow: hidden; }
-                    .${school.id} .ft-logo-img { height: ${school.imgH}px; width: auto; display: block; margin-top: ${school.mt}px; }
-                    .${school.id} .ft-social-row { display: flex; gap: 14px; }
-                    .${school.id} .ft-social {
-                        width: 40px; height: 40px; border-radius: 50%;
-                        background-color: ${ink};
+                    /* Le logo se réduit si besoin → les réseaux restent à droite (desktop).
+                       min-width:0 sur TOUTE la chaîne flex = indispensable pour qu'une
+                       image puisse rétrécir sous sa taille intrinsèque. */
+                    .${school.id} .ft-brand { display: flex; align-items: center; min-width: 0; flex: 0 1 auto; }
+                    .${school.id} .ft-logo { display: flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; }
+                    .${school.id} .ft-logo-img { height: auto; width: auto; max-height: ${logoH}px; max-width: min(100%, 460px); display: block; }
+                    .${school.id} .ft-social-row { display: flex; gap: 10px; flex: 0 0 auto; }
+                    .${school.id} .reseau-icone {
+                        width: 36px; height: 36px; border-radius: 50%;
+                        background: #000000;
                         display: flex; align-items: center; justify-content: center;
                         text-decoration: none;
                     }
-                    .${school.id} .ft-social svg { width: 19px; height: 19px; fill: #ffffff; }
+                    .${school.id} .reseau-icone svg { width: 20px; height: 20px; display: block; }
                     .${school.id} .ft-legal {
-                        font-size: 13px; line-height: 1.7; color: var(--brand-text, #1a1a1a); margin: 0;
+                        font-size: 13px; line-height: 1.7; color: ${ink}; margin: 0;
                         border-top: 1px solid #ededed; padding-top: 26px;
                     }
                     .${school.id} .ft-legal-link { color: ${ink}; text-decoration: underline; }
@@ -89,7 +98,7 @@ export default function(editor, categories) {
                         .${school.id} { padding: 40px 24px 30px 24px; }
                         .${school.id} .ft-top { flex-direction: column; align-items: flex-start; gap: 24px; }
                         .${school.id} .ft-logo { height: auto; overflow: visible; max-width: 100%; }
-                        .${school.id} .ft-logo-img { height: ${Math.round(school.imgH * MOBILE_H / LOGO_H)}px; width: auto; max-width: 100%; margin-top: 0; }
+                        .${school.id} .ft-logo-img { max-height: ${Math.round(logoH * 0.82)}px; max-width: 100%; height: auto; width: auto; }
                         .${school.id} .ft-social-row { flex-wrap: wrap; }
                     }
                 </style>
