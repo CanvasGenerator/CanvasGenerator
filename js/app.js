@@ -1,9 +1,12 @@
 import { initStorage } from './storage.js';
 import { initExport } from './export.js';
+import { createImageUploadHandler, publishInlineImagesInString, collectAssetNames, applyImageMapToEditor } from './image-upload.js';
 import { initAiAssistant } from './ai-assistant.js';
 import { registerBlocks } from '../blocks/index.js';
 import { FormGenerator } from './form-generator.js';
 import { ComponentBuilder } from './component-builder.js';
+import { initCampus, openCampusSettings } from './campus.js';
+import { initCampusSelectSync } from '../blocks/forms/shared/campus-select.js';
 
 // Custom Toast notification system to replace native alert popups
 window.alert = function (message) {
@@ -371,6 +374,13 @@ function initEditor(schoolId) {
             stepsBeforeSave: 1,
             key: storageKey,
         },
+        assetManager: {
+            // Les images uploadées sont compressées puis gardées en data URL ;
+            // elles sont publiées dans SFMC (et remplacées par leur URL publique)
+            // au moment de l'envoi de la page vers SFMC.
+            embedAsBase64: false,
+            uploadFile: createImageUploadHandler(() => editor),
+        },
         blockManager: { appendTo: '#blocks' },
         styleManager: { appendTo: '#styles-container' },
         layerManager: { appendTo: '#layers-container' },
@@ -415,7 +425,7 @@ function initEditor(schoolId) {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
         addFontStyleControl(editor);
-        setDecorationTitles(editor);
+        setStyleManagerLabels(editor);
         loadCustomComponents(editor, schoolId);
 
         // Au lieu de charger directement le template, on affiche la popup de choix
@@ -494,9 +504,27 @@ function initEditor(schoolId) {
                     : '';
             }
 
-            fetch('/api/faq')
+            // Ne proposer que les FAQs associées à l'école courante (école parente de la page).
+            // 'master' n'a pas d'associations → on retombe sur toute la banque.
+            const currentSchoolId = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id;
+            const faqUrl = (currentSchoolId && currentSchoolId !== 'master')
+                ? `/api/faq/school/${encodeURIComponent(currentSchoolId)}`
+                : '/api/faq';
+
+            fetch(faqUrl)
                 .then(r => r.json())
-                .then(faqs => {
+                .then(rows => {
+                    // /api/faq/school renvoie des associations { faq: {...} } → extraire + dédupliquer par id.
+                    // /api/faq renvoie directement les FAQs.
+                    let faqs;
+                    if (faqUrl === '/api/faq') {
+                        faqs = Array.isArray(rows) ? rows : [];
+                    } else {
+                        const seen = new Set();
+                        faqs = (Array.isArray(rows) ? rows : [])
+                            .map(r => r.faq)
+                            .filter(f => f && !seen.has(f.id) && seen.add(f.id));
+                    }
                     allFaqs = faqs;
                     countEl.textContent = `${faqs.length} FAQ${faqs.length > 1 ? 's' : ''} disponible${faqs.length > 1 ? 's' : ''}`;
 
@@ -600,11 +628,11 @@ function initEditor(schoolId) {
     editor.on('block:drag:stop', (component) => {
         if (!component || typeof component.get !== 'function') return;
         const type = component.get('type');
-        if (type === 'mc-nos-campus') {
-            setTimeout(() => { editor.select(component); editor.Commands.run('open-campus-picker'); }, 150);
-        } else if (type === 'ma-faq-section') {
+        if (type === 'ma-faq-section') {
             setTimeout(() => { editor.select(component); editor.Commands.run('open-faq-picker'); }, 150);
         }
+        // Campus : la sélection se fait désormais au niveau de la page
+        // (bouton « Campus » dans la barre d'outils), plus par composant.
     });
 
     // Auto-switch des logos header/footer FR↔EN : on réapplique la langue courante
@@ -630,293 +658,34 @@ function initEditor(schoolId) {
         }
     });
 
-    // ── Commande GrapesJS : sélecteur de Campus ──────────────────────────
+    // ── Compat : la sélection Campus est désormais au niveau de la page ──
+    // Ancien picker par composant remplacé par le bouton « Campus » (toolbar)
+    // qui ouvre openCampusSettings() (js/campus.js).
     editor.Commands.add('open-campus-picker', {
-        run(ed) {
-            const component = ed.getSelected();
-            if (!component) return;
-
-            const modal      = document.getElementById('campus-config-modal');
-            const body       = document.getElementById('campus-config-body');
-            const countEl    = document.getElementById('campus-config-count');
-            const selCountEl = document.getElementById('campus-config-selected-count');
-
-            // Récupérer les IDs déjà sélectionnés
-            const existingIds = (component.getAttributes()['data-campus-ids'] || '')
-                .split(',').filter(Boolean);
-            const existingMode = component.getAttributes()['data-campus-mode'] || '';
-
-            modal.style.display = 'flex';
-            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Chargement…</div>';
-            countEl.textContent    = '';
-            selCountEl.textContent = '';
-
-            let allCampuses = [];
-
-            function escapeHtml(str) {
-                if (!str) return '';
-                return String(str)
-                    .replace(/&/g, '&amp;')
-                    .replace(/</g, '&lt;')
-                    .replace(/>/g, '&gt;')
-                    .replace(/"/g, '&quot;')
-                    .replace(/'/g, '&#39;');
-            }
-
-            function updateSelCount() {
-                const checked = body.querySelectorAll('input[type=checkbox]:checked').length;
-                const total   = body.querySelectorAll('input[type=checkbox]').length;
-                const isAll   = checked === total && total > 0;
-                selCountEl.textContent = checked
-                    ? `${checked} campus sélectionné${checked > 1 ? 's' : ''}${isAll ? ' (TOUS — mise à jour auto)' : ''}`
-                    : '';
-            }
-
-            function loadCampusesList() {
-                body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Chargement…</div>';
-                fetch('/api/campuses')
-                    .then(r => r.json())
-                    .then(campuses => {
-                        if (!Array.isArray(campuses)) {
-                            console.error('Erreur API Campus:', campuses);
-                            body.innerHTML = `<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">
-                                Erreur de base de données.<br><br>Avez-vous bien exécuté le script SQL <b>007_add_campus_tables.sql</b> dans Supabase ?
-                            </div>`;
-                            return;
-                        }
-
-                        allCampuses = campuses;
-                        window.__LP_CAMPUSES = campuses; // Cache globally for trait changes
-                        countEl.textContent = `${campuses.length} campus disponible${campuses.length > 1 ? 's' : ''}`;
-
-                        if (campuses.length === 0) {
-                            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus dans la base de données. Ajoutez-en un !</div>';
-                            return;
-                        }
-
-                        // Generate the HTML rows with edit & delete buttons
-                        body.innerHTML = campuses.map(campus => `
-                            <div class="campus-row" style="display:flex;align-items:center;justify-content:space-between;padding:10px 20px;border-bottom:1px solid #f3f4f6;" data-id="${escapeHtml(campus.id)}">
-                                <label style="display:flex;align-items:center;gap:12px;flex:1;cursor:pointer;margin:0;">
-                                    <input type="checkbox" value="${escapeHtml(campus.id)}"
-                                        ${existingMode === 'all' || existingIds.includes(campus.id) ? 'checked' : ''}
-                                        style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;margin:0;">
-                                    <div style="min-width:0;">
-                                        <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(campus.name)}</div>
-                                        <div style="font-size:11px;color:#9ca3af;margin-top:1px;">ID: ${escapeHtml(campus.id)}</div>
-                                    </div>
-                                </label>
-                                <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
-                                    <button type="button" class="btn-edit-campus" data-id="${escapeHtml(campus.id)}" data-name="${escapeHtml(campus.name)}" style="border:none;background:none;color:#4b5563;cursor:pointer;padding:6px;font-size:14px;border-radius:4px;" title="Modifier le nom">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <button type="button" class="btn-delete-campus" data-id="${escapeHtml(campus.id)}" data-name="${escapeHtml(campus.name)}" style="border:none;background:none;color:#ef4444;cursor:pointer;padding:6px;font-size:14px;border-radius:4px;" title="Supprimer le campus">
-                                        <i class="fas fa-trash-alt"></i>
-                                    </button>
-                                </div>
-                            </div>
-                        `).join('');
-
-                        body.querySelectorAll('input[type=checkbox]').forEach(cb => {
-                            cb.addEventListener('change', updateSelCount);
-                        });
-
-                        // Set up edit/delete event listeners
-                        body.querySelectorAll('.btn-edit-campus').forEach(btn => {
-                            btn.onclick = (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const id = btn.getAttribute('data-id');
-                                const currentName = btn.getAttribute('data-name');
-                                const newName = prompt("Modifier le nom du campus :", currentName);
-                                if (newName && newName.trim() && newName.trim() !== currentName) {
-                                    btn.disabled = true;
-                                    fetch(`/api/campuses/${encodeURIComponent(id)}`, {
-                                        method: 'PUT',
-                                        headers: { 'Content-Type': 'application/json' },
-                                        body: JSON.stringify({ name: newName.trim() })
-                                    })
-                                    .then(r => {
-                                        // Use text() not json() — server may return empty body
-                                        if (!r.ok) throw new Error('HTTP ' + r.status);
-                                        return r.text();
-                                    })
-                                    .then(() => {
-                                        loadCampusesList();
-                                    })
-                                    .catch(err => {
-                                        console.error(err);
-                                        alert("Erreur lors de la modification du campus : " + err.message);
-                                        btn.disabled = false;
-                                    });
-                                }
-                            };
-                        });
-
-                        body.querySelectorAll('.btn-delete-campus').forEach(btn => {
-                            btn.onclick = (e) => {
-                                e.preventDefault();
-                                e.stopPropagation();
-                                const id = btn.getAttribute('data-id');
-                                const name = btn.getAttribute('data-name');
-                                if (confirm(`Êtes-vous sûr de vouloir supprimer le campus "${name}" ?`)) {
-                                    fetch(`/api/campuses/${encodeURIComponent(id)}`, {
-                                        method: 'DELETE'
-                                    })
-                                    .then(() => {
-                                        loadCampusesList();
-                                    })
-                                    .catch(err => {
-                                        console.error(err);
-                                        alert("Erreur lors de la suppression du campus.");
-                                    });
-                                }
-                            };
-                        });
-
-                        updateSelCount();
-                    })
-                    .catch(() => {
-                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#ef4444;font-size:13px;">Erreur de chargement des campus.</div>';
-                    });
-            }
-
-            // Initial load
-            loadCampusesList();
-
-            // Setup the Add form events
-            const inputNewName = document.getElementById('new-campus-name');
-            const btnAdd = document.getElementById('btn-add-campus');
-            inputNewName.value = '';
-
-            function generateSlug(str) {
-                return str
-                    .toLowerCase()
-                    .normalize('NFD')
-                    .replace(/[\u0300-\u036f]/g, '') // remove accents
-                    .replace(/[^a-z0-9\s-]/g, '')
-                    .trim()
-                    .replace(/\s+/g, '-');
-            }
-
-            function handleAddCampus() {
-                const name = inputNewName.value.trim();
-                if (!name) return;
-                const id = generateSlug(name);
-
-                // Visual feedback
-                btnAdd.disabled = true;
-                btnAdd.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
-
-                fetch('/api/campuses', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ id, name })
-                })
-                .then(r => {
-                    // Use text() not json() — server may return empty body on success
-                    if (!r.ok) throw new Error('HTTP ' + r.status);
-                    return r.text();
-                })
-                .then(() => {
-                    inputNewName.value = '';
-                    loadCampusesList();
-                })
-                .catch(err => {
-                    console.error(err);
-                    alert("Erreur lors de l'ajout du campus : " + err.message);
-                })
-                .finally(() => {
-                    btnAdd.disabled = false;
-                    btnAdd.innerHTML = '<i class="fas fa-plus"></i> Ajouter';
-                });
-            }
-
-            btnAdd.onclick = handleAddCampus;
-            inputNewName.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault();
-                    handleAddCampus();
-                }
-            };
-
-            // Tout cocher / décocher
-            document.getElementById('btn-campus-select-all').onclick = () => {
-                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = true; });
-                updateSelCount();
-            };
-            document.getElementById('btn-campus-deselect-all').onclick = () => {
-                body.querySelectorAll('input[type=checkbox]').forEach(cb => { cb.checked = false; });
-                updateSelCount();
-            };
-
-            function confirmSelection() {
-                const selectedIds      = [...body.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
-                const totalCheckboxes  = body.querySelectorAll('input[type=checkbox]').length;
-                const isAll            = selectedIds.length === totalCheckboxes && totalCheckboxes > 0;
-                const selectedCampuses = allCampuses.filter(c => selectedIds.includes(c.id));
-
-                // Stocker le mode et les IDs
-                const mode = isAll ? 'all' : 'selected';
-                component.addAttributes({
-                    'data-campus-ids': selectedIds.join(','),
-                    'data-campus-mode': mode
-                });
-
-                // Get prefix and separator from attributes or use defaults
-                const attrs = component.getAttributes();
-                const prefix = attrs['data-campus-prefix'] || '';
-                const separator = attrs['data-campus-separator'] || ' · ';
-
-                // Reconstruire le contenu HTML de la liste
-                const listComp = component.find('.mnc-list')[0];
-                if (listComp && selectedCampuses.length) {
-                    const namesHtml = selectedCampuses.map(c =>
-                        `<span class="mnc-campus-name">${prefix}${escapeHtml(c.name.toUpperCase())}</span>`
-                    ).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
-                    listComp.components(namesHtml);
-
-                    // Lock children
-                    const lockAll = (comp) => {
-                        comp.get('components').each(child => {
-                            child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
-                            lockAll(child);
-                        });
-                    };
-                    lockAll(component);
-                } else if (listComp && selectedCampuses.length === 0) {
-                    listComp.components('<span class="mnc-placeholder">📍 Cliquez sur le bouton <i class="fa fa-map-marker" style="color:#1a7a5e;font-size:14px;margin:0 2px;"></i> dans la barre d\'outils pour choisir vos campus.</span>');
-                }
-
-                closeModal();
-            }
-
-            function closeModal() {
-                modal.style.display = 'none';
-                document.getElementById('btn-campus-config-confirm').onclick = null;
-                document.getElementById('btn-campus-config-skip').onclick    = null;
-                document.getElementById('btn-campus-config-close').onclick   = null;
-                document.getElementById('btn-campus-select-all').onclick     = null;
-                document.getElementById('btn-campus-deselect-all').onclick   = null;
-                btnAdd.onclick = null;
-                inputNewName.onkeydown = null;
-            }
-
-            document.getElementById('btn-campus-config-confirm').onclick = confirmSelection;
-            document.getElementById('btn-campus-config-skip').onclick    = closeModal;
-            document.getElementById('btn-campus-config-close').onclick   = closeModal;
-        }
+        run() { if (window.openCampusSettings) window.openCampusSettings(); }
     });
 
     if (schoolId === 'icart') initIcartSpecifics(editor);
     window.editor = editor;
+
+    // ── Campus : source unique + sélection au niveau page ────────────────
+    initCampus({
+        getSchoolId:    () => CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id || 'master',
+        getProjectName: () => {
+            const sid = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id || 'unknown';
+            return localStorage.getItem(`reetain-builder__${sid}__currentProject`) || '';
+        },
+        onSelectionChange: (ids) => { currentProjectProperties.campusIds = ids; }
+    });
+    initCampusSelectSync(editor);
+    window.openCampusSettings = openCampusSettings;
 }
 
 // ── Page Properties state ───────────────────────────────────────────────────
 let currentProjectProperties = {
     title: '', description: '',
     seoTitle: '', seoDescription: '', keywords: '', canonical: '',
-    schemaLd: ''
+    schemaLd: '', campusIds: []
 };
 
 // Helper to parse site name and url paths for preview
@@ -1147,6 +916,7 @@ function populateProperties(props = {}) {
     // On spread props en dernier MAIS on s'assure que les champs SEO critiques
     // ne sont jamais écrasés par une valeur vide provenant des props brutes.
     // Exemple : props.keywords = '' → on garde defaultKeywords, pas ''
+    const campusIds = Array.isArray(props.campusIds) ? props.campusIds : [];
     currentProjectProperties = {
         ...props,
         title:          pageTitle,
@@ -1156,7 +926,12 @@ function populateProperties(props = {}) {
         keywords:       props.keywords || defaultKeywords,
         canonical:      props.canonical || '',
         schemaLd:       props.schemaLd || '',
+        campusIds,
     };
+
+    // Applique la sélection de campus de la page à tous les composants.
+    window.__LP_CAMPUS_IDS = campusIds;
+    document.dispatchEvent(new CustomEvent('lp:campuses-changed'));
 }
 
 // ── NEW: Build complete HTML with SEO meta tags injected into <head> ─────────
@@ -1312,30 +1087,111 @@ function addFontStyleControl(editor) {
     }
 }
 
-// Donne un titre lisible aux contrôles « Ombre » (box-shadow) et « Arrière-plan »
-// (background) de la Décoration, via le NOM natif GrapesJS → le libellé s'affiche
-// au-dessus du contrôle, avec son bouton « + » natif à côté de la barre.
+// Donne un libellé français clair à CHAQUE propriété du Style Manager, via le NOM
+// natif GrapesJS → le libellé s'affiche au-dessus du contrôle (y compris pour les
+// composites « Bordure », « Arrondi des angles » et les empilements « Ombre »,
+// « Arrière-plan » qui gardent leur bouton « + » natif).
 // Méthode fiable (indépendante du nom de classe CSS), n'ajoute/retire aucune fonction.
-function setDecorationTitles(editor) {
+function setStyleManagerLabels(editor) {
     if (!editor) return;
     try {
         const sm = editor.StyleManager;
-        const names = { 'box-shadow': 'Ombre', 'background': 'Arrière-plan' };
+        const names = {
+            // ── Général ──
+            'display':          'Affichage',
+            'float':            'Alignement flottant',
+            'position':         'Position',
+            'top':              'Haut',
+            'right':            'Droite',
+            'left':             'Gauche',
+            'bottom':           'Bas',
+            // ── Flex ──
+            'flex-direction':   'Direction (flex)',
+            'flex-wrap':        'Retour à la ligne',
+            'justify-content':  'Alignement horizontal',
+            'align-items':      'Alignement vertical',
+            'align-content':    'Alignement du contenu',
+            'order':            'Ordre',
+            'flex-basis':       'Taille de base',
+            'flex-grow':        'Facteur d’agrandissement',
+            'flex-shrink':      'Facteur de rétrécissement',
+            'align-self':       'Alignement individuel',
+            // ── Dimensions ──
+            'width':            'Largeur',
+            'height':           'Hauteur',
+            'max-width':        'Largeur maximale',
+            'min-height':       'Hauteur minimale',
+            'margin':           'Marges extérieures',
+            'padding':          'Marges intérieures',
+            // ── Typographie ──
+            'font-family':      'Police',
+            'font-size':        'Taille du texte',
+            'font-weight':      'Graisse',
+            'font-style':       'Style (italique)',
+            'letter-spacing':   'Espacement des lettres',
+            'color':            'Couleur du texte',
+            'line-height':      'Interligne',
+            'text-align':       'Alignement du texte',
+            'text-shadow':      'Ombre du texte',
+            // ── Décorations ──
+            'background-color': 'Couleur de fond',
+            'border-radius':    'Arrondi des angles',
+            'border':           'Bordure',
+            'border-width':     'Épaisseur',
+            'border-style':     'Style',
+            'border-color':     'Couleur',
+            'box-shadow':       'Ombre',
+            'background':       'Arrière-plan (image)',
+            // ── Extra ──
+            'opacity':          'Opacité',
+            'transition':       'Transition (animation)',
+            'transform':        'Transformation',
+        };
         const sectors = sm.getSectors ? sm.getSectors() : null;
         if (!sectors || typeof sectors.forEach !== 'function') return;
+        // Titres de secteurs en français (clé = nom natif GrapesJS en minuscules)
+        const sectorNames = {
+            'general':     'Général',
+            'flex':        'Disposition (flex)',
+            'dimension':   'Dimensions',
+            'typography':  'Typographie',
+            'decorations': 'Décorations',
+            'extra':       'Effets & avancé',
+        };
         sectors.forEach(sector => {
+            const sid = (sector.get('name') || sector.get('id') || '').toString().toLowerCase();
+            if (sectorNames[sid]) sector.set('name', sectorNames[sid]);
+
             const props = typeof sector.getProperties === 'function'
                 ? sector.getProperties()
                 : (sector.get && sector.get('properties'));
             if (!props || typeof props.forEach !== 'function') return;
-            props.forEach(p => {
+            // Renomme la propriété + descend dans les sous-propriétés des
+            // composites (ex. Bordure → Épaisseur / Style / Couleur).
+            const applyName = p => {
                 const id = (p.get('property') || p.get('id') || '').toString();
                 if (names[id]) p.set('name', names[id]);
-            });
+                const sub = typeof p.getProperties === 'function' ? p.getProperties() : null;
+                if (sub && typeof sub.forEach === 'function') sub.forEach(applyName);
+            };
+            props.forEach(applyName);
         });
         sm.render();
+
+        // GrapesJS 0.23 ne rafraîchit pas le titre des secteurs après set('name'),
+        // on synchronise donc les libellés déjà rendus depuis les modèles (français).
+        const cont = document.querySelector('#styles-container');
+        if (cont) {
+            const labelEls = cont.querySelectorAll('.gjs-sm-sector-label');
+            const secs = sm.getSectors();
+            labelEls.forEach((el, i) => {
+                const s = secs.at ? secs.at(i) : secs[i];
+                const nm = s && s.get('name');
+                if (nm) el.textContent = nm;
+            });
+        }
     } catch (e) {
-        console.warn('setDecorationTitles: impossible de renommer box-shadow/background', e);
+        console.warn('setStyleManagerLabels: impossible de renommer les propriétés', e);
     }
 }
 
@@ -2236,7 +2092,13 @@ function initUI(editor) {
 
         try {
             showLoading('Sauvegarde en cours...');
-            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+            // Publier chaque image inline dans SFMC (une requête par image) pour
+            // garder le payload de /api/save sous la limite Vercel de 4,5 Mo
+            const { body: saveBody, mapping } = await publishInlineImagesInString(
+                JSON.stringify(projectData), fullName, collectAssetNames(editor)
+            );
+            applyImageMapToEditor(editor, mapping);
+            const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
             hideLoading();
             if (!res.ok) throw new Error(await res.text());
             await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès et synchronisé avec Salesforce !' });
@@ -2260,10 +2122,9 @@ function initUI(editor) {
         const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
         showLoading('Sauvegarde en cours...');
         try {
-            const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
+            const imgProjectName = localStorage.getItem(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentFullName`)
+                || `school-${CURRENT_SCHOOL?.id || 'unknown'}__page`;
+            const versionPayload = JSON.stringify({
                     html: finalHtml,
                     css: editor.getCss(),
                     project_data: editor.getProjectData(),
@@ -2281,7 +2142,15 @@ function initUI(editor) {
                             schemaLd: propsToSave.schemaLd || ''
                         }
                     }
-                })
+            });
+            const { body: versionBody, mapping } = await publishInlineImagesInString(
+                versionPayload, imgProjectName, collectAssetNames(editor)
+            );
+            applyImageMapToEditor(editor, mapping);
+            const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/versions`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: versionBody
             });
             if (!res.ok) throw new Error(await res.text());
             hideLoading();
@@ -2445,9 +2314,13 @@ function initUI(editor) {
             };
 
             try {
-                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                const { body: saveBody, mapping } = await publishInlineImagesInString(
+                    JSON.stringify(projectData), newFullName, collectAssetNames(editor)
+                );
+                applyImageMapToEditor(editor, mapping);
+                const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
                 if (!res.ok) throw new Error(await res.text());
-                
+
                 const saveData = await res.json();
                 const savedPageId = saveData.page_id || saveData.content?.pageId || null;
                 
@@ -2645,9 +2518,13 @@ function initUI(editor) {
                     };
 
                     try {
-                        const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) });
+                        const { body: saveBody, mapping } = await publishInlineImagesInString(
+                            JSON.stringify(projectData), fullName, collectAssetNames(editor)
+                        );
+                        applyImageMapToEditor(editor, mapping);
+                        const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
                         if (!res.ok) throw new Error(await res.text());
-                        
+
                         const saveData = await res.json();
                         if (saveData && saveData.page_id) {
                             currentStructuredPageId = saveData.page_id;
@@ -2967,8 +2844,9 @@ window.duplicateProject = (fullName) => {
 
                 console.log('🔴 projectData envoyé:', JSON.stringify(projectData).substring(0, 300));
 
-                const saveRes = await fetch('/api/save', { 
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                const { body: translateBody } = await publishInlineImagesInString(JSON.stringify(projectData), newFullName);
+                const saveRes = await fetch('/api/save', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: translateBody
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 
@@ -3021,8 +2899,9 @@ window.duplicateProject = (fullName) => {
                     projectData: sourceProject.project_data 
                 };
 
-                const saveRes = await fetch('/api/save', { 
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(projectData) 
+                const { body: duplicateBody } = await publishInlineImagesInString(JSON.stringify(projectData), newFullName);
+                const saveRes = await fetch('/api/save', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: duplicateBody
                 });
                 if (!saveRes.ok) throw new Error(await saveRes.text());
                 

@@ -1,33 +1,33 @@
 export default function(editor, categories) {
     const cat = categories && categories.MASTER ? categories.MASTER : 'Master Template';
 
-    function makeSlide(badgeText, addressText, overlayText) {
-        return {
-            tagName: 'div', classes: ['mc3c-slide'],
-            components: [{
-                tagName: 'div', classes: ['mc3c-card'],
-                components: [
-                    // Header : badge + ligne
-                    {
-                        tagName: 'div', classes: ['mc3c-card-header'],
-                        components: [
-                            { type: 'text', tagName: 'span', classes: ['mc3c-badge'], editable: true, selectable: true, components: badgeText },
-                            { tagName: 'hr', classes: ['mc3c-line'] }
-                        ]
-                    },
-                    // Adresse
-                    { type: 'text', tagName: 'div', classes: ['mc3c-address'], editable: true, selectable: true, components: addressText },
-                    // Media + overlay
-                    {
-                        tagName: 'div', classes: ['mc3c-media'],
-                        components: [
-                            { type: 'image', editable: true, selectable: true, attributes: { src: '', alt: '' }, classes: ['mc3c-img'] },
-                            { type: 'text', tagName: 'span', classes: ['mc3c-overlay-label'], editable: true, selectable: true, components: overlayText }
-                        ]
-                    }
-                ]
-            }]
-        };
+    function escapeHtml(str) {
+        if (str === null || str === undefined) return '';
+        return String(str)
+            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    /* HTML d'une slide à partir d'un campus (contenu "bake" côté éditeur). */
+    function slideHtml(c) {
+        const name = escapeHtml(c.name || '');
+        const address = escapeHtml(c.address || '');
+        const img = escapeHtml(c.image_url || '');
+        const link = (c.link || '').trim();
+        const imgTag = `<img src="${img}" alt="${name}" class="mc3c-img">`;
+        const media = link
+            ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener" class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></a>`
+            : `<div class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></div>`;
+        return `<div class="mc3c-slide"><div class="mc3c-card">`
+            + `<div class="mc3c-card-header"><span class="mc3c-badge">${name}</span><hr class="mc3c-line"></div>`
+            + `<div class="mc3c-address">${address}</div>${media}</div></div>`;
+    }
+
+    function buildTrackHtml(campuses) {
+        if (!campuses || !campuses.length) {
+            return `<div class="mc3c-slide"><div class="mc3c-card"><div class="mc3c-address" style="text-align:center;padding:40px 0;color:#9ca3af;font-style:italic;">📍 Aucun campus sélectionné. Cliquez sur « Campus » dans la barre d'outils.</div></div></div>`;
+        }
+        return campuses.map(slideHtml).join('');
     }
 
     editor.BlockManager.add('master-carousel3-campus', {
@@ -58,7 +58,7 @@ export default function(editor, categories) {
 
                 .mc3c-address { font-size: 13px; color: var(--brand-text, #1a1a1a); margin-bottom: 14px; }
 
-                .mc3c-media { position: relative; width: 100%; height: 280px; overflow: hidden; background: #d1d5db; }
+                .mc3c-media { position: relative; width: 100%; height: 280px; overflow: hidden; background: #d1d5db; display: block; }
                 .mc3c-img { width: 100%; height: 100%; object-fit: cover; display: block; }
 
                 .mc3c-overlay-label {
@@ -93,11 +93,7 @@ export default function(editor, categories) {
                         tagName: 'div', classes: ['mc3c-container'],
                         components: [{
                             tagName: 'div', classes: ['mc3c-track'],
-                            components: [
-                                makeSlide('NOM', 'Adresse', 'Ville'),
-                                makeSlide('NOM', 'Adresse', 'Ville'),
-                                makeSlide('NOM', 'Adresse', 'Ville')
-                            ]
+                            components: []  // rempli dynamiquement par la vue
                         }]
                     },
                     {
@@ -113,21 +109,85 @@ export default function(editor, categories) {
     });
 
     editor.DomComponents.addType('mc3c-component', {
+        isComponent(el) {
+            return el.tagName === 'SECTION' && el.classList && el.classList.contains('mc3c-section');
+        },
         model: { defaults: { 'script-props': [],
+            /* Runtime (page exportée) : navigation + re-synchro progressive. */
             script: function() {
                 var el = this;
                 var track = el.querySelector('.mc3c-track');
-                var next = el.querySelector('.mc3c-next');
-                var prev = el.querySelector('.mc3c-prev');
-                var idx = 0;
-                var total = track ? track.children.length : 0;
-                function go(i) {
-                    idx = (i + total) % total;
-                    if (track) track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+                if (!track) return;
+
+                function esc(s) {
+                    return String(s == null ? '' : s)
+                        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                        .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 }
-                if (next) next.addEventListener('click', function() { go(idx + 1); });
-                if (prev) prev.addEventListener('click', function() { go(idx - 1); });
+                function slide(c) {
+                    var name = esc(c.name || ''), address = esc(c.address || ''), img = esc(c.image_url || '');
+                    var link = (c.link || '').trim();
+                    var imgTag = '<img src="' + img + '" alt="' + name + '" class="mc3c-img">';
+                    var media = link
+                        ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></a>'
+                        : '<div class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></div>';
+                    return '<div class="mc3c-slide"><div class="mc3c-card"><div class="mc3c-card-header"><span class="mc3c-badge">' + name + '</span><hr class="mc3c-line"></div><div class="mc3c-address">' + address + '</div>' + media + '</div></div>';
+                }
+
+                function initNav() {
+                    var next = el.querySelector('.mc3c-next');
+                    var prev = el.querySelector('.mc3c-prev');
+                    var idx = 0;
+                    var total = track.children.length;
+                    function go(i) {
+                        if (!total) return;
+                        idx = (i + total) % total;
+                        track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+                    }
+                    if (next) next.onclick = function() { go(idx + 1); };
+                    if (prev) prev.onclick = function() { go(idx - 1); };
+                }
+
+                var ids = window.__LP_CAMPUS_IDS || [];
+                var baseUrl = window.__LP_API_BASE || '';
+                fetch(baseUrl + '/api/campuses')
+                    .then(function(r) { return r.json(); })
+                    .then(function(all) {
+                        if (!Array.isArray(all)) return;
+                        var campuses = all;
+                        if (ids && ids.length) {
+                            var byId = {};
+                            all.forEach(function(c) { byId[c.id] = c; });
+                            campuses = ids.map(function(id) { return byId[id]; }).filter(Boolean);
+                        }
+                        if (campuses.length) track.innerHTML = campuses.map(slide).join('');
+                    })
+                    .catch(function() { /* garde le contenu bake */ })
+                    .then(initNav, initNav);
             }
-        }}
+        }},
+
+        view: {
+            init() {
+                this._onCampusChange = () => this.renderCampuses();
+                document.addEventListener('lp:campuses-changed', this._onCampusChange);
+                setTimeout(() => this.renderCampuses(), 0);
+            },
+            removed() {
+                document.removeEventListener('lp:campuses-changed', this._onCampusChange);
+            },
+            renderCampuses() {
+                const track = this.model.find('.mc3c-track')[0];
+                if (!track) return;
+                const campuses = (window.LPCampus && window.LPCampus.getResolvedCampuses)
+                    ? window.LPCampus.getResolvedCampuses() : [];
+                track.components(buildTrackHtml(campuses));
+                const lock = (comp) => comp.components().each(child => {
+                    child.set({ editable: false, selectable: false, hoverable: false, draggable: false, droppable: false });
+                    lock(child);
+                });
+                lock(track);
+            }
+        }
     });
 }

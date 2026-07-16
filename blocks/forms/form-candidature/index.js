@@ -313,7 +313,7 @@ ${hidden}
             <div class="cnd-field">
                 <label class="cnd-label">${t.campus}<span class="req">*</span></label>
                 <div class="cnd-sel-wrap">
-                    <select class="cnd-select cnd-campus" name="Campus" required>
+                    <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
                         ${campusOptions}
                     </select>
                 </div>

@@ -4,7 +4,8 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset } = require('./lib/sfmc');
+const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, listCampuses, upsertCampus, deleteCampus } = require('./lib/sfmc');
+const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
     syncLegacyProjectToContent,
@@ -24,6 +25,7 @@ const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
+const { ensureFormAnchors, extractFormIds } = require('./lib/api-shared');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -196,12 +198,21 @@ function wrapCustomCode(code, zone) {
     return c ? `<!-- custom-${zone}:start -->${c}<!-- custom-${zone}:end -->` : '';
 }
 
+function buildCampusRuntimeTag(properties = {}) {
+    const ids = Array.isArray(properties.campusIds) ? properties.campusIds : [];
+    const apiBase = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL
+        ? (process.env.PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`)
+        : '';
+    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};</script>`;
+}
+
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
     const title = properties?.seoTitle || properties?.title || projectName || '';
     const desc = properties?.seoDescription || '';
     const keywords = properties?.keywords || '';
     const canonical = properties?.canonical || '';
     const schemaLd = properties?.schemaLd || '';
+    const campusTag = buildCampusRuntimeTag(properties);
     const headCode = wrapCustomCode(properties.customHeadCode, 'head');
     const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
     // anti-doublon : retirer un éventuel code déjà injecté
@@ -235,6 +246,10 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
             $('head').append(`\n    <script type="application/ld+json">${schemaLd}</script>`);
         }
 
+        // Config campus (sélection de la page) pour le runtime des composants
+        $('script[data-lp-campus-config]').remove();
+        $('head').append(`\n    ${campusTag.replace('<script>', '<script data-lp-campus-config>')}`);
+
         // Code marketing personnalisé (GTM, Analytics…)
         if (headCode) $('head').append(`\n    ${headCode}`);
         if (bodyCode) $('body').append(`\n    ${bodyCode}`);
@@ -258,6 +273,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     <title>${escapeHtml(title)}</title>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     ${seoTags}
+    ${campusTag}
     <style>${css}</style>
 </head>
 <body>${html}${bodyCode}</body>
@@ -730,13 +746,20 @@ http.createServer(async (req, res) => {
                 console.log('🔴 is_original_language:', data.is_original_language);
                 console.log('🔴 page_group_id:', data.page_group_id);
 
-                const { projectName, html, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
+                const { projectName, html: submittedHtml, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
                 if (!projectName) {
                     res.writeHead(400);
                     return res.end('Project name is required');
+                }
+
+                // Ancrer les formulaires (id stable pour les liens #form_id)
+                const { html, formIds } = ensureFormAnchors(submittedHtml);
+                if (properties) {
+                    properties.rawHtml = html;
+                    properties.formIds = formIds;
                 }
 
                 // Code marketing personnalisé (école + page)
@@ -833,38 +856,17 @@ http.createServer(async (req, res) => {
                     content: contentSync
                 }));
 
-                // 3. Tâche en arrière-plan (non-bloquante) pour le nettoyage et l'envoi SFMC
+                // 3. Mise en file SFMC (comme Vercel) : le cron worker nettoie le HTML,
+                // publie les images inline dans SFMC, remplace leurs URLs puis envoie la page.
                 (async () => {
                     try {
-                        console.log(`\n🧹 [BACKGROUND] Nettoyage du HTML pour SFMC...`);
-                        const cleanedHtmlForSfmc = cleanHtmlForSfmc(fullHtml);
-                        console.log(`✅ [BACKGROUND] Nettoyage terminé (Taille originale: ${fullHtml.length} octets -> Taille nettoyée: ${cleanedHtmlForSfmc.length} octets)`);
-
-                        // Mise à jour de Supabase (Projects) avec html_sfmc
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            html_sfmc: cleanedHtmlForSfmc
+                        const jobResult = await enqueueOrProcessInline({
+                            projectName, fullHtml, css, projectData, properties,
+                            source: 'server.js/save'
                         });
-
-                        // Mise à jour de page_versions avec html_sfmc
-                        if (contentSync && contentSync.versionId) {
-                            await supabaseRequest('PATCH', `/page_versions?id=eq.${encodeURIComponent(contentSync.versionId)}`, {
-                                html_sfmc: cleanedHtmlForSfmc
-                            });
-                        }
-
-                        if (isSfmcConfigured()) {
-                            console.log(`☁️  [BACKGROUND] Envoi de la version HTML nettoyée à SFMC...`);
-                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtmlForSfmc });
-                            console.log(
-                                `☁️  [BACKGROUND] SFMC sync: ${sfmcResult.action}` +
-                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
-                                (sfmcResult.id ? ` (id=${sfmcResult.id})` : '')
-                            );
-                        } else {
-                            console.log('⏭️  [BACKGROUND] SFMC sync skipped (env vars not configured).');
-                        }
+                        console.log(`☁️  [BACKGROUND] SFMC sync: ${jobResult.action}` + (jobResult.error ? ` (${jobResult.error})` : ''));
                     } catch (bgError) {
-                        console.error(`❌ [BACKGROUND] Erreur lors de la tâche asynchrone:`, bgError);
+                        console.error(`❌ [BACKGROUND] Erreur lors de la mise en file SFMC:`, bgError);
                     }
                 })();
 
@@ -925,10 +927,14 @@ http.createServer(async (req, res) => {
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
                 await applyCustomMarketingCode(projectName, mergedProperties);
-                const baseHtml = mergedProperties.rawHtml || extractBodyContent(project.html || '') || '';
+                const anchoredBody = ensureFormAnchors(
+                    mergedProperties.rawHtml || extractBodyContent(project.html || '') || ''
+                );
+                mergedProperties.rawHtml = anchoredBody.html;
+                mergedProperties.formIds = anchoredBody.formIds;
                 const freshHtml = buildStoredHtml({
                     projectName,
-                    html: baseHtml,
+                    html: anchoredBody.html,
                     css: project.css || '',
                     properties: mergedProperties
                 });
@@ -946,37 +952,18 @@ http.createServer(async (req, res) => {
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ message: 'SEO saved! Background sync started.', projectName }));
 
-                // 5. Tâche en arrière-plan : nettoyage + SFMC + page_versions
+                // 5. Mise en file SFMC (comme Vercel) : traitement par le cron worker
                 (async () => {
                     try {
-                        console.log(`\n🧹 [BACKGROUND/SEO] Nettoyage HTML pour SFMC...`);
-                        const cleanedHtml = cleanHtmlForSfmc(freshHtml);
-                        console.log(`✅ [BACKGROUND/SEO] Nettoyage terminé (${freshHtml.length} → ${cleanedHtml.length} octets)`);
-
-                        // Mise à jour html_sfmc dans Projects
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            html_sfmc: cleanedHtml
-                        });
-
-                        // Synchronisation avec la table page_versions (Content API)
-                        const contentSync = await syncLegacyProjectToContent({
+                        const jobResult = await enqueueOrProcessInline({
                             projectName,
-                            html: freshHtml,
-                            html_sfmc: cleanedHtml,
-                            css: project.css || '',
+                            fullHtml:    freshHtml,
+                            css:         project.css || '',
                             projectData: project.project_data,
-                            properties: mergedProperties
+                            properties:  mergedProperties,
+                            source:      'server.js/save-seo'
                         });
-
-                        if (isSfmcConfigured()) {
-                            console.log(`☁️  [BACKGROUND/SEO] Envoi vers SFMC...`);
-                            const sfmcResult = await syncProjectToSfmc({ projectName, fullHtml: cleanedHtml });
-                            console.log(`☁️  [BACKGROUND/SEO] SFMC sync: ${sfmcResult.action}` +
-                                (sfmcResult.name ? ` → "${sfmcResult.name}"` : '') +
-                                (sfmcResult.id   ? ` (id=${sfmcResult.id})`  : ''));
-                        } else {
-                            console.log('⏭️  [BACKGROUND/SEO] SFMC skipped (non configuré).');
-                        }
+                        console.log(`☁️  [BACKGROUND/SEO] SFMC sync: ${jobResult.action}` + (jobResult.error ? ` (${jobResult.error})` : ''));
                     } catch (bgErr) {
                         console.error(`❌ [BACKGROUND/SEO] Erreur:`, bgErr.message);
                     }
@@ -1569,6 +1556,26 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
         return;
     }
 
+    // ── API: Upload Image to SFMC (une requête par image, envoyée à la
+    // sauvegarde pour garder le payload de /api/save sous la limite Vercel) ──
+    if (req.method === 'POST' && pathname === '/api/sfmc/upload-image') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { name, schoolId, projectName, dataUrl } = JSON.parse(body);
+                const result = await uploadImageFromDataUrl({ name, schoolId, projectName, dataUrl });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify(result));
+            } catch (e) {
+                console.error('❌ Error uploading image to SFMC:', e.message);
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
     // ── API: Save Form to Supabase ────────────────────────────────────
     if (req.method === 'POST' && pathname === '/api/forms/save-to-supabase') {
         let body = '';
@@ -1868,11 +1875,15 @@ Règles importantes :
         });
         return;
     }
-    // ── API: Campus CRUD ──────────────────────────────────────────────
+    // ── API: Campus CRUD (source = Data Extension SFMC) ───────────────
     if (pathname.startsWith('/api/campuses')) {
         try {
+            if (!isSfmcConfigured()) {
+                res.writeHead(500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' }));
+            }
             if (req.method === 'GET') {
-                const result = await supabaseRequest('GET', '/campuses?order=name.asc');
+                const result = await listCampuses();
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result || []));
             }
@@ -1880,13 +1891,18 @@ Règles importantes :
                 let body = '';
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
-                    const { id, name, slug } = JSON.parse(body || '{}');
-                    if (!id || !name) {
-                        res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
+                    try {
+                        const { id, name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        if (!id || !name) {
+                            res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
+                        }
+                        const result = await upsertCampus({ id, name, slug: slug || id, image_url, address, link });
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify(result));
+                    } catch (e) {
+                        res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: e.message }));
                     }
-                    const result = await supabaseRequest('POST', '/campuses', { id, name, slug: slug || id }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
                 });
                 return;
             }
@@ -1895,22 +1911,27 @@ Règles importantes :
                 let body = '';
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
-                    const { name, slug } = JSON.parse(body || '{}');
-                    if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
-                    const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, { name, slug: slug || campusId }, { 'Prefer': 'return=representation' });
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                    try {
+                        const { name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
+                        const result = await upsertCampus({ id: campusId, name, slug: slug || campusId, image_url, address, link });
+                        res.writeHead(200, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify(result));
+                    } catch (e) {
+                        res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                        return res.end(JSON.stringify({ error: e.message }));
+                    }
                 });
                 return;
             }
             if (req.method === 'DELETE') {
                 const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-                await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
+                const result = await deleteCampus(campusId);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify({ message: 'Campus supprimé' }));
+                return res.end(JSON.stringify(result));
             }
         } catch (e) {
-            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: e.message }));
         }
     }
@@ -1983,7 +2004,7 @@ Règles importantes :
             console.log(`\n📋 CMS: Récupération de toutes les pages`);
             const result = await supabaseRequest(
                 'GET',
-                '/Projects?select=project_name,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
+                '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
             );
             
             if (!Array.isArray(result)) {
@@ -2010,6 +2031,7 @@ Règles importantes :
                     lang,
                     seoTitle:             props.seoTitle || '',
                     seoDescription:       props.seoDescription || '',
+                    formIds:              Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:           p.created_at,
                     source:               'legacy',
                     status:               props.status || 'draft',
@@ -2042,7 +2064,10 @@ Règles importantes :
                         : existing?.is_original_language,
                     page_group_id: page.page_group_id !== undefined
                         ? page.page_group_id
-                        : existing?.page_group_id
+                        : existing?.page_group_id,
+                    formIds: Array.isArray(page.formIds)
+                        ? page.formIds
+                        : (existing?.formIds || [])
                 });
             });
             const pages = [...merged.values()].sort((a, b) => {
@@ -2215,14 +2240,17 @@ Règles importantes :
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
-            
-            // Corriger tous les chemins relatifs restants (css/fonts.css, ../assets/...) 
+let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
+
+            // Corriger tous les chemins relatifs restants (css/fonts.css, ../assets/...)
             // en forçant la racine de l'URL pour la page de preview.
             if (!finalHtml.includes('<base href=')) {
                 finalHtml = finalHtml.replace(/<head>/i, '<head>\n    <base href="/">');
             }
-            
+
+            // Ancres stables des formulaires (liens #form_id) — feature/PFE
+            finalHtml = ensureFormAnchors(finalHtml).html;
+
             res.end(finalHtml);
         } catch (e) {
             console.log(`❌ Erreur Preview:`, e.message);
@@ -2262,7 +2290,16 @@ Règles importantes :
                 }
 
                 res.writeHead(200, { 'Content-Type': 'text/html' });
-                return res.end(ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)));
+let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html));
+
+                if (!finalPublicHtml.includes('<base href=')) {
+                    finalPublicHtml = finalPublicHtml.replace(/<head>/i, '<head>\n    <base href="/">');
+                }
+
+                // Ancres stables des formulaires (liens #form_id) — feature/PFE
+                finalPublicHtml = ensureFormAnchors(finalPublicHtml).html;
+
+                return res.end(finalPublicHtml);
             }
         } catch (e) {
             if (!isMissingContentSchemaError(e)) {
@@ -2334,3 +2371,27 @@ Règles importantes :
     console.log(`📚 Dashboard: http://localhost:${port}/`);
     console.log(`🔨 Builder direct: http://localhost:${port}/?school=efap`);
 });
+
+// ── Scheduler local : équivalent du Vercel Cron ──────────────────────
+// Traite périodiquement la file integration_jobs via le cron worker
+// (api/cron.js) : nettoyage HTML, publication des images inline dans SFMC,
+// remplacement des URLs, puis envoi de la page vers SFMC.
+const CRON_INTERVAL_MS = parseInt(process.env.CRON_INTERVAL_MS || '30000', 10);
+const cronTimer = setInterval(async () => {
+    try {
+        const result = await cronHandler({ method: 'GET' }, {
+            status() { return this; },
+            json(payload) { return payload; }
+        });
+        if (result && result.error) {
+            if (isMissingContentSchemaError({ message: result.error })) {
+                console.warn('⏭️  [CRON local] Table integration_jobs absente — scheduler désactivé (traitement inline actif).');
+                clearInterval(cronTimer);
+            } else {
+                console.error('❌ [CRON local] Erreur:', result.error);
+            }
+        }
+    } catch (e) {
+        console.error('❌ [CRON local] Erreur:', e.message);
+    }
+}, CRON_INTERVAL_MS);

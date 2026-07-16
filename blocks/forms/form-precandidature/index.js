@@ -323,7 +323,7 @@ export default function (editor, categories) {
             <div class="pc-field">
                 <label class="pc-label">${t.campus}<span class="req">*</span></label>
                 <div class="pc-sel-wrap">
-                    <select class="pc-select" name="Campus" required>
+                    <select class="pc-select lp-campus-select" name="Campus" required>
                         ${campusOptions}
                     </select>
                 </div>

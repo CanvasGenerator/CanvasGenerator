@@ -1,4 +1,4 @@
-const { supabaseRequest, getQueryParam, requireField, slugify } = require('../lib/api-shared');
+const { supabaseRequest, getQueryParam, requireField, slugify, extractFormIds, extractBodyContent } = require('../lib/api-shared');
 const { readSchoolsForApi } = require('./schools');
 
 const DEFAULT_ORGANIZATION = {
@@ -237,7 +237,11 @@ async function createVersionForPage(page, legacyProject, versionNumber = null) {
 
     await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
         current_version_id: version.id,
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        metadata: {
+            ...(page.metadata || {}),
+            formIds: extractFormIds(legacyProject.html || '')
+        }
     });
 
     return version;
@@ -376,7 +380,10 @@ async function listMigratedDashboardPages() {
                 public_url: publicUrl,
                 base_url: entity.base_url || '',
                 status: page.status,
-                publication: getPublicationSettings(page)
+                publication: getPublicationSettings(page),
+                // Ancres de formulaires de la version courante (mises à jour au save/restore).
+                // undefined si jamais calculées → le merge retombe sur l'extraction legacy.
+                formIds: Array.isArray(page.metadata?.formIds) ? page.metadata.formIds : undefined
             };
         });
 }
@@ -930,6 +937,17 @@ async function createPageVersion(req, res, pageId) {
     if (body.page?.seo) pagePatch.seo = body.page.seo;
     if (body.page?.metadata) pagePatch.metadata = body.page.metadata;
 
+    // Garder les ancres de formulaires alignées sur la version courante
+    const existingPage = await supabaseRequest(
+        'GET',
+        `/pages?id=eq.${encodeURIComponent(pageId)}&select=metadata&limit=1`
+    ).catch(() => null);
+    pagePatch.metadata = {
+        ...(existingPage?.[0]?.metadata || {}),
+        ...(pagePatch.metadata || {}),
+        formIds: extractFormIds(body.html || '')
+    };
+
     await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, pagePatch);
     res.status(200).json({ version });
 }
@@ -951,18 +969,67 @@ async function restorePageVersion(req, res, pageId) {
 
     const page = pageResult[0];
     const version = result[0];
+    // Recalculer les ancres de formulaires depuis le HTML de la version restaurée
+    const formIds = extractFormIds(version.html || '');
     await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, {
         current_version_id: version.id,
         updated_at: new Date().toISOString(),
         metadata: {
             ...(page.metadata || {}),
+            formIds,
             restoredVersionId: version.id,
             restoredVersionNumber: version.version_number,
             restoredAt: new Date().toISOString()
         }
     });
 
-    res.status(200).json({ message: 'Version restored', version });
+    // ── Répercuter la restauration sur le projet legacy (table Projects) ──
+    // Le builder, le dashboard et la synchro SFMC/cron lisent Projects : sans
+    // write-back, la prochaine synchro legacy → content recréerait une version
+    // depuis l'ancien HTML et écraserait la restauration (et ses formIds).
+    const legacyProjectName = page.metadata?.legacyProjectName;
+    if (legacyProjectName) {
+        const legacyRes = await supabaseRequest(
+            'GET',
+            `/Projects?project_name=eq.${encodeURIComponent(legacyProjectName)}&select=properties&limit=1`
+        ).catch(() => null);
+
+        if (Array.isArray(legacyRes) && legacyRes.length) {
+            const properties = { ...(legacyRes[0].properties || {}) };
+            properties.formIds = formIds;
+            properties.rawHtml = extractBodyContent(version.html || '');
+
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(legacyProjectName)}`, {
+                html:         version.html || '',
+                html_sfmc:    null,
+                css:          version.css || '',
+                project_data: typeof version.project_data === 'string'
+                    ? version.project_data
+                    : JSON.stringify(version.project_data || {}),
+                properties
+            });
+
+            // Annuler les jobs SFMC en attente : leur payload contient encore
+            // le HTML d'avant restauration et écraserait la version restaurée.
+            await supabaseRequest(
+                'PATCH',
+                `/integration_jobs?status=eq.pending&action=eq.sync_project&payload->>projectName=eq.${encodeURIComponent(legacyProjectName)}`,
+                { status: 'cancelled', updated_at: new Date().toISOString() }
+            ).catch(() => null);
+
+            // Re-synchroniser SFMC avec le HTML restauré (même flux qu'un save)
+            await supabaseRequest('POST', '/integration_jobs', {
+                target:       'sfmc',
+                action:       'sync_project',
+                status:       'pending',
+                payload:      { projectName: legacyProjectName, html: version.html || '' },
+                metadata:     { source: 'version-restore', restoredVersionId: version.id },
+                scheduled_at: new Date().toISOString()
+            }).catch(() => null);
+        }
+    }
+
+    res.status(200).json({ message: 'Version restored', version, formIds });
 }
 
 async function findPageWithCurrentVersionByLegacyProject(projectName) {

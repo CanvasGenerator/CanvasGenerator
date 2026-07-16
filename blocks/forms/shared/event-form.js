@@ -588,7 +588,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     <div class="jpo-campus-zone">
         <label class="jpo-label">Campus<span class="req">*</span></label>
         <div class="jpo-campus-select-wrap">
-            <select class="jpo-campus-select" name="Campus" required>
+            <select class="jpo-campus-select lp-campus-select" name="Campus" required>
                 ${campusOptions}
             </select>
         </div>
