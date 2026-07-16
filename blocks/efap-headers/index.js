@@ -41,8 +41,8 @@ export default function(editor, categories) {
                         display: flex; align-items: center; justify-content: space-between;
                         padding: 22px 90px; gap: 24px;
                     }
-                    .${v.id} .hdr-logo { display: inline-block; height: ${LOGO_H}px; overflow: hidden; flex-shrink: 0; }
-                    .${v.id} .hdr-logo-img { height: ${v.imgH}px; width: auto; display: block; margin-top: ${v.mt}px; }
+                    .${v.id} .hdr-logo { display: inline-block; height: auto; overflow: visible; flex-shrink: 0; max-width: 100%; }
+                    .${v.id} .hdr-logo-img { height: auto; max-height: 56px; width: auto; max-width: 100%; display: block; }
                     .${v.id} .hdr-lang {
                         font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                         letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
@@ -50,7 +50,7 @@ export default function(editor, categories) {
                     @media (max-width: 768px) {
                         .${v.id} .hdr-inner { padding: 14px 18px; gap: 14px; }
                         .${v.id} .hdr-logo { height: auto; overflow: visible; max-width: calc(100% - 44px); }
-                        .${v.id} .hdr-logo-img { height: ${Math.round(v.imgH * MOBILE_H / LOGO_H)}px; width: auto; max-width: 100%; margin-top: 0; }
+                        .${v.id} .hdr-logo-img { max-height: 44px; height: auto; width: auto; max-width: 100%; margin-top: 0; }
                     }
                 </style>
             `

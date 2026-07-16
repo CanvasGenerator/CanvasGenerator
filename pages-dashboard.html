@@ -12,6 +12,69 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/builder.css">
     <style>
+        /* ── Sidebar école — badge couleur ───────────────────────── */
+        .cms-nav-school-dot {
+            display: inline-block;
+            width: 9px;
+            height: 9px;
+            border-radius: 50%;
+            margin-right: 7px;
+            flex-shrink: 0;
+            box-shadow: 0 0 0 2px rgba(0,0,0,.07);
+            vertical-align: middle;
+        }
+        .cms-nav-school-emoji {
+            margin-right: 6px;
+            font-size: 14px;
+            line-height: 1;
+        }
+        .cms-nav-group {
+            border-left: 2px solid transparent;
+            border-radius: 0 6px 6px 0;
+            margin-bottom: 1px;
+            transition: border-color .2s;
+        }
+        .cms-nav-group:has(.cms-nav-item.active) {
+            border-left-color: var(--school-color, #1a7a5e);
+        }
+        .cms-nav-group > .cms-nav-item {
+            font-weight: 600;
+            letter-spacing: .01em;
+        }
+        .cms-nav-group > .cms-nav-item.active {
+            background: linear-gradient(90deg, color-mix(in srgb, var(--school-color, #1a7a5e) 12%, transparent), transparent);
+            color: var(--school-color, #1a7a5e);
+        }
+        .cms-nav-group > .cms-nav-item.active small {
+            color: var(--school-color, #1a7a5e);
+            opacity: .8;
+        }
+        .cms-nav-subitem {
+            padding-left: 32px !important;
+        }
+        .cms-nav-subitem .fas.fa-folder {
+            opacity: .65;
+        }
+        /* Divider avant la liste écoles */
+        .cms-nav-schools-divider {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 14px 4px;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: .08em;
+            text-transform: uppercase;
+            color: #9ca3af;
+            user-select: none;
+        }
+        .cms-nav-schools-divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: #f0f0f0;
+        }
+
         /* Badges des ancres de formulaires (#form_id) */
         .cms-page-formids {
             display: flex;
@@ -35,6 +98,7 @@
         }
         .cms-formid-chip:hover { background: #e0e7ff; }
         .cms-formid-chip i { font-size: 9px; opacity: .6; }
+
     </style>
 </head>
 
@@ -552,6 +616,26 @@
         let currentSidebarMode = 'all';
         let activationTarget = null;
 
+        // ── Métadonnées écoles (emoji + couleur) ────────────────────────────────
+        // Source de vérité : schools.json — copie statique pour enrichir la sidebar
+        // sans appel réseau supplémentaire.
+        const SCHOOLS_META = {
+            'efap':        { emoji: '📰', color: '#000000', name: 'EFAP' },
+            'brassart':    { emoji: '🎨', color: '#C7005D', name: 'BRASSART' },
+            'icart':       { emoji: '🎭', color: '#E9540D', name: 'ICART' },
+            'cread':       { emoji: '🖌️', color: '#463A8F', name: 'CREAD' },
+            'esec':        { emoji: '📸', color: '#D9000D', name: 'ÉSEC' },
+            'ifa-paris':   { emoji: '👗', color: '#000000', name: 'IFA PARIS' },
+            'mopa':        { emoji: '🎬', color: '#b8a800', name: 'MOPA' },
+            'ecole-bleue': { emoji: '🔵', color: '#000041', name: 'ÉCOLE BLEUE' },
+            'efj':         { emoji: '📝', color: '#00858C', name: 'EFJ' },
+            '3wa':         { emoji: '💻', color: '#CD1316', name: '3W ACADEMY' },
+        };
+        /** Retourne les métadonnées d'une école à partir de son slug/id. */
+        function schoolMeta(id) {
+            return SCHOOLS_META[String(id || '').toLowerCase()] || { emoji: '🏫', color: '#6b7280', name: null };
+        }
+
         // ── Helpers ────────────────────────────────────────────────────────────
         function formatDate(iso) {
             if (!iso) return '—';
@@ -676,10 +760,28 @@
             return allPages.filter(page => {
                 const ps = page.status || 'draft';
                 const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
-                const matchEntity = !entityId || page.entity_id === entityId;
+                const matchEntity = !entityId || pageMatchesEntity(page, entityId);
                 const matchFolder = !folderId || page.folder_id === folderId;
                 return matchView && matchEntity && matchFolder;
             }).length;
+        }
+
+        /**
+         * Retourne true si la page appartient à l'entité donnée.
+         * Priorité : entity_id direct (pages migrées/structurées).
+         * Fallback : comparaison du slug de l'entité avec p.school (pages legacy non migrées).
+         */
+        function pageMatchesEntity(page, entityId) {
+            if (page.entity_id === entityId) return true;
+            // Fallback pour les pages legacy sans entity_id
+            if (!page.entity_id && page.school) {
+                const entity = allEntities.find(e => e.id === entityId);
+                if (!entity) return false;
+                const entitySlug = String(entity.slug || entity.name || '').toLowerCase();
+                const pageSchool = String(page.school || '').toLowerCase();
+                return entitySlug === pageSchool;
+            }
+            return false;
         }
 
         function setNavSelection(entityId = '', folderId = '') {
@@ -732,22 +834,67 @@
         function renderEntityNavigation() {
             document.getElementById('nav-all-count').textContent = pageCountFor();
             const list = document.getElementById('entity-nav-list');
-            if (!allEntities.length) { list.innerHTML = '<div class="cms-nav-loading">Aucune organisation.</div>'; return; }
+
+            // Trier les entités dans l'ordre défini par SCHOOLS_META
+            const schoolOrder = Object.keys(SCHOOLS_META);
+            const entities = allEntities
+                .filter(e => !e.deleted)
+                .sort((a, b) => {
+                    const ia = schoolOrder.indexOf(String(a.slug || a.id).toLowerCase());
+                    const ib = schoolOrder.indexOf(String(b.slug || b.id).toLowerCase());
+                    if (ia === -1 && ib === -1) return 0;
+                    if (ia === -1) return 1;
+                    if (ib === -1) return -1;
+                    return ia - ib;
+                });
+
+            if (!entities.length) {
+                list.innerHTML = '<div class="cms-nav-loading">Aucune école disponible.</div>';
+                return;
+            }
+
             const foldersByEntity = new Map();
-            allFolders.forEach(f => { const g = foldersByEntity.get(f.entity_id) || []; g.push(f); foldersByEntity.set(f.entity_id, g); });
-            list.innerHTML = allEntities.filter(e => !e.deleted).map(entity => {
-                const folders = foldersByEntity.get(entity.id) || [];
-                const folderHtml = folders.map(f => `
-                    <button class="cms-nav-item cms-nav-subitem" type="button" data-entity-id="${escAttr(entity.id)}" data-folder-id="${escAttr(f.id)}">
-                        <span><i class="fas fa-folder"></i> ${escHtml(f.name)}</span>
-                        <small>${pageCountFor({ entityId: entity.id, folderId: f.id })}</small>
-                    </button>`).join('');
-                return `<div class="cms-nav-group">
-                    <button class="cms-nav-item" type="button" data-entity-id="${escAttr(entity.id)}">
-                        <span><i class="fas fa-school"></i> ${escHtml(entity.name)}</span>
-                        <small>${pageCountFor({ entityId: entity.id })}</small>
-                    </button>${folderHtml}</div>`;
-            }).join('');
+            allFolders.forEach(f => {
+                const g = foldersByEntity.get(f.entity_id) || [];
+                g.push(f);
+                foldersByEntity.set(f.entity_id, g);
+            });
+
+            list.innerHTML = '<div class="cms-nav-schools-divider"><i class="fas fa-school" style="font-size:9px;"></i> Écoles</div>' +
+                entities.map(entity => {
+                    const entityKey = String(entity.slug || entity.id).toLowerCase();
+                    const meta  = schoolMeta(entityKey);
+                    const color = meta.color;
+                    const emoji = meta.emoji;
+                    const count = pageCountFor({ entityId: entity.id });
+
+                    const folders = foldersByEntity.get(entity.id) || [];
+                    const folderHtml = folders
+                        .filter(f => f.slug !== 'legacy-projects' && f.name !== 'Landing Pages')
+                        .map(f => {
+                            const fCount = pageCountFor({ entityId: entity.id, folderId: f.id });
+                            return `<button class="cms-nav-item cms-nav-subitem" type="button"
+                                        data-entity-id="${escAttr(entity.id)}"
+                                        data-folder-id="${escAttr(f.id)}">
+                                        <span><i class="fas fa-folder" style="color:${escAttr(color)};opacity:.6;"></i> ${escHtml(f.name)}</span>
+                                        <small>${fCount}</small>
+                                    </button>`;
+                        }).join('');
+
+                    return `<div class="cms-nav-group" style="--school-color:${color};">
+                        <button class="cms-nav-item" type="button" data-entity-id="${escAttr(entity.id)}"
+                                title="${escAttr(entity.name)}">
+                            <span style="display:flex;align-items:center;">
+                                <span class="cms-nav-school-dot" style="background:${escAttr(color)};"></span>
+                                <span class="cms-nav-school-emoji">${emoji}</span>
+                                ${escHtml(entity.name)}
+                            </span>
+                            <small>${count}</small>
+                        </button>
+                        ${folderHtml}
+                    </div>`;
+                }).join('');
+
             list.querySelectorAll('.cms-nav-item').forEach(item => {
                 item.addEventListener('click', () => setNavSelection(item.dataset.entityId || '', item.dataset.folderId || ''));
             });
@@ -1009,6 +1156,15 @@
                 allEntities = entitiesRes.ok ? await entitiesRes.json() : [];
                 allFolders  = foldersRes.ok  ? await foldersRes.json()  : [];
 
+                // Associer entity_id aux pages legacy
+                allPages = allPages.map(p => {
+                    if (!p.entity_id && p.school) {
+                        const ent = allEntities.find(e => String(e.slug || e.id || e.name).toLowerCase() === String(p.school).toLowerCase());
+                        if (ent) p.entity_id = ent.id;
+                    }
+                    return p;
+                });
+
                 // ── DEBUG: log full /api/pages payload in DevTools Network ─────
                 console.group('%c[/api/pages] Response payload', 'color:#1a7a5e;font-weight:bold;');
                 console.log('Total pages returned:', allPages.length);
@@ -1058,7 +1214,9 @@
                 const ps          = p.status || 'draft';
                 const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
                 
-                const matchEntity = !selectedEntityId || p.entity_id === selectedEntityId;
+                // Filtrage par école (sidebar) : utilise entity_id en priorité,
+                // puis fallback sur p.school (slug) pour les pages legacy non migrées.
+                const matchEntity = !selectedEntityId || pageMatchesEntity(p, selectedEntityId);
                 const matchFolder = !selectedFolderId || p.folder_id === selectedFolderId;
                 
                 const matchStatus = currentView === 'trash' ? true : 
