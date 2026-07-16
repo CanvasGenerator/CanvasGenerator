@@ -73,14 +73,46 @@ function isFullHtmlDocument(html = '') {
 }
 
 // Sélecteurs dont le background doit prendre --brand-header lors d'une déclinaison
+// NOTE: Les footers (footer-efap, footer-brassart, mf-footer, df-*) sont
+// INTENTIONNELLEMENT absents : le footer doit rester TOUJOURS fond blanc/noir,
+// quelle que soit l'école ou la template déclinée.
 const BRAND_HEADER_SELECTORS = [
-    'header-efap', 'header-brassart', 'mh-header',
-    'footer-efap', 'footer-brassart', 'mf-footer'
+    'header-efap', 'header-brassart', 'mh-header'
 ];
 const BRAND_CAROUSEL_SELECTORS = [
     'mc2a-section', 'mc2b-section', 'mc2c-section',
     'mcva-section', 'mcd-colored-zone', 'mc3c-section', 'mce-section', 'mcb-gray-zone'
 ];
+
+/**
+/**
+ * Rend les URLs d'assets ABSOLUES depuis la racine ("/assets/…").
+ * Le HTML stocké peut contenir des chemins RELATIFS ("assets/…") qui cassent dès que
+ * la page n'est plus servie à la racine (ex. "/preview/<nom>" → "/preview/assets/…"
+ * → 404 → logos header/footer invisibles). Appliqué à la volée au service pour
+ * réparer aussi les pages déjà sauvegardées. Idempotent, sans effet sur http(s).
+ */
+function rewriteAssetsToRoot(html) {
+    return String(html || '')
+        .replace(/((?:src|srcset|href)\s*=\s*["'])\.?\/?assets\//gi, '$1/assets/')
+        .replace(/url\((\s*['"]?)\.?\/?assets\//gi, 'url($1/assets/');
+}
+
+// Feuille Google Fonts des familles additionnelles proposées dans l'éditeur.
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+
+/**
+ * Garantit le chargement des polices (Gotham/Space Grotesk via /css/fonts.css +
+ * Google Fonts) dans le HTML servi. Injecte les <link> avant </head> UNIQUEMENT
+ * si absents → répare les pages sauvegardées avant l'ajout des polices, sans
+ * doublonner celles qui les contiennent déjà.
+ */
+function ensureFontLinks(html) {
+    const s = String(html || '');
+    if (/css\/fonts\.css/i.test(s)) return s;
+    const links = `<link href="${GOOGLE_FONTS_HREF}" rel="stylesheet"><link rel="stylesheet" href="/css/fonts.css">`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, links + '</head>') : links + s;
+}
 
 /**
  * Patche une chaîne CSS :
@@ -327,10 +359,15 @@ async function readSchoolsForApi() {
         const dbSchools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
         if (Array.isArray(dbSchools)) {
             const merged = new Map(baseSchools.map(s => [s.id, s]));
+            const baseIds = new Set(baseSchools.map(s => s.id));
             dbSchools.forEach(dbRaw => {
                 const id = dbRaw.id;
                 if (!id) return;
-                if (dbRaw.deleted) { merged.delete(id); return; }
+                // Le flag `deleted` ne retire que les écoles PERSONNALISÉES (créées
+                // en DB). Les 10 écoles de base de schools.json sont toujours
+                // présentes par défaut dans le gestionnaire, même si un ancien
+                // test les a marquées supprimées en base.
+                if (dbRaw.deleted) { if (!baseIds.has(id)) merged.delete(id); return; }
                 // Construire un objet avec seulement les valeurs DB non-nulles/non-vides
                 // pour ne pas écraser les données de schools.json avec des valeurs par défaut
                 const dbOverrides = {};
@@ -2152,6 +2189,9 @@ Règles importantes :
     }
 
     // ── Routing: /preview/:projectName ───────────────────────────────
+    // NOTE: Le HTML stocké contient déjà les bonnes variables CSS (--brand-primary, etc.)
+    // générées lors de la sauvegarde ou de la déclinaison. On ne réinjecte pas de styles
+    // supplémentaires pour ne pas écraser les couleurs correctes de l'école.
     if (req.method === 'GET' && pathname.startsWith('/preview/')) {
         try {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
@@ -2174,31 +2214,16 @@ Règles importantes :
                 html = result[0].html;
             }
 
-            // Extract school ID from project name (school-xxx__name)
-            const schoolMatch = projectName.match(/^school-([a-z0-9-]+)__/);
-            if (schoolMatch) {
-                const schoolId = schoolMatch[1];
-                const school = SCHOOLS.find(s => s.id === schoolId);
-                
-                if (school) {
-                    const primary = school.color || '#3b82f6';
-                    const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
-                    
-                    const brandStyles = `
-                        <style id="brand-variables-preview">
-                            :root {
-                                --brand-primary: ${primary};
-                                --brand-secondary: ${secondary};
-                            }
-                        </style>
-                    `;
-                    // Inject brand styles into the head
-                    html = html.replace('</head>', `${brandStyles}</head>`);
-                }
-            }
-
             res.writeHead(200, { 'Content-Type': 'text/html' });
-            res.end(html);
+            let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
+            
+            // Corriger tous les chemins relatifs restants (css/fonts.css, ../assets/...) 
+            // en forçant la racine de l'URL pour la page de preview.
+            if (!finalHtml.includes('<base href=')) {
+                finalHtml = finalHtml.replace(/<head>/i, '<head>\n    <base href="/">');
+            }
+            
+            res.end(finalHtml);
         } catch (e) {
             console.log(`❌ Erreur Preview:`, e.message);
             res.writeHead(500);
@@ -2237,7 +2262,7 @@ Règles importantes :
                 }
 
                 res.writeHead(200, { 'Content-Type': 'text/html' });
-                return res.end(resolved.version.html);
+                return res.end(ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)));
             }
         } catch (e) {
             if (!isMissingContentSchemaError(e)) {

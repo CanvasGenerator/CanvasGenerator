@@ -218,6 +218,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
+                // Langue du projet (…__<name>__<LANG>) : sans ça, currentProjectLanguage
+                // reste 'FR' et le swap logo (débounced) laisse les logos en français.
+                const loadedLang = parts[1] || 'FR';
+                currentProjectLanguage = loadedLang;
+                const langSwitcher = document.getElementById('language-switcher');
+                if (langSwitcher) langSwitcher.value = loadedLang;
+                applyLogoLanguage(window.editor, loadedLang);
                 // Close the welcome overlay if visible
                 const overlay = document.getElementById('welcome-overlay');
                 if (overlay) overlay.classList.add('hidden');
@@ -318,10 +325,46 @@ function cleanCorruptedAutosave(storageKey) {
 function initEditor(schoolId) {
     const storageKey = `reetain-builder__${schoolId}__gjsProject`;
     cleanCorruptedAutosave(storageKey);
+
+    // Palette de couleurs de l'école → échantillons du color picker (Spectrum).
+    // Ce même picker est partagé par le Style Manager (Propriétés) ET les traits de
+    // type couleur (Trait Manager) → toutes les couleurs choisies pour l'école sont
+    // donc accessibles dans les DEUX panneaux.
+    // On affiche la palette de marque COMPLÈTE (16 rôles : primary, secondary, accent,
+    // background, surface, text, muted, border, boutons, liens, success/warning/error)
+    // + les couleurs historiques de l'école.
+    const _sc = CURRENT_SCHOOL || {};
+    const RF_pal = window.ReetainFonts;
+    const _brandColors = RF_pal
+        ? Object.values(RF_pal.normalizeBranding(_sc.branding, _sc).colors || {})
+        : Object.values((_sc.branding && _sc.branding.colors) || {});
+    const favColors = [...new Set(
+        [_sc.color, _sc.secondaryColor, _sc.colorHeader, _sc.colorCarousel, _sc.colorLight, ..._brandColors]
+            .filter(c => typeof c === 'string' && c.trim())
+            .map(c => c.trim().toLowerCase())
+    )];
+    // Découpe en lignes de 8 pour un affichage lisible (Spectrum affiche une grille).
+    const _paletteRows = favColors.reduce((rows, c, i) => {
+        if (i % 8 === 0) rows.push([]);
+        rows[rows.length - 1].push(c);
+        return rows;
+    }, []);
+    const neutralColors = ['#000000', '#ffffff', '#f5f5f5', '#9ca3af', '#1a1a1a'];
+
     const editor = grapesjs.init({
         container: '#gjs',
         height: '100%',
         width: 'auto',
+        colorPicker: {
+            palette: favColors.length ? [..._paletteRows, neutralColors] : [neutralColors],
+            showPalette: true,
+            showPaletteOnly: false,
+            hideAfterPaletteSelect: false,
+            showInitial: true,
+            showInput: true,
+            preferredFormat: 'hex',
+            showSelectionPalette: false,
+        },
         storageManager: {
             type: 'local',
             autosave: true,
@@ -563,6 +606,17 @@ function initEditor(schoolId) {
             setTimeout(() => { editor.select(component); editor.Commands.run('open-faq-picker'); }, 150);
         }
     });
+
+    // Auto-switch des logos header/footer FR↔EN : on réapplique la langue courante
+    // dès que des composants apparaissent (chargement de page ou dépôt de bloc).
+    // Débounce → une seule passe après un lot d'ajouts.
+    let _logoLangTimer = null;
+    const scheduleLogoLanguage = () => {
+        clearTimeout(_logoLangTimer);
+        _logoLangTimer = setTimeout(() => applyLogoLanguage(editor, currentProjectLanguage), 150);
+    };
+    editor.on('component:add', scheduleLogoLanguage);
+    editor.on('load', scheduleLogoLanguage);
 
     editor.on('component:selected', (component) => {
         if (component.get('type') === 'mc-nos-campus') return;
@@ -1108,8 +1162,26 @@ function populateProperties(props = {}) {
 // ── NEW: Build complete HTML with SEO meta tags injected into <head> ─────────
 // This ensures SFMC receives a full HTML document with all SEO metadata,
 // instead of raw GrapesJS body HTML without any <head> or meta tags.
+// Rend les URLs d'assets ABSOLUES depuis la racine ("/assets/…").
+// Les blocs déclarent des chemins RELATIFS ("assets/efap/baseline-noir.png") qui
+// fonctionnent dans l'éditeur (servi à la racine) mais CASSENT en preview
+// ("/preview/<nom>") ou sur une URL publique profonde, car le navigateur les résout
+// relativement au chemin courant (→ /preview/assets/… → 404, logos header/footer
+// invisibles). On préfixe donc systématiquement par "/". Idempotent (ne double pas
+// un "/assets/" déjà absolu) et sans effet sur les URLs http(s).
+function toRootRelativeAssets(str) {
+    return String(str || '')
+        .replace(/((?:src|srcset|href)\s*=\s*["'])\.?\/?assets\//gi, '$1/assets/')
+        .replace(/url\((\s*['"]?)\.?\/?assets\//gi, 'url($1/assets/');
+}
+
+// Feuille Google Fonts des familles additionnelles proposées dans l'éditeur
+// (cf. ReetainFonts.GOOGLE_FONTS / export.js). Constante unique = source de vérité.
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+
 function buildFinalHtml(bodyHtml, css, properties = {}) {
-    bodyHtml = extractBodyHtml(bodyHtml);
+    bodyHtml = toRootRelativeAssets(extractBodyHtml(bodyHtml));
+    css = toRootRelativeAssets(css);
 
     // If SEO fields are empty, try to derive sensible defaults from the body
     function stripTags(input) {
@@ -1155,6 +1227,13 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
         ? `\n    <script type="application/ld+json">\n    ${schemaLd}\n    </script>`
         : '';
 
+    // Polices : @font-face auto-hébergés (Gotham, Space Grotesk) via /css/fonts.css
+    // (URL root-relative → fonctionne en preview et sur les URLs publiques ; ses url()
+    // internes '../assets/fonts/…' résolvent alors vers /assets/fonts/…), + Google Fonts
+    // pour les familles additionnelles proposées dans l'éditeur. Sans ça, la page servie
+    // hors éditeur retombe sur une police système.
+    const fontLinks = `\n    <link href="${GOOGLE_FONTS_HREF}" rel="stylesheet">\n    <link rel="stylesheet" href="/css/fonts.css">`;
+
     return `<!DOCTYPE html>
 <html lang="fr">
 <head>
@@ -1162,7 +1241,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
     <meta name="description" content="${metaDesc}">
-    <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}
+    <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${fontLinks}
     <style>${css}</style>
 </head>
 <body>
@@ -1258,6 +1337,72 @@ function setDecorationTitles(editor) {
     } catch (e) {
         console.warn('setDecorationTitles: impossible de renommer box-shadow/background', e);
     }
+}
+
+// Bascule automatiquement les logos header/footer entre FR et EN selon la langue
+// du projet. Les fichiers EN sont nommés "<variant>-en.png" (ex: baseline-noir-en.png).
+// On ne touche qu'aux logos AVEC baseline (les "nobaseline" n'ont pas de tagline à
+// traduire). Toutes les écoles ont désormais leurs logos EN (baseline-<variant>-en.png).
+function applyLogoLanguage(editor, lang) {
+    if (!editor) return;
+    try {
+        const wrapper = editor.getWrapper && editor.getWrapper();
+        if (!wrapper || typeof wrapper.find !== 'function') return;
+        const isEN = /^(en|eng|english|anglais)$/i.test(String(lang || 'FR').trim());
+        const imgs = [].concat(
+            wrapper.find('.hdr-logo-img') || [],
+            wrapper.find('.ft-logo-img') || []
+        );
+        imgs.forEach(img => {
+            const cur = (img.getAttributes() || {}).src || '';
+            // On ne touche qu'aux logos AVEC baseline. `\bbaseline-` matche aussi bien
+            // "assets/x/baseline-…" que "baseline-…" (src normalisé sans chemin par
+            // GrapesJS après loadProjectData) tout en excluant "nobaseline-" (pas de
+            // frontière de mot avant "baseline" dans "nobaseline").
+            if (!cur || !/\bbaseline-/i.test(cur)) return;
+            const base = cur.replace(/-en\.png($|\?)/i, '.png$1');       // src FR de base
+            const target = isEN ? base.replace(/\.png($|\?)/i, '-en.png$1') : base;
+            if (target !== cur) img.addAttributes({ src: target });
+        });
+        // Indicateur de langue du header (.hdr-lang) : reflète la langue courante.
+        const code = isEN ? 'EN' : 'FR';
+        wrapper.find('.hdr-lang').forEach(el => {
+            try { if ((el.getInnerHTML && el.getInnerHTML().trim()) !== code) el.components(code); } catch (e) {}
+        });
+    } catch (e) { console.warn('applyLogoLanguage', e); }
+}
+
+// Applique la langue (FR/EN) DIRECTEMENT dans le projectData GrapesJS, AVANT
+// loadProjectData. Contrairement à applyLogoLanguage() qui agit sur l'éditeur APRÈS
+// le chargement — donc parfois APRÈS la capture getHtml() dans le flux de traduction,
+// car find() ne voit pas encore les composants fraîchement rechargés — ceci mute les
+// données en mémoire. Le HTML et le projectData sauvegardés contiennent donc TOUJOURS
+// la bonne version des logos header/footer (src baseline-…-en.png) et du libellé .hdr-lang.
+function localizeBrandInProjectData(pd, lang) {
+    if (!pd || !Array.isArray(pd.pages)) return;
+    const isEN = /^(en|eng|english|anglais)$/i.test(String(lang || 'FR').trim());
+    const code = isEN ? 'EN' : 'FR';
+    const hasClass = (node, name) =>
+        Array.isArray(node.classes) &&
+        node.classes.some(c => (typeof c === 'string' ? c : c && c.name) === name);
+
+    function visit(node) {
+        if (!node || typeof node !== 'object') return;
+        // 1) Logos header/footer : src "…baseline-….png" ↔ "…baseline-…-en.png"
+        const attrs = node.attributes;
+        if (attrs && typeof attrs.src === 'string' && /\bbaseline-/i.test(attrs.src)) {
+            const base = attrs.src.replace(/-en\.png($|\?)/i, '.png$1');
+            attrs.src = isEN ? base.replace(/\.png($|\?)/i, '-en.png$1') : base;
+        }
+        // 2) Indicateur de langue du header (.hdr-lang) : "FR" ↔ "EN"
+        if (hasClass(node, 'hdr-lang') && Array.isArray(node.components)) {
+            node.components.forEach(c => {
+                if (c && c.type === 'textnode' && typeof c.content === 'string') c.content = code;
+            });
+        }
+        if (Array.isArray(node.components)) node.components.forEach(visit);
+    }
+    pd.pages.forEach(p => (p.frames || []).forEach(f => visit(f.component)));
 }
 
 function injectBrandVariables(editor, school, intoMainDoc = false) {
@@ -1753,6 +1898,9 @@ function initUI(editor) {
                     currentProjectIsNew = false;
                 }
                 
+                // Bascule immédiate des logos header/footer vers la nouvelle langue
+                applyLogoLanguage(editor, newLang);
+
                 // Trigger save with new language
                 document.getElementById('btn-save').click();
             }
@@ -2245,8 +2393,20 @@ function initUI(editor) {
                         }
                     });
                     
+                    // IMPORTANT : fixer la langue courante AVANT loadProjectData.
+                    // loadProjectData émet des component:add qui planifient le swap
+                    // logo débounced ; celui-ci lit currentProjectLanguage → il doit
+                    // déjà valoir la langue cible, sinon il rebascule les logos vers
+                    // l'ancienne langue 150ms plus tard (logos existants inchangés).
+                    currentProjectLanguage = selectedLanguage;
+                    // Basculer les logos header/footer DANS les données AVANT loadProjectData :
+                    // garantit que le HTML capturé plus bas contient bien les logos traduits
+                    // (la traduction IA ne touche que le texte, pas le src des logos).
+                    localizeBrandInProjectData(pd, selectedLanguage);
                     // Update the canvas to show translated content with ALL CSS and traits preserved!
                     editor.loadProjectData(pd);
+                    // Sécurité : re-synchronise aussi l'éditeur (canvas live) après chargement.
+                    applyLogoLanguage(editor, selectedLanguage);
                     finalHtml = editor.getHtml(); // update HTML after loading project data
                 } catch (e) {
                     hideLoading();
@@ -2254,6 +2414,17 @@ function initUI(editor) {
                     await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
                     return;
                 }
+            } else if (selectedLanguage !== originalLanguage) {
+                // Changement de langue SANS traduction de texte (ex. retour vers FR) :
+                // on bascule tout de même les logos header/footer + le libellé .hdr-lang
+                // vers la langue cible, sinon ils resteraient dans l'ancienne langue.
+                showLoading('Application de la langue...');
+                const pd = editor.getProjectData();
+                currentProjectLanguage = selectedLanguage;
+                localizeBrandInProjectData(pd, selectedLanguage);
+                editor.loadProjectData(pd);
+                applyLogoLanguage(editor, selectedLanguage);
+                finalHtml = editor.getHtml();
             } else {
                 showLoading('Sauvegarde en cours...');
             }
@@ -2414,7 +2585,17 @@ function initUI(editor) {
                                 const el = doc.getElementById('t' + i);
                                 if (el) t.obj[t.prop] = el.innerHTML;
                             });
+                            // Fixer la langue courante AVANT loadProjectData (voir note
+                            // détaillée dans le chemin projet existant) : sinon le swap
+                            // logo débounced rebascule vers l'ancienne langue.
+                            currentProjectLanguage = lang;
+                            // Basculer les logos header/footer DANS les données AVANT
+                            // loadProjectData (voir localizeBrandInProjectData) → le HTML
+                            // capturé plus bas contient bien les logos traduits.
+                            localizeBrandInProjectData(pd, lang);
                             editor.loadProjectData(pd);
+                            // Sécurité : re-synchronise aussi le canvas live après chargement.
+                            applyLogoLanguage(editor, lang);
                             finalBodyHtml = editor.getHtml();
                         } catch (e) {
                             hideLoading();
@@ -2423,7 +2604,16 @@ function initUI(editor) {
                             return;
                         }
                     } else {
+                        // Sauvegarde en FR : pas de traduction de texte, mais on garantit que
+                        // les logos header/footer + le libellé .hdr-lang sont bien en FR
+                        // (utile si le canvas venait d'une version EN). Idempotent.
                         showLoading('Sauvegarde en cours...');
+                        const pd = editor.getProjectData();
+                        currentProjectLanguage = lang;
+                        localizeBrandInProjectData(pd, lang);
+                        editor.loadProjectData(pd);
+                        applyLogoLanguage(editor, lang);
+                        finalBodyHtml = editor.getHtml();
                     }
 
                     const fullName = `school-${schoolId}__${nameInput}__${lang}`;
@@ -2612,7 +2802,8 @@ function initUI(editor) {
             const lang = parts[1] || 'FR';
             currentProjectLanguage = lang;
             document.getElementById('language-switcher').value = lang;
-            
+            applyLogoLanguage(editor, lang);
+
             const modal = document.getElementById('modal-container');
             modal.querySelector('.modal-content').classList.remove('modal-lg');
             closeModal();

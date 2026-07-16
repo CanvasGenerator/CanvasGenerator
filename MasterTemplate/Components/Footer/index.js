@@ -36,18 +36,18 @@ export default function(editor, categories) {
   </div>
 </footer>
 <style>
-  .mf-footer { background:var(--brand-footer, #ffffff); color: var(--brand-text, #1a1a1a); padding:40px 24px; font-family: var(--brand-font, 'Inter', sans-serif); border-top:1px solid var(--brand-border, #e5e7eb); }
+  .mf-footer { background: white; color: #1a1a1a; padding:40px 24px; font-family: var(--brand-font, 'Inter', sans-serif); border-top:1px solid #e5e7eb; }
   .mf-inner { max-width:1200px; margin:0 auto; display:flex; gap:48px; align-items:flex-start; }
   .mf-brand { flex:0 0 auto; min-width:180px; }
-  .mf-logo { color: var(--brand-text, #1a1a1a); display:flex; align-items:center; font-weight:800; font-size:22px; letter-spacing:1px; margin-bottom:10px; }
+  .mf-logo { color: #1a1a1a; display:flex; align-items:center; font-weight:800; font-size:22px; letter-spacing:1px; margin-bottom:10px; }
   .mf-logo svg, .mf-logo img { height:52px; width:auto; display:block; }
-  .mf-tagline { color: var(--brand-muted, #6b7280); font-size:12px; line-height:1.5; margin:0 0 18px; }
+  .mf-tagline { color: #6b7280; font-size:12px; line-height:1.5; margin:0 0 18px; }
   .mf-socials { display:flex; gap:14px; align-items:center; }
-  .mf-soc { color: var(--brand-text, #1a1a1a); display:flex; align-items:center; transition:opacity 0.2s; }
+  .mf-soc { color: #1a1a1a; display:flex; align-items:center; transition:opacity 0.2s; }
   .mf-soc:hover { opacity:0.6; }
   .mf-legal { flex:1; }
-  .mf-legal-text { color: var(--brand-muted, #6b7280); font-size:12px; line-height:1.7; margin:0; }
-  .mf-link { color: var(--brand-link, var(--brand-primary, #111)); text-decoration:underline; }
+  .mf-legal-text { color: #6b7280; font-size:12px; line-height:1.7; margin:0; }
+  .mf-link { color: #111111; text-decoration:underline; }
   @media(max-width:768px) {
     .mf-inner { flex-direction:column; gap:28px; }
     .mf-footer { text-align:center; }

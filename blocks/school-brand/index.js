@@ -102,20 +102,20 @@ export function buildFooter(s) {
 </footer>
 <style>
   .footer-${s.id} {
-    background-color: var(--brand-background, #ffffff); color: var(--brand-text, #1a1a1a);
-    padding: 48px 24px 32px; font-family: ${fontStack}; border-top: 1px solid var(--brand-border, #e5e7eb);
+    background-color: #ffffff !important; color: #1a1a1a;
+    padding: 48px 24px 32px; font-family: ${fontStack}; border-top: 1px solid #e5e7eb;
   }
   .footer-${s.id} .ftr-inner { max-width: 1200px; margin: 0 auto; }
   .footer-${s.id} .ftr-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; margin-bottom: 32px; }
   .footer-${s.id} .ftr-brand { display: flex; flex-direction: column; }
-  .footer-${s.id} .ftr-logo { font-size: 38px; font-weight: 800; letter-spacing: 2px; line-height: 1; color: var(--brand-text, #1a1a1a); margin-bottom: 10px; }
-  .footer-${s.id} .ftr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: var(--brand-muted, #6b7280); }
+  .footer-${s.id} .ftr-logo { font-size: 38px; font-weight: 800; letter-spacing: 2px; line-height: 1; color: #1a1a1a; margin-bottom: 10px; }
+  .footer-${s.id} .ftr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #6b7280; }
   .footer-${s.id} .ftr-socials { display: flex; gap: 12px; flex-wrap: wrap; }
-  .footer-${s.id} .ftr-${s.id}-soc { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: var(--brand-surface, #f5f5f5); border-radius: 50%; color: var(--brand-text, #1a1a1a); }
+  .footer-${s.id} .ftr-${s.id}-soc { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 50%; color: #1a1a1a; }
   .footer-${s.id} .ftr-${s.id}-soc svg { width: 18px; height: 18px; fill: currentColor; }
   .footer-${s.id} .ftr-legal { border-top: 1px solid #f2f2f2; padding-top: 24px; }
   .footer-${s.id} .ftr-legal p { font-size: 11px; line-height: 1.8; color: #999999; max-width: 1000px; margin: 0; }
-  .footer-${s.id} .ftr-link { color: var(--brand-link, var(--brand-primary, ${s.bg})); text-decoration: underline; }
+  .footer-${s.id} .ftr-link { color: #1a1a1a; text-decoration: underline; }
   @media (max-width: 768px) {
     .footer-${s.id} .ftr-main { flex-direction: column; align-items: center; gap: 24px; text-align: center; }
     .footer-${s.id} .ftr-brand { align-items: center; }
