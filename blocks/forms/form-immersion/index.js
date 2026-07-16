@@ -142,7 +142,7 @@ export default function (editor, categories) {
 .imf-phone-wrap { display: flex; gap: 8px; }
 .imf-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
 }
 .imf-phone-prefix-wrap::after {

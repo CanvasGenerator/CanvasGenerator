@@ -167,7 +167,7 @@ export default function (editor, categories) {
 .pc-phone-wrap { display: flex; gap: 8px; }
 .pc-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
 }
 .pc-phone-prefix-wrap::after {

@@ -147,7 +147,7 @@ export default function (editor, categories) {
 .cnd-phone-wrap { display: flex; gap: 8px; }
 .cnd-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
 }
 .cnd-phone-prefix-wrap::after {

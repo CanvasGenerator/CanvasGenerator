@@ -117,6 +117,26 @@ function ensureFontLinks(html) {
 }
 
 /**
+ * Contraint la page à une largeur desktop FIXE (1280px, centrée) + plafonne les
+ * logos de header en mobile → l'APERÇU du dashboard rend comme l'espace de travail
+ * de l'éditeur. ⚠️ Route /preview/ UNIQUEMENT (jamais les pages publiques). Idempotent.
+ */
+const PREVIEW_VIEWPORT_WIDTH = 1280;
+function injectPreviewViewport(html) {
+    const s = String(html || '');
+    if (/id="preview-viewport"/.test(s)) return s;
+    // Uniquement le cadrage 1280px centré (comme l'éditeur). PAS de !important sur la
+    // taille des logos / du code pays : ça écraserait les tailles réglées par
+    // l'utilisateur via le panneau Style (rendu preview ≠ éditeur). Les tailles
+    // par défaut viennent du CSS des blocs.
+    const style = `<style id="preview-viewport">`
+        + `html{background:#e9e9ec;}`
+        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `</style>`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
+}
+
+/**
  * Patche une chaîne CSS :
  *  - Met à jour les fallbacks var(--brand-*, OLD) avec les nouvelles couleurs
  *  - Remplace les background-color hardcodés dans les blocs header/footer
@@ -149,6 +169,76 @@ function patchCssString(css, { colorHeader, primary, secondary, colorCarousel })
         );
     }
     return css;
+}
+
+/**
+ * Construit un bloc <style> contenant toutes les CSS vars de l'école
+ * (--brand-primary, --brand-header, --brand-carousel, rôles de couleurs…).
+ * Miroir côté serveur de injectBrandVariables() dans js/app.js.
+ * Utilisé par la route /preview/ pour que les blocs affichent les bonnes
+ * couleurs de l'école au lieu des fallbacks hardcodés.
+ */
+function buildBrandCssVarsForPreview(school) {
+    if (!school) return '';
+    const primary       = school.color || '#3b82f6';
+    const secondary     = school.secondaryColor || school.secondary_color || '#1a1a1a';
+    const colorHeader   = school.colorHeader   || school.color_header   || primary;
+    const colorCarousel = school.colorCarousel || school.color_carousel || primary;
+    const headerText    = school.headerTextColor || school.header_text_color || '#ffffff';
+    const rgb           = hexToRgb(primary);
+
+    // Calcul de bandeColor (identique à app.js)
+    let bandeColor = primary;
+    if (school.id === 'brassart') bandeColor = '#bc0b5d';
+    if (school.id === 'efap')     bandeColor = '#1a1a1a';
+    if (school.id === 'cread')    bandeColor = '#d4af37';
+
+    const branding = normalizeBranding(school.branding, school);
+    const c        = branding.colors || {};
+    const schoolFont = fontStackById(branding.defaultFont) || "'Gotham', Arial, sans-serif";
+
+    const colorsVarsArray = Object.entries(c).map(([key, val]) =>
+        `--brand-${key.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${val};`
+    );
+
+    const css = `
+:root {
+  --brand-primary:     ${c.primary     || primary};
+  --brand-secondary:   ${c.secondary   || secondary};
+  --brand-primary-rgb: ${rgb};
+  --brand-header:      ${colorHeader};
+  --brand-header-text: ${headerText};
+  --brand-carousel:    ${colorCarousel};
+  --bande-color:       ${bandeColor};
+  --brand-font:        ${schoolFont};
+  --brand-background:  ${c.background  || '#ffffff'};
+  --brand-surface:     ${c.surface     || '#f5f5f5'};
+  --brand-text:        ${c.text        || '#1a1a1a'};
+  --brand-muted:       ${c.mutedText   || '#6b7280'};
+  --brand-border:      ${c.border      || '#e5e7eb'};
+  --brand-accent:      ${c.accent      || secondary};
+  --brand-button-bg:   ${c.buttonBackground || primary};
+  --brand-button-hover:${c.buttonHover || primary};
+  --brand-button-text: ${c.buttonText  || '#ffffff'};
+  --brand-link:        ${c.link        || primary};
+  --brand-link-hover:  ${c.linkHover   || primary};
+  --brand-success:     ${c.success     || '#16a34a'};
+  --brand-warning:     ${c.warning     || '#f59e0b'};
+  --brand-error:       ${c.error       || '#dc2626'};
+  ${colorsVarsArray.join('\n  ')}
+}
+/* PREVIEW – override couleurs hardcodées des blocs header/carousel */
+.mh-header,.header-efap,.header-brassart {
+  background-color: ${colorHeader} !important;
+  background:       ${colorHeader} !important;
+}
+.mc2a-section,.mc2b-section,.mc2c-section,.mcva-section,
+.mcd-colored-zone,.mc3c-section,.mce-section,.mcb-gray-zone {
+  background-color: ${colorCarousel} !important;
+  background:       ${colorCarousel} !important;
+}
+`;
+    return `<style id="brand-variables-preview">${css}</style>`;
 }
 
 /**
@@ -2214,9 +2304,9 @@ Règles importantes :
     }
 
     // ── Routing: /preview/:projectName ───────────────────────────────
-    // NOTE: Le HTML stocké contient déjà les bonnes variables CSS (--brand-primary, etc.)
-    // générées lors de la sauvegarde ou de la déclinaison. On ne réinjecte pas de styles
-    // supplémentaires pour ne pas écraser les couleurs correctes de l'école.
+    // On extrait l'école depuis le nom du projet (school-{id}__...) et on injecte
+    // ses variables CSS de marque dans le HTML servi, pour que les blocs affichent
+    // les couleurs de l'école et non les fallbacks hardcodés.
     if (req.method === 'GET' && pathname.startsWith('/preview/')) {
         try {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
@@ -2240,7 +2330,7 @@ Règles importantes :
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
+            let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
 
             // Corriger tous les chemins relatifs restants (css/fonts.css, ../assets/...)
             // en forçant la racine de l'URL pour la page de preview.
@@ -2248,8 +2338,37 @@ let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
                 finalHtml = finalHtml.replace(/<head>/i, '<head>\n    <base href="/">');
             }
 
+            // ── Injection des variables CSS de l'école ────────────────────────
+            // Le HTML stocké contient les couleurs résolues en hex (GrapesJS bake les
+            // var() lors de l'édition). On ré-injecte le bloc :root de l'école pour que
+            // les blocs utilisant var(--brand-*) affichent les bonnes couleurs.
+            try {
+                const schoolMatch = /^school-([a-z0-9-]+)__/i.exec(projectName);
+                if (schoolMatch) {
+                    const previewSchoolId = schoolMatch[1].toLowerCase();
+                    const allSchools = await readSchoolsForApi();
+                    const previewSchool = allSchools.find(s => s.id === previewSchoolId);
+                    if (previewSchool) {
+                        const brandStyleTag = buildBrandCssVarsForPreview(previewSchool);
+                        // Injecter juste avant </head> (après les styles existants pour
+                        // que nos vars aient la priorité sur les fallbacks des blocs).
+                        if (/<\/head>/i.test(finalHtml)) {
+                            finalHtml = finalHtml.replace(/<\/head>/i, brandStyleTag + '\n</head>');
+                        } else {
+                            finalHtml = brandStyleTag + finalHtml;
+                        }
+                        console.log(`🎨 Brand vars injectées pour l'école "${previewSchoolId}" dans la preview`);
+                    }
+                }
+            } catch (brandErr) {
+                console.warn('⚠️  Impossible d\'injecter les brand vars dans la preview:', brandErr.message);
+            }
+
             // Ancres stables des formulaires (liens #form_id) — feature/PFE
             finalHtml = ensureFormAnchors(finalHtml).html;
+
+            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
+            finalHtml = injectPreviewViewport(finalHtml);
 
             res.end(finalHtml);
         } catch (e) {

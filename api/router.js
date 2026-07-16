@@ -46,6 +46,23 @@ function ensureFontLinks(html) {
 }
 
 /**
+ * Contraint la page à 1280px centrés + plafonne les logos header en mobile → l'APERÇU
+ * du dashboard rend comme l'éditeur. ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
+ */
+const PREVIEW_VIEWPORT_WIDTH = 1280;
+function injectPreviewViewport(html) {
+    const s = String(html || '');
+    if (/id="preview-viewport"/.test(s)) return s;
+    // Uniquement le cadrage 1280px centré. PAS de !important sur logos/code pays
+    // (sinon on écrase les tailles réglées via le panneau Style).
+    const style = `<style id="preview-viewport">`
+        + `html{background:#e9e9ec;}`
+        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `</style>`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
+}
+
+/**
  * Extrait le contenu <body> d'un document HTML complet.
  * Utile pour pouvoir reconstruire le <head> avec des balises SEO à jour.
  */
@@ -769,7 +786,8 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html)));
+            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
+            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html))));
 
         }
 
