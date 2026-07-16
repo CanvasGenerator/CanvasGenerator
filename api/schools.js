@@ -13,9 +13,12 @@ async function readSchoolsForApi() {
         const schools = await supabaseRequest('GET', '/Schools?select=*&order=name.asc');
         if (Array.isArray(schools)) {
             const merged = new Map(baseSchools.map(school => [school.id, school]));
+            const baseIds = new Set(baseSchools.map(school => school.id));
             schools.forEach(raw => {
                 const school = normalizeSchool(raw);
-                if (school.deleted) { merged.delete(school.id); return; }
+                // Le flag `deleted` ne retire que les écoles PERSONNALISÉES.
+                // Les écoles de base (schools.json) restent toujours présentes.
+                if (school.deleted) { if (!baseIds.has(school.id)) merged.delete(school.id); return; }
                 const base = merged.get(school.id) || {};
                 // Toutes les couleurs viennent toujours de schools.json
                 const colorContext = {

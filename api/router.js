@@ -20,6 +20,32 @@ const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 const { getSchoolLogo } = require('../lib/school-logos');
 
 /**
+ * Rend les URLs d'assets ABSOLUES depuis la racine ("/assets/…"). Le HTML stocké
+ * peut contenir des chemins RELATIFS ("assets/…") qui cassent hors racine (ex.
+ * "/preview/<nom>" → "/preview/assets/…" → 404 → logos header/footer invisibles).
+ * Idempotent, sans effet sur les URLs http(s).
+ */
+function rewriteAssetsToRoot(html) {
+    return String(html || '')
+        .replace(/((?:src|srcset|href)\s*=\s*["'])\.?\/?assets\//gi, '$1/assets/')
+        .replace(/url\((\s*['"]?)\.?\/?assets\//gi, 'url($1/assets/');
+}
+
+// Feuille Google Fonts des familles additionnelles proposées dans l'éditeur.
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+
+/**
+ * Garantit le chargement des polices (Gotham/Space Grotesk via /css/fonts.css +
+ * Google Fonts). Injecte les <link> avant </head> UNIQUEMENT si absents.
+ */
+function ensureFontLinks(html) {
+    const s = String(html || '');
+    if (/css\/fonts\.css/i.test(s)) return s;
+    const links = `<link href="${GOOGLE_FONTS_HREF}" rel="stylesheet"><link rel="stylesheet" href="/css/fonts.css">`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, links + '</head>') : links + s;
+}
+
+/**
  * Extrait le contenu <body> d'un document HTML complet.
  * Utile pour pouvoir reconstruire le <head> avec des balises SEO à jour.
  */
@@ -61,9 +87,11 @@ async function resolveOrCreateGroupId(projectName) {
 }
 
 // ── Helpers for Declinaison ───────────────────────────────────────────────
+// NOTE: Les footers (footer-efap, footer-brassart, mf-footer, df-*) sont
+// INTENTIONNELLEMENT absents : le footer doit rester TOUJOURS fond blanc/noir,
+// quelle que soit l'école ou la template déclinée.
 const BRAND_HEADER_SELECTORS = [
-    'header-efap', 'header-brassart', 'mh-header',
-    'footer-efap', 'footer-brassart', 'mf-footer'
+    'header-efap', 'header-brassart', 'mh-header'
 ];
 const BRAND_CAROUSEL_SELECTORS = [
     'mc2a-section', 'mc2b-section', 'mc2c-section',
@@ -741,7 +769,8 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(ensureFormAnchors(html).html);
+            return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html)));
+
         }
 
         if (req.method === 'GET' && !pathname.startsWith('/api/') && !pathname.includes('.')) {
@@ -768,7 +797,8 @@ module.exports = async function handler(req, res) {
                 }
 
                 res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(ensureFormAnchors(resolved.version.html).html);
+                return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(resolved.version.html).html)));
+
             }
         }
         // ==========================================
