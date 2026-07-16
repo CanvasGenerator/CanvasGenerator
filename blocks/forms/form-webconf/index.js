@@ -333,7 +333,7 @@ export default function (editor, categories) {
 
 .wbc-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
 }
 

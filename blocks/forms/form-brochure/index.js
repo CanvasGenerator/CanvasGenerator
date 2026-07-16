@@ -162,7 +162,7 @@ export default function (editor, categories) {
 .brf-phone-wrap { display: flex; gap: 8px; }
 .brf-phone-prefix-wrap {
     position: relative;
-    width: 110px;
+    width: 92px;
     flex-shrink: 0;
 }
 .brf-phone-prefix-wrap::after {
