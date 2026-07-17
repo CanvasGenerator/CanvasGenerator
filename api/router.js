@@ -658,6 +658,19 @@ module.exports = async function handler(req, res) {
                 console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
             }
 
+            // ── Synchro STRUCTURÉE synchrone (pages + page_variants) ──────────────
+            // Indispensable pour renvoyer page_id tout de suite : le front en a besoin
+            // pour créer des traductions (sinon « Enregistrez d'abord » au clic EN).
+            // Le nettoyage lourd + SFMC restent délégués au worker (enqueue ci-dessous).
+            let contentSync = null;
+            try {
+                contentSync = await syncLegacyProjectToContent({
+                    projectName, language, html: fullHtml, css, projectData, properties
+                });
+            } catch (syncErr) {
+                console.warn('⚠️  Sync structurée /api/save échouée:', syncErr.message);
+            }
+
             // ── Mise en file d'attente (ou traitement inline si table absente) ──
             const jobResult = await enqueueOrProcessInline({
                 projectName, language, fullHtml, css, projectData, properties,
@@ -666,8 +679,9 @@ module.exports = async function handler(req, res) {
 
             return res.status(200).json({
                 message: 'Saved',
+                page_id: contentSync?.pageId || null,
                 sfmc:    jobResult,
-                content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
+                content: contentSync || { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
                 translation_info: {
                     is_original_language: properties.is_original_language,
                     page_group_id:        properties.page_group_id || null,
