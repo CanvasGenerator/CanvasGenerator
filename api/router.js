@@ -11,6 +11,7 @@ const {
     listMigratedDashboardPages,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
+    getBilingualHtmlForProject,
     updatePageLifecycle,
     isMissingContentSchemaError,
     getPublicationSettings,
@@ -593,7 +594,7 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties } = req.body || {};
+            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties, language } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
             // Ancrer les formulaires (id stable pour les liens #form_id)
@@ -659,7 +660,7 @@ module.exports = async function handler(req, res) {
 
             // ── Mise en file d'attente (ou traitement inline si table absente) ──
             const jobResult = await enqueueOrProcessInline({
-                projectName, fullHtml, css, projectData, properties,
+                projectName, language, fullHtml, css, projectData, properties,
                 source: 'save-api'
             });
 
@@ -672,6 +673,17 @@ module.exports = async function handler(req, res) {
                     page_group_id:        properties.page_group_id || null,
                 }
             });
+        }
+
+        if (req.method === 'POST' && pathname === '/api/sfmc/resync') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            const r = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=html,css&limit=1`).catch(() => null);
+            const jobResult = await enqueueOrProcessInline({
+                projectName, fullHtml: r?.[0]?.html || '', css: r?.[0]?.css || '',
+                projectData: {}, properties: {}, source: 'variant-resync'
+            });
+            return res.status(200).json({ ok: true, sfmc: jobResult });
         }
 
         if (req.method === 'POST' && pathname === '/api/save-seo') {
@@ -752,19 +764,29 @@ module.exports = async function handler(req, res) {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
             let html = '';
 
-            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
-                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+            // Page bilingue auto-portée : ≥2 langues → l'aperçu embarque le switch.
+            const bilingual = await getBilingualHtmlForProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Bilingual preview unavailable:', e.message);
                 return null;
             });
 
-            if (structured?.version?.html) {
-                html = structured.version.html;
+            if (bilingual?.html) {
+                html = bilingual.html;
             } else {
-                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-                if (!result || result.length === 0) {
-                    return res.status(404).json({ error: 'Project not found' });
+                const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                    if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                    return null;
+                });
+
+                if (structured?.version?.html) {
+                    html = structured.version.html;
+                } else {
+                    const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                    if (!result || result.length === 0) {
+                        return res.status(404).json({ error: 'Project not found' });
+                    }
+                    html = result[0].html;
                 }
-                html = result[0].html;
             }
 
             const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);

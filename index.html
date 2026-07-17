@@ -99,20 +99,14 @@
                         <a href="#" id="btn-form-builder"><i class="fas fa-wpforms" style="color: #3b82f6; margin-right: 8px; width: 16px;"></i> Form Builder</a>
                     </div>
                 </div>
-                <select id="language-switcher" style="
-                    padding: 8px 12px;
-                    border: 1px solid #EAECF0;
-                    border-radius: 6px;
-                    background: #fff;
-                    font-size: 13px;
-                    font-family: inherit;
-                    cursor: pointer;
-                    margin-right: 8px;
-                    min-width: 100px;
-                ">
+                <!-- Switch de langue segmenté (FR | EN …). Piloté par js/app.js :
+                     renderLanguageSwitch(). Charge instantanément une variante
+                     existante ; Gemini n'est appelé que pour une langue absente. -->
+                <div id="language-switch" class="lang-switch" role="group" aria-label="Langue de la page"></div>
+                <!-- <select> caché : conservé pour compat interne (état de langue courant). -->
+                <select id="language-switcher" style="display:none;">
                     <option value="FR">Français</option>
                     <option value="EN">English</option>
-                    <option value="ES">Español</option>
                 </select>
                 <button class="btn-primary" id="btn-save">Save Project</button>
                 <button class="btn-outline" id="btn-preview">Preview</button>
@@ -238,7 +232,6 @@
                     <select id="select-new-project-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
                         <option value="FR">Français (FR)</option>
                         <option value="EN">Anglais (EN)</option>
-                        <option value="ES">Espagnol (ES)</option>
                     </select>
                 </div>
                 <button id="btn-confirm-save-new" class="btn-primary" style="width:100%; padding: 12px;">Enregistrer</button>
@@ -256,24 +249,18 @@
             <div class="modal-body" style="padding: 20px;">
                 <p id="duplicate-source-name" style="margin-bottom: 16px; font-size: 13px; color: #6B7280;">Source: ...</p>
                 
-                <div style="margin-bottom: 16px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Type de duplication :</label>
-                    <select id="select-duplicate-type" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
-                        <option value="translate">Traduire automatiquement (IA)</option>
-                        <option value="simple">Duplication simple (Copie exacte)</option>
-                    </select>
+                <!-- La traduction ne crée plus de projet : elle se fait dans l'éditeur
+                     via le switch de langue (une page = plusieurs variantes). Cette
+                     modale ne fait donc plus qu'une duplication simple (copie exacte). -->
+                <select id="select-duplicate-type" class="form-control" style="display:none;">
+                    <option value="simple" selected>Duplication simple (Copie exacte)</option>
+                </select>
+                <!-- Conteneur conservé (masqué) pour compat JS. -->
+                <div id="duplicate-translate-options" class="hidden">
+                    <select id="select-duplicate-lang"><option value="EN">EN</option></select>
                 </div>
 
-                <div id="duplicate-translate-options" style="margin-bottom: 24px;">
-                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Langue cible :</label>
-                    <select id="select-duplicate-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
-                        <option value="EN">Anglais (EN)</option>
-                        <option value="ES">Espagnol (ES)</option>
-                        <option value="FR">Français (FR)</option>
-                    </select>
-                </div>
-
-                <div id="duplicate-simple-options" class="hidden" style="margin-bottom: 24px;">
+                <div id="duplicate-simple-options" style="margin-bottom: 24px;">
                     <label style="display:block; margin-bottom: 8px; font-weight:500;">Nouveau nom :</label>
                     <input type="text" id="input-duplicate-name" class="form-control" placeholder="copie-page" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;">
                 </div>

@@ -3598,3 +3598,52 @@ body { overflow: auto; height: auto; }
     color: #fff;
 }
 .dim-arr-up { border-bottom: 1px solid var(--border-color); }
+
+/* ── Switch de langue segmenté (FR | EN …) ─────────────────────────────────
+   Remplace l'ancien <select>. FR actif = accent ; langue traduite = neutre ;
+   langue non traduite = grisée + icône « Traduire ». Voir renderLanguageSwitch(). */
+.lang-switch {
+    display: inline-flex;
+    align-items: stretch;
+    margin-right: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    overflow: hidden;
+    background: #fff;
+}
+.lang-switch .lang-seg {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 7px 12px;
+    border: none;
+    border-left: 1px solid var(--border-color);
+    background: #fff;
+    color: var(--text-muted, #667085);
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 600;
+    line-height: 1;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+    outline: none;
+}
+.lang-switch .lang-seg:first-child { border-left: none; }
+.lang-switch .lang-seg:hover { background: var(--accent-surface, #EAF6F1); }
+.lang-switch .lang-seg.active,
+.lang-switch .lang-seg.active:hover {
+    background: var(--accent, #1A7A5E);
+    color: #fff;
+    cursor: default;
+}
+.lang-switch .lang-seg.untranslated:not(.active) {
+    color: #98A2B3;
+    background: #F9FAFB;
+}
+.lang-switch .lang-seg.untranslated:not(.active):hover {
+    color: var(--text-muted, #667085);
+    background: var(--accent-surface, #EAF6F1);
+}
+.lang-switch .lang-seg.stale:not(.active) { color: #B54708; }
+.lang-switch .lang-seg .lang-flag { font-size: 14px; line-height: 1; }
+.lang-switch .lang-seg .lang-xicon { font-size: 11px; opacity: 0.85; }

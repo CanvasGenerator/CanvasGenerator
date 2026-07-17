@@ -1,7 +1,7 @@
 const { supabaseRequest } = require('../lib/api-shared');
 const { syncProjectToSfmc, isSfmcConfigured, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
-const { syncLegacyProjectToContent } = require('./content');
+const { syncLegacyProjectToContent, getBilingualHtmlForProject } = require('./content');
 
 module.exports = async function handler(req, res) {
     if (req.method !== 'GET' && req.method !== 'POST') {
@@ -42,10 +42,15 @@ module.exports = async function handler(req, res) {
                     const project = projectRes && projectRes[0];
                     if (!project) throw new Error(`Project ${projectName} not found`);
 
-                    // Utiliser le HTML embarqué dans le payload en priorité (évite que la re-lecture
-                    // depuis la BD retourne une version périmée si le PATCH n'est pas encore visible)
-                    const htmlSource = job.payload?.html ? 'payload' : 'db';
-                    const rawHtml = job.payload?.html || project.html || '';
+                    // Page bilingue auto-portée : si la page a ≥2 langues, on envoie à SFMC
+                    // une seule page qui contient toutes les langues + le script de bascule.
+                    let bilingualHtml = null;
+                    try { bilingualHtml = (await getBilingualHtmlForProject(projectName))?.html || null; }
+                    catch (biErr) { console.warn('⚠️  [CRON] Bilingue indisponible:', biErr.message); }
+
+                    // Sinon, HTML du payload en priorité (évite une re-lecture périmée), puis BD.
+                    const htmlSource = bilingualHtml ? 'bilingual' : (job.payload?.html ? 'payload' : 'db');
+                    const rawHtml = bilingualHtml || job.payload?.html || project.html || '';
 
                     // ── 3. Nettoyage lourd du HTML pour SFMC (Cheerio) ────────────
                     console.log(`\n🧹 [CRON] Nettoyage HTML pour "${projectName}" (source: ${htmlSource})...`);
@@ -68,6 +73,7 @@ module.exports = async function handler(req, res) {
                     console.log(`📦 [CRON] Synchronisation vers les tables structurées...`);
                     await syncLegacyProjectToContent({
                         projectName,
+                        language:    job.payload?.language,
                         html:        rawHtml,
                         html_sfmc:   cleanedHtml,
                         css:         project.css || '',

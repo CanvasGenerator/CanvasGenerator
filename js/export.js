@@ -22,8 +22,37 @@ export function initExport(editor) {
         return _fontCssCache;
     }
 
+    const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+
+    // Récupère la page bilingue auto-portée (toutes les langues + switch) depuis le
+    // serveur si la page a ≥2 variantes de langue. Renvoie null sinon (→ export normal).
+    async function getBilingualExportHtml() {
+        try {
+            const schoolId = new URLSearchParams(location.search).get('school') || 'unknown';
+            const projectName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+            if (!projectName) return null;
+            const res = await fetch(`/api/content/bilingual/${encodeURIComponent(projectName)}`);
+            if (!res.ok) return null;
+            const data = await res.json();
+            if (!data || !data.html) return null;
+            // Injecter les fonts (Google + @font-face) dans le <head> de la page bilingue.
+            const fontCss = await getFontFaceCss();
+            const head = `<link href="${GOOGLE_FONTS}" rel="stylesheet"><style>${fontCss}</style>`;
+            return /<head[^>]*>/i.test(data.html)
+                ? data.html.replace(/<head[^>]*>/i, m => m + head)
+                : data.html;
+        } catch (e) {
+            console.warn('Export bilingue indisponible, export langue courante.', e);
+            return null;
+        }
+    }
+
     exportHtml.onclick = async (e) => {
         e.preventDefault();
+        // Page multilingue → exporter la version bilingue auto-portée (switch inclus).
+        const bilingual = await getBilingualExportHtml();
+        if (bilingual) { downloadFile('project.html', bilingual, 'text/html'); return; }
+
         const html = editor.getHtml();
         const css = editor.getCss();
         const fontCss = await getFontFaceCss();
@@ -32,7 +61,7 @@ export function initExport(editor) {
 <html>
 <head>
     <meta charset="utf-8">
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap" rel="stylesheet">
+    <link href="${GOOGLE_FONTS}" rel="stylesheet">
     <style>${fontCss}</style>
     <style>${css}</style>
 </head>
@@ -55,7 +84,13 @@ export function initExport(editor) {
         const json = JSON.stringify(editor.getProjectData(), null, 2);
         const fontCss = await getFontFaceCss();
 
-        zip.file("index.html", `<!DOCTYPE html><html><head><meta charset="utf-8"><link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap" rel="stylesheet"><link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="style.css"></head><body>${html}</body></html>`);
+        // Page multilingue → index.html = version bilingue auto-portée (switch inclus).
+        const bilingual = await getBilingualExportHtml();
+        if (bilingual) {
+            zip.file("index.html", bilingual);
+        } else {
+            zip.file("index.html", `<!DOCTYPE html><html><head><meta charset="utf-8"><link href="${GOOGLE_FONTS}" rel="stylesheet"><link rel="stylesheet" href="fonts.css"><link rel="stylesheet" href="style.css"></head><body>${html}</body></html>`);
+        }
         zip.file("fonts.css", fontCss);
         zip.file("style.css", css);
         zip.file("project.json", json);
