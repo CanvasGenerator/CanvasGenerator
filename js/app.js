@@ -382,6 +382,61 @@ function cleanCorruptedAutosave(storageKey) {
 function fitDesktopCanvas(editor) { /* no-op — voir device Desktop width:'' */ }
 function scheduleFitDesktopCanvas(editor) { /* no-op */ }
 
+// Active la barre de recherche de la sidebar Blocks : filtre les blocs (et masque
+// les catégories vides) selon le texte saisi, en comparant le libellé du bloc.
+// Un MutationObserver ré-applique le filtre quand GrapesJS re-rend la liste
+// (changement d'école/mode, ajout de bloc…), sans dépendre d'un timing précis.
+function initBlockSearch(editor) {
+    const input = document.getElementById('block-search');
+    const container = document.getElementById('blocks');
+    if (!input || !container) return;
+
+    let applying = false;
+    const applyFilter = () => {
+        if (applying) return;
+        applying = true;
+        try {
+            const q = (input.value || '').trim().toLowerCase();
+            // IMPORTANT : le CSS impose `.gjs-block{display:flex!important}` → il faut
+            // masquer avec setProperty(...,'important') (inline !important) pour l'emporter,
+            // et removeProperty pour réafficher (laisse le CSS reprendre la main).
+            const hide = el => el.style.setProperty('display', 'none', 'important');
+            const show = el => el.style.removeProperty('display');
+            container.querySelectorAll('.gjs-block').forEach(el => {
+                const text = ((el.textContent || '') + ' ' + (el.getAttribute('title') || '')).toLowerCase();
+                (!q || text.includes(q)) ? show(el) : hide(el);
+            });
+            // Masquer les catégories vides ; pendant une recherche, forcer l'ouverture
+            // des catégories qui ont des résultats (elles peuvent être repliées par défaut).
+            container.querySelectorAll('.gjs-block-category').forEach(cat => {
+                const anyVisible = Array.from(cat.querySelectorAll('.gjs-block'))
+                    .some(b => b.style.getPropertyValue('display') !== 'none');
+                anyVisible ? show(cat) : hide(cat);
+                const content = cat.querySelector('.gjs-blocks-c');
+                if (content) {
+                    if (q && anyVisible) content.style.setProperty('display', 'flex', 'important');
+                    else content.style.removeProperty('display');
+                }
+            });
+        } finally {
+            applying = false;
+        }
+    };
+
+    input.addEventListener('input', applyFilter);
+    input.addEventListener('search', applyFilter); // croix "clear" des <input type=search>
+
+    // Ré-appliquer le filtre courant quand la liste de blocs est reconstruite.
+    // On n'observe que childList/subtree → nos changements de style (attribut) ne
+    // relancent pas l'observer (pas de boucle).
+    try {
+        const obs = new MutationObserver(() => { if (!applying) applyFilter(); });
+        obs.observe(container, { childList: true, subtree: true });
+    } catch (e) { /* MutationObserver indispo : le filtre marche quand même à la saisie */ }
+
+    editor.on('load', applyFilter);
+}
+
 function initEditor(schoolId) {
     const storageKey = `reetain-builder__${schoolId}__gjsProject`;
     cleanCorruptedAutosave(storageKey);
@@ -478,6 +533,8 @@ function initEditor(schoolId) {
     filterBlocksBySchool(editor, schoolId);
     // Déplace les blocs-formulaires de l'onglet Blocks vers l'onglet Forms.
     extractFormBlocks(editor);
+    // Active la barre de recherche de la sidebar Blocks.
+    initBlockSearch(editor);
 
     // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
