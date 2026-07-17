@@ -2910,6 +2910,60 @@ function initUI(editor) {
         }
     };
 
+    // Publish to SFMC — publication manuelle de l'asset webpage.
+    // La sauvegarde garde la page en brouillon (html_sfmc + images prêts) ;
+    // ce bouton pousse le HTML vers SFMC uniquement à la demande.
+    document.getElementById('btn-publish-sfmc').onclick = async () => {
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+
+        // Il faut un projet déjà sauvegardé (brouillon en BD) avant de publier.
+        if (currentProjectIsNew || !fullName) {
+            await showAlert({
+                title: 'Sauvegarde requise',
+                message: 'Sauvegardez d\'abord le projet avec « Save Project » avant de le publier sur SFMC.'
+            });
+            return;
+        }
+
+        // ── Modal de confirmation ──────────────────────────────────────────
+        const confirmed = await new Promise(resolve => {
+            openModal({
+                title: 'Publier sur SFMC',
+                body: `<p class="modal-message">Cette action publie la page <strong>${fullName}</strong> sur Salesforce Marketing Cloud (création ou mise à jour de l'asset).<br><br>Assurez-vous d'avoir sauvegardé votre travail. Continuer ?</p>`,
+                actions: [
+                    { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
+                    { label: 'Publier', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
+                ]
+            });
+        });
+        if (!confirmed) return;
+
+        // ── Publication + loader ───────────────────────────────────────────
+        showLoading('Publication sur SFMC en cours...');
+        try {
+            const res = await fetch('/api/publish-sfmc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: fullName })
+            });
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+            const action = data?.sfmc?.action === 'created' ? 'créée' : 'mise à jour';
+            const assetName = data?.sfmc?.name || fullName;
+            hideLoading();
+            await showAlert({
+                title: 'Publication réussie',
+                message: `La page « ${assetName} » a été ${action} sur Salesforce Marketing Cloud.`
+            });
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Échec de la publication', message: 'Impossible de publier sur SFMC. ' + e.message });
+        }
+    };
+
     // Preview
     // Contraint l'aperçu de l'éditeur à la MÊME largeur que l'aperçu dashboard/SFMC
     // (1280px centré). Sans ça, core:preview cache les panneaux et l'iframe s'étale

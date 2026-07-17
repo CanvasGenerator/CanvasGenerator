@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -761,6 +761,39 @@ module.exports = async function handler(req, res) {
             });
 
             return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Publication manuelle vers SFMC (bouton « Publish to SFMC »)
+        // La sauvegarde ne fait que préparer le brouillon (html_sfmc + images).
+        // Cet endpoint publie l'asset webpage dans SFMC à la demande.
+        // ──────────────────────────────────────────────────────────────────────
+        if (req.method === 'POST' && pathname === '/api/publish-sfmc') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+
+            const projectRes = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
+            );
+            const project = projectRes && projectRes[0];
+            if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
+
+            // Utiliser html_sfmc (déjà nettoyé + images publiées par la sauvegarde/cron)
+            // s'il existe ; sinon le préparer à la volée pour ne pas dépendre du cron.
+            let htmlToSend = project.html_sfmc;
+            if (!htmlToSend) {
+                htmlToSend = cleanHtmlForSfmc(project.html || '');
+                htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    html_sfmc: htmlToSend
+                });
+            }
+
+            console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
+            const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
+            return res.status(200).json({ message: 'Published', projectName, sfmc: result });
         }
 
         if (req.method === 'GET' && pathname === '/api/seo-history') {
