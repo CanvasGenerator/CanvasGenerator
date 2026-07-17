@@ -12,6 +12,7 @@ const {
     listMigratedDashboardPages,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
+    getBilingualHtmlForProject,
     updatePageLifecycle,
     isMissingContentSchemaError,
     getPublicationSettings,
@@ -841,7 +842,7 @@ http.createServer(async (req, res) => {
                 console.log('🔴 is_original_language:', data.is_original_language);
                 console.log('🔴 page_group_id:', data.page_group_id);
 
-                const { projectName, html: submittedHtml, css, projectData, properties, is_original_language, page_group_id, source_project_name } = data;
+                const { projectName, html: submittedHtml, css, projectData, properties, is_original_language, page_group_id, source_project_name, language } = data;
 
                 console.log(`\n💾 Sauvegarde projet: "${projectName}"`);
 
@@ -935,6 +936,7 @@ http.createServer(async (req, res) => {
 
                 const contentSync = await syncLegacyProjectToContent({
                     projectName,
+                    language,
                     html: fullHtml,
                     css,
                     projectData,
@@ -967,6 +969,30 @@ http.createServer(async (req, res) => {
 
             } catch (e) {
                 console.log(`❌ Erreur catch:`, e.message);
+                res.writeHead(500);
+                res.end('Error: ' + e.message);
+            }
+        });
+        return;
+    }
+
+    // ── API: Re-synchroniser SFMC après ajout/màj d'une variante de langue ──
+    // Le HTML bilingue (toutes langues + switch) est reconstruit côté worker/inline.
+    if (req.method === 'POST' && pathname === '/api/sfmc/resync') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { projectName } = JSON.parse(body || '{}');
+                if (!projectName) { res.writeHead(400); return res.end('projectName required'); }
+                const r = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=html,css&limit=1`).catch(() => null);
+                const jobResult = await enqueueOrProcessInline({
+                    projectName, fullHtml: r?.[0]?.html || '', css: r?.[0]?.css || '',
+                    projectData: {}, properties: {}, source: 'variant-resync'
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ ok: true, sfmc: jobResult }));
+            } catch (e) {
                 res.writeHead(500);
                 res.end('Error: ' + e.message);
             }
@@ -2325,20 +2351,31 @@ Règles importantes :
             console.log(`\n👁️ Aperçu projet: "${projectName}"`);
 
             let html = '';
-            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
-                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+            // Page bilingue auto-portée : si ≥2 langues, l'aperçu embarque le switch
+            // (clic sur .hdr-lang → bascule instantanée, sans serveur).
+            const bilingual = await getBilingualHtmlForProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Bilingual preview unavailable:', e.message);
                 return null;
             });
 
-            if (structured?.version?.html) {
-                html = structured.version.html;
+            if (bilingual?.html) {
+                html = bilingual.html;
             } else {
-                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-                if (!result || result.length === 0) {
-                    res.writeHead(404);
-                    return res.end('Project not found');
+                const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                    if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                    return null;
+                });
+
+                if (structured?.version?.html) {
+                    html = structured.version.html;
+                } else {
+                    const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                    if (!result || result.length === 0) {
+                        res.writeHead(404);
+                        return res.end('Project not found');
+                    }
+                    html = result[0].html;
                 }
-                html = result[0].html;
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });

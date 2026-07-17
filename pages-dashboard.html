@@ -707,6 +707,18 @@
             }
         }
 
+        // ── Badges de langue (drapeaux) : langues disponibles pour la page ──────
+        const LANG_FLAGS = { FR: '🇫🇷', EN: '🇬🇧', ES: '🇪🇸', DE: '🇩🇪', IT: '🇮🇹', PT: '🇵🇹' };
+        function getLangBadges(page) {
+            const langs = Array.isArray(page.variantLanguages) && page.variantLanguages.length
+                ? page.variantLanguages
+                : [page.lang || 'FR'];
+            return `<div class="cms-lang-badges" style="display:flex;flex-wrap:wrap;gap:4px;">` + langs.map(l => {
+                const code = String(l || 'FR').toUpperCase();
+                return `<span class="cms-badge cms-badge-lang" title="${escAttr(code)}">${LANG_FLAGS[code] || ''} ${escHtml(code)}</span>`;
+            }).join('') + `</div>`;
+        }
+
         // ── NEW: type badge helpers ────────────────────────────────────────────
         function getTypeBadge(page) {
             const isOriginal = String(page.is_original_language) !== 'false';
@@ -1009,7 +1021,7 @@
                         ${getFormIdsHtml(p)}
                     </td>
                     <td><span class="cms-badge cms-badge-school">${escHtml(p.school || '—')}</span></td>
-                    <td><span class="cms-badge cms-badge-lang">${escHtml(p.lang || 'FR')}</span></td>
+                    <td>${getLangBadges(p)}</td>
                     <td>${getTypeBadge(p)}</td>
                     <td><span class="cms-badge ${getStatusClass(p)}">${getStatusLabel(p)}</span></td>
                     <td style="color:#9ca3af;font-size:12px;">${formatDate(p.updated_at)}</td>
