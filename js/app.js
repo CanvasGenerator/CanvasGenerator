@@ -1499,11 +1499,27 @@ function injectComponentFixedStyles(editor) {
                 .mcc-grid { grid-template-columns: repeat(3, 1fr) !important; display: grid !important; }
                 .mcc-item { display: flex !important; }
             }
+            /* Code pays des formulaires : ÉTROIT → champ numéro plus large. Fixe par
+               design (l'utilisateur ne le redimensionne pas). S'applique aussi aux
+               pages déjà créées (CSS figé). */
+            [class*="-phone-prefix-wrap"] { width: 92px !important; flex-shrink: 0 !important; }
+            /* Plus de drapeau dans les formulaires (même sur les pages figées). */
+            .jpo-flag { display: none !important; }
+            /* Logos header COMPACTS en MOBILE UNIQUEMENT (le desktop reste librement
+               redimensionnable via le panneau Style). Corrige aussi les pages figées. */
+            @media (max-width: 768px) {
+                .mh-logo img, .mh-logo svg,
+                .hdr-logo-img, .dh-logo-img,
+                #logo img, #logo svg, a#logo img, a#logo svg {
+                    max-height: 40px !important; height: auto !important; width: auto !important;
+                }
+                [class*="header-efap"] .hdr-logo-img,   [class*="dh-efap"] .dh-logo-img,
+                [class*="header-brassart"] .hdr-logo-img, [class*="dh-brassart"] .dh-logo-img,
+                [class*="header-ifa"] .hdr-logo-img,    [class*="dh-ifa"] .dh-logo-img {
+                    max-height: 30px !important;
+                }
+            }
         `;
-        // NB : PLUS de règles !important sur la taille des logos header/footer ni sur
-        // le code pays ici. Elles ÉCRASAIENT les modifications faites via le panneau
-        // Style (impossible de redimensionner un logo / changer une marge). Les tailles
-        // par défaut vivent dans le CSS des blocs (surchargeables par l'utilisateur).
     } catch(e) { /* silencieux */ }
 }
 
