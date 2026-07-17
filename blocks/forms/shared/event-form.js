@@ -397,15 +397,6 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     box-sizing: border-box;
 }
 
-/* Drapeau français dessiné en CSS (fiable sur tous les OS, pas d'emoji) */
-.jpo-flag {
-    width: 20px;
-    height: 14px;
-    flex-shrink: 0;
-    border-radius: 2px;
-    background: linear-gradient(to right, #0055A4 0 33.33%, #ffffff 33.33% 66.66%, #EF4135 66.66% 100%);
-    box-shadow: 0 0 0 1px rgba(0,0,0,.1);
-}
 
 .jpo-phone-prefix-wrap::after {
     content: '';
@@ -679,15 +670,14 @@ ${showVousEtes ? `
                 <label class="jpo-label">${t.mobile}<span class="req">*</span></label>
                 <div class="jpo-phone-wrap">
                     <div class="jpo-phone-prefix-wrap">
-                        <span class="jpo-flag" aria-hidden="true"></span>
                         <select class="jpo-phone-prefix" aria-label="Indicatif pays">
-                            <option value="+33" selected>+33</option>
-                            <option value="+32">+32</option>
-                            <option value="+41">+41</option>
-                            <option value="+352">+352</option>
-                            <option value="+1">+1</option>
-                            <option value="+44">+44</option>
-                            <option value="+212">+212</option>
+                            <option value="+33" selected>FR (+33)</option>
+                            <option value="+32">BE (+32)</option>
+                            <option value="+41">CH (+41)</option>
+                            <option value="+352">LU (+352)</option>
+                            <option value="+1">US (+1)</option>
+                            <option value="+44">GB (+44)</option>
+                            <option value="+212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">

@@ -53,11 +53,14 @@ const PREVIEW_VIEWPORT_WIDTH = 1280;
 function injectPreviewViewport(html) {
     const s = String(html || '');
     if (/id="preview-viewport"/.test(s)) return s;
-    // Uniquement le cadrage 1280px centré. PAS de !important sur logos/code pays
-    // (sinon on écrase les tailles réglées via le panneau Style).
+    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur).
     const style = `<style id="preview-viewport">`
         + `html{background:#e9e9ec;}`
         + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
+        + `.jpo-flag{display:none!important;}`
+        + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
+        + `[class*="header-efap"] .hdr-logo-img,[class*="dh-efap"] .dh-logo-img,[class*="header-brassart"] .hdr-logo-img,[class*="dh-brassart"] .dh-logo-img,[class*="header-ifa"] .hdr-logo-img,[class*="dh-ifa"] .dh-logo-img{max-height:30px!important;}}`
         + `</style>`;
     return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
 }
