@@ -59,13 +59,16 @@ export default function(editor, categories) {
                     var separator = section.getAttribute('data-campus-separator') || ' · ';
                     var ids       = window.__LP_CAMPUS_IDS || [];
                     var baseUrl   = window.__LP_API_BASE || '';
+                    var school    = window.__LP_SCHOOL || '';
+                    var campusUrl = baseUrl + '/api/campuses' + (school ? '?school=' + encodeURIComponent(school) : '');
 
                     function esc(s) {
                         return String(s == null ? '' : s)
                             .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
                     }
 
-                    fetch(baseUrl + '/api/campuses')
+                    if (!school) return; // pas d'école (ex. master) → garde le contenu bake
+                    fetch(campusUrl)
                         .then(function(r) { return r.json(); })
                         .then(function(all) {
                             if (!Array.isArray(all)) return;

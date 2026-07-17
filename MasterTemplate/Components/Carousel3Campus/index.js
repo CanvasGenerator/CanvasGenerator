@@ -150,7 +150,9 @@ export default function(editor, categories) {
 
                 var ids = window.__LP_CAMPUS_IDS || [];
                 var baseUrl = window.__LP_API_BASE || '';
-                fetch(baseUrl + '/api/campuses')
+                var school = window.__LP_SCHOOL || '';
+                if (!school) { initNav(); return; } // pas d'école (ex. master) → garde le contenu bake
+                fetch(baseUrl + '/api/campuses' + '?school=' + encodeURIComponent(school))
                     .then(function(r) { return r.json(); })
                     .then(function(all) {
                         if (!Array.isArray(all)) return;
