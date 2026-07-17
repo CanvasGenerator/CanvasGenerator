@@ -46,6 +46,26 @@ function ensureFontLinks(html) {
 }
 
 /**
+ * Contraint la page à 1280px centrés + plafonne les logos header en mobile → l'APERÇU
+ * du dashboard rend comme l'éditeur. ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
+ */
+const PREVIEW_VIEWPORT_WIDTH = 1280;
+function injectPreviewViewport(html) {
+    const s = String(html || '');
+    if (/id="preview-viewport"/.test(s)) return s;
+    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur).
+    const style = `<style id="preview-viewport">`
+        + `html{background:#e9e9ec;}`
+        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
+        + `.jpo-flag{display:none!important;}`
+        + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
+        + `[class*="header-efap"] .hdr-logo-img,[class*="dh-efap"] .dh-logo-img,[class*="header-brassart"] .hdr-logo-img,[class*="dh-brassart"] .dh-logo-img,[class*="header-ifa"] .hdr-logo-img,[class*="dh-ifa"] .dh-logo-img{max-height:30px!important;}}`
+        + `</style>`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
+}
+
+/**
  * Extrait le contenu <body> d'un document HTML complet.
  * Utile pour pouvoir reconstruire le <head> avec des balises SEO à jour.
  */
@@ -769,7 +789,8 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html)));
+            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
+            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html))));
 
         }
 

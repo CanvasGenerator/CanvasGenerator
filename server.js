@@ -117,6 +117,28 @@ function ensureFontLinks(html) {
 }
 
 /**
+ * Contraint la page à une largeur desktop FIXE (1280px, centrée) + plafonne les
+ * logos de header en mobile → l'APERÇU du dashboard rend comme l'espace de travail
+ * de l'éditeur. ⚠️ Route /preview/ UNIQUEMENT (jamais les pages publiques). Idempotent.
+ */
+const PREVIEW_VIEWPORT_WIDTH = 1280;
+function injectPreviewViewport(html) {
+    const s = String(html || '');
+    if (/id="preview-viewport"/.test(s)) return s;
+    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur,
+    // corrige aussi les pages figées). Logos cappés en MOBILE uniquement.
+    const style = `<style id="preview-viewport">`
+        + `html{background:#e9e9ec;}`
+        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
+        + `.jpo-flag{display:none!important;}`
+        + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
+        + `[class*="header-efap"] .hdr-logo-img,[class*="dh-efap"] .dh-logo-img,[class*="header-brassart"] .hdr-logo-img,[class*="dh-brassart"] .dh-logo-img,[class*="header-ifa"] .hdr-logo-img,[class*="dh-ifa"] .dh-logo-img{max-height:30px!important;}}`
+        + `</style>`;
+    return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
+}
+
+/**
  * Patche une chaîne CSS :
  *  - Met à jour les fallbacks var(--brand-*, OLD) avec les nouvelles couleurs
  *  - Remplace les background-color hardcodés dans les blocs header/footer
@@ -149,6 +171,76 @@ function patchCssString(css, { colorHeader, primary, secondary, colorCarousel })
         );
     }
     return css;
+}
+
+/**
+ * Construit un bloc <style> contenant toutes les CSS vars de l'école
+ * (--brand-primary, --brand-header, --brand-carousel, rôles de couleurs…).
+ * Miroir côté serveur de injectBrandVariables() dans js/app.js.
+ * Utilisé par la route /preview/ pour que les blocs affichent les bonnes
+ * couleurs de l'école au lieu des fallbacks hardcodés.
+ */
+function buildBrandCssVarsForPreview(school) {
+    if (!school) return '';
+    const primary       = school.color || '#3b82f6';
+    const secondary     = school.secondaryColor || school.secondary_color || '#1a1a1a';
+    const colorHeader   = school.colorHeader   || school.color_header   || primary;
+    const colorCarousel = school.colorCarousel || school.color_carousel || primary;
+    const headerText    = school.headerTextColor || school.header_text_color || '#ffffff';
+    const rgb           = hexToRgb(primary);
+
+    // Calcul de bandeColor (identique à app.js)
+    let bandeColor = primary;
+    if (school.id === 'brassart') bandeColor = '#bc0b5d';
+    if (school.id === 'efap')     bandeColor = '#1a1a1a';
+    if (school.id === 'cread')    bandeColor = '#d4af37';
+
+    const branding = normalizeBranding(school.branding, school);
+    const c        = branding.colors || {};
+    const schoolFont = fontStackById(branding.defaultFont) || "'Gotham', Arial, sans-serif";
+
+    const colorsVarsArray = Object.entries(c).map(([key, val]) =>
+        `--brand-${key.replace(/[A-Z]/g, m => '-' + m.toLowerCase())}: ${val};`
+    );
+
+    const css = `
+:root {
+  --brand-primary:     ${c.primary     || primary};
+  --brand-secondary:   ${c.secondary   || secondary};
+  --brand-primary-rgb: ${rgb};
+  --brand-header:      ${colorHeader};
+  --brand-header-text: ${headerText};
+  --brand-carousel:    ${colorCarousel};
+  --bande-color:       ${bandeColor};
+  --brand-font:        ${schoolFont};
+  --brand-background:  ${c.background  || '#ffffff'};
+  --brand-surface:     ${c.surface     || '#f5f5f5'};
+  --brand-text:        ${c.text        || '#1a1a1a'};
+  --brand-muted:       ${c.mutedText   || '#6b7280'};
+  --brand-border:      ${c.border      || '#e5e7eb'};
+  --brand-accent:      ${c.accent      || secondary};
+  --brand-button-bg:   ${c.buttonBackground || primary};
+  --brand-button-hover:${c.buttonHover || primary};
+  --brand-button-text: ${c.buttonText  || '#ffffff'};
+  --brand-link:        ${c.link        || primary};
+  --brand-link-hover:  ${c.linkHover   || primary};
+  --brand-success:     ${c.success     || '#16a34a'};
+  --brand-warning:     ${c.warning     || '#f59e0b'};
+  --brand-error:       ${c.error       || '#dc2626'};
+  ${colorsVarsArray.join('\n  ')}
+}
+/* PREVIEW – override couleurs hardcodées des blocs header/carousel */
+.mh-header,.header-efap,.header-brassart {
+  background-color: ${colorHeader} !important;
+  background:       ${colorHeader} !important;
+}
+.mc2a-section,.mc2b-section,.mc2c-section,.mcva-section,
+.mcd-colored-zone,.mc3c-section,.mce-section,.mcb-gray-zone {
+  background-color: ${colorCarousel} !important;
+  background:       ${colorCarousel} !important;
+}
+`;
+    return `<style id="brand-variables-preview">${css}</style>`;
 }
 
 /**
@@ -198,12 +290,12 @@ function wrapCustomCode(code, zone) {
     return c ? `<!-- custom-${zone}:start -->${c}<!-- custom-${zone}:end -->` : '';
 }
 
-function buildCampusRuntimeTag(properties = {}) {
+function buildCampusRuntimeTag(properties = {}, school = '') {
     const ids = Array.isArray(properties.campusIds) ? properties.campusIds : [];
     const apiBase = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL
         ? (process.env.PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`)
         : '';
-    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};</script>`;
+    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};window.__LP_SCHOOL=${JSON.stringify(school || '')};</script>`;
 }
 
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
@@ -212,7 +304,10 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     const keywords = properties?.keywords || '';
     const canonical = properties?.canonical || '';
     const schemaLd = properties?.schemaLd || '';
-    const campusTag = buildCampusRuntimeTag(properties);
+    // École déduite du nom de projet (`school-<id>__…`) → runtime campus scopé.
+    const schoolMatch = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+    const pageSchool = schoolMatch ? schoolMatch[1].toLowerCase() : '';
+    const campusTag = buildCampusRuntimeTag(properties, pageSchool);
     const headCode = wrapCustomCode(properties.customHeadCode, 'head');
     const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
     // anti-doublon : retirer un éventuel code déjà injecté
@@ -1882,8 +1977,10 @@ Règles importantes :
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' }));
             }
+            // École concernée (obligatoire) : les campus sont scindés par école.
+            const school = (params.get('school') || '').toLowerCase();
             if (req.method === 'GET') {
-                const result = await listCampuses();
+                const result = await listCampuses(school);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result || []));
             }
@@ -1892,11 +1989,13 @@ Règles importantes :
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
                     try {
-                        const { id, name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        const { id, name, slug, image_url, address, link, country, school: bSchool } = JSON.parse(body || '{}');
+                        const sch = (school || bSchool || '').toLowerCase();
+                        if (!sch) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
                         if (!id || !name) {
                             res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
                         }
-                        const result = await upsertCampus({ id, name, slug: slug || id, image_url, address, link });
+                        const result = await upsertCampus({ school: sch, id, name, slug: slug || id, image_url, address, link, country });
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         return res.end(JSON.stringify(result));
                     } catch (e) {
@@ -1912,9 +2011,11 @@ Règles importantes :
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
                     try {
-                        const { name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        const { name, slug, image_url, address, link, country, school: bSchool } = JSON.parse(body || '{}');
+                        const sch = (school || bSchool || '').toLowerCase();
+                        if (!sch) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
                         if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
-                        const result = await upsertCampus({ id: campusId, name, slug: slug || campusId, image_url, address, link });
+                        const result = await upsertCampus({ school: sch, id: campusId, name, slug: slug || campusId, image_url, address, link, country });
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         return res.end(JSON.stringify(result));
                     } catch (e) {
@@ -1926,7 +2027,8 @@ Règles importantes :
             }
             if (req.method === 'DELETE') {
                 const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-                const result = await deleteCampus(campusId);
+                if (!school) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
+                const result = await deleteCampus(school, campusId);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result));
             }
@@ -2214,9 +2316,9 @@ Règles importantes :
     }
 
     // ── Routing: /preview/:projectName ───────────────────────────────
-    // NOTE: Le HTML stocké contient déjà les bonnes variables CSS (--brand-primary, etc.)
-    // générées lors de la sauvegarde ou de la déclinaison. On ne réinjecte pas de styles
-    // supplémentaires pour ne pas écraser les couleurs correctes de l'école.
+    // On extrait l'école depuis le nom du projet (school-{id}__...) et on injecte
+    // ses variables CSS de marque dans le HTML servi, pour que les blocs affichent
+    // les couleurs de l'école et non les fallbacks hardcodés.
     if (req.method === 'GET' && pathname.startsWith('/preview/')) {
         try {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
@@ -2240,7 +2342,7 @@ Règles importantes :
             }
 
             res.writeHead(200, { 'Content-Type': 'text/html' });
-let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
+            let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
 
             // Corriger tous les chemins relatifs restants (css/fonts.css, ../assets/...)
             // en forçant la racine de l'URL pour la page de preview.
@@ -2248,8 +2350,37 @@ let finalHtml = ensureFontLinks(rewriteAssetsToRoot(html));
                 finalHtml = finalHtml.replace(/<head>/i, '<head>\n    <base href="/">');
             }
 
+            // ── Injection des variables CSS de l'école ────────────────────────
+            // Le HTML stocké contient les couleurs résolues en hex (GrapesJS bake les
+            // var() lors de l'édition). On ré-injecte le bloc :root de l'école pour que
+            // les blocs utilisant var(--brand-*) affichent les bonnes couleurs.
+            try {
+                const schoolMatch = /^school-([a-z0-9-]+)__/i.exec(projectName);
+                if (schoolMatch) {
+                    const previewSchoolId = schoolMatch[1].toLowerCase();
+                    const allSchools = await readSchoolsForApi();
+                    const previewSchool = allSchools.find(s => s.id === previewSchoolId);
+                    if (previewSchool) {
+                        const brandStyleTag = buildBrandCssVarsForPreview(previewSchool);
+                        // Injecter juste avant </head> (après les styles existants pour
+                        // que nos vars aient la priorité sur les fallbacks des blocs).
+                        if (/<\/head>/i.test(finalHtml)) {
+                            finalHtml = finalHtml.replace(/<\/head>/i, brandStyleTag + '\n</head>');
+                        } else {
+                            finalHtml = brandStyleTag + finalHtml;
+                        }
+                        console.log(`🎨 Brand vars injectées pour l'école "${previewSchoolId}" dans la preview`);
+                    }
+                }
+            } catch (brandErr) {
+                console.warn('⚠️  Impossible d\'injecter les brand vars dans la preview:', brandErr.message);
+            }
+
             // Ancres stables des formulaires (liens #form_id) — feature/PFE
             finalHtml = ensureFormAnchors(finalHtml).html;
+
+            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
+            finalHtml = injectPreviewViewport(finalHtml);
 
             res.end(finalHtml);
         } catch (e) {

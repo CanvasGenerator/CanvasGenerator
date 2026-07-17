@@ -10,29 +10,29 @@ export default function(editor, categories) {
   <div class="mcc2-inner">
 
     <div class="mcc2-stat">
-      <span class="mcc2-number">64</span>
-      <span class="mcc2-label">ANS D'EXPERTISE</span>
+      <span class="mcc2-number mcc2-number-1">64</span>
+      <span class="mcc2-label mcc2-label-1">ANS D'EXPERTISE</span>
     </div>
 
     <div class="mcc2-divider"></div>
 
     <div class="mcc2-stat">
-      <span class="mcc2-number">30K</span>
-      <span class="mcc2-label">DIPLÔMÉS</span>
+      <span class="mcc2-number mcc2-number-2">30K</span>
+      <span class="mcc2-label mcc2-label-2">DIPLÔMÉS</span>
     </div>
 
     <div class="mcc2-divider"></div>
 
     <div class="mcc2-stat">
-      <span class="mcc2-number">15</span>
-      <span class="mcc2-label">CAMPUS</span>
+      <span class="mcc2-number mcc2-number-3">15</span>
+      <span class="mcc2-label mcc2-label-3">CAMPUS</span>
     </div>
 
     <div class="mcc2-divider"></div>
 
     <div class="mcc2-stat">
-      <span class="mcc2-number">TITRES<br>RNCP</span>
-      <span class="mcc2-label">RECONNUS PAR L'ÉTAT</span>
+      <span class="mcc2-number mcc2-number-4">TITRES<br>RNCP</span>
+      <span class="mcc2-label mcc2-label-4">RECONNUS PAR L'ÉTAT</span>
     </div>
 
   </div>
@@ -66,6 +66,14 @@ export default function(editor, categories) {
     line-height: 1.1;
     color: var(--text-main, #111);
     letter-spacing: -0.5px;
+  }
+  /* Taille par défaut propre à chaque chiffre-clé : chaque nombre porte sa
+     propre classe (.mcc2-number-N) pour pouvoir être redimensionné
+     indépendamment des autres depuis le gestionnaire de styles. Le libellé
+     « TITRES RNCP » étant du texte et non un chiffre, il part plus petit
+     pour ne pas ressortir par rapport aux nombres. */
+  .mcc2-number-4 {
+    font-size: 24px;
   }
   .mcc2-label {
     font-size: 11px;

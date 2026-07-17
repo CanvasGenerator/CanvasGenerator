@@ -215,6 +215,7 @@ document.addEventListener('DOMContentLoaded', async () => {
                 window.editor.loadProjectData(parseProjectData(project.project_data));
                 injectBrandVariables(window.editor, CURRENT_SCHOOL);
                 populateProperties(project.properties || {});
+                setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
                 updatePageIdBadge();
@@ -279,6 +280,8 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
         window.editor.setComponents(extractBodyHtml(version.html || ''));
         window.editor.setStyle(version.css || '');
     }
+    // Ouverture de page → historique undo vidé (undo n'agit que sur les modifs à venir).
+    setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
 
     const legacyProjectName = page.metadata?.legacyProjectName || '';
     const displayName = page.title || legacyProjectName || 'Projet';
@@ -324,6 +327,15 @@ function cleanCorruptedAutosave(storageKey) {
         localStorage.removeItem(storageKey);
     }
 }
+
+// ── WYSIWYG : ajuste le zoom du canvas pour que le device Desktop (1280px) tienne
+// dans l'espace dispo entre les panneaux → rendu éditeur ≈ preview desktop, sans
+// scroll horizontal. Tablet/Mobile restent à 100 %.
+// DÉSACTIVÉ : le dézoom auto du canvas (setZoom + ResizeObserver) gelait l'éditeur
+// et cassait la sélection (panneaux Style/Propriétés). No-op conservé pour ne pas
+// casser les points d'appel. Le rendu 1280px est géré côté preview/SFMC (serveur).
+function fitDesktopCanvas(editor) { /* no-op — voir device Desktop width:'' */ }
+function scheduleFitDesktopCanvas(editor) { /* no-op */ }
 
 function initEditor(schoolId) {
     const storageKey = `reetain-builder__${schoolId}__gjsProject`;
@@ -386,11 +398,20 @@ function initEditor(schoolId) {
         layerManager: { appendTo: '#layers-container' },
         traitManager: { appendTo: '#traits-container' },
         panels: { defaults: [] },
+        // Undo/redo fiable : ne PAS tracer les simples SÉLECTIONS de composants
+        // (sinon chaque clic crée une étape fantôme → Ctrl+Z « mangé », retour arrière
+        // imprévisible qui fait perdre du travail). On ne trace que les vraies éditions
+        // (ajout, suppression, style/dimension, typo, attributs).
+        undoManager: { trackSelection: false, maximumStackLength: 500 },
         // NB : les @font-face (Gotham, Space Grotesk) sont chargés dans l'iframe
         // canvas via injectBrandVariables (link explicite en URL absolue), plus
         // fiable que l'option canvas.styles.
         deviceManager: {
             devices: [
+                // Desktop = largeur fluide (canvas normal). NB : on avait tenté un
+                // rendu forcé à 1280px + dézoom auto, mais ça gelait l'éditeur / cassait
+                // la sélection (boucle ResizeObserver↔setZoom). Le rendu 1280px reste
+                // appliqué côté PREVIEW et SFMC (serveur), pas dans l'éditeur.
                 { name: 'Desktop', width: '' },
                 { name: 'Tablet', width: '600px', widthMedia: '600px' },
                 { name: 'Mobile', width: '375px', widthMedia: '375px' },
@@ -435,6 +456,54 @@ function initEditor(schoolId) {
         }
     });
 
+    // ── Affichage des dimensions réelles dans le Style Manager ───────────
+    // Quand un composant est sélectionné, on lit sa taille rendue (offsetWidth /
+    // offsetHeight) dans le canvas et on l'affiche en placeholder sur les champs
+    // Largeur et Hauteur du secteur Dimensions — aucune modification du style,
+    // juste une indication visuelle de référence (lecture seule).
+    editor.on('component:selected', (component) => {
+        // Petit délai pour laisser le Style Manager se re-rendre
+        setTimeout(() => {
+            try {
+                const el = component && component.getEl ? component.getEl() : null;
+                if (!el) return;
+
+                const w = Math.round(el.offsetWidth);
+                const h = Math.round(el.offsetHeight);
+                if (!w && !h) return;
+
+                const sm = document.getElementById('styles-container');
+                if (!sm) return;
+
+                // Champ Largeur
+                const wInput = sm.querySelector('.gjs-sm-property__width input');
+                if (wInput) wInput.placeholder = `${w} px`;
+
+                // Champ Hauteur
+                const hInput = sm.querySelector('.gjs-sm-property__height input');
+                if (hInput) hInput.placeholder = `${h} px`;
+
+                // Champ Largeur max (info utile)
+                const mwInput = sm.querySelector('.gjs-sm-property__max-width input');
+                if (mwInput && !mwInput.value) mwInput.placeholder = `${w} px`;
+            } catch(e) { /* silencieux */ }
+        }, 80);
+    });
+
+    // Réinitialiser les placeholders quand rien n'est sélectionné
+    editor.on('component:deselected', () => {
+        try {
+            const sm = document.getElementById('styles-container');
+            if (!sm) return;
+            ['.gjs-sm-property__width input',
+             '.gjs-sm-property__height input',
+             '.gjs-sm-property__max-width input'].forEach(sel => {
+                const el = sm.querySelector(sel);
+                if (el) el.placeholder = '';
+            });
+        } catch(e) { /* silencieux */ }
+    });
+
     // ── Verrouillage et ouverture automatique du picker FAQ ─────────────
     // Seul le .ma-title reste éditable ; tout le reste est verrouillé.
     function isFaqTitle(comp) {
@@ -442,15 +511,19 @@ function initEditor(schoolId) {
     }
 
     editor.on('component:add', (component) => {
-        // Verrouiller si enfant d'un ma-faq-section (sauf le titre)
+        // Verrouiller si enfant d'un ma-faq-section (sauf le titre).
+        // Mutation AUTOMATIQUE de flags → hors pile d'undo (skip) pour ne pas polluer.
         let parent = component.parent();
         while (parent) {
             if (parent.get('type') === 'ma-faq-section') {
-                if (isFaqTitle(component)) {
-                    component.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
-                } else {
-                    component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
-                }
+                const lock = () => {
+                    if (isFaqTitle(component)) {
+                        component.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
+                    } else {
+                        component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                    }
+                };
+                try { editor.UndoManager.skip(lock); } catch (e) { lock(); }
                 return;
             }
             parent = parent.parent();
@@ -641,7 +714,13 @@ function initEditor(schoolId) {
     let _logoLangTimer = null;
     const scheduleLogoLanguage = () => {
         clearTimeout(_logoLangTimer);
-        _logoLangTimer = setTimeout(() => applyLogoLanguage(editor, currentProjectLanguage), 150);
+        // Le swap logo est une mutation AUTOMATIQUE/cosmétique → on l'exécute HORS de
+        // la pile d'undo (UndoManager.skip), sinon il crée des étapes fantômes qui
+        // « mangent » les Ctrl+Z et rendent le retour arrière imprévisible.
+        _logoLangTimer = setTimeout(() => {
+            const run = () => applyLogoLanguage(editor, currentProjectLanguage);
+            try { editor.UndoManager.skip(run); } catch (e) { run(); }
+        }, 150);
     };
     editor.on('component:add', scheduleLogoLanguage);
     editor.on('load', scheduleLogoLanguage);
@@ -1087,11 +1166,7 @@ function addFontStyleControl(editor) {
     }
 }
 
-// Donne un libellé français clair à CHAQUE propriété du Style Manager, via le NOM
-// natif GrapesJS → le libellé s'affiche au-dessus du contrôle (y compris pour les
-// composites « Bordure », « Arrondi des angles » et les empilements « Ombre »,
-// « Arrière-plan » qui gardent leur bouton « + » natif).
-// Méthode fiable (indépendante du nom de classe CSS), n'ajoute/retire aucune fonction.
+
 function setStyleManagerLabels(editor) {
     if (!editor) return;
     try {
@@ -1423,6 +1498,26 @@ function injectComponentFixedStyles(editor) {
             @media (min-width: 769px) {
                 .mcc-grid { grid-template-columns: repeat(3, 1fr) !important; display: grid !important; }
                 .mcc-item { display: flex !important; }
+            }
+            /* Code pays des formulaires : ÉTROIT → champ numéro plus large. Fixe par
+               design (l'utilisateur ne le redimensionne pas). S'applique aussi aux
+               pages déjà créées (CSS figé). */
+            [class*="-phone-prefix-wrap"] { width: 92px !important; flex-shrink: 0 !important; }
+            /* Plus de drapeau dans les formulaires (même sur les pages figées). */
+            .jpo-flag { display: none !important; }
+            /* Logos header COMPACTS en MOBILE UNIQUEMENT (le desktop reste librement
+               redimensionnable via le panneau Style). Corrige aussi les pages figées. */
+            @media (max-width: 768px) {
+                .mh-logo img, .mh-logo svg,
+                .hdr-logo-img, .dh-logo-img,
+                #logo img, #logo svg, a#logo img, a#logo svg {
+                    max-height: 40px !important; height: auto !important; width: auto !important;
+                }
+                [class*="header-efap"] .hdr-logo-img,   [class*="dh-efap"] .dh-logo-img,
+                [class*="header-brassart"] .hdr-logo-img, [class*="dh-brassart"] .dh-logo-img,
+                [class*="header-ifa"] .hdr-logo-img,    [class*="dh-ifa"] .dh-logo-img {
+                    max-height: 30px !important;
+                }
             }
         `;
     } catch(e) { /* silencieux */ }
@@ -1914,16 +2009,42 @@ function initUI(editor) {
         }
     };
 
-    // Undo / Redo — les boutons existaient dans le HTML mais n'étaient branchés à rien.
-    // On les câble sur l'UndoManager de GrapesJS (activé par défaut).
+    // Undo / Redo — câblés sur l'UndoManager de GrapesJS.
+    // • Ne concerne que les modifications EN COURS (l'historique est vidé au chargement
+    //   d'une page → on ne peut pas remonter avant l'état chargé).
+    // • Boutons DÉSACTIVÉS quand il n'y a rien à annuler / refaire.
     const btnUndo = document.getElementById('btn-undo');
-    if (btnUndo) {
-        btnUndo.onclick = () => { try { editor.UndoManager.undo(); } catch (e) { console.warn('undo', e); } };
-    }
     const btnRedo = document.getElementById('btn-redo');
-    if (btnRedo) {
-        btnRedo.onclick = () => { try { editor.UndoManager.redo(); } catch (e) { console.warn('redo', e); } };
+    function setBtnDisabled(btn, disabled) {
+        if (!btn) return;
+        btn.disabled = disabled;
+        btn.classList.toggle('is-disabled', disabled);
+        btn.style.opacity = disabled ? '0.4' : '';
+        btn.style.pointerEvents = disabled ? 'none' : '';
+        btn.style.cursor = disabled ? 'default' : '';
     }
+    function refreshUndoRedo() {
+        try {
+            const um = editor.UndoManager;
+            setBtnDisabled(btnUndo, !um.hasUndo());
+            setBtnDisabled(btnRedo, !um.hasRedo());
+        } catch (e) { /* noop */ }
+    }
+    // Exposé pour vider l'historique à l'ouverture d'une page (voir points de load).
+    window.__refreshUndoRedo = refreshUndoRedo;
+    window.__clearUndoHistory = () => {
+        try { editor.UndoManager.clear(); } catch (e) {}
+        refreshUndoRedo();
+    };
+    if (btnUndo) btnUndo.onclick = () => { try { editor.UndoManager.undo(); } catch (e) {} refreshUndoRedo(); };
+    if (btnRedo) btnRedo.onclick = () => { try { editor.UndoManager.redo(); } catch (e) {} refreshUndoRedo(); };
+    // Mise à jour de l'état activé/désactivé à chaque édition et action undo/redo.
+    editor.on('update', refreshUndoRedo);
+    editor.on('undo', refreshUndoRedo);
+    editor.on('redo', refreshUndoRedo);
+    // Au chargement initial : historique vide → boutons désactivés.
+    editor.on('load', () => { try { editor.UndoManager.clear(); } catch (e) {} refreshUndoRedo(); });
+    refreshUndoRedo();
 
     // Sidebar Toggles
     const btnClear = document.getElementById('btn-clear');
@@ -2668,6 +2789,8 @@ function initUI(editor) {
             injectBrandVariables(editor, CURRENT_SCHOOL);
             // Populate SEO / Properties panel
             populateProperties(project.properties || {});
+            // Ouverture de page → historique undo vidé.
+            setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
