@@ -288,12 +288,12 @@ function wrapCustomCode(code, zone) {
     return c ? `<!-- custom-${zone}:start -->${c}<!-- custom-${zone}:end -->` : '';
 }
 
-function buildCampusRuntimeTag(properties = {}) {
+function buildCampusRuntimeTag(properties = {}, school = '') {
     const ids = Array.isArray(properties.campusIds) ? properties.campusIds : [];
     const apiBase = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL
         ? (process.env.PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`)
         : '';
-    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};</script>`;
+    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};window.__LP_SCHOOL=${JSON.stringify(school || '')};</script>`;
 }
 
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
@@ -302,7 +302,10 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     const keywords = properties?.keywords || '';
     const canonical = properties?.canonical || '';
     const schemaLd = properties?.schemaLd || '';
-    const campusTag = buildCampusRuntimeTag(properties);
+    // École déduite du nom de projet (`school-<id>__…`) → runtime campus scopé.
+    const schoolMatch = /^school-([a-z0-9-]+)__/i.exec(projectName || '');
+    const pageSchool = schoolMatch ? schoolMatch[1].toLowerCase() : '';
+    const campusTag = buildCampusRuntimeTag(properties, pageSchool);
     const headCode = wrapCustomCode(properties.customHeadCode, 'head');
     const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
     // anti-doublon : retirer un éventuel code déjà injecté
@@ -1972,8 +1975,10 @@ Règles importantes :
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' }));
             }
+            // École concernée (obligatoire) : les campus sont scindés par école.
+            const school = (params.get('school') || '').toLowerCase();
             if (req.method === 'GET') {
-                const result = await listCampuses();
+                const result = await listCampuses(school);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result || []));
             }
@@ -1982,11 +1987,13 @@ Règles importantes :
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
                     try {
-                        const { id, name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        const { id, name, slug, image_url, address, link, country, school: bSchool } = JSON.parse(body || '{}');
+                        const sch = (school || bSchool || '').toLowerCase();
+                        if (!sch) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
                         if (!id || !name) {
                             res.writeHead(400); return res.end(JSON.stringify({ error: 'id et name requis' }));
                         }
-                        const result = await upsertCampus({ id, name, slug: slug || id, image_url, address, link });
+                        const result = await upsertCampus({ school: sch, id, name, slug: slug || id, image_url, address, link, country });
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         return res.end(JSON.stringify(result));
                     } catch (e) {
@@ -2002,9 +2009,11 @@ Règles importantes :
                 req.on('data', chunk => { body += chunk.toString(); });
                 req.on('end', async () => {
                     try {
-                        const { name, slug, image_url, address, link } = JSON.parse(body || '{}');
+                        const { name, slug, image_url, address, link, country, school: bSchool } = JSON.parse(body || '{}');
+                        const sch = (school || bSchool || '').toLowerCase();
+                        if (!sch) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
                         if (!name) { res.writeHead(400); return res.end(JSON.stringify({ error: 'name requis' })); }
-                        const result = await upsertCampus({ id: campusId, name, slug: slug || campusId, image_url, address, link });
+                        const result = await upsertCampus({ school: sch, id: campusId, name, slug: slug || campusId, image_url, address, link, country });
                         res.writeHead(200, { 'Content-Type': 'application/json' });
                         return res.end(JSON.stringify(result));
                     } catch (e) {
@@ -2016,7 +2025,8 @@ Règles importantes :
             }
             if (req.method === 'DELETE') {
                 const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-                const result = await deleteCampus(campusId);
+                if (!school) { res.writeHead(400); return res.end(JSON.stringify({ error: 'école (school) requise' })); }
+                const result = await deleteCampus(school, campusId);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(result));
             }

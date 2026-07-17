@@ -30,6 +30,12 @@ export function escapeHtml(str) {
         .replace(/'/g, '&#39;');
 }
 
+/** Un pays campus vaut-il « France » ? (vide = France par défaut). */
+export function isFranceCountry(country) {
+    const k = String(country || '').trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    return k === '' || k === 'france' || k === 'fr';
+}
+
 /** Liste effective des campus pour la page (sélection appliquée). */
 export function getResolvedCampuses() {
     const all = Array.isArray(window.__LP_CAMPUSES) ? window.__LP_CAMPUSES : [];
@@ -48,10 +54,12 @@ export function notifyCampusChange() {
     }));
 }
 
-/** Charge la liste complète des campus depuis l'API (met en cache). */
+/** Charge la liste des campus de l'école courante depuis l'API (met en cache). */
 export async function loadCampuses() {
+    const school = _ctx.getSchoolId ? _ctx.getSchoolId() : '';
     try {
-        const r = await fetch('/api/campuses');
+        const url = '/api/campuses' + (school ? `?school=${encodeURIComponent(school)}` : '');
+        const r = await fetch(url);
         const data = await r.json();
         window.__LP_CAMPUSES = Array.isArray(data) ? data : [];
     } catch (e) {
@@ -91,7 +99,10 @@ function slugify(str) {
 }
 
 async function apiCampus(method, id, payload) {
-    const url = id ? `/api/campuses/${encodeURIComponent(id)}` : '/api/campuses';
+    // Toujours scoper par école : les campus sont cloisonnés par école.
+    const school = _ctx.getSchoolId ? _ctx.getSchoolId() : '';
+    const qs = school ? `?school=${encodeURIComponent(school)}` : '';
+    const url = (id ? `/api/campuses/${encodeURIComponent(id)}` : '/api/campuses') + qs;
     const opts = { method, headers: { 'Content-Type': 'application/json' } };
     if (payload) opts.body = JSON.stringify(payload);
     const r = await fetch(url, opts);
@@ -179,7 +190,7 @@ export function openCampusSettings() {
                             style="width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;margin:0;">
                         ${thumb}
                         <div style="min-width:0;">
-                            <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(c.name)}</div>
+                            <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">📍 ${escapeHtml(c.name)}${c.country ? ` <span style="font-weight:500;color:#6b7280;font-size:11px;">· ${escapeHtml(c.country)}</span>` : ''}</div>
                             <div style="font-size:11px;color:#9ca3af;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escapeHtml(c.address || 'Pas d’adresse')}</div>
                         </div>
                     </label>
@@ -198,6 +209,10 @@ export function openCampusSettings() {
                             <input type="text" class="campus-f-name" value="${escapeHtml(c.name)}" placeholder="Nom du campus" style="padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;outline:none;">
                             <input type="text" class="campus-f-image" value="${escapeHtml(c.image_url || '')}" placeholder="URL de l'image (ou upload)" style="padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;outline:none;">
                             <input type="text" class="campus-f-address" value="${escapeHtml(c.address || '')}" placeholder="Adresse (affichée dans le carrousel)" style="padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;outline:none;">
+                            <select class="campus-f-country" style="padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;outline:none;background:#fff;">
+                                <option value="France" ${isFranceCountry(c.country) ? 'selected' : ''}>France</option>
+                                <option value="International" ${isFranceCountry(c.country) ? '' : 'selected'}>International</option>
+                            </select>
                             <input type="text" class="campus-f-link" value="${escapeHtml(c.link || '')}" placeholder="Lien (image cliquable dans le carrousel)" style="padding:7px 10px;font-size:12px;border:1px solid #d1d5db;border-radius:6px;outline:none;">
                             <div style="display:flex;gap:8px;justify-content:flex-end;">
                                 <button type="button" class="btn-cancel-edit-campus" style="font-size:12px;padding:6px 12px;border:1px solid #d1d5db;border-radius:6px;background:#fff;cursor:pointer;color:#374151;">Fermer</button>
@@ -268,6 +283,7 @@ export function openCampusSettings() {
                     name:      row.querySelector('.campus-f-name').value.trim(),
                     image_url: row.querySelector('.campus-f-image').value.trim(),
                     address:   row.querySelector('.campus-f-address').value.trim(),
+                    country:   row.querySelector('.campus-f-country').value.trim(),
                     link:      row.querySelector('.campus-f-link').value.trim()
                 };
                 if (!payload.name) { alert('Le nom est requis.'); return; }
@@ -332,7 +348,7 @@ export function openCampusSettings() {
         const orig = btnAdd.innerHTML;
         btnAdd.innerHTML = '<i class="fas fa-spinner fa-spin"></i>';
         try {
-            await apiCampus('POST', null, { id, name });
+            await apiCampus('POST', null, { id, name, country: 'France' });
             inputNew.value = '';
             selectedIds.add(id);         // auto-sélection à l'ajout
             await reload();
