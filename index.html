@@ -47,6 +47,7 @@
                 </div>
                 <div class="project-id-badge" id="project-id-badge" style="display:none; font-family:monospace; background:#e5e7eb; color:#374151; padding:4px 8px; border-radius:6px; font-size:12px; margin-left:8px; cursor:pointer; font-weight:600; border:1px solid #d1d5db;">
                 </div>
+                <span id="project-status-badge" style="display:none; padding:4px 10px; border-radius:9999px; font-size:12px; margin-left:8px; font-weight:600;"></span>
                 <div class="toolbar-divider"></div>
                 <nav class="toolbar-menu">
                     <button class="menu-btn" id="btn-new">New</button>
@@ -111,6 +112,9 @@
                 <button class="btn-primary" id="btn-save">Save Project</button>
                 <button class="btn-outline" id="btn-publish-sfmc" title="Publier la page sur Salesforce Marketing Cloud">
                     <i class="fas fa-cloud-upload-alt" style="margin-right: 6px;"></i>Publish to SFMC
+                </button>
+                <button class="btn-outline" id="btn-unpublish-sfmc" title="Dépublier : supprime l'asset de la page sur Salesforce Marketing Cloud" style="display:none; border-color:#dc2626; color:#dc2626;">
+                    <i class="fas fa-cloud-download-alt" style="margin-right: 6px;"></i>Dépublier
                 </button>
                 <button class="btn-outline" id="btn-preview">Preview</button>
             </div>

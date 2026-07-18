@@ -201,6 +201,33 @@ function updatePageIdBadge() {
     } else {
         badge.style.display = 'none';
     }
+
+    updateStatusBadge();
+}
+
+// Badge brouillon / publié + visibilité du bouton « Dépublier ».
+// Le bouton n'apparaît que lorsque la page est réellement publiée sur SFMC.
+function updateStatusBadge() {
+    const badge = document.getElementById('project-status-badge');
+    const unpubBtn = document.getElementById('btn-unpublish-sfmc');
+    if (!badge) return;
+
+    if (currentProjectIsNew) {
+        badge.style.display = 'none';
+        if (unpubBtn) unpubBtn.style.display = 'none';
+        return;
+    }
+
+    const status = (currentProjectProperties && currentProjectProperties.status) || 'draft';
+    const isPublished = status === 'published';
+
+    badge.style.display = 'inline-block';
+    badge.textContent = isPublished ? '● Publié' : '● Brouillon';
+    badge.style.background = isPublished ? '#dcfce7' : '#f3f4f6';
+    badge.style.color = isPublished ? '#166534' : '#6b7280';
+    badge.style.border = isPublished ? '1px solid #86efac' : '1px solid #d1d5db';
+
+    if (unpubBtn) unpubBtn.style.display = isPublished ? 'inline-flex' : 'none';
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -2605,7 +2632,9 @@ function initUI(editor) {
             const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
             hideLoading();
             if (!res.ok) throw new Error(await res.text());
-            await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès et synchronisé avec Salesforce !' });
+            currentProjectProperties.status = 'draft';
+            updateStatusBadge();
+            await showAlert({ title: 'Succès', message: 'Projet enregistré en brouillon. Utilisez « Publish to SFMC » pour le publier.' });
         } catch (e) { 
             hideLoading();
             console.error(e);
@@ -2758,12 +2787,13 @@ function initUI(editor) {
                     localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                 }
                 currentProjectLanguage = selectedLanguage;
+                currentProjectProperties.status = 'draft';
                 updatePageIdBadge();
                 // Rafraîchir les variantes : les traductions existantes deviennent
                 // « à mettre à jour » (stale) puisque l'original vient de changer.
                 await refreshVariants(currentStructuredPageId);
                 hideLoading();
-                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
+                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} (brouillon).` });
             } catch (e) {
                 hideLoading();
                 console.error(e);
@@ -2875,6 +2905,7 @@ function initUI(editor) {
 
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
+                        currentProjectProperties.status = 'draft';
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
                         setActiveLangUI(lang);
@@ -2952,6 +2983,11 @@ function initUI(editor) {
             const data = await res.json();
             const action = data?.sfmc?.action === 'created' ? 'créée' : 'mise à jour';
             const assetName = data?.sfmc?.name || fullName;
+
+            // Marquer la page comme publiée dans l'UI.
+            currentProjectProperties.status = 'published';
+            updateStatusBadge();
+
             hideLoading();
             await showAlert({
                 title: 'Publication réussie',
@@ -2961,6 +2997,61 @@ function initUI(editor) {
             hideLoading();
             console.error(e);
             await showAlert({ title: 'Échec de la publication', message: 'Impossible de publier sur SFMC. ' + e.message });
+        }
+    };
+
+    // Dépublier — supprime l'asset page dans SFMC (par clé exacte, avec garde-fou
+    // côté serveur) et repasse la page en brouillon.
+    document.getElementById('btn-unpublish-sfmc').onclick = async () => {
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+
+        if (currentProjectIsNew || !fullName) {
+            await showAlert({ title: 'Action impossible', message: 'Aucun projet publié à dépublier.' });
+            return;
+        }
+
+        const confirmed = await new Promise(resolve => {
+            openModal({
+                title: 'Dépublier de SFMC',
+                body: `<p class="modal-message">Cette action <strong>supprime l'asset</strong> de la page <strong>${fullName}</strong> sur Salesforce Marketing Cloud (recherche par clé exacte, aucun autre bloc n'est touché).<br><br>La page repassera en brouillon. Continuer ?</p>`,
+                actions: [
+                    { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
+                    { label: 'Dépublier', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
+                ]
+            });
+        });
+        if (!confirmed) return;
+
+        showLoading('Dépublication de SFMC en cours...');
+        try {
+            const res = await fetch('/api/unpublish-sfmc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: fullName })
+            });
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+            const sfmcAction = data?.sfmc?.action;
+
+            // Repasser en brouillon dans l'UI.
+            currentProjectProperties.status = 'draft';
+            updateStatusBadge();
+
+            hideLoading();
+            const msg = sfmcAction === 'deleted'
+                ? 'La page a été dépubliée : son asset a été supprimé de Salesforce Marketing Cloud.'
+                : sfmcAction === 'not_found'
+                    ? 'Aucun asset correspondant trouvé sur SFMC. La page est repassée en brouillon.'
+                    : sfmcAction === 'skipped_mismatch'
+                        ? 'Un asset a été trouvé mais ne correspondait pas exactement à cette page : suppression annulée par sécurité. La page est repassée en brouillon.'
+                        : 'Page repassée en brouillon.';
+            await showAlert({ title: 'Dépublication terminée', message: msg });
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Échec de la dépublication', message: 'Impossible de dépublier sur SFMC. ' + e.message });
         }
     };
 
