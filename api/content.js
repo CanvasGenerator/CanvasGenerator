@@ -1,10 +1,20 @@
 const { supabaseRequest, getQueryParam, requireField, slugify, extractFormIds, extractBodyContent } = require('../lib/api-shared');
 const { readSchoolsForApi } = require('./schools');
+const { combineBilingualHtml } = require('../lib/bilingual');
 
 const DEFAULT_ORGANIZATION = {
     name: 'Reetain Holding',
     slug: 'reetain-holding'
 };
+
+// Langues « prêtes » : seules celles-ci apparaissent dans l'UI (switch + dashboard).
+// Une langue n'est prête que si ses ressources existent (header/footer/logos/assets).
+// Ajouter une langue ici (+ ses assets) suffit — aucun autre code à modifier.
+const READY_LANGUAGES = ['FR', 'EN'];
+
+function normalizeLang(lang) {
+    return String(lang || 'FR').trim().toUpperCase();
+}
 
 function selectEndpoint(table, params = {}) {
     const query = new URLSearchParams({ select: '*' });
@@ -192,6 +202,90 @@ async function findPageByLegacyProjectName(projectName) {
     return Array.isArray(result) && result.length ? result[0] : null;
 }
 
+// ── Variantes de langue ───────────────────────────────────────────────────
+// Une page = N variantes (une par langue). Chaque variante a sa version courante.
+
+async function findVariant(pageId, language) {
+    const lang = normalizeLang(language);
+    const result = await supabaseRequest(
+        'GET',
+        `/page_variants?page_id=eq.${encodeURIComponent(pageId)}&language=eq.${encodeURIComponent(lang)}&select=*&limit=1`
+    );
+    return Array.isArray(result) && result.length ? result[0] : null;
+}
+
+async function listVariants(pageId) {
+    const result = await supabaseRequest(
+        'GET',
+        `/page_variants?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=language.asc`
+    );
+    return Array.isArray(result) ? result : [];
+}
+
+// Crée la variante si absente (sans version courante — elle sera fixée après
+// la création de la première version).
+async function ensureVariant(pageId, language, seo = {}) {
+    const existing = await findVariant(pageId, language);
+    if (existing) return existing;
+    return insert('page_variants', {
+        page_id: pageId,
+        language: normalizeLang(language),
+        seo: seo || {},
+        status: 'up_to_date'
+    });
+}
+
+// Résumé des variantes d'une page pour l'UI : quelles langues existent, laquelle
+// est l'originale, statut « périmé » (la source a changé depuis la traduction).
+// N'expose que les langues prêtes (READY_LANGUAGES), y compris celles pas encore
+// traduites (existe: false) pour que le switch affiche le bouton « Traduire ».
+async function getVariantsSummary(page) {
+    const originalLang = normalizeLang(page.language);
+    const variants = await listVariants(page.id);
+    const byLang = new Map(variants.map(v => [normalizeLang(v.language), v]));
+    const original = byLang.get(originalLang);
+    const originalCurrent = original?.current_version_id || page.current_version_id || null;
+
+    return READY_LANGUAGES.map(lang => {
+        const v = byLang.get(lang);
+        const isOriginal = lang === originalLang;
+        const exists = !!(v && v.current_version_id);
+        const stale = exists && !isOriginal && originalCurrent
+            ? (v.source_version_id !== originalCurrent)
+            : false;
+        return {
+            language: lang,
+            isOriginal,
+            exists,
+            stale,
+            status: stale ? 'outdated' : (v?.status || (exists ? 'up_to_date' : 'missing')),
+            updated_at: v?.updated_at || null
+        };
+    });
+}
+
+// Contenu complet d'une variante (pour chargement instantané dans l'éditeur).
+async function getVariantContent(pageId, language) {
+    const variant = await findVariant(pageId, language);
+    if (!variant || !variant.current_version_id) return null;
+    const result = await supabaseRequest(
+        'GET',
+        `/page_versions?id=eq.${encodeURIComponent(variant.current_version_id)}&select=*&limit=1`
+    );
+    const version = Array.isArray(result) && result.length ? result[0] : null;
+    if (!version) return null;
+    return {
+        language: normalizeLang(language),
+        html: version.html || '',
+        css: version.css || '',
+        project_data: parseProjectData(version.project_data),
+        seo: variant.seo || {},
+        version_id: version.id,
+        source_version_id: variant.source_version_id || null,
+        stale: false
+    };
+}
+
 async function buildUniquePageSlug(entityId, folderId, language, title, projectName) {
     const baseSlug = slugify(title) || 'page';
     const result = await supabaseRequest(
@@ -213,16 +307,19 @@ async function buildUniquePageSlug(entityId, folderId, language, title, projectN
     return candidate;
 }
 
-async function createVersionForPage(page, legacyProject, versionNumber = null) {
-    const existing = await supabaseRequest(
-        'GET',
-        `/page_versions?page_id=eq.${encodeURIComponent(page.id)}&select=version_number&order=version_number.desc&limit=1`
-    );
+async function createVersionForPage(page, legacyProject, versionNumber = null, variant = null, updatePageCurrent = true) {
+    const language = normalizeLang(variant?.language || legacyProject.language || page.language);
+    // version_number est UNIQUE par page (contrainte unique(page_id, version_number)).
+    // On numérote donc globalement sur la page, toutes langues confondues. L'historique
+    // par langue se filtre via page_variant_id / language (index dédié).
+    const existing = await supabaseRequest('GET', `/page_versions?page_id=eq.${encodeURIComponent(page.id)}&select=version_number&order=version_number.desc&limit=1`);
     const nextVersionNumber = versionNumber || ((existing?.[0]?.version_number || 0) + 1);
     const projectData = parseProjectData(legacyProject.project_data);
 
     const version = await insert('page_versions', {
         page_id: page.id,
+        page_variant_id: variant?.id || null,
+        language,
         version_number: nextVersionNumber,
         html: legacyProject.html || '',
         html_sfmc: legacyProject.html_sfmc || '',
@@ -235,21 +332,44 @@ async function createVersionForPage(page, legacyProject, versionNumber = null) {
         }
     });
 
-    await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
-        current_version_id: version.id,
-        updated_at: new Date().toISOString(),
-        metadata: {
-            ...(page.metadata || {}),
-            formIds: extractFormIds(legacyProject.html || '')
-        }
-    });
+    // pages.current_version_id ne suit QUE la langue d'origine (rendu public par
+    // défaut). Une variante de traduction ne doit PAS devenir la version courante
+    // de la page — sinon l'URL d'origine servirait le texte traduit.
+    if (updatePageCurrent) {
+        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+            current_version_id: version.id,
+            updated_at: new Date().toISOString(),
+            metadata: {
+                ...(page.metadata || {}),
+                formIds: extractFormIds(legacyProject.html || '')
+            }
+        });
+    } else {
+        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+            updated_at: new Date().toISOString()
+        });
+    }
 
     return version;
+}
+
+function seoFromProperties(properties = {}) {
+    return {
+        title: properties.seoTitle || '',
+        description: properties.seoDescription || '',
+        keywords: properties.keywords || '',
+        canonical: properties.canonical || '',
+        schemaLd: properties.schemaLd || ''
+    };
 }
 
 async function migrateLegacyProject(legacyProject, options = {}) {
     const parsed = parseLegacyProjectName(legacyProject.project_name);
     if (!parsed) return { skipped: true, reason: 'unsupported_project_name', projectName: legacyProject.project_name };
+
+    // La langue D'ORIGINE est fournie explicitement par le builder (le nom du projet
+    // n'embarque plus la langue). Défaut : langue parsée depuis le nom, sinon FR.
+    const language = normalizeLang(legacyProject.language || parsed.language);
 
     const organization = await ensureDefaultOrganization();
     const entity = await ensureEntityForSchool(organization, parsed.schoolId);
@@ -262,7 +382,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         const pageSlug = await buildUniquePageSlug(
             entity.id,
             folder.id,
-            parsed.language,
+            language,
             title,
             legacyProject.project_name
         );
@@ -272,15 +392,9 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             folder_id: folder.id,
             title,
             slug: pageSlug,
-            language: parsed.language,
+            language,
             status: legacyProject.properties?.status || 'draft',
-            seo: {
-                title: legacyProject.properties?.seoTitle || '',
-                description: legacyProject.properties?.seoDescription || '',
-                keywords: legacyProject.properties?.keywords || '',
-                canonical: legacyProject.properties?.canonical || '',
-                schemaLd: legacyProject.properties?.schemaLd || ''
-            },
+            seo: seoFromProperties(legacyProject.properties),
             metadata: {
                 source: 'legacy-projects',
                 legacyProjectName: legacyProject.project_name,
@@ -300,9 +414,29 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         });
     }
 
+    // syncLegacyProjectToContent gère toujours la variante de la langue D'ORIGINE.
+    // Les traductions passent par saveTranslationVariant (routes /variants).
+    const originalLang = normalizeLang(page.language);
+    let variant = null;
     let version = null;
     if (createdPage || !options.skipExistingVersions) {
-        version = await createVersionForPage(page, legacyProject);
+        try {
+            variant = await ensureVariant(page.id, originalLang, seoFromProperties(legacyProject.properties));
+            version = await createVersionForPage(page, { ...legacyProject, language: originalLang }, null, variant);
+            // La variante d'origine pointe vers sa nouvelle version courante.
+            await supabaseRequest('PATCH', `/page_variants?id=eq.${encodeURIComponent(variant.id)}`, {
+                current_version_id: version.id,
+                seo: seoFromProperties(legacyProject.properties),
+                status: 'up_to_date',
+                updated_at: new Date().toISOString()
+            });
+        } catch (e) {
+            // Repli si la table page_variants n'existe pas encore (migration 008 non
+            // appliquée) : on crée la version « à l'ancienne » sans casser la sauvegarde.
+            if (!isMissingContentSchemaError(e)) throw e;
+            variant = null;
+            version = await createVersionForPage(page, { ...legacyProject, language: originalLang });
+        }
     }
 
     return {
@@ -312,15 +446,64 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         entityId: entity.id,
         folderId: folder.id,
         pageId: page.id,
+        variantId: variant?.id || null,
+        language: originalLang,
         versionId: version?.id || page.current_version_id || null,
         versionSkipped: !version
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, html, html_sfmc, css, projectData, properties }) {
+// Sauvegarde d'une variante de TRADUCTION (langue ≠ originale).
+// N'écrit que le modèle structuré (pas de table Projects, pas de SFMC — hors-scope V1).
+async function saveTranslationVariant(pageId, language, body = {}) {
+    const lang = normalizeLang(language);
+    const pageResult = await supabaseRequest('GET', `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`);
+    const page = Array.isArray(pageResult) && pageResult.length ? pageResult[0] : null;
+    if (!page) return { error: 'page_not_found' };
+
+    const originalLang = normalizeLang(page.language);
+    if (lang === originalLang) {
+        // Sécurité : la langue d'origine passe par /api/save (Projects + SFMC), pas ici.
+        return { error: 'cannot_save_original_as_translation' };
+    }
+
+    const variant = await ensureVariant(pageId, lang, body.seo || {});
+    const version = await createVersionForPage(page, {
+        project_name: page.metadata?.legacyProjectName || '',
+        html: body.html || '',
+        css: body.css || '',
+        project_data: body.project_data || {},
+        change_summary: body.change_summary || `Traduction ${lang}`,
+        language: lang
+    }, null, variant, /* updatePageCurrent */ false);
+
+    // Version de la langue d'origine servant de source à cette traduction (staleness).
+    const original = await findVariant(pageId, originalLang);
+    const sourceVersionId = original?.current_version_id || page.current_version_id || null;
+
+    await supabaseRequest('PATCH', `/page_variants?id=eq.${encodeURIComponent(variant.id)}`, {
+        current_version_id: version.id,
+        source_version_id: sourceVersionId,
+        seo: body.seo || variant.seo || {},
+        status: 'up_to_date',
+        updated_at: new Date().toISOString()
+    });
+
+    return {
+        ok: true,
+        pageId,
+        variantId: variant.id,
+        versionId: version.id,
+        language: lang,
+        source_version_id: sourceVersionId
+    };
+}
+
+async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties }) {
     try {
         return await migrateLegacyProject({
             project_name: projectName,
+            language,
             html,
             html_sfmc,
             css,
@@ -350,13 +533,31 @@ async function listMigratedDashboardPages() {
     );
     const entityMap = new Map((Array.isArray(entities) ? entities : []).map(entity => [entity.id, entity]));
 
+    // Langues disponibles par page (modèle multilingue). Une seule requête, groupée
+    // par page_id. Tolère l'absence de la table (schéma pas encore migré).
+    const variantsByPage = new Map();
+    try {
+        const variants = await supabaseRequest('GET', '/page_variants?select=page_id,language,current_version_id');
+        (Array.isArray(variants) ? variants : []).forEach(v => {
+            if (!v.current_version_id) return;
+            const list = variantsByPage.get(v.page_id) || [];
+            list.push(normalizeLang(v.language));
+            variantsByPage.set(v.page_id, list);
+        });
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) console.warn('page_variants list failed:', e.message);
+    }
+
     return (Array.isArray(pages) ? pages : [])
         .filter(page => page.metadata?.legacyProjectName)
         .map(page => {
             const entity = entityMap.get(page.entity_id) || {};
             const legacyProjectName = page.metadata.legacyProjectName;
             const parsed = parseLegacyProjectName(legacyProjectName);
-            const language = page.language || parsed?.language || 'FR';
+            const language = normalizeLang(page.language || parsed?.language || 'FR');
+            // Langues disponibles (variantes). L'original est toujours présent même si
+            // aucune ligne page_variants (anciennes pages non migrées vers le modèle).
+            const variantLanguages = [...new Set([language, ...(variantsByPage.get(page.id) || [])])];
             const publicPath = buildPublicPagePath({ slug: page.slug, language });
             const publicUrl = buildPublicPageUrl({
                 baseUrl: entity.base_url || '',
@@ -369,6 +570,7 @@ async function listMigratedDashboardPages() {
                 title: page.title || parsed?.title || legacyProjectName,
                 school: (entity.metadata?.legacySchoolId || parsed?.schoolId || entity.slug || entity.name || '—').toUpperCase(),
                 lang: language,
+                variantLanguages,
                 seoTitle: page.seo?.title || '',
                 updated_at: page.updated_at || page.created_at,
                 source: 'content',
@@ -421,6 +623,7 @@ function projectResponseFromStructuredPage(projectName, page, version) {
         },
         page_id: page.id,
         current_version_id: page.current_version_id,
+        original_language: normalizeLang(page.language),
         source: 'content'
     };
 }
@@ -428,7 +631,51 @@ function projectResponseFromStructuredPage(projectName, page, version) {
 async function getStructuredProjectForLegacyProject(projectName) {
     const structured = await getCurrentVersionForLegacyProject(projectName);
     if (!structured) return null;
-    return projectResponseFromStructuredPage(projectName, structured.page, structured.version);
+    const response = projectResponseFromStructuredPage(projectName, structured.page, structured.version);
+    try {
+        response.variants = await getVariantsSummary(structured.page);
+        response.ready_languages = READY_LANGUAGES;
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) console.warn('variants summary failed:', e.message);
+        response.variants = [];
+        response.ready_languages = READY_LANGUAGES;
+    }
+    return response;
+}
+
+// Construit la page bilingue auto-portée pour un projet (toutes les variantes de
+// langue + script de bascule). Utilisée par l'aperçu dashboard et l'export SFMC.
+// Renvoie null s'il y a moins de 2 langues (rien à basculer → HTML simple conservé).
+async function getBilingualHtmlForProject(projectName) {
+    const page = await findPageByLegacyProjectName(projectName);
+    if (!page) return null;
+    const originalLang = normalizeLang(page.language);
+    const variants = (await listVariants(page.id)).filter(v => v.current_version_id);
+    if (variants.length < 2) return null;
+
+    const bodiesByLang = {};
+    const fullByLang = {};
+    for (const v of variants) {
+        const r = await supabaseRequest(
+            'GET',
+            `/page_versions?id=eq.${encodeURIComponent(v.current_version_id)}&select=html&limit=1`
+        );
+        const html = r?.[0]?.html || '';
+        if (!html) continue;
+        const lang = normalizeLang(v.language);
+        fullByLang[lang] = html;
+        bodiesByLang[lang] = extractBodyContent(html);
+    }
+    const langs = Object.keys(bodiesByLang);
+    if (langs.length < 2) return null;
+
+    const shellLang = fullByLang[originalLang] ? originalLang : langs[0];
+    const shellFullHtml = fullByLang[shellLang];
+    return {
+        html: combineBilingualHtml(shellFullHtml, bodiesByLang, shellLang),
+        langs,
+        originalLanguage: originalLang
+    };
 }
 
 async function getContentSchemaStatus() {
@@ -845,9 +1092,50 @@ async function createIntegrationJob(req, res) {
 async function getPage(req, res, pageId) {
     const result = await supabaseRequest('GET', `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`);
     if (!result?.length) return res.status(404).json({ error: 'Page not found' });
+    const page = result[0];
     const versions = await supabaseRequest('GET', `/page_versions?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=version_number.desc`);
     const drafts = await supabaseRequest('GET', `/page_drafts?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=updated_at.desc`);
-    return res.status(200).json({ page: result[0], versions: versions || [], drafts: drafts || [] });
+    // Variantes de langue (modèle « un projet, plusieurs langues »). En cas d'échec
+    // (schéma pas encore migré), on n'échoue pas le chargement de la page.
+    let variants = [];
+    try { variants = await getVariantsSummary(page); }
+    catch (e) { if (!isMissingContentSchemaError(e)) console.warn('getVariantsSummary failed:', e.message); }
+    return res.status(200).json({
+        page,
+        versions: versions || [],
+        drafts: drafts || [],
+        variants,
+        originalLanguage: normalizeLang(page.language),
+        readyLanguages: READY_LANGUAGES
+    });
+}
+
+async function getPageVariants(req, res, pageId) {
+    const result = await supabaseRequest('GET', `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`);
+    if (!result?.length) return res.status(404).json({ error: 'Page not found' });
+    const page = result[0];
+    const variants = await getVariantsSummary(page);
+    return res.status(200).json({
+        originalLanguage: normalizeLang(page.language),
+        readyLanguages: READY_LANGUAGES,
+        variants
+    });
+}
+
+async function getPageVariantContent(req, res, pageId, language) {
+    const content = await getVariantContent(pageId, language);
+    if (!content) return res.status(404).json({ error: 'variant_not_found', language: normalizeLang(language) });
+    return res.status(200).json(content);
+}
+
+async function savePageVariant(req, res, pageId, language) {
+    const result = await saveTranslationVariant(pageId, language, req.body || {});
+    if (result.error === 'page_not_found') return res.status(404).json({ error: 'Page not found' });
+    if (result.error === 'cannot_save_original_as_translation') {
+        return res.status(400).json({ error: 'La langue d\'origine se sauvegarde via /api/save.' });
+    }
+    if (result.error) return res.status(400).json({ error: result.error });
+    return res.status(200).json(result);
 }
 
 async function resolvePublicPageByHostPath({ host, path = '/' } = {}) {
@@ -1304,6 +1592,36 @@ async function handleContentRoute(req, res, pathname) {
         return true;
     }
 
+    // Variantes de langue — GET liste, GET/POST contenu d'une langue.
+    const variantContentMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/variants\/([^/]+)$/);
+    if (variantContentMatch) {
+        if (req.method === 'GET') {
+            await getPageVariantContent(req, res, variantContentMatch[1], variantContentMatch[2]);
+            return true;
+        }
+        if (req.method === 'POST') {
+            await savePageVariant(req, res, variantContentMatch[1], variantContentMatch[2]);
+            return true;
+        }
+    }
+
+    const variantsListMatch = pathname.match(/^\/api\/content\/pages\/([^/]+)\/variants$/);
+    if (variantsListMatch && req.method === 'GET') {
+        await getPageVariants(req, res, variantsListMatch[1]);
+        return true;
+    }
+
+    // HTML bilingue auto-porté d'un projet (pour l'export). { html, langs } ou { html: null }.
+    const bilingualMatch = pathname.match(/^\/api\/content\/bilingual\/(.+)$/);
+    if (bilingualMatch && req.method === 'GET') {
+        const projectName = decodeURIComponent(bilingualMatch[1]);
+        let bil = null;
+        try { bil = await getBilingualHtmlForProject(projectName); }
+        catch (e) { if (!isMissingContentSchemaError(e)) console.warn('bilingual route', e.message); }
+        res.status(200).json(bil || { html: null });
+        return true;
+    }
+
     if (pathname === '/api/content/public-page' && req.method === 'GET') {
         await getPublicPageByPath(req, res);
         return true;
@@ -1375,6 +1693,7 @@ contentApiModule.syncLegacyProjectToContent = syncLegacyProjectToContent;
 contentApiModule.listMigratedDashboardPages = listMigratedDashboardPages;
 contentApiModule.getCurrentVersionForLegacyProject = getCurrentVersionForLegacyProject;
 contentApiModule.getStructuredProjectForLegacyProject = getStructuredProjectForLegacyProject;
+contentApiModule.getBilingualHtmlForProject = getBilingualHtmlForProject;
 contentApiModule.updatePageLifecycle = updatePageLifecycle;
 contentApiModule.getContentSchemaStatus = getContentSchemaStatus;
 contentApiModule.isMissingContentSchemaError = isMissingContentSchemaError;

@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -11,6 +11,7 @@ const {
     listMigratedDashboardPages,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
+    getBilingualHtmlForProject,
     updatePageLifecycle,
     isMissingContentSchemaError,
     getPublicationSettings,
@@ -593,7 +594,7 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'POST' && pathname === '/api/save') {
-            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties } = req.body || {};
+            const { projectName, html: submittedHtml, css, projectData, properties: rawProperties, language } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
 
             // Ancrer les formulaires (id stable pour les liens #form_id)
@@ -626,6 +627,9 @@ module.exports = async function handler(req, res) {
             // ── Code marketing personnalisé (école + page) ──
             await applyCustomMarketingCode(projectName, properties);
 
+            // ── Toute sauvegarde repasse la page en brouillon ─────────────────
+            properties.status = 'draft';
+
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
@@ -657,21 +661,46 @@ module.exports = async function handler(req, res) {
                 console.warn('⚠️  Impossible d\'enregistrer l\'historique SEO:', histErr.message || histErr);
             }
 
+            // ── Synchro STRUCTURÉE synchrone (pages + page_variants) ──────────────
+            // Indispensable pour renvoyer page_id tout de suite : le front en a besoin
+            // pour créer des traductions (sinon « Enregistrez d'abord » au clic EN).
+            // Le nettoyage lourd + SFMC restent délégués au worker (enqueue ci-dessous).
+            let contentSync = null;
+            try {
+                contentSync = await syncLegacyProjectToContent({
+                    projectName, language, html: fullHtml, css, projectData, properties
+                });
+            } catch (syncErr) {
+                console.warn('⚠️  Sync structurée /api/save échouée:', syncErr.message);
+            }
+
             // ── Mise en file d'attente (ou traitement inline si table absente) ──
             const jobResult = await enqueueOrProcessInline({
-                projectName, fullHtml, css, projectData, properties,
+                projectName, language, fullHtml, css, projectData, properties,
                 source: 'save-api'
             });
 
             return res.status(200).json({
                 message: 'Saved',
+                page_id: contentSync?.pageId || null,
                 sfmc:    jobResult,
-                content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
+                content: contentSync || { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
                 translation_info: {
                     is_original_language: properties.is_original_language,
                     page_group_id:        properties.page_group_id || null,
                 }
             });
+        }
+
+        if (req.method === 'POST' && pathname === '/api/sfmc/resync') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            const r = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=html,css&limit=1`).catch(() => null);
+            const jobResult = await enqueueOrProcessInline({
+                projectName, fullHtml: r?.[0]?.html || '', css: r?.[0]?.css || '',
+                projectData: {}, properties: {}, source: 'variant-resync'
+            });
+            return res.status(200).json({ ok: true, sfmc: jobResult });
         }
 
         if (req.method === 'POST' && pathname === '/api/save-seo') {
@@ -687,6 +716,8 @@ module.exports = async function handler(req, res) {
             }
             const project = existing[0];
             const mergedProperties = { ...(project.properties || {}), ...(rawProperties || {}) };
+            // Toute sauvegarde repasse la page en brouillon.
+            mergedProperties.status = 'draft';
 
             // ── 1. Écrire dans seo_history (source de vérité pour les valeurs SEO) ──
             // On utilise Prefer: return=representation pour forcer un vrai INSERT (pas de merge-duplicates
@@ -737,6 +768,74 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
         }
 
+        // ──────────────────────────────────────────────────────────────────────
+        // Publication manuelle vers SFMC (bouton « Publish to SFMC »)
+        // La sauvegarde ne fait que préparer le brouillon (html_sfmc + images).
+        // Cet endpoint publie l'asset webpage dans SFMC à la demande.
+        // ──────────────────────────────────────────────────────────────────────
+        if (req.method === 'POST' && pathname === '/api/publish-sfmc') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+
+            const projectRes = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
+            );
+            const project = projectRes && projectRes[0];
+            if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
+
+            // Utiliser html_sfmc (déjà nettoyé + images publiées par la sauvegarde/cron)
+            // s'il existe ; sinon le préparer à la volée pour ne pas dépendre du cron.
+            let htmlToSend = project.html_sfmc;
+            if (!htmlToSend) {
+                htmlToSend = cleanHtmlForSfmc(project.html || '');
+                htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    html_sfmc: htmlToSend
+                });
+            }
+
+            console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
+            const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
+
+            // ── Marquer la page comme publiée ─────────────────────────────────
+            const publishedProps = { ...(project.properties || {}), status: 'published' };
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                properties: publishedProps
+            });
+
+            return res.status(200).json({ message: 'Published', projectName, status: 'published', sfmc: result });
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Dépublication manuelle : supprime l'asset page dans SFMC (par clé
+        // exacte, avec garde-fou) et repasse la page en brouillon.
+        // ──────────────────────────────────────────────────────────────────────
+        if (req.method === 'POST' && pathname === '/api/unpublish-sfmc') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+
+            const projectRes = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
+            );
+            const project = projectRes && projectRes[0];
+            if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
+
+            console.log(`☁️  [UNPUBLISH] Dépublication SFMC pour "${projectName}"...`);
+            const result = await unpublishProjectFromSfmc({ projectName });
+
+            // Repasser en brouillon (que l'asset ait été supprimé ou déjà absent).
+            const draftProps = { ...(project.properties || {}), status: 'draft' };
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                properties: draftProps
+            });
+
+            return res.status(200).json({ message: 'Unpublished', projectName, status: 'draft', sfmc: result });
+        }
+
         if (req.method === 'GET' && pathname === '/api/seo-history') {
             const projectName = req.query.projectName;
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
@@ -752,19 +851,29 @@ module.exports = async function handler(req, res) {
             const projectName = decodeURIComponent(pathname.replace('/preview/', ''));
             let html = '';
 
-            const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
-                if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+            // Page bilingue auto-portée : ≥2 langues → l'aperçu embarque le switch.
+            const bilingual = await getBilingualHtmlForProject(projectName).catch(e => {
+                if (!isMissingContentSchemaError(e)) console.warn('Bilingual preview unavailable:', e.message);
                 return null;
             });
 
-            if (structured?.version?.html) {
-                html = structured.version.html;
+            if (bilingual?.html) {
+                html = bilingual.html;
             } else {
-                const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
-                if (!result || result.length === 0) {
-                    return res.status(404).json({ error: 'Project not found' });
+                const structured = await getCurrentVersionForLegacyProject(projectName).catch(e => {
+                    if (!isMissingContentSchemaError(e)) console.warn('Structured preview unavailable:', e.message);
+                    return null;
+                });
+
+                if (structured?.version?.html) {
+                    html = structured.version.html;
+                } else {
+                    const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
+                    if (!result || result.length === 0) {
+                        return res.status(404).json({ error: 'Project not found' });
+                    }
+                    html = result[0].html;
                 }
-                html = result[0].html;
             }
 
             const schoolMatch = projectName.match(/^school-([a-z0-9-]+)_+/i);

@@ -124,6 +124,45 @@ let currentProjectIsNew = true;
 let currentProjectLanguage = 'FR';
 let currentStructuredPageId = null;
 
+// ── Modèle « un projet, plusieurs langues » ────────────────────────────────
+// Langue D'ORIGINE de la page (la variante originale). Les autres langues sont
+// des variantes de traduction stockées dans la même page (table page_variants).
+let currentOriginalLanguage = 'FR';
+// Résumé des variantes renvoyé par le serveur : [{ language, isOriginal, exists, stale, status }]
+let currentPageVariants = [];
+// Langues « prêtes » (miroir de READY_LANGUAGES côté serveur). Seules celles-ci
+// apparaissent dans le switch. Écrasé par la valeur serveur au chargement.
+let READY_LANGUAGES = ['FR', 'EN'];
+const LANG_FLAGS = { FR: '🇫🇷', EN: '🇬🇧', ES: '🇪🇸', DE: '🇩🇪', IT: '🇮🇹', PT: '🇵🇹' };
+const LANG_LABELS = { FR: 'Français', EN: 'English', ES: 'Español', DE: 'Deutsch', IT: 'Italiano', PT: 'Português' };
+function normLang(l) { return String(l || 'FR').trim().toUpperCase(); }
+// Langue « cible » du bouton header (.hdr-lang) : la première langue prête différente
+// de la langue courante. FR → EN, EN → FR. Sert d'indicateur + bouton de bascule.
+function otherReadyLang(cur) {
+    cur = normLang(cur);
+    return normLang((READY_LANGUAGES || ['FR', 'EN']).find(l => normLang(l) !== cur) || cur);
+}
+
+// Rend cliquable l'élément DOM d'un composant .hdr-lang (dans le canvas) : un clic
+// bascule vers la langue cible. Attaché directement sur le noeud DOM du composant
+// (fiable, contrairement à un écouteur délégué sur le document de l'iframe).
+function bindHdrLangClick(comp) {
+    try {
+        const node = comp && comp.getEl && comp.getEl();
+        if (!node || node.__langBound) return;
+        node.__langBound = true;
+        node.style.cursor = 'pointer';
+        node.addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const cur = normLang(currentProjectLanguage);
+            const target = otherReadyLang(cur);
+            console.log('[hdr-lang] clic → bascule', cur, '→', target);
+            if (normLang(target) !== cur) switchLanguage(target);
+        }, true);
+    } catch (e) { console.warn('bindHdrLangClick', e); }
+}
+
 // Blocs-formulaires déplacés de l'onglet Blocks vers l'onglet Forms.
 // On capture leur contenu ici pour (1) les afficher dans l'onglet Forms et
 // (2) que le template par défaut (qui utilise form-sfmc) fonctionne encore.
@@ -162,6 +201,33 @@ function updatePageIdBadge() {
     } else {
         badge.style.display = 'none';
     }
+
+    updateStatusBadge();
+}
+
+// Badge brouillon / publié + visibilité du bouton « Dépublier ».
+// Le bouton n'apparaît que lorsque la page est réellement publiée sur SFMC.
+function updateStatusBadge() {
+    const badge = document.getElementById('project-status-badge');
+    const unpubBtn = document.getElementById('btn-unpublish-sfmc');
+    if (!badge) return;
+
+    if (currentProjectIsNew) {
+        badge.style.display = 'none';
+        if (unpubBtn) unpubBtn.style.display = 'none';
+        return;
+    }
+
+    const status = (currentProjectProperties && currentProjectProperties.status) || 'draft';
+    const isPublished = status === 'published';
+
+    badge.style.display = 'inline-block';
+    badge.textContent = isPublished ? '● Publié' : '● Brouillon';
+    badge.style.background = isPublished ? '#dcfce7' : '#f3f4f6';
+    badge.style.color = isPublished ? '#166534' : '#6b7280';
+    badge.style.border = isPublished ? '1px solid #86efac' : '1px solid #d1d5db';
+
+    if (unpubBtn) unpubBtn.style.display = isPublished ? 'inline-flex' : 'none';
 }
 
 document.addEventListener('DOMContentLoaded', async () => {
@@ -222,12 +288,13 @@ document.addEventListener('DOMContentLoaded', async () => {
                 localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
-                // Langue du projet (…__<name>__<LANG>) : sans ça, currentProjectLanguage
-                // reste 'FR' et le swap logo (débounced) laisse les logos en français.
-                const loadedLang = parts[1] || 'FR';
+                // Modèle multilingue : la langue affichée est la langue D'ORIGINE de la
+                // page (les traductions se chargent ensuite via le switch). On lit le
+                // résumé des variantes renvoyé par le serveur.
+                const loadedLang = normLang(project.original_language || parts[1] || 'FR');
                 currentProjectLanguage = loadedLang;
-                const langSwitcher = document.getElementById('language-switcher');
-                if (langSwitcher) langSwitcher.value = loadedLang;
+                applyVariantsSummary(project); // { variants, original_language, ready_languages }
+                setActiveLangUI(loadedLang);
                 applyLogoLanguage(window.editor, loadedLang);
                 // Close the welcome overlay if visible
                 const overlay = document.getElementById('welcome-overlay');
@@ -268,7 +335,8 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}`);
     if (!res.ok) throw new Error(await res.text());
 
-    const { page, versions = [] } = await res.json();
+    const payload = await res.json();
+    const { page, versions = [] } = payload;
     const version = getCurrentVersion(page, versions);
     if (!version) throw new Error('Aucune version disponible pour cette page.');
 
@@ -285,13 +353,17 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
 
     const legacyProjectName = page.metadata?.legacyProjectName || '';
     const displayName = page.title || legacyProjectName || 'Projet';
-    const language = page.language || 'FR';
+    const language = normLang(page.language || 'FR');
 
     populateProperties(propertiesFromStructuredPage(page));
     currentProjectIsNew = false;
     currentStructuredPageId = page.id;
     currentProjectLanguage = language;
-    document.getElementById('language-switcher').value = language;
+    // Résumé des variantes de langue (switch + staleness). L'ouverture charge
+    // toujours la variante d'origine (page.current_version_id).
+    applyVariantsSummary(payload); // { variants, originalLanguage, readyLanguages }
+    setActiveLangUI(language);
+    applyLogoLanguage(window.editor, language);
 
     // IMPORTANT : écrire le fullName en localStorage AVANT updatePageIdBadge(),
     // car le badge + l'URL (?project=) sont lus depuis localStorage. Sinon le
@@ -336,6 +408,61 @@ function cleanCorruptedAutosave(storageKey) {
 // casser les points d'appel. Le rendu 1280px est géré côté preview/SFMC (serveur).
 function fitDesktopCanvas(editor) { /* no-op — voir device Desktop width:'' */ }
 function scheduleFitDesktopCanvas(editor) { /* no-op */ }
+
+// Active la barre de recherche de la sidebar Blocks : filtre les blocs (et masque
+// les catégories vides) selon le texte saisi, en comparant le libellé du bloc.
+// Un MutationObserver ré-applique le filtre quand GrapesJS re-rend la liste
+// (changement d'école/mode, ajout de bloc…), sans dépendre d'un timing précis.
+function initBlockSearch(editor) {
+    const input = document.getElementById('block-search');
+    const container = document.getElementById('blocks');
+    if (!input || !container) return;
+
+    let applying = false;
+    const applyFilter = () => {
+        if (applying) return;
+        applying = true;
+        try {
+            const q = (input.value || '').trim().toLowerCase();
+            // IMPORTANT : le CSS impose `.gjs-block{display:flex!important}` → il faut
+            // masquer avec setProperty(...,'important') (inline !important) pour l'emporter,
+            // et removeProperty pour réafficher (laisse le CSS reprendre la main).
+            const hide = el => el.style.setProperty('display', 'none', 'important');
+            const show = el => el.style.removeProperty('display');
+            container.querySelectorAll('.gjs-block').forEach(el => {
+                const text = ((el.textContent || '') + ' ' + (el.getAttribute('title') || '')).toLowerCase();
+                (!q || text.includes(q)) ? show(el) : hide(el);
+            });
+            // Masquer les catégories vides ; pendant une recherche, forcer l'ouverture
+            // des catégories qui ont des résultats (elles peuvent être repliées par défaut).
+            container.querySelectorAll('.gjs-block-category').forEach(cat => {
+                const anyVisible = Array.from(cat.querySelectorAll('.gjs-block'))
+                    .some(b => b.style.getPropertyValue('display') !== 'none');
+                anyVisible ? show(cat) : hide(cat);
+                const content = cat.querySelector('.gjs-blocks-c');
+                if (content) {
+                    if (q && anyVisible) content.style.setProperty('display', 'flex', 'important');
+                    else content.style.removeProperty('display');
+                }
+            });
+        } finally {
+            applying = false;
+        }
+    };
+
+    input.addEventListener('input', applyFilter);
+    input.addEventListener('search', applyFilter); // croix "clear" des <input type=search>
+
+    // Ré-appliquer le filtre courant quand la liste de blocs est reconstruite.
+    // On n'observe que childList/subtree → nos changements de style (attribut) ne
+    // relancent pas l'observer (pas de boucle).
+    try {
+        const obs = new MutationObserver(() => { if (!applying) applyFilter(); });
+        obs.observe(container, { childList: true, subtree: true });
+    } catch (e) { /* MutationObserver indispo : le filtre marche quand même à la saisie */ }
+
+    editor.on('load', applyFilter);
+}
 
 function initEditor(schoolId) {
     const storageKey = `reetain-builder__${schoolId}__gjsProject`;
@@ -433,6 +560,8 @@ function initEditor(schoolId) {
     filterBlocksBySchool(editor, schoolId);
     // Déplace les blocs-formulaires de l'onglet Blocks vers l'onglet Forms.
     extractFormBlocks(editor);
+    // Active la barre de recherche de la sidebar Blocks.
+    initBlockSearch(editor);
 
     // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
@@ -724,6 +853,10 @@ function initEditor(schoolId) {
     };
     editor.on('component:add', scheduleLogoLanguage);
     editor.on('load', scheduleLogoLanguage);
+
+    // Rend le bouton de langue du header (.hdr-lang) cliquable dans le canvas :
+    // un clic bascule la langue (charge la variante ou lance la traduction).
+    editor.on('load', () => attachHdrLangSwitch(editor));
 
     editor.on('component:selected', (component) => {
         if (component.get('type') === 'mc-nos-campus') return;
@@ -1295,10 +1428,17 @@ function applyLogoLanguage(editor, lang) {
             const target = isEN ? base.replace(/\.png($|\?)/i, '-en.png$1') : base;
             if (target !== cur) img.addAttributes({ src: target });
         });
-        // Indicateur de langue du header (.hdr-lang) : reflète la langue courante.
-        const code = isEN ? 'EN' : 'FR';
+        // Indicateur/bouton de langue du header (.hdr-lang) : affiche la langue CIBLE
+        // (celle vers laquelle on peut basculer) et sert de bouton. FR → "EN", EN → "FR".
+        // Le clic est intercepté dans le canvas (voir attachHdrLangSwitch).
+        const cur = isEN ? 'EN' : 'FR';
+        const targetLang = otherReadyLang(cur);
         wrapper.find('.hdr-lang').forEach(el => {
-            try { if ((el.getInnerHTML && el.getInnerHTML().trim()) !== code) el.components(code); } catch (e) {}
+            try {
+                if ((el.getInnerHTML && el.getInnerHTML().trim()) !== targetLang) el.components(targetLang);
+                el.addAttributes({ title: `Voir la page en ${LANG_LABELS[targetLang] || targetLang}`, 'data-lang-switch': targetLang });
+                bindHdrLangClick(el); // rend le bouton cliquable dans le canvas
+            } catch (e) {}
         });
     } catch (e) { console.warn('applyLogoLanguage', e); }
 }
@@ -1312,7 +1452,8 @@ function applyLogoLanguage(editor, lang) {
 function localizeBrandInProjectData(pd, lang) {
     if (!pd || !Array.isArray(pd.pages)) return;
     const isEN = /^(en|eng|english|anglais)$/i.test(String(lang || 'FR').trim());
-    const code = isEN ? 'EN' : 'FR';
+    const cur = isEN ? 'EN' : 'FR';
+    const targetLang = otherReadyLang(cur);
     const hasClass = (node, name) =>
         Array.isArray(node.classes) &&
         node.classes.some(c => (typeof c === 'string' ? c : c && c.name) === name);
@@ -1325,16 +1466,335 @@ function localizeBrandInProjectData(pd, lang) {
             const base = attrs.src.replace(/-en\.png($|\?)/i, '.png$1');
             attrs.src = isEN ? base.replace(/\.png($|\?)/i, '-en.png$1') : base;
         }
-        // 2) Indicateur de langue du header (.hdr-lang) : "FR" ↔ "EN"
+        // 2) Bouton de langue du header (.hdr-lang) : affiche la langue CIBLE.
         if (hasClass(node, 'hdr-lang') && Array.isArray(node.components)) {
             node.components.forEach(c => {
-                if (c && c.type === 'textnode' && typeof c.content === 'string') c.content = code;
+                if (c && c.type === 'textnode' && typeof c.content === 'string') c.content = targetLang;
             });
         }
         if (Array.isArray(node.components)) node.components.forEach(visit);
     }
     pd.pages.forEach(p => (p.frames || []).forEach(f => visit(f.component)));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODÈLE « UN PROJET, PLUSIEURS LANGUES »
+// Une page = une structure partagée + N variantes de texte (une par langue).
+// Le switch de langue charge instantanément une variante existante ; Gemini
+// n'est appelé que lorsqu'une langue n'existe pas encore. On ne crée JAMAIS de
+// nouveau projet pour traduire. Voir database/migrations/008_add_language_variants.sql
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Mapping SEO : objet serveur { title, description, keywords, canonical, schemaLd }
+// ⇄ propriétés éditeur { seoTitle, seoDescription, keywords, canonical, schemaLd }.
+function seoToProps(seo = {}) {
+    return {
+        seoTitle: seo.title || '',
+        seoDescription: seo.description || '',
+        keywords: seo.keywords || '',
+        canonical: seo.canonical || '',
+        schemaLd: seo.schemaLd || ''
+    };
+}
+function propsToSeo(props = {}) {
+    return {
+        title: props.seoTitle || '',
+        description: props.seoDescription || '',
+        keywords: props.keywords || '',
+        canonical: props.canonical || '',
+        schemaLd: props.schemaLd || ''
+    };
+}
+
+// Collecte les textes traduisibles d'un projectData GrapesJS SANS toucher au markup.
+// (titres, paragraphes, boutons + attributs placeholder/alt/title/aria-label)
+function collectPdTextTargets(pd) {
+    const targets = [];
+    function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        const type = node.type || 'default';
+        const tagName = (node.tagName || '').toLowerCase();
+        const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
+            ['h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'p', 'span', 'a', 'button', 'li', 'b', 'strong', 'i', 'em'].includes(tagName);
+        if (isTextLike && node.content && typeof node.content === 'string' && /[a-zA-ZÀ-ÿ]/.test(node.content)) {
+            targets.push({ obj: node, prop: 'content' });
+        }
+        if (node.attributes) {
+            ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
+                if (node.attributes[attr] && typeof node.attributes[attr] === 'string' && /[a-zA-ZÀ-ÿ]/.test(node.attributes[attr])) {
+                    targets.push({ obj: node.attributes, prop: attr });
+                }
+            });
+        }
+        if (node.components) node.components.forEach(walk);
+    }
+    (pd.pages || []).forEach(p => (p.frames || []).forEach(f => walk(f.component)));
+    return targets;
+}
+
+// Traduit un tableau de chaînes via /api/ai/translate (markup préservé côté serveur).
+// Renvoie un tableau de MÊME longueur/ordre.
+async function translateStringList(strings, targetLang) {
+    if (!strings.length) return [];
+    let htmlToTranslate = '';
+    strings.forEach((s, i) => { htmlToTranslate += `<div id="t${i}">${s}</div>\n`; });
+    const res = await fetch('/api/ai/translate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ html: htmlToTranslate, targetLang })
+    });
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const doc = new DOMParser().parseFromString(data.html, 'text/html');
+    return strings.map((s, i) => {
+        const el = doc.getElementById('t' + i);
+        return el ? el.innerHTML : s;
+    });
+}
+
+// Traduit en place le texte d'un projectData + les champs SEO (title/desc/keywords).
+async function translateProjectDataAndSeo(pd, seoProps, targetLang) {
+    const targets = collectPdTextTargets(pd);
+    const seoKeys = ['seoTitle', 'seoDescription', 'keywords'];
+    const seoIdx = seoKeys.filter(k => (seoProps[k] || '').trim());
+    // Un seul appel réseau : texte de page + SEO.
+    const pageStrings = targets.map(t => t.obj[t.prop]);
+    const seoStrings = seoIdx.map(k => seoProps[k]);
+    const all = await translateStringList([...pageStrings, ...seoStrings], targetLang);
+    targets.forEach((t, i) => { t.obj[t.prop] = all[i]; });
+    seoIdx.forEach((k, i) => { seoProps[k] = all[pageStrings.length + i]; });
+}
+
+// ── UI du switch de langue ─────────────────────────────────────────────────
+function renderLanguageSwitch() {
+    const host = document.getElementById('language-switch');
+    if (!host) return;
+    const cur = normLang(currentProjectLanguage);
+    const orig = normLang(currentOriginalLanguage);
+    const byLang = new Map(currentPageVariants.map(v => [normLang(v.language), v]));
+    const langs = (READY_LANGUAGES && READY_LANGUAGES.length ? READY_LANGUAGES : ['FR', 'EN']).map(normLang);
+    const saved = !!currentStructuredPageId;
+    host.innerHTML = '';
+    langs.forEach(lang => {
+        const v = byLang.get(lang);
+        const isOriginal = lang === orig;
+        const exists = isOriginal ? saved : !!(v && v.exists);
+        const stale = !!(v && v.stale);
+        const isActive = lang === cur;
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'lang-seg'
+            + (isActive ? ' active' : '')
+            + (exists ? '' : ' untranslated')
+            + (stale ? ' stale' : '');
+        btn.dataset.lang = lang;
+        const label = LANG_LABELS[lang] || lang;
+        btn.title = isActive ? `Langue actuelle : ${label}`
+            : !saved ? `Sauvegardez la page avant de traduire`
+            : exists ? (stale ? `${label} — traduction à mettre à jour` : `Afficher en ${label}`)
+            : `Traduire en ${label}`;
+        const icon = !exists ? ' <i class="fas fa-language lang-xicon"></i>'
+            : (stale ? ' <i class="fas fa-arrows-rotate lang-xicon"></i>' : '');
+        btn.innerHTML = `<span class="lang-flag">${LANG_FLAGS[lang] || ''}</span><span class="lang-code">${lang}</span>${icon}`;
+        btn.addEventListener('click', () => switchLanguage(lang));
+        host.appendChild(btn);
+    });
+}
+
+// Met à jour l'état de langue courant + le switch (et le <select> caché de compat).
+function setActiveLangUI(lang) {
+    currentProjectLanguage = normLang(lang);
+    const sel = document.getElementById('language-switcher');
+    if (sel) sel.value = currentProjectLanguage;
+    renderLanguageSwitch();
+}
+
+// Applique un résumé de variantes (renvoyé par le serveur) à l'état + l'UI.
+function applyVariantsSummary(payload = {}) {
+    const ready = payload.readyLanguages || payload.ready_languages;
+    if (Array.isArray(ready) && ready.length) READY_LANGUAGES = ready.map(normLang);
+    const orig = payload.originalLanguage || payload.original_language;
+    if (orig) currentOriginalLanguage = normLang(orig);
+    currentPageVariants = Array.isArray(payload.variants)
+        ? payload.variants.map(v => ({ ...v, language: normLang(v.language) }))
+        : [];
+    renderLanguageSwitch();
+}
+
+// Pousse la page bilingue (toutes langues + switch) vers SFMC après ajout/màj d'une
+// variante. Fire-and-forget : ne bloque pas l'UX. Le HTML bilingue est reconstruit serveur.
+async function triggerSfmcResync() {
+    try {
+        const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
+        const projectName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+        if (!projectName) return;
+        await fetch('/api/sfmc/resync', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectName })
+        });
+    } catch (e) { console.warn('triggerSfmcResync', e); }
+}
+
+// Recharge le résumé des variantes depuis le serveur (après un save/traduction).
+async function refreshVariants(pageId) {
+    if (!pageId) return;
+    try {
+        const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/variants`);
+        if (!res.ok) return;
+        applyVariantsSummary(await res.json());
+    } catch (e) { console.warn('refreshVariants', e); }
+}
+
+// Charge instantanément une variante existante dans l'éditeur (aucun appel Gemini).
+async function loadVariantIntoEditor(pageId, lang) {
+    lang = normLang(lang);
+    const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/variants/${encodeURIComponent(lang)}`);
+    if (!res.ok) throw new Error(await res.text());
+    const data = await res.json();
+    const pd = data.project_data && Object.keys(data.project_data).length ? data.project_data : null;
+    // Fixer la langue AVANT loadProjectData (le swap logo débounced lit currentProjectLanguage).
+    currentProjectLanguage = lang;
+    if (pd) {
+        localizeBrandInProjectData(pd, lang);
+        window.editor.loadProjectData(pd);
+        injectBrandVariables(window.editor, CURRENT_SCHOOL);
+    } else {
+        window.editor.setComponents(extractBodyHtml(data.html || ''));
+        window.editor.setStyle(data.css || '');
+    }
+    applyLogoLanguage(window.editor, lang);
+    attachHdrLangSwitch(window.editor);
+    if (data.seo) populateProperties(seoToProps(data.seo));
+    setActiveLangUI(lang);
+    setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
+}
+
+// Crée (ou met à jour) une variante de traduction : Gemini → enregistrement dans
+// la MÊME page. La source est TOUJOURS la variante d'origine (texte de référence).
+async function createOrUpdateTranslationVariant(pageId, targetLang) {
+    targetLang = normLang(targetLang);
+    const label = LANG_LABELS[targetLang] || targetLang;
+    window.showLoading(`Création de la traduction en ${label}... Cela peut prendre quelques secondes.`);
+    try {
+        // 1) Charger la version d'ORIGINE (texte de référence) depuis le serveur.
+        const srcRes = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/variants/${encodeURIComponent(currentOriginalLanguage)}`);
+        if (!srcRes.ok) throw new Error("Impossible de charger la version d'origine.");
+        const src = await srcRes.json();
+        const pd = (src.project_data && Object.keys(src.project_data).length)
+            ? src.project_data
+            : window.editor.getProjectData();
+        const seoProps = seoToProps(src.seo || {});
+
+        // 2) Traduire le texte de la page + le SEO (un seul appel réseau).
+        await translateProjectDataAndSeo(pd, seoProps, targetLang);
+
+        // 3) Basculer header/footer/logos DANS les données AVANT loadProjectData.
+        currentProjectLanguage = targetLang;
+        localizeBrandInProjectData(pd, targetLang);
+        window.editor.loadProjectData(pd);
+        injectBrandVariables(window.editor, CURRENT_SCHOOL);
+        applyLogoLanguage(window.editor, targetLang);
+
+        // 4) Enregistrer comme variante de la même page (structuré uniquement).
+        const bodyHtml = window.editor.getHtml();
+        const finalHtml = buildFinalHtml(bodyHtml, window.editor.getCss(), { ...collectProperties(), ...seoProps });
+        const payload = {
+            html: finalHtml,
+            css: window.editor.getCss(),
+            project_data: window.editor.getProjectData(),
+            seo: propsToSeo(seoProps)
+        };
+        const saveRes = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/variants/${encodeURIComponent(targetLang)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+        });
+        if (!saveRes.ok) throw new Error(await saveRes.text());
+
+        // 5) Refléter dans l'UI (SEO panel + switch) + pousser la page bilingue vers SFMC.
+        populateProperties(seoProps);
+        setActiveLangUI(targetLang);
+        await refreshVariants(pageId);
+        triggerSfmcResync();
+        window.hideLoading();
+    } catch (e) {
+        window.hideLoading();
+        console.error('createOrUpdateTranslationVariant', e);
+        await window.showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+        throw e;
+    }
+}
+
+// Orchestrateur du switch de langue (clic sur un bouton FR/EN ou sur le .hdr-lang).
+let langSwitchBusy = false;
+async function switchLanguage(targetLang) {
+    targetLang = normLang(targetLang);
+    if (langSwitchBusy) return;
+    if (targetLang === normLang(currentProjectLanguage)) return;
+
+    const pageId = currentStructuredPageId;
+    if (!pageId) {
+        await window.showAlert({
+            title: 'Enregistrez d\'abord',
+            message: 'Sauvegardez la page avant de créer une traduction dans une autre langue.'
+        });
+        renderLanguageSwitch();
+        return;
+    }
+
+    const orig = normLang(currentOriginalLanguage);
+    const v = currentPageVariants.find(x => normLang(x.language) === targetLang);
+    const exists = targetLang === orig ? true : !!(v && v.exists);
+    const stale = !!(v && v.stale);
+
+    langSwitchBusy = true;
+    try {
+        if (exists) {
+            // Variante déjà enregistrée → chargement instantané, AUCUN appel Gemini.
+            window.showLoading(`Chargement de la version ${LANG_LABELS[targetLang] || targetLang}...`);
+            await loadVariantIntoEditor(pageId, targetLang);
+            window.hideLoading();
+
+            // Ne jamais retraduire automatiquement : proposer la mise à jour si la
+            // version d'origine a changé depuis la dernière traduction.
+            if (targetLang !== orig && stale) {
+                const choice = await new Promise(resolve => {
+                    window.openModal({
+                        title: 'Traduction à mettre à jour',
+                        body: `<p class="modal-message">La version ${LANG_LABELS[orig] || orig} a été modifiée depuis la dernière traduction. Souhaitez-vous mettre à jour la traduction ${LANG_LABELS[targetLang] || targetLang} ?</p>`,
+                        actions: [
+                            { label: 'Mettre à jour la traduction', className: 'btn-primary', onClick: () => { window.closeModal(); resolve('update'); } },
+                            { label: 'Conserver la traduction actuelle', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve('keep'); } }
+                        ]
+                    });
+                });
+                if (choice === 'update') await createOrUpdateTranslationVariant(pageId, targetLang);
+            }
+        } else {
+            // Langue pas encore traduite → première traduction, puis affichage.
+            await createOrUpdateTranslationVariant(pageId, targetLang);
+        }
+    } catch (e) {
+        window.hideLoading();
+        renderLanguageSwitch();
+    } finally {
+        langSwitchBusy = false;
+    }
+}
+window.switchLanguage = switchLanguage;
+window.renderLanguageSwitch = renderLanguageSwitch;
+
+// Rend cliquables tous les boutons de langue .hdr-lang du canvas (via l'API
+// composant GrapesJS, fiable). Appelé à chaque chargement de page/variante.
+function attachHdrLangSwitch(editor) {
+    try {
+        const wrapper = editor && editor.getWrapper && editor.getWrapper();
+        if (!wrapper || typeof wrapper.find !== 'function') return;
+        (wrapper.find('.hdr-lang') || []).forEach(bindHdrLangClick);
+    } catch (e) { console.warn('attachHdrLangSwitch', e); }
+}
+window.attachHdrLangSwitch = attachHdrLangSwitch;
 
 function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (!school) return;
@@ -1798,65 +2258,11 @@ function initUI(editor) {
         try { setActiveDeviceBtn(editor.getDevice()); } catch (e) {}
     });
 
-    // Language Switcher
-    const languageSwitcher = document.getElementById('language-switcher');
-    if (languageSwitcher) {
-        languageSwitcher.addEventListener('change', async (e) => {
-            const newLang = e.target.value;
-            
-            // Only show dialog if language actually changed and project is open
-            if (newLang !== currentProjectLanguage && !currentProjectIsNew) {
-                const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-                const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
-                const projectNamePart = fullName.replace(`school-${schoolId}__`, '').split('__')[0];
-                
-                const choice = await new Promise(resolve => {
-                    window.openModal({
-                        title: 'Changement de langue',
-                        body: `<p class="modal-message">Voulez-vous Changer la Langue actuelle en ${newLang}?</p>`,
-                        actions: [
-                            { label: 'Changer', className: 'btn-primary', onClick: () => { window.closeModal(); resolve('new'); } },
-                            { label: 'Annuler', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve('cancel'); } }
-                        ]
-                    });
-                });
-
-                if (choice === 'cancel') {
-                    languageSwitcher.value = currentProjectLanguage;
-                    return;
-                }
-
-                if (choice === 'new') {
-                    // Create new version with different name
-                    const newName = await window.showPrompt({ 
-                        title: 'Nouveau nom pour la version en ' + newLang, 
-                        message: 'Entrez un nom pour la nouvelle version :', 
-                        placeholder: projectNamePart + '-' + newLang.toLowerCase(),
-                        defaultValue: projectNamePart + '-' + newLang.toLowerCase()
-                    });
-                    
-                    if (!newName) {
-                        languageSwitcher.value = currentProjectLanguage;
-                        return;
-                    }
-                    
-                    // This will save as a new project
-                    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, newName);
-                    localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
-                    currentProjectIsNew = true;
-                } else if (choice === 'replace') {
-                    // Replace current version in new language - ensure it's treated as existing project
-                    currentProjectIsNew = false;
-                }
-                
-                // Bascule immédiate des logos header/footer vers la nouvelle langue
-                applyLogoLanguage(editor, newLang);
-
-                // Trigger save with new language
-                document.getElementById('btn-save').click();
-            }
-        });
-    }
+    // Switch de langue segmenté (FR | EN …). Le comportement (chargement instantané
+    // d'une variante existante, traduction Gemini si absente, staleness) est géré par
+    // switchLanguage() ; renderLanguageSwitch() (re)construit les boutons.
+    // On ne crée JAMAIS de nouveau projet pour traduire.
+    renderLanguageSwitch();
 
     // Tabs
     document.querySelectorAll('.tab-btn').forEach(btn => {
@@ -1886,8 +2292,12 @@ function initUI(editor) {
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
             localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
             currentProjectIsNew = true;
-            currentProjectLanguage = 'FR';
-            document.getElementById('language-switcher').value = 'FR';
+            currentStructuredPageId = null;
+            // Nouvelle page → aucune variante encore, langue d'origine FR par défaut
+            // (le consultant choisit la langue de départ à la 1ʳᵉ sauvegarde).
+            currentOriginalLanguage = 'FR';
+            currentPageVariants = [];
+            setActiveLangUI('FR');
             loadDefaultTemplate(editor);
             populateProperties({}); // immediately pre-fill SEO & Properties tab with defaults based on project name
         }
@@ -2222,7 +2632,9 @@ function initUI(editor) {
             const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
             hideLoading();
             if (!res.ok) throw new Error(await res.text());
-            await showAlert({ title: 'Succès', message: 'Projet mis à jour avec succès et synchronisé avec Salesforce !' });
+            currentProjectProperties.status = 'draft';
+            updateStatusBadge();
+            await showAlert({ title: 'Succès', message: 'Projet enregistré en brouillon. Utilisez « Publish to SFMC » pour le publier.' });
         } catch (e) { 
             hideLoading();
             console.error(e);
@@ -2286,27 +2698,12 @@ function initUI(editor) {
     // Save Project
     document.getElementById('btn-save').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const selectedLanguage = document.getElementById('language-switcher').value || 'FR';
+        const selectedLanguage = normLang(currentProjectLanguage);
 
         if (!currentProjectIsNew) {
-            // Existing project -> Show SEO Modal
             const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
-            const originalFullName = localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`) || fullName;
-
-            if (!fullName) {
-                if (currentStructuredPageId) {
-                    await saveStructuredVersionOnly(currentStructuredPageId, selectedLanguage);
-                    return;
-                }
-                await showAlert({ title: 'Erreur', message: 'Projet introuvable. Veuillez utiliser le Dashboard pour ouvrir une page.' });
-                return;
-            }
-
-            // Extract original name and language
-            const projectNamePart = fullName.replace(`school-${schoolId}__`, '').split('__')[0];
-            const originalLanguage = fullName.split('__')[2] || 'FR';
-            const newFullName = `school-${schoolId}__${projectNamePart}__${selectedLanguage}`;
-            const originalPageFullName = originalLanguage === 'FR' ? fullName : null;
+            const pageId = currentStructuredPageId;
+            const isOriginalLang = selectedLanguage === normLang(currentOriginalLanguage);
 
             // Validate JSON-LD before sending
             const propsToSave = collectProperties();
@@ -2318,125 +2715,66 @@ function initUI(editor) {
                 }
             }
 
-            let finalHtml = editor.getHtml();
-
-            // If language changed, translate
-            if (selectedLanguage !== originalLanguage && selectedLanguage !== 'FR') {
+            // ── Sauvegarde d'une VARIANTE DE TRADUCTION (langue ≠ origine) ──
+            // On enregistre l'état courant de l'éditeur comme variante de CETTE page.
+            // Aucune traduction Gemini ici (la traduction se fait via le switch), aucun
+            // nouveau projet, pas de table Projects/SFMC (hors-scope V1).
+            if (!isOriginalLang) {
+                if (!pageId) {
+                    await showAlert({ title: 'Erreur', message: 'Ouvrez la page depuis le Dashboard pour éditer une traduction.' });
+                    return;
+                }
                 try {
-                    showLoading(`Traduction en cours vers ${selectedLanguage}... Cela peut prendre quelques secondes.`);
-                    
-                    const pd = editor.getProjectData();
-                    const targets = [];
-                    
-                    function walk(node) {
-                        const type = node.type || 'default';
-                        const tagName = (node.tagName || '').toLowerCase();
-                        
-                        // On limite strictement l'extraction du 'content' aux composants de type texte/bouton.
-                        // Cela protège les iframes, vidéos et structures complexes.
-                        const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
-                                           ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
-
-                        if (isTextLike && node.content && typeof node.content === 'string') {
-                            // Vérifie qu'il y a au moins une lettre pour éviter de traduire du code ou des symboles
-                            if (/[a-zA-ZÀ-ÿ]/.test(node.content)) {
-                                targets.push({ obj: node, prop: 'content' });
-                            }
-                        }
-                        
-                        if (node.attributes) {
-                            ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
-                                if (node.attributes[attr] && typeof node.attributes[attr] === 'string') {
-                                    if (/[a-zA-ZÀ-ÿ]/.test(node.attributes[attr])) {
-                                        targets.push({ obj: node.attributes, prop: attr });
-                                    }
-                                }
-                            });
-                        }
-                        if (node.components) {
-                            node.components.forEach(walk);
-                        }
-                    }
-                    pd.pages.forEach(p => p.frames.forEach(f => walk(f.component)));
-                    
-                    // Construit un faux HTML contenant tous les textes à traduire
-                    let htmlToTranslate = '';
-                    targets.forEach((t, i) => {
-                        htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`;
+                    showLoading(`Sauvegarde de la traduction ${selectedLanguage}...`);
+                    applyLogoLanguage(editor, selectedLanguage); // header/footer dans la bonne langue
+                    const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+                    const payload = {
+                        html: finalHtml,
+                        css: editor.getCss(),
+                        project_data: editor.getProjectData(),
+                        seo: propsToSeo(propsToSave)
+                    };
+                    const res = await fetch(`/api/content/pages/${encodeURIComponent(pageId)}/variants/${encodeURIComponent(selectedLanguage)}`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload)
                     });
-
-                    const translateRes = await fetch('/api/ai/translate', {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ html: htmlToTranslate, targetLang: selectedLanguage })
-                    });
-
-                    if (!translateRes.ok) throw new Error(await translateRes.text());
-                    const translateData = await translateRes.json();
-                    
-                    // On récupère les textes traduits
-                    const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
-                    targets.forEach((t, i) => {
-                        const el = doc.getElementById('t' + i);
-                        if (el) {
-                            t.obj[t.prop] = el.innerHTML;
-                        }
-                    });
-                    
-                    // IMPORTANT : fixer la langue courante AVANT loadProjectData.
-                    // loadProjectData émet des component:add qui planifient le swap
-                    // logo débounced ; celui-ci lit currentProjectLanguage → il doit
-                    // déjà valoir la langue cible, sinon il rebascule les logos vers
-                    // l'ancienne langue 150ms plus tard (logos existants inchangés).
-                    currentProjectLanguage = selectedLanguage;
-                    // Basculer les logos header/footer DANS les données AVANT loadProjectData :
-                    // garantit que le HTML capturé plus bas contient bien les logos traduits
-                    // (la traduction IA ne touche que le texte, pas le src des logos).
-                    localizeBrandInProjectData(pd, selectedLanguage);
-                    // Update the canvas to show translated content with ALL CSS and traits preserved!
-                    editor.loadProjectData(pd);
-                    // Sécurité : re-synchronise aussi l'éditeur (canvas live) après chargement.
-                    applyLogoLanguage(editor, selectedLanguage);
-                    finalHtml = editor.getHtml(); // update HTML after loading project data
+                    if (!res.ok) throw new Error(await res.text());
+                    await refreshVariants(pageId);
+                    triggerSfmcResync();
+                    hideLoading();
+                    await showAlert({ title: 'Succès', message: `Traduction ${selectedLanguage} sauvegardée !` });
                 } catch (e) {
                     hideLoading();
                     console.error(e);
-                    await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
-                    return;
+                    await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder la traduction. ' + e.message });
                 }
-            } else if (selectedLanguage !== originalLanguage) {
-                // Changement de langue SANS traduction de texte (ex. retour vers FR) :
-                // on bascule tout de même les logos header/footer + le libellé .hdr-lang
-                // vers la langue cible, sinon ils resteraient dans l'ancienne langue.
-                showLoading('Application de la langue...');
-                const pd = editor.getProjectData();
-                currentProjectLanguage = selectedLanguage;
-                localizeBrandInProjectData(pd, selectedLanguage);
-                editor.loadProjectData(pd);
-                applyLogoLanguage(editor, selectedLanguage);
-                finalHtml = editor.getHtml();
-            } else {
-                showLoading('Sauvegarde en cours...');
+                return;
             }
 
-            // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
-            finalHtml = buildFinalHtml(finalHtml, editor.getCss(), propsToSave);
-
-            const isTranslation = selectedLanguage !== originalLanguage;
-            const projectData = { 
-                projectName: newFullName, 
-                html: finalHtml,
-                css: editor.getCss(), 
-                projectData: editor.getProjectData(),
-                properties: propsToSave,
-                is_original_language: !isTranslation,
-                // Envoyer le nom de la page source — le serveur résoudra/créera le group_id
-                source_project_name: isTranslation ? fullName : null
-            };
+            // ── Sauvegarde de la LANGUE D'ORIGINE (via /api/save : Projects + SFMC + structuré) ──
+            if (!fullName) {
+                if (pageId) {
+                    await saveStructuredVersionOnly(pageId, selectedLanguage);
+                    return;
+                }
+                await showAlert({ title: 'Erreur', message: 'Projet introuvable. Veuillez utiliser le Dashboard pour ouvrir une page.' });
+                return;
+            }
 
             try {
+                showLoading('Sauvegarde en cours...');
+                applyLogoLanguage(editor, selectedLanguage); // header/footer dans la langue d'origine (idempotent)
+                const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+                const projectData = {
+                    projectName: fullName,
+                    language: selectedLanguage,
+                    html: finalHtml,
+                    css: editor.getCss(),
+                    projectData: editor.getProjectData(),
+                    properties: propsToSave
+                };
+
                 const { body: saveBody, mapping } = await publishInlineImagesInString(
-                    JSON.stringify(projectData), newFullName, collectAssetNames(editor)
+                    JSON.stringify(projectData), fullName, collectAssetNames(editor)
                 );
                 applyImageMapToEditor(editor, mapping);
                 const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
@@ -2444,31 +2782,19 @@ function initUI(editor) {
 
                 const saveData = await res.json();
                 const savedPageId = saveData.page_id || saveData.content?.pageId || null;
-                
-                // Si c'est la page originale (même langue), stocker son page_id
-                if (selectedLanguage === originalLanguage) {
-                    localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
-                }
-
-                // Update stored fullName to reflect language change
-                localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, newFullName);
-                // Conserver la référence à la page originale FR pour les traductions futures
-                if (selectedLanguage === 'FR') {
-                    localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, newFullName);
-                } else if (!localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`)) {
-                    localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-                }
-                
-                currentProjectLanguage = selectedLanguage;
-                
                 if (savedPageId) {
                     currentStructuredPageId = savedPageId;
+                    localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                 }
-                updatePageIdBadge(); // Mets à jour le badge et l'URL
-                
+                currentProjectLanguage = selectedLanguage;
+                currentProjectProperties.status = 'draft';
+                updatePageIdBadge();
+                // Rafraîchir les variantes : les traductions existantes deviennent
+                // « à mettre à jour » (stale) puisque l'original vient de changer.
+                await refreshVariants(currentStructuredPageId);
                 hideLoading();
-                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} !` });
-            } catch (e) { 
+                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} (brouillon).` });
+            } catch (e) {
                 hideLoading();
                 console.error(e);
                 await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
@@ -2516,8 +2842,6 @@ function initUI(editor) {
 
                 const proceedSaveNew = async (shouldUseModalValues) => {
                     seoModal.classList.add('hidden');
-                    
-
 
                     if (shouldUseModalValues) {
                         // Copy values back to memory
@@ -2533,86 +2857,17 @@ function initUI(editor) {
                         currentProjectProperties.keywords = defaultKeywords;
                     }
 
-                    // Start the translation & save process
-                    let finalBodyHtml = editor.getHtml();
-                    
-                    if (lang !== 'FR') {
-                        try {
-                            showLoading(`Traduction en cours vers ${lang}... Cela peut prendre quelques secondes.`);
-                            
-                            // Même logique que pour les projets existants : on traduit via projectData
-                            // pour éviter de casser le design (setComponents reset le state GrapesJS)
-                            const pd = editor.getProjectData();
-                            const targets = [];
-                            function walkNew(node) {
-                                const type = node.type || 'default';
-                                const tagName = (node.tagName || '').toLowerCase();
-                                const isTextLike = ['text', 'textnode', 'link', 'label', 'button'].includes(type) ||
-                                                   ['h1','h2','h3','h4','h5','h6','p','span','a','button','li','b','strong','i','em'].includes(tagName);
-                                if (isTextLike && node.content && typeof node.content === 'string') {
-                                    if (/[a-zA-ZÀ-ÿ]/.test(node.content)) targets.push({ obj: node, prop: 'content' });
-                                }
-                                if (node.attributes) {
-                                    ['placeholder', 'alt', 'title', 'aria-label'].forEach(attr => {
-                                        if (node.attributes[attr] && /[a-zA-ZÀ-ÿ]/.test(node.attributes[attr]))
-                                            targets.push({ obj: node.attributes, prop: attr });
-                                    });
-                                }
-                                if (node.components) node.components.forEach(walkNew);
-                            }
-                            pd.pages.forEach(p => p.frames.forEach(f => walkNew(f.component)));
+                    // Création dans la LANGUE DE DÉPART choisie (= langue d'origine).
+                    // AUCUNE traduction ici : les traductions se font ensuite via le switch.
+                    // Un seul projet, identité SANS suffixe de langue.
+                    showLoading('Sauvegarde en cours...');
+                    currentProjectLanguage = lang;
+                    currentOriginalLanguage = lang;
+                    applyLogoLanguage(editor, lang);
 
-                            let htmlToTranslate = '';
-                            targets.forEach((t, i) => { htmlToTranslate += `<div id="t${i}">${t.obj[t.prop]}</div>\n`; });
-
-                            const translateRes = await fetch('/api/ai/translate', {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({ html: htmlToTranslate, targetLang: lang })
-                            });
-
-                            if (!translateRes.ok) throw new Error(await translateRes.text());
-                            const translateData = await translateRes.json();
-                            
-                            const doc = new DOMParser().parseFromString(translateData.html, 'text/html');
-                            targets.forEach((t, i) => {
-                                const el = doc.getElementById('t' + i);
-                                if (el) t.obj[t.prop] = el.innerHTML;
-                            });
-                            // Fixer la langue courante AVANT loadProjectData (voir note
-                            // détaillée dans le chemin projet existant) : sinon le swap
-                            // logo débounced rebascule vers l'ancienne langue.
-                            currentProjectLanguage = lang;
-                            // Basculer les logos header/footer DANS les données AVANT
-                            // loadProjectData (voir localizeBrandInProjectData) → le HTML
-                            // capturé plus bas contient bien les logos traduits.
-                            localizeBrandInProjectData(pd, lang);
-                            editor.loadProjectData(pd);
-                            // Sécurité : re-synchronise aussi le canvas live après chargement.
-                            applyLogoLanguage(editor, lang);
-                            finalBodyHtml = editor.getHtml();
-                        } catch (e) {
-                            hideLoading();
-                            console.error(e);
-                            await showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
-                            return;
-                        }
-                    } else {
-                        // Sauvegarde en FR : pas de traduction de texte, mais on garantit que
-                        // les logos header/footer + le libellé .hdr-lang sont bien en FR
-                        // (utile si le canvas venait d'une version EN). Idempotent.
-                        showLoading('Sauvegarde en cours...');
-                        const pd = editor.getProjectData();
-                        currentProjectLanguage = lang;
-                        localizeBrandInProjectData(pd, lang);
-                        editor.loadProjectData(pd);
-                        applyLogoLanguage(editor, lang);
-                        finalBodyHtml = editor.getHtml();
-                    }
-
-                    const fullName = `school-${schoolId}__${nameInput}__${lang}`;
+                    const fullName = `school-${schoolId}__${nameInput}`;
                     const propsToSave = collectProperties();
-                    
+
                     if (propsToSave.schemaLd) {
                         try { JSON.parse(propsToSave.schemaLd); }
                         catch (jsonErr) {
@@ -2623,19 +2878,14 @@ function initUI(editor) {
                     }
 
                     // ── CHANGED: wrap body HTML in a full document with SEO <head> ──
-                    const finalHtml = buildFinalHtml(finalBodyHtml, editor.getCss(), propsToSave);
-                    const originalPageId = localStorage.getItem(`reetain-builder__${schoolId}__currentPageId`) || null;
-
-                    const isTranslation = lang !== 'FR';
-                    const originalPageName = localStorage.getItem(`reetain-builder__${schoolId}__originalFullName`) || null;
-                    const projectData = { 
-                        projectName: fullName, 
+                    const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+                    const projectData = {
+                        projectName: fullName,
+                        language: lang,
                         html: finalHtml,
-                        css: editor.getCss(), 
+                        css: editor.getCss(),
                         projectData: editor.getProjectData(),
-                        properties: propsToSave,
-                        is_original_language: !isTranslation,
-                        source_project_name: isTranslation ? originalPageName : null
+                        properties: propsToSave
                     };
 
                     try {
@@ -2647,27 +2897,27 @@ function initUI(editor) {
                         if (!res.ok) throw new Error(await res.text());
 
                         const saveData = await res.json();
-                        if (saveData && saveData.page_id) {
-                            currentStructuredPageId = saveData.page_id;
-                            updatePageIdBadge();
+                        const savedPageId = saveData.page_id || saveData.content?.pageId || null;
+                        if (savedPageId) {
+                            currentStructuredPageId = savedPageId;
+                            localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                         }
 
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
-                        document.getElementById('language-switcher').value = lang;
+                        currentProjectProperties.status = 'draft';
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
-                        if (lang === 'FR') {
-                            localStorage.setItem(`reetain-builder__${schoolId}__originalFullName`, fullName);
-                        }
-                        updatePageIdBadge(); // Met à jour le badge ET l'URL avec le bon nom (incl. langue)
-                        
+                        setActiveLangUI(lang);
+                        updatePageIdBadge(); // Met à jour le badge ET l'URL
+                        await refreshVariants(currentStructuredPageId);
+
                         hideLoading();
-                        
+
                         const userChoice = await new Promise(resolve => {
                             openModal({
                                 title: 'Succès',
-                                body: `<p class="modal-message">Nouveau projet sauvegardé${lang !== 'FR' ? ' et traduit' : ''} avec succès !</p>`,
+                                body: `<p class="modal-message">Nouveau projet créé en ${LANG_LABELS[lang] || lang} avec succès !</p>`,
                                 actions: [
                                     { label: 'Continuer l\'édition', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } },
                                     { label: 'Fermer', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } }
@@ -2678,7 +2928,7 @@ function initUI(editor) {
                         if (!userChoice) {
                             showOpeningPopup();
                         }
-                    } catch (e) { 
+                    } catch (e) {
                         hideLoading();
                         console.error(e);
                         await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
@@ -2691,7 +2941,174 @@ function initUI(editor) {
         }
     };
 
+    // Publish to SFMC — publication manuelle de l'asset webpage.
+    // La sauvegarde garde la page en brouillon (html_sfmc + images prêts) ;
+    // ce bouton pousse le HTML vers SFMC uniquement à la demande.
+    document.getElementById('btn-publish-sfmc').onclick = async () => {
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+
+        // Il faut un projet déjà sauvegardé (brouillon en BD) avant de publier.
+        if (currentProjectIsNew || !fullName) {
+            await showAlert({
+                title: 'Sauvegarde requise',
+                message: 'Sauvegardez d\'abord le projet avec « Save Project » avant de le publier sur SFMC.'
+            });
+            return;
+        }
+
+        // ── Modal de confirmation ──────────────────────────────────────────
+        const confirmed = await new Promise(resolve => {
+            openModal({
+                title: 'Publier sur SFMC',
+                body: `<p class="modal-message">Cette action publie la page <strong>${fullName}</strong> sur Salesforce Marketing Cloud (création ou mise à jour de l'asset).<br><br>Assurez-vous d'avoir sauvegardé votre travail. Continuer ?</p>`,
+                actions: [
+                    { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
+                    { label: 'Publier', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
+                ]
+            });
+        });
+        if (!confirmed) return;
+
+        // ── Publication + loader ───────────────────────────────────────────
+        showLoading('Publication sur SFMC en cours...');
+        try {
+            const res = await fetch('/api/publish-sfmc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: fullName })
+            });
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+            const action = data?.sfmc?.action === 'created' ? 'créée' : 'mise à jour';
+            const assetName = data?.sfmc?.name || fullName;
+
+            // Marquer la page comme publiée dans l'UI.
+            currentProjectProperties.status = 'published';
+            updateStatusBadge();
+
+            hideLoading();
+            await showAlert({
+                title: 'Publication réussie',
+                message: `La page « ${assetName} » a été ${action} sur Salesforce Marketing Cloud.`
+            });
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Échec de la publication', message: 'Impossible de publier sur SFMC. ' + e.message });
+        }
+    };
+
+    // Dépublier — supprime l'asset page dans SFMC (par clé exacte, avec garde-fou
+    // côté serveur) et repasse la page en brouillon.
+    document.getElementById('btn-unpublish-sfmc').onclick = async () => {
+        const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+
+        if (currentProjectIsNew || !fullName) {
+            await showAlert({ title: 'Action impossible', message: 'Aucun projet publié à dépublier.' });
+            return;
+        }
+
+        const confirmed = await new Promise(resolve => {
+            openModal({
+                title: 'Dépublier de SFMC',
+                body: `<p class="modal-message">Cette action <strong>supprime l'asset</strong> de la page <strong>${fullName}</strong> sur Salesforce Marketing Cloud (recherche par clé exacte, aucun autre bloc n'est touché).<br><br>La page repassera en brouillon. Continuer ?</p>`,
+                actions: [
+                    { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
+                    { label: 'Dépublier', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
+                ]
+            });
+        });
+        if (!confirmed) return;
+
+        showLoading('Dépublication de SFMC en cours...');
+        try {
+            const res = await fetch('/api/unpublish-sfmc', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ projectName: fullName })
+            });
+            if (!res.ok) throw new Error(await res.text());
+
+            const data = await res.json();
+            const sfmcAction = data?.sfmc?.action;
+
+            // Repasser en brouillon dans l'UI.
+            currentProjectProperties.status = 'draft';
+            updateStatusBadge();
+
+            hideLoading();
+            const msg = sfmcAction === 'deleted'
+                ? 'La page a été dépubliée : son asset a été supprimé de Salesforce Marketing Cloud.'
+                : sfmcAction === 'not_found'
+                    ? 'Aucun asset correspondant trouvé sur SFMC. La page est repassée en brouillon.'
+                    : sfmcAction === 'skipped_mismatch'
+                        ? 'Un asset a été trouvé mais ne correspondait pas exactement à cette page : suppression annulée par sécurité. La page est repassée en brouillon.'
+                        : 'Page repassée en brouillon.';
+            await showAlert({ title: 'Dépublication terminée', message: msg });
+        } catch (e) {
+            hideLoading();
+            console.error(e);
+            await showAlert({ title: 'Échec de la dépublication', message: 'Impossible de dépublier sur SFMC. ' + e.message });
+        }
+    };
+
     // Preview
+    // Contraint l'aperçu de l'éditeur à la MÊME largeur que l'aperçu dashboard/SFMC
+    // (1280px centré). Sans ça, core:preview cache les panneaux et l'iframe s'étale
+    // sur toute la largeur de la fenêtre → page plus large que dans l'éditeur.
+    function setEditorPreviewViewport(on) {
+        try {
+            const doc = editor.Canvas && editor.Canvas.getDocument && editor.Canvas.getDocument();
+            if (!doc) return;
+            let st = doc.getElementById('editor-preview-viewport');
+            if (on) {
+                if (!st) {
+                    st = doc.createElement('style');
+                    st.id = 'editor-preview-viewport';
+                    st.textContent = 'html{background:#e9e9ec;}'
+                        + 'body{max-width:1280px!important;margin-left:auto!important;margin-right:auto!important;background:#ffffff;}';
+                    (doc.head || doc.documentElement).appendChild(st);
+                }
+            } else if (st) {
+                st.remove();
+            }
+        } catch (e) { console.warn('setEditorPreviewViewport', e); }
+    }
+
+    // Ancrage en aperçu : dans l'éditeur, les liens internes (#id) ne défilent pas
+    // nativement (limitation de l'iframe canvas GrapesJS). On SIMULE le scroll vers
+    // le bloc ciblé — activé uniquement pendant l'aperçu, retiré à la sortie.
+    // ⚠️ Ne modifie ni le HTML exporté ni la logique des blocs : c'est un simple
+    // écouteur de clic sur l'aperçu.
+    function editorPreviewAnchorHandler(e) {
+        try {
+            const a = e.target && e.target.closest && e.target.closest('a[href^="#"]');
+            if (!a) return;
+            const raw = (a.getAttribute('href') || '').slice(1);
+            if (!raw) return; // href="#" seul → rien à cibler
+            const id = decodeURIComponent(raw);
+            const doc = a.ownerDocument;
+            const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id.replace(/"/g, '\\"');
+            const target = doc.getElementById(id) || doc.querySelector('[name="' + esc + '"]');
+            if (!target) return; // aucun bloc avec cet id → on laisse le comportement natif
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) { /* ne jamais casser l'aperçu */ }
+    }
+
+    // Attache/détache le simulateur d'ancrage sur le document du canvas (idempotent).
+    function setEditorPreviewAnchors(on) {
+        try {
+            const doc = editor.Canvas && editor.Canvas.getDocument && editor.Canvas.getDocument();
+            if (!doc) return;
+            doc.removeEventListener('click', editorPreviewAnchorHandler, true);
+            if (on) doc.addEventListener('click', editorPreviewAnchorHandler, true);
+        } catch (e) { console.warn('setEditorPreviewAnchors', e); }
+    }
+
     document.getElementById('btn-preview').onclick = () => {
         // Hide custom UI panels
         const tb = document.querySelector('.builder-toolbar');
@@ -2700,10 +3117,12 @@ function initUI(editor) {
         if (tb) tb.style.display = 'none';
         if (sl) sl.style.display = 'none';
         if (sr) sr.style.display = 'none';
-        
+
         // Run GrapesJS preview
         editor.runCommand('core:preview');
         editor.refresh(); // Force resize
+        setEditorPreviewViewport(true); // même largeur que l'aperçu dashboard (1280px centré)
+        setEditorPreviewAnchors(true); // simule le défilement vers les blocs cibles (#id)
 
         // Create or show custom exit button
         let exitBtn = document.getElementById('custom-exit-preview');
@@ -2717,6 +3136,8 @@ function initUI(editor) {
             
             exitBtn.onclick = () => {
                 editor.stopCommand('core:preview');
+                setEditorPreviewViewport(false); // retire la contrainte de largeur
+                setEditorPreviewAnchors(false); // retire le simulateur d'ancrage
                 if (tb) tb.style.display = '';
                 if (sl) sl.style.display = '';
                 if (sr) sr.style.display = '';
@@ -2795,13 +3216,15 @@ function initUI(editor) {
             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
             localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
             currentStructuredPageId = project.page_id || null;
+            currentProjectIsNew = false;
             updatePageIdBadge();
-            
-            // Extract and set current language
+
+            // Langue d'origine + résumé des variantes (switch multilingue).
             const parts = fullName.replace(`school-${schoolId}__`, '').split('__');
-            const lang = parts[1] || 'FR';
+            const lang = normLang(project.original_language || parts[1] || 'FR');
             currentProjectLanguage = lang;
-            document.getElementById('language-switcher').value = lang;
+            applyVariantsSummary(project);
+            setActiveLangUI(lang);
             applyLogoLanguage(editor, lang);
 
             const modal = document.getElementById('modal-container');

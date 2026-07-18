@@ -33,6 +33,7 @@ import carouselCursus from './CarouselCursus/index.js';
 import nousContacter from './NousContacter/index.js';
 import programmeBackground from './ProgrammeBackground/index.js';
 import blocImages from './BlocImages/index.js';
+import bulletList from './BulletList/index.js';
 // Formulaires EDH (6 formulaires)
 import formBrochure from '../../blocks/forms/form-brochure/index.js';
 import formJpo from '../../blocks/forms/form-jpo/index.js';
@@ -83,6 +84,7 @@ export function registerMasterComponents(editor) {
         nousContacter,
         programmeBackground,
         blocImages,
+        bulletList,
         formBrochure,
         formJpo,
         formAtelier,
