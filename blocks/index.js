@@ -17,6 +17,10 @@ import stickyCta from './sticky-cta/index.js';
 import insertionVideo from './insertion-video/index.js';
 import admissionTabs from './admission-tabs/index.js';
 import imageCaption from './image-caption/index.js';
+// Étend le type `image` GLOBAL de GrapesJS : ajoute un champ « Lien » à TOUTES
+// les images de TOUS les blocs (hero, carrousels, deux colonnes, image & caption…).
+// À charger une seule fois ; l'<img> est enveloppée dans un <a href> à l'export.
+import imageLink from './image-link/index.js';
 import spacer from './spacer/index.js';
 import horizontalMenu from './horizontal-menu/index.js';
 import bandeRose from './bande-rose/index.js';
@@ -62,7 +66,7 @@ export function registerBlocks(editor) {
     // Load all blocks
     [
         headers, brassartHeaders, efapHeaders, wa3Headers, moreSchoolHeaders, footers, icartBlocks,
-        hero, twoColumn, richText, ctaButton, stickyCta, insertionVideo, admissionTabs, imageCaption, spacer,
+        hero, twoColumn, richText, ctaButton, stickyCta, insertionVideo, admissionTabs, imageCaption, imageLink, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
         carousel, CarrouselTemoignages,
