@@ -81,13 +81,11 @@ module.exports = async function handler(req, res) {
                         properties:  project.properties || {}
                     });
 
-                    // ── 6. Envoi vers Salesforce Marketing Cloud ──────────────────
-                    if (isSfmcConfigured()) {
-                        console.log(`☁️  [CRON] Envoi vers SFMC...`);
-                        await syncProjectToSfmc({ projectName, fullHtml: cleanedHtml });
-                    } else {
-                        console.log(`⏭️  [CRON] SFMC non configuré, envoi ignoré.`);
-                    }
+                    // ── 6. PAS d'envoi de la page vers SFMC ici ───────────────────
+                    // La page reste en brouillon : le HTML nettoyé (html_sfmc) et les
+                    // images sont prêts, mais l'asset webpage n'est publié dans SFMC que
+                    // manuellement via le bouton « Publish to SFMC » (POST /api/publish-sfmc).
+                    console.log(`📝 [CRON] Brouillon prêt pour "${projectName}" — publication SFMC manuelle.`);
 
                 } else if (job.action === 'publish_page') {
                     // ── Action "publish_page" : synchronisation d'une page publiée ──

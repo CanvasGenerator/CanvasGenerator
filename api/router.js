@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, uploadImageFromDataUrl } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -627,6 +627,9 @@ module.exports = async function handler(req, res) {
             // ── Code marketing personnalisé (école + page) ──
             await applyCustomMarketingCode(projectName, properties);
 
+            // ── Toute sauvegarde repasse la page en brouillon ─────────────────
+            properties.status = 'draft';
+
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
@@ -713,6 +716,8 @@ module.exports = async function handler(req, res) {
             }
             const project = existing[0];
             const mergedProperties = { ...(project.properties || {}), ...(rawProperties || {}) };
+            // Toute sauvegarde repasse la page en brouillon.
+            mergedProperties.status = 'draft';
 
             // ── 1. Écrire dans seo_history (source de vérité pour les valeurs SEO) ──
             // On utilise Prefer: return=representation pour forcer un vrai INSERT (pas de merge-duplicates
@@ -761,6 +766,74 @@ module.exports = async function handler(req, res) {
             });
 
             return res.status(200).json({ message: 'SEO saved', sfmc: jobResult, content: { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' }, projectName });
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Publication manuelle vers SFMC (bouton « Publish to SFMC »)
+        // La sauvegarde ne fait que préparer le brouillon (html_sfmc + images).
+        // Cet endpoint publie l'asset webpage dans SFMC à la demande.
+        // ──────────────────────────────────────────────────────────────────────
+        if (req.method === 'POST' && pathname === '/api/publish-sfmc') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+
+            const projectRes = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
+            );
+            const project = projectRes && projectRes[0];
+            if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
+
+            // Utiliser html_sfmc (déjà nettoyé + images publiées par la sauvegarde/cron)
+            // s'il existe ; sinon le préparer à la volée pour ne pas dépendre du cron.
+            let htmlToSend = project.html_sfmc;
+            if (!htmlToSend) {
+                htmlToSend = cleanHtmlForSfmc(project.html || '');
+                htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    html_sfmc: htmlToSend
+                });
+            }
+
+            console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
+            const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
+
+            // ── Marquer la page comme publiée ─────────────────────────────────
+            const publishedProps = { ...(project.properties || {}), status: 'published' };
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                properties: publishedProps
+            });
+
+            return res.status(200).json({ message: 'Published', projectName, status: 'published', sfmc: result });
+        }
+
+        // ──────────────────────────────────────────────────────────────────────
+        // Dépublication manuelle : supprime l'asset page dans SFMC (par clé
+        // exacte, avec garde-fou) et repasse la page en brouillon.
+        // ──────────────────────────────────────────────────────────────────────
+        if (req.method === 'POST' && pathname === '/api/unpublish-sfmc') {
+            const { projectName } = req.body || {};
+            if (!projectName) return res.status(400).json({ error: 'projectName required' });
+            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+
+            const projectRes = await supabaseRequest(
+                'GET',
+                `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
+            );
+            const project = projectRes && projectRes[0];
+            if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
+
+            console.log(`☁️  [UNPUBLISH] Dépublication SFMC pour "${projectName}"...`);
+            const result = await unpublishProjectFromSfmc({ projectName });
+
+            // Repasser en brouillon (que l'asset ait été supprimé ou déjà absent).
+            const draftProps = { ...(project.properties || {}), status: 'draft' };
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                properties: draftProps
+            });
+
+            return res.status(200).json({ message: 'Unpublished', projectName, status: 'draft', sfmc: result });
         }
 
         if (req.method === 'GET' && pathname === '/api/seo-history') {

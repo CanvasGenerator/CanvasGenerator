@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, listCampuses, upsertCampus, deleteCampus } = require('./lib/sfmc');
+const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus } = require('./lib/sfmc');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -890,6 +890,9 @@ http.createServer(async (req, res) => {
                 // Code marketing personnalisé (école + page)
                 if (properties) await applyCustomMarketingCode(projectName, properties);
 
+                // Toute sauvegarde repasse la page en brouillon.
+                if (properties) properties.status = 'draft';
+
                 const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
                 // ── Résoudre les flags de traduction + group_id ───────────────────────────
@@ -1061,6 +1064,8 @@ http.createServer(async (req, res) => {
                 }
 
                 const mergedProperties = { ...(project.properties || {}), ...properties };
+                // Toute sauvegarde repasse la page en brouillon.
+                mergedProperties.status = 'draft';
 
                 // 1. Écrire dans seo_history (source de vérité — INSERT obligatoire, pas silencieux)
                 const seoHistoryProps = { ...mergedProperties };
@@ -1681,6 +1686,113 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
             } catch (e) {
                 console.error('❌ Error creating DE:', e.message);
                 res.writeHead(500);
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Publication manuelle vers SFMC (bouton « Publish to SFMC ») ──
+    // La sauvegarde ne fait que préparer le brouillon (html_sfmc + images) ;
+    // cet endpoint publie l'asset webpage dans SFMC à la demande.
+    if (req.method === 'POST' && pathname === '/api/publish-sfmc') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { projectName } = JSON.parse(body || '{}');
+                if (!projectName) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'projectName required' }));
+                }
+                if (!isSfmcConfigured()) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'SFMC non configuré sur ce serveur.' }));
+                }
+
+                const projectRes = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
+                );
+                const project = projectRes && projectRes[0];
+                if (!project) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: `Projet "${projectName}" introuvable.` }));
+                }
+
+                // html_sfmc déjà nettoyé + images publiées par la sauvegarde/cron ;
+                // sinon, le préparer à la volée pour ne pas dépendre du cron.
+                let htmlToSend = project.html_sfmc;
+                if (!htmlToSend) {
+                    htmlToSend = cleanHtmlForSfmc(project.html || '');
+                    htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
+                    await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                        html_sfmc: htmlToSend
+                    });
+                }
+
+                console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
+                const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
+
+                // Marquer la page comme publiée.
+                const publishedProps = { ...(project.properties || {}), status: 'published' };
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    properties: publishedProps
+                });
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: 'Published', projectName, status: 'published', sfmc: result }));
+            } catch (e) {
+                console.error('❌ Error publishing to SFMC:', e.message);
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ error: e.message, payload: e.payload }));
+            }
+        });
+        return;
+    }
+
+    // ── API: Dépublication manuelle SFMC (bouton « Dépublier ») ──────────
+    // Supprime l'asset page dans SFMC par clé exacte (avec garde-fou) et
+    // repasse la page en brouillon.
+    if (req.method === 'POST' && pathname === '/api/unpublish-sfmc') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { projectName } = JSON.parse(body || '{}');
+                if (!projectName) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'projectName required' }));
+                }
+                if (!isSfmcConfigured()) {
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'SFMC non configuré sur ce serveur.' }));
+                }
+
+                const projectRes = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
+                );
+                const project = projectRes && projectRes[0];
+                if (!project) {
+                    res.writeHead(404, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: `Projet "${projectName}" introuvable.` }));
+                }
+
+                console.log(`☁️  [UNPUBLISH] Dépublication SFMC pour "${projectName}"...`);
+                const result = await unpublishProjectFromSfmc({ projectName });
+
+                // Repasser en brouillon (que l'asset ait été supprimé ou déjà absent).
+                const draftProps = { ...(project.properties || {}), status: 'draft' };
+                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
+                    properties: draftProps
+                });
+
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                res.end(JSON.stringify({ message: 'Unpublished', projectName, status: 'draft', sfmc: result }));
+            } catch (e) {
+                console.error('❌ Error unpublishing from SFMC:', e.message);
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ error: e.message, payload: e.payload }));
             }
         });
