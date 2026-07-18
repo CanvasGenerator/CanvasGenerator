@@ -140,6 +140,35 @@ function injectPreviewViewport(html) {
 }
 
 /**
+ * Corrige l'ancrage interne (#id) sur les pages qui portent un `<base href="/">`.
+ *
+ * Le `<base href="/">` (injecté pour réparer les chemins d'assets relatifs) casse
+ * les liens d'ancre : le navigateur résout `href="#footer"` par rapport à la base
+ * → il NAVIGUE vers `/#footer` (racine) au lieu de défiler vers le bloc de la page.
+ *
+ * On réinjecte un mini-script (idempotent) qui intercepte les clics sur les liens
+ * dont le href BRUT commence par `#` et fait un scrollIntoView vers l'élément
+ * (par id, sinon par name). Neutralise l'effet du <base> SANS toucher aux assets
+ * ni au HTML des blocs. Sans effet si aucune ancre n'existe (comportement natif).
+ */
+function injectAnchorScrollFix(html) {
+    const s = String(html || '');
+    if (/id="anchor-scroll-fix"/.test(s)) return s;
+    const script = `<script id="anchor-scroll-fix">`
+        + `(function(){function h(e){try{var a=e.target&&e.target.closest&&e.target.closest('a');`
+        + `if(!a)return;var href=a.getAttribute('href')||'';`
+        + `if(href.charAt(0)!=='#'||href.length<2)return;`
+        + `var id=decodeURIComponent(href.slice(1));`
+        + `var t=document.getElementById(id)||document.getElementsByName(id)[0];`
+        + `if(!t)return;e.preventDefault();`
+        + `t.scrollIntoView({behavior:'smooth',block:'start'});`
+        + `if(window.history&&history.replaceState){history.replaceState(null,'','#'+id);}`
+        + `}catch(_){}}document.addEventListener('click',h,true);})();`
+        + `</script>`;
+    return /<\/body>/i.test(s) ? s.replace(/<\/body>/i, script + '</body>') : s + script;
+}
+
+/**
  * Patche une chaîne CSS :
  *  - Met à jour les fallbacks var(--brand-*, OLD) avec les nouvelles couleurs
  *  - Remplace les background-color hardcodés dans les blocs header/footer
@@ -2419,6 +2448,9 @@ Règles importantes :
             // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
             finalHtml = injectPreviewViewport(finalHtml);
 
+            // Répare l'ancrage interne (#id) cassé par le <base href="/"> ci-dessus.
+            finalHtml = injectAnchorScrollFix(finalHtml);
+
             res.end(finalHtml);
         } catch (e) {
             console.log(`❌ Erreur Preview:`, e.message);
@@ -2466,6 +2498,9 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
 
                 // Ancres stables des formulaires (liens #form_id) — feature/PFE
                 finalPublicHtml = ensureFormAnchors(finalPublicHtml).html;
+
+                // Répare l'ancrage interne (#id) cassé par le <base href="/"> ci-dessus.
+                finalPublicHtml = injectAnchorScrollFix(finalPublicHtml);
 
                 return res.end(finalPublicHtml);
             }

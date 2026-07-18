@@ -2933,6 +2933,37 @@ function initUI(editor) {
         } catch (e) { console.warn('setEditorPreviewViewport', e); }
     }
 
+    // Ancrage en aperçu : dans l'éditeur, les liens internes (#id) ne défilent pas
+    // nativement (limitation de l'iframe canvas GrapesJS). On SIMULE le scroll vers
+    // le bloc ciblé — activé uniquement pendant l'aperçu, retiré à la sortie.
+    // ⚠️ Ne modifie ni le HTML exporté ni la logique des blocs : c'est un simple
+    // écouteur de clic sur l'aperçu.
+    function editorPreviewAnchorHandler(e) {
+        try {
+            const a = e.target && e.target.closest && e.target.closest('a[href^="#"]');
+            if (!a) return;
+            const raw = (a.getAttribute('href') || '').slice(1);
+            if (!raw) return; // href="#" seul → rien à cibler
+            const id = decodeURIComponent(raw);
+            const doc = a.ownerDocument;
+            const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id.replace(/"/g, '\\"');
+            const target = doc.getElementById(id) || doc.querySelector('[name="' + esc + '"]');
+            if (!target) return; // aucun bloc avec cet id → on laisse le comportement natif
+            e.preventDefault();
+            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        } catch (err) { /* ne jamais casser l'aperçu */ }
+    }
+
+    // Attache/détache le simulateur d'ancrage sur le document du canvas (idempotent).
+    function setEditorPreviewAnchors(on) {
+        try {
+            const doc = editor.Canvas && editor.Canvas.getDocument && editor.Canvas.getDocument();
+            if (!doc) return;
+            doc.removeEventListener('click', editorPreviewAnchorHandler, true);
+            if (on) doc.addEventListener('click', editorPreviewAnchorHandler, true);
+        } catch (e) { console.warn('setEditorPreviewAnchors', e); }
+    }
+
     document.getElementById('btn-preview').onclick = () => {
         // Hide custom UI panels
         const tb = document.querySelector('.builder-toolbar');
@@ -2946,6 +2977,7 @@ function initUI(editor) {
         editor.runCommand('core:preview');
         editor.refresh(); // Force resize
         setEditorPreviewViewport(true); // même largeur que l'aperçu dashboard (1280px centré)
+        setEditorPreviewAnchors(true); // simule le défilement vers les blocs cibles (#id)
 
         // Create or show custom exit button
         let exitBtn = document.getElementById('custom-exit-preview');
@@ -2960,6 +2992,7 @@ function initUI(editor) {
             exitBtn.onclick = () => {
                 editor.stopCommand('core:preview');
                 setEditorPreviewViewport(false); // retire la contrainte de largeur
+                setEditorPreviewAnchors(false); // retire le simulateur d'ancrage
                 if (tb) tb.style.display = '';
                 if (sl) sl.style.display = '';
                 if (sr) sr.style.display = '';
