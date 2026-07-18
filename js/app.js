@@ -568,6 +568,9 @@ function initEditor(schoolId) {
     editor.on('canvas:frame:load', () => {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         injectComponentFixedStyles(editor);
+        // Si l'aperçu est actif, réappliquer la largeur fixe 1280px + ancrage : le
+        // canvas vient d'être rechargé (ex. switch de langue) et a perdu le style.
+        if (window.__reapplyEditorPreview) window.__reapplyEditorPreview();
     });
 
     editor.on('load', () => {
@@ -1667,6 +1670,9 @@ async function loadVariantIntoEditor(pageId, lang) {
     attachHdrLangSwitch(window.editor);
     if (data.seo) populateProperties(seoToProps(data.seo));
     setActiveLangUI(lang);
+    // Le canvas vient d'être rechargé : si on est en aperçu, restaurer la largeur
+    // fixe 1280px (sinon la nouvelle langue s'étale sur toute la largeur).
+    if (window.__reapplyEditorPreview) setTimeout(window.__reapplyEditorPreview, 60);
     setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
 }
 
@@ -3078,24 +3084,57 @@ function initUI(editor) {
         } catch (e) { console.warn('setEditorPreviewViewport', e); }
     }
 
-    // Ancrage en aperçu : dans l'éditeur, les liens internes (#id) ne défilent pas
-    // nativement (limitation de l'iframe canvas GrapesJS). On SIMULE le scroll vers
-    // le bloc ciblé — activé uniquement pendant l'aperçu, retiré à la sortie.
-    // ⚠️ Ne modifie ni le HTML exporté ni la logique des blocs : c'est un simple
-    // écouteur de clic sur l'aperçu.
+    // Fait défiler vers un fragment (#id) dans le document du canvas. Renvoie true
+    // si une cible a été trouvée et le scroll effectué.
+    function editorPreviewScrollToHash(raw, doc) {
+        const id = decodeURIComponent(String(raw || '').replace(/^#/, ''));
+        if (!id || !doc) return false;
+        const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id.replace(/"/g, '\\"');
+        const target = doc.getElementById(id) || doc.querySelector('[name="' + esc + '"]');
+        if (!target) return false;
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        return true;
+    }
+
+    // Ancrage + liens image en aperçu. Dans l'éditeur :
+    //  1) les liens internes (#id) ne défilent pas nativement (iframe canvas) → on
+    //     simule le scroll vers le bloc ciblé ;
+    //  2) les images du bloc « image-link » ne sont PAS enveloppées dans un <a>
+    //     (le wrap n'a lieu qu'à l'export getHtml) → on lit data-href / data-link-target
+    //     et on simule la redirection au clic.
+    // Activé uniquement pendant l'aperçu, retiré à la sortie. ⚠️ Ne modifie ni le
+    // HTML exporté ni la logique des blocs ni l'aperçu du dashboard.
     function editorPreviewAnchorHandler(e) {
         try {
-            const a = e.target && e.target.closest && e.target.closest('a[href^="#"]');
+            const el = e.target;
+            if (!el || !el.closest) return;
+
+            // 1) Image (ou élément) avec lien image-link : data-href renseigné.
+            const linked = el.closest('[data-href]');
+            if (linked) {
+                const url = (linked.getAttribute('data-href') || '').trim();
+                if (url) {
+                    e.preventDefault();
+                    if (url.charAt(0) === '#') {
+                        editorPreviewScrollToHash(url, linked.ownerDocument);
+                    } else if (linked.getAttribute('data-link-target') === '_blank') {
+                        window.open(url, '_blank', 'noopener,noreferrer');
+                    } else {
+                        // Le canvas est un iframe : on redirige la fenêtre de l'éditeur.
+                        window.location.href = url;
+                    }
+                    return;
+                }
+            }
+
+            // 2) Ancre interne classique (#id).
+            const a = el.closest('a[href^="#"]');
             if (!a) return;
-            const raw = (a.getAttribute('href') || '').slice(1);
-            if (!raw) return; // href="#" seul → rien à cibler
-            const id = decodeURIComponent(raw);
-            const doc = a.ownerDocument;
-            const esc = (window.CSS && CSS.escape) ? CSS.escape(id) : id.replace(/"/g, '\\"');
-            const target = doc.getElementById(id) || doc.querySelector('[name="' + esc + '"]');
-            if (!target) return; // aucun bloc avec cet id → on laisse le comportement natif
-            e.preventDefault();
-            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            const raw = a.getAttribute('href') || '';
+            if (raw.length < 2) return; // href="#" seul → rien à cibler
+            if (editorPreviewScrollToHash(raw, a.ownerDocument)) {
+                e.preventDefault();
+            }
         } catch (err) { /* ne jamais casser l'aperçu */ }
     }
 
@@ -3109,6 +3148,15 @@ function initUI(editor) {
         } catch (e) { console.warn('setEditorPreviewAnchors', e); }
     }
 
+    // Ré-applique la contrainte d'aperçu (largeur fixe 1280px + ancrage) si l'aperçu
+    // est actif. Un switch de langue recharge le canvas (loadProjectData/setComponents)
+    // et perdrait sinon le style injecté → la page reprendrait toute la largeur.
+    window.__reapplyEditorPreview = function () {
+        if (!window.__editorPreviewActive) return;
+        setEditorPreviewViewport(true);
+        setEditorPreviewAnchors(true);
+    };
+
     document.getElementById('btn-preview').onclick = () => {
         // Hide custom UI panels
         const tb = document.querySelector('.builder-toolbar');
@@ -3119,6 +3167,7 @@ function initUI(editor) {
         if (sr) sr.style.display = 'none';
 
         // Run GrapesJS preview
+        window.__editorPreviewActive = true; // survit aux rechargements du canvas (switch de langue)
         editor.runCommand('core:preview');
         editor.refresh(); // Force resize
         setEditorPreviewViewport(true); // même largeur que l'aperçu dashboard (1280px centré)
@@ -3135,6 +3184,7 @@ function initUI(editor) {
             document.body.appendChild(exitBtn);
             
             exitBtn.onclick = () => {
+                window.__editorPreviewActive = false;
                 editor.stopCommand('core:preview');
                 setEditorPreviewViewport(false); // retire la contrainte de largeur
                 setEditorPreviewAnchors(false); // retire le simulateur d'ancrage
