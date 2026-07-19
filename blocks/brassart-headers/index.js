@@ -45,17 +45,30 @@ export default function(editor, categories) {
                         display: flex; align-items: center; justify-content: space-between;
                         padding: 22px 90px; gap: 24px;
                     }
-                    .${v.id} .hdr-logo-img {
-                        max-height: ${LOGO_H}px; max-width: calc(100% - 60px);
-                        height: auto; width: auto; display: block; object-fit: contain;
+                    /* Taille du logo librement modifiable via le Style Manager : on cible
+                       la CLASSE simple (.hdr-logo-img) — celle que GrapesJS édite — avec une
+                       hauteur concrète et SANS max-height (sinon l'agrandissement serait
+                       plafonne). Le garde-fou responsive reste sur la regle mobile scopee
+                       (plus specifique) ci-dessous. */
+                    .hdr-logo-img {
+                        height: ${LOGO_H}px; width: auto; max-width: calc(100% - 60px);
+                        display: block; object-fit: contain;
                     }
                     .${v.id} .hdr-lang {
                         font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                         letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
                     }
+                    /* Responsive mobile des logos (retour client). Le logo scale
+                       proportionnellement (height:auto → aucune déformation), reste lisible
+                       (baseline >= ~48px, jamais sous 40px), aligné à gauche, et laisse la
+                       place au sélecteur de langue à droite. Desktop INCHANGÉ. */
                     @media (max-width: 768px) {
-                        .${v.id} .hdr-inner { padding: 14px 18px; gap: 14px; }
-                        .${v.id} .hdr-logo-img { max-height: ${MOBILE_H}px; max-width: calc(100% - 44px); }
+                        .${v.id} .hdr-inner { padding: 16px 20px; gap: 14px; }
+                        .${v.id} .hdr-logo-img { max-height: 56px; height: auto; width: auto; max-width: 72%; }
+                    }
+                    @media (max-width: 480px) {
+                        .${v.id} .hdr-inner { padding: 14px 16px; gap: 12px; min-height: 80px; box-sizing: border-box; }
+                        .${v.id} .hdr-logo-img { max-height: 52px; max-width: 70%; }
                     }
                 </style>
             `

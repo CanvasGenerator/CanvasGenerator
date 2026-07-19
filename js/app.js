@@ -857,6 +857,64 @@ function initEditor(schoolId) {
     editor.on('component:add', scheduleLogoLanguage);
     editor.on('load', scheduleLogoLanguage);
 
+    // ── Copier/coller : conserver la mise en forme du clone ──────────────
+    // GrapesJS (avoidInlineStyle=true, défaut) stocke les surcharges de style de
+    // l'utilisateur (font-weight, couleur…) en règles CSS liées à l'ID du composant
+    // (#i123). Au collage, le clone reçoit un NOUVEL ID mais la règle n'est PAS
+    // recopiée → le clone perd la mise en forme (cf. retour utilisateur : le bloc
+    // collé n'a pas le même rendu que l'original).
+    //
+    // Correctif chirurgical : après le collage natif, on recopie EN PROFONDEUR le
+    // style de chaque original (presse-papier) vers le clone correspondant, via
+    // l'API publique getStyle()/setStyle(). N'affecte QUE le collage — ni le
+    // stockage global, ni l'export HTML/SFMC, ni l'aperçu.
+    const copyStyleDeep = (src, dst) => {
+        if (!src || !dst) return;
+        try {
+            const st = src.getStyle && src.getStyle();
+            if (st && Object.keys(st).length) {
+                const cur = dst.getStyle ? dst.getStyle() : {};
+                dst.setStyle(Object.assign({}, cur, st));
+            }
+        } catch (e) { /* jamais bloquer le collage */ }
+        try {
+            const sc = src.components && src.components();
+            const dc = dst.components && dst.components();
+            if (sc && dc) {
+                const n = Math.min(sc.length, dc.length);
+                for (let i = 0; i < n; i++) copyStyleDeep(sc.at(i), dc.at(i));
+            }
+        } catch (e) { /* idem */ }
+    };
+
+    const pasteCmd = editor.Commands.get('core:paste');
+    if (pasteCmd && typeof pasteCmd.run === 'function') {
+        const basePasteRun = pasteCmd.run;
+        editor.Commands.extend('core:paste', {
+            run(ed, sender, opts) {
+                // Snapshot des originaux (le presse-papier) AVANT le collage.
+                const clip = (ed.getModel().get('clipboard') || []).slice();
+                // Chaque clone racine ajouté émet 'component:paste', dans l'ordre du
+                // presse-papier (répété par cible sélectionnée) → mapping par modulo.
+                const clones = [];
+                const collect = (c) => clones.push(c);
+                ed.on('component:paste', collect);
+                let res;
+                try {
+                    res = basePasteRun.call(this, ed, sender, opts);
+                } finally {
+                    ed.off('component:paste', collect);
+                }
+                try {
+                    if (clip.length) {
+                        clones.forEach((clone, i) => copyStyleDeep(clip[i % clip.length], clone));
+                    }
+                } catch (e) { console.warn('paste style copy', e); }
+                return res;
+            }
+        });
+    }
+
     // Rend le bouton de langue du header (.hdr-lang) cliquable dans le canvas :
     // un clic bascule la langue (charge la variante ou lance la traduction).
     editor.on('load', () => attachHdrLangSwitch(editor));
