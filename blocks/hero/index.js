@@ -40,10 +40,10 @@ export default function(editor, categories) {
                     padding: 0 20px;
                 }
                 .hero-title {
-                    font-size: 56px;
+                    font-size: 55px;
                     font-weight: 800;
                     line-height: 1.1;
-                    margin-bottom: 24px;
+                    margin: 0 0 24px 0;
                     letter-spacing: -0.02em;
                 }
                 .hero-subtitle {
@@ -84,7 +84,7 @@ export default function(editor, categories) {
                     background: rgba(255, 255, 255, 0.2);
                 }
                 @media (max-width: 768px) {
-                    .hero-title { font-size: 36px; }
+                    .hero-title { font-size: 35px; }
                     .hero-subtitle { font-size: 16px; }
                     .hero-btns { flex-direction: column; }
                 }
