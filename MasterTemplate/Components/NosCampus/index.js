@@ -162,13 +162,11 @@ export default function(editor, categories) {
     font-size: 13px; font-weight: 700; color: var(--brand-text, #1a1a1a);
     letter-spacing: 1px; white-space: nowrap; padding: 0 4px;
   }
-  a.mnc-campus-link {
+  a.mnc-campus-link,
+  a.mnc-campus-link:hover,
+  a.mnc-campus-link:focus,
+  a.mnc-campus-link:visited {
     color: inherit; text-decoration: none; cursor: pointer;
-    transition: color .15s ease;
-  }
-  a.mnc-campus-link:hover {
-    text-decoration: underline;
-    color: var(--brand-accent, var(--brand-primary, #c0175e));
   }
   .mnc-dot {
     font-size: 16px; color: #999; padding: 0 2px;
