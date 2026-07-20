@@ -14,7 +14,7 @@
  */
 
 import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
-import { fetchRgpdConfig } from './rgpd-config.js';
+import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
 
@@ -116,6 +116,7 @@ import { isProgrammeSchool, getProgrammes } from './programme-config.js';
     /* ── Générateur HTML (sans <script>) ────────────────────────────── */
 export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTitle, formSubtitle, lang = 'fr', showVousEtes = true, showChild = false }) {
         const t = TRANS[lang] || TRANS.fr;
+        const rgpd = resolveRgpdConfig(lang);
         const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang });
         return `
 <section class="jpo-section"
@@ -714,8 +715,8 @@ ${showChild ? `
         <div class="jpo-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
             <label class="jpo-rgpd-label">
-                <span data-rgpd-text>...</span>
-                <a data-rgpd-link href="#privacy-policy" target="_blank">ici</a>
+                <span data-rgpd-text>${rgpd.text}</span>
+                <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
         </div>
 

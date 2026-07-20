@@ -16,7 +16,7 @@
  */
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
-import { fetchRgpdConfig } from '../shared/rgpd-config.js';
+import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 
@@ -77,6 +77,7 @@ export default function (editor, categories) {
     /* ── Générateur HTML ─────────────────────────────────────────────── */
     function buildContent(lang) {
         const t = TRANS[lang] || TRANS.fr;
+        const rgpd = resolveRgpdConfig(lang);
         const studyLevelOptions = buildOptions(EDC_PICKLISTS.studyLevel, '');
         const campusOptions      = buildOptions(EDC_PICKLISTS.campus,      '');
         const hidden = buildHiddenFields({ formName: 'Demande_Immersion', formType: 'immersion', lang });
@@ -319,7 +320,7 @@ ${hidden}
         <div class="imf-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
             <label class="imf-rgpd-label">
-                <span data-rgpd-text>...</span> <a data-rgpd-link href="#privacy-policy" target="_blank">${t.rgpdLink}</a>
+                <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
         </div>
 
