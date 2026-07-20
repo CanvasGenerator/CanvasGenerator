@@ -80,7 +80,8 @@ export default function(editor, categories) {
                        image puisse rétrécir sous sa taille intrinsèque. */
                     .${school.id} .ft-brand { display: flex; align-items: center; min-width: 0; flex: 0 1 auto; }
                     .${school.id} .ft-logo { display: flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; }
-                    .${school.id} .ft-logo-img { height: auto; width: auto; max-height: ${logoH}px; max-width: min(100%, 460px); display: block; }
+                    /* Taille libre via Style Manager : classe simple avec hauteur concrète */
+                    .ft-logo-img { height: ${logoH}px; width: auto; max-width: min(100%, 460px); display: block; object-fit: contain; }
                     .${school.id} .ft-social-row { display: flex; gap: 10px; flex: 0 0 auto; }
                     .${school.id} .reseau-icone {
                         width: 36px; height: 36px; border-radius: 50%;
@@ -97,9 +98,16 @@ export default function(editor, categories) {
                     @media (max-width: 768px) {
                         .${school.id} { padding: 40px 24px 30px 24px; }
                         .${school.id} .ft-top { flex-direction: column; align-items: flex-start; gap: 24px; }
-                        .${school.id} .ft-logo { height: auto; overflow: visible; max-width: 100%; }
-                        .${school.id} .ft-logo-img { max-height: ${Math.round(logoH * 0.82)}px; max-width: 100%; height: auto; width: auto; }
+                        /* On limite la largeur avec un calc() qui reproduit exactement la formule 
+                           du header (72% de la largeur du header moins son padding) pour que 
+                           les logos très larges (Brassart, Icart...) fassent au pixel près la même taille. */
+                        .${school.id} .ft-logo { height: auto; overflow: visible; max-width: calc(72vw - 29px); }
+                        .${school.id} .ft-logo-img { max-height: 56px; max-width: 100%; height: auto; width: auto; }
                         .${school.id} .ft-social-row { flex-wrap: wrap; }
+                    }
+                    @media (max-width: 480px) {
+                        .${school.id} .ft-logo { max-width: calc(70vw - 22px); }
+                        .${school.id} .ft-logo-img { max-height: 52px; }
                     }
                 </style>
             `,

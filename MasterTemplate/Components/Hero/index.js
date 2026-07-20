@@ -42,9 +42,9 @@ export default function(editor, categories) {
                     padding: 0 24px;
                 }
                 .master-hero-title {
-                    font-size: 48px;
+                    font-size: 55px;
                     font-weight: 800;
-                    margin-bottom: 24px;
+                    margin: 0 0 24px 0;
                     line-height: 1.2;
                 }
                 .master-hero-subtitle {
@@ -82,6 +82,9 @@ export default function(editor, categories) {
                 .master-btn-secondary:hover {
                     background-color: var(--brand-background, #ffffff);
                     color: var(--brand-text, #1a1a1a);
+                }
+                @media (max-width: 768px) {
+                    .master-hero-title { font-size: 35px; }
                 }
             </style>
         `,

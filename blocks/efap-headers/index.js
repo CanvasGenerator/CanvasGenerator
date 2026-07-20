@@ -42,15 +42,26 @@ export default function(editor, categories) {
                         padding: 22px 90px; gap: 24px;
                     }
                     .${v.id} .hdr-logo { display: inline-block; height: auto; overflow: visible; flex-shrink: 0; max-width: 100%; }
-                    .${v.id} .hdr-logo-img { height: auto; max-height: 56px; width: auto; max-width: 100%; display: block; }
+                    /* Taille libre via Style Manager : classe simple + hauteur concrete sans
+                       max-height. Garde-fou responsive sur la regle mobile scopee plus bas. */
+                    .hdr-logo-img { height: 56px; width: auto; max-width: 100%; display: block; }
                     .${v.id} .hdr-lang {
                         font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                         letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
                     }
+                    /* Responsive mobile des logos (retour client). Le logo scale
+                       proportionnellement (height:auto → aucune déformation), reste lisible
+                       (baseline >= ~48px, jamais sous 40px), aligné à gauche, et laisse la
+                       place au sélecteur de langue à droite. Desktop INCHANGÉ. */
                     @media (max-width: 768px) {
-                        .${v.id} .hdr-inner { padding: 14px 18px; gap: 14px; }
-                        .${v.id} .hdr-logo { height: auto; overflow: visible; max-width: calc(100% - 44px); }
-                        .${v.id} .hdr-logo-img { max-height: 44px; height: auto; width: auto; max-width: 100%; margin-top: 0; }
+                        .${v.id} .hdr-inner { padding: 16px 20px; gap: 14px; }
+                        .${v.id} .hdr-logo { height: auto; overflow: visible; max-width: 72%; }
+                        .${v.id} .hdr-logo-img { max-height: 56px; height: auto; width: auto; max-width: 100%; margin-top: 0; }
+                    }
+                    @media (max-width: 480px) {
+                        .${v.id} .hdr-inner { padding: 14px 16px; gap: 12px; min-height: 80px; box-sizing: border-box; }
+                        .${v.id} .hdr-logo { max-width: 70%; }
+                        .${v.id} .hdr-logo-img { max-height: 52px; }
                     }
                 </style>
             `

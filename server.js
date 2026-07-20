@@ -133,8 +133,8 @@ function injectPreviewViewport(html) {
         + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
         + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
         + `.jpo-flag{display:none!important;}`
-        + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
-        + `[class*="header-efap"] .hdr-logo-img,[class*="dh-efap"] .dh-logo-img,[class*="header-brassart"] .hdr-logo-img,[class*="dh-brassart"] .dh-logo-img,[class*="header-ifa"] .hdr-logo-img,[class*="dh-ifa"] .dh-logo-img{max-height:30px!important;}}`
+        + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,.ft-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
+        + `[class*="header-efap"] .hdr-logo-img,[class*="dh-efap"] .dh-logo-img,[class*="footer-efap"] .ft-logo-img,[class*="header-brassart"] .hdr-logo-img,[class*="dh-brassart"] .dh-logo-img,[class*="footer-brassart"] .ft-logo-img,[class*="header-ifa"] .hdr-logo-img,[class*="dh-ifa"] .dh-logo-img,[class*="footer-ifa"] .ft-logo-img{max-height:30px!important;}}`
         + `</style>`;
     return /<\/head>/i.test(s) ? s.replace(/<\/head>/i, style + '</head>') : style + s;
 }

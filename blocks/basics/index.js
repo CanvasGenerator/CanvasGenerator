@@ -199,7 +199,7 @@ export default function (editor) {
     const catMktg = 'Marketing Sections';
     addBlock('b-hero', 'Hero', catMktg, 'fa-solid fa-bullhorn', `
         <section style="padding: 80px 20px; background-color: var(--brand-surface, #f5f5f5); text-align: center;">
-            <h1 style="font-size: 48px; font-weight: 800; color: var(--brand-text, #1a1a1a); margin-bottom: 20px; line-height: 1.2;">Créez l'avenir dès aujourd'hui</h1>
+            <h1 style="font-size: 55px; font-weight: 800; color: var(--brand-text, #1a1a1a); margin: 0 0 24px 0; line-height: 1.2;">Créez l'avenir dès aujourd'hui</h1>
             <p style="font-size: 20px; color: var(--brand-muted, #6b7280); max-width: 700px; margin: 0 auto 30px;">Notre plateforme vous offre tous les outils dont vous avez besoin pour réussir en ligne.</p>
             <div style="display: flex; gap: 16px; justify-content: center;">
                 <a href="#" style="padding: 14px 28px; background-color: var(--brand-primary); color: #fff; text-decoration: none; border-radius: 6px; font-weight: bold; font-size: 18px;">Commencer</a>

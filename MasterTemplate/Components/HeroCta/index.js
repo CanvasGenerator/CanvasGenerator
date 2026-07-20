@@ -27,12 +27,12 @@ export default function(editor, categories) {
     color: var(--brand-text, #1a1a1a);
   }
   .hero h1 {
-    font-size: 42px;
+    font-size: 55px;
     font-weight: 800;
     text-transform: uppercase;
     letter-spacing: 1px;
     line-height: 1.15;
-    margin: 0;
+    margin: 0 0 24px 0;
   }
   .hero .hero-sous-titre {
     font-size: 16px;
@@ -58,7 +58,7 @@ export default function(editor, categories) {
   .hero .btn-cta .fleche { margin-left: 10px; }
 
   @media (max-width: 860px) {
-    .hero h1 { font-size: 30px; }
+    .hero h1 { font-size: 35px; }
   }
 </style>`
     });
