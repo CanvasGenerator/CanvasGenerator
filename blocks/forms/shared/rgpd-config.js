@@ -24,6 +24,29 @@ const MOCK_DEFAULTS = {
 };
 
 /**
+ * Résout SYNCHRONEMENT la config RGPD pour une école et une langue données.
+ *
+ * Utilisée à la CONSTRUCTION du template pour injecter directement le texte RGPD
+ * dans le HTML — au lieu d'un placeholder "..." rempli plus tard via une mutation
+ * du DOM (qui ne remonte pas au modèle GrapesJS et se perd donc à la sauvegarde /
+ * l'export getHtml()).
+ *
+ * @param {string} [lang='fr']    - 'fr' | 'en'
+ * @param {string} [schoolId]     - identifiant école (non utilisé en mock, prévu pour l'API)
+ * @returns {{ text: string, url: string, linkLabel: string }}
+ */
+export function resolveRgpdConfig(lang = 'fr', schoolId) {
+    const school   = (typeof window !== 'undefined' ? window.CURRENT_SCHOOL : null) || {};
+    const defaults = MOCK_DEFAULTS[lang] || MOCK_DEFAULTS.fr;
+
+    return {
+        text:      (lang === 'fr' && school.rgpdText) ? school.rgpdText : defaults.text,
+        url:       school.rgpdUrl || defaults.url,
+        linkLabel: defaults.linkLabel,
+    };
+}
+
+/**
  * Récupère la config RGPD pour une école et une langue données.
  *
  * @param {string} [lang='fr']    - 'fr' | 'en'
@@ -42,12 +65,5 @@ export async function fetchRgpdConfig(lang = 'fr', schoolId) {
      *
      * ────────────────────────────────────────────────────────────── */
 
-    const school   = (typeof window !== 'undefined' ? window.CURRENT_SCHOOL : null) || {};
-    const defaults = MOCK_DEFAULTS[lang] || MOCK_DEFAULTS.fr;
-
-    return {
-        text:      (lang === 'fr' && school.rgpdText) ? school.rgpdText : defaults.text,
-        url:       school.rgpdUrl || defaults.url,
-        linkLabel: defaults.linkLabel,
-    };
+    return resolveRgpdConfig(lang, schoolId);
 }
