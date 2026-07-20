@@ -157,15 +157,43 @@ function injectAnchorScrollFix(html) {
     const script = `<script id="anchor-scroll-fix">`
         + `(function(){function h(e){try{var a=e.target&&e.target.closest&&e.target.closest('a');`
         + `if(!a)return;var href=a.getAttribute('href')||'';`
-        + `if(href.charAt(0)!=='#'||href.length<2)return;`
-        + `var id=decodeURIComponent(href.slice(1));`
+        + `var i=href.indexOf('#');if(i<0)return;`
+        // On n'intercepte que les ancres de la PAGE COURANTE : href="#id" (i===0)
+        // ou href="<chemin-courant>#id" (ancres réécrites par anchorLinksToPagePath).
+        + `var path=href.slice(0,i);if(path&&path!==location.pathname)return;`
+        // On neutralise le <base href="/"> : sans ça une ancre orpheline (#id sans
+        // cible) ou un href="#" placeholder ferait filer à la racine (localhost/#id).
+        // On reste sur la page, comme l'aperçu de l'éditeur (canvas iframe sans <base>).
+        + `e.preventDefault();`
+        + `var id=decodeURIComponent(href.slice(i+1));`
+        + `if(!id){window.scrollTo({top:0,behavior:'smooth'});return;}`
         + `var t=document.getElementById(id)||document.getElementsByName(id)[0];`
-        + `if(!t)return;e.preventDefault();`
+        + `if(!t)return;`
         + `t.scrollIntoView({behavior:'smooth',block:'start'});`
         + `if(window.history&&history.replaceState){history.replaceState(null,'','#'+id);}`
         + `}catch(_){}}document.addEventListener('click',h,true);})();`
         + `</script>`;
     return /<\/body>/i.test(s) ? s.replace(/<\/body>/i, script + '</body>') : s + script;
+}
+
+/**
+ * Préfixe les liens d'ancre (`href="#id"`) par le chemin de la page courante.
+ *
+ * Avec un `<base href="/">`, le navigateur résout `href="#id"` par rapport à la
+ * base → l'URL affichée (survol) et la navigation pointent vers `localhost/#id`
+ * (racine) au lieu de la page. En réécrivant en `href="<pagePath>#id"` l'ancre
+ * reste sur la page courante (ex. /preview/<nom-projet>#id), comme l'éditeur.
+ *
+ * Ne touche PAS aux `href="#"` nus (placeholder, gérés par injectAnchorScrollFix),
+ * ni aux liens absolus (http, /, //). Idempotent : n'ajoute pas deux fois le chemin.
+ */
+function anchorLinksToPagePath(html, pagePath) {
+    if (!pagePath) return String(html || '');
+    const base = pagePath.replace(/#.*$/, '');
+    return String(html || '').replace(
+        /(\shref\s*=\s*(["']))#([^"'\s][^"']*)\2/gi,
+        (m, _pre, q, frag) => ` href=${q}${base}#${frag}${q}`
+    );
 }
 
 /**
@@ -259,8 +287,11 @@ function buildBrandCssVarsForPreview(school) {
   --brand-error:       ${c.error       || '#dc2626'};
   ${colorsVarsArray.join('\n  ')}
 }
-/* PREVIEW – override couleurs hardcodées des blocs header/carousel */
-.mh-header,.header-efap,.header-brassart {
+/* PREVIEW – override couleur hardcodée du SEUL header générique master
+   (aligné sur injectBrandVariables() de l'éditeur, qui ne force que .mh-header).
+   .header-efap / .header-brassart ne sont PAS forcés : ces headers de marque
+   conservent la couleur réglée par défaut, exactement comme dans l'aperçu éditeur. */
+.mh-header {
   background-color: ${colorHeader} !important;
   background:       ${colorHeader} !important;
 }
@@ -2560,6 +2591,10 @@ Règles importantes :
             // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
             finalHtml = injectPreviewViewport(finalHtml);
 
+            // Les ancres (#id) doivent rester sur la page d'aperçu, pas filer à la racine
+            // (effet du <base href="/">). On les préfixe par le chemin /preview/<nom-projet>.
+            finalHtml = anchorLinksToPagePath(finalHtml, `/preview/${encodeURIComponent(projectName)}`);
+
             // Répare l'ancrage interne (#id) cassé par le <base href="/"> ci-dessus.
             finalHtml = injectAnchorScrollFix(finalHtml);
 
@@ -2610,6 +2645,9 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
 
                 // Ancres stables des formulaires (liens #form_id) — feature/PFE
                 finalPublicHtml = ensureFormAnchors(finalPublicHtml).html;
+
+                // Les ancres (#id) restent sur la page publiée, pas à la racine (<base href="/">).
+                finalPublicHtml = anchorLinksToPagePath(finalPublicHtml, pathname);
 
                 // Répare l'ancrage interne (#id) cassé par le <base href="/"> ci-dessus.
                 finalPublicHtml = injectAnchorScrollFix(finalPublicHtml);
