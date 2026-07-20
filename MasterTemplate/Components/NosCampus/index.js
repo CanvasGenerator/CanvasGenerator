@@ -64,7 +64,8 @@ export default function(editor, categories) {
 
                     function esc(s) {
                         return String(s == null ? '' : s)
-                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+                            .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+                            .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                     }
 
                     if (!school) return; // pas d'école (ex. master) → garde le contenu bake
@@ -80,7 +81,11 @@ export default function(editor, categories) {
                             }
                             if (!campuses.length) return; // garde le contenu bake
                             list.innerHTML = campuses.map(function(c) {
-                                return '<span class="mnc-campus-name">' + prefix + esc((c.name || '').toUpperCase()) + '</span>';
+                                var label = prefix + esc((c.name || '').toUpperCase());
+                                var link = (c.link || '').trim();
+                                return link
+                                    ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="mnc-campus-name mnc-campus-link">' + label + '</a>'
+                                    : '<span class="mnc-campus-name">' + label + '</span>';
                             }).join('<span class="mnc-dot">' + esc(separator) + '</span>');
                         })
                         .catch(function() { /* garde le contenu bake */ });
@@ -111,9 +116,13 @@ export default function(editor, categories) {
                     ? window.LPCampus.getResolvedCampuses() : [];
 
                 if (campuses.length) {
-                    const namesHtml = campuses.map(c =>
-                        `<span class="mnc-campus-name">${prefix}${escapeHtml((c.name || '').toUpperCase())}</span>`
-                    ).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
+                    const namesHtml = campuses.map(c => {
+                        const label = `${prefix}${escapeHtml((c.name || '').toUpperCase())}`;
+                        const link = (c.link || '').trim();
+                        return link
+                            ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener" class="mnc-campus-name mnc-campus-link">${label}</a>`
+                            : `<span class="mnc-campus-name">${label}</span>`;
+                    }).join(`<span class="mnc-dot">${escapeHtml(separator)}</span>`);
                     listComp.components(namesHtml);
                 } else {
                     listComp.components('<span class="mnc-placeholder">📍 Aucun campus. Cliquez sur <b>Campus</b> dans la barre d\'outils pour en sélectionner.</span>');
@@ -152,6 +161,14 @@ export default function(editor, categories) {
   .mnc-campus-name {
     font-size: 13px; font-weight: 700; color: var(--brand-text, #1a1a1a);
     letter-spacing: 1px; white-space: nowrap; padding: 0 4px;
+  }
+  a.mnc-campus-link {
+    color: inherit; text-decoration: none; cursor: pointer;
+    transition: color .15s ease;
+  }
+  a.mnc-campus-link:hover {
+    text-decoration: underline;
+    color: var(--brand-accent, var(--brand-primary, #c0175e));
   }
   .mnc-dot {
     font-size: 16px; color: #999; padding: 0 2px;
