@@ -9,7 +9,7 @@
  */
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
-import { fetchRgpdConfig } from '../shared/rgpd-config.js';
+import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 
 export default function (editor, categories) {
 
@@ -121,6 +121,7 @@ export default function (editor, categories) {
     /* ── Générateur HTML ────────────────────────────────────────────── */
     function buildBlock({ nomAction, submitLabel, lang = 'fr' }) {
         const t           = TRANS[lang] || TRANS.fr;
+        const rgpd        = resolveRgpdConfig(lang);
         const typeOptions = lang === 'en' ? wbcTypeOptionsEn : wbcTypeOptionsFr;
 
         return `
@@ -581,7 +582,7 @@ export default function (editor, categories) {
         <div class="wbc-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
             <label class="wbc-rgpd-label">
-                <span data-rgpd-text>...</span> <a data-rgpd-link href="#privacy-policy" target="_blank">ici</a>
+                <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
         </div>
 

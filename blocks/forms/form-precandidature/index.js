@@ -11,7 +11,7 @@
  */
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
-import { fetchRgpdConfig } from '../shared/rgpd-config.js';
+import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 
 export default function (editor, categories) {
 
@@ -104,6 +104,7 @@ export default function (editor, categories) {
     /* ── Générateur HTML ───────────────────────────────────────────── */
     function buildContent(lang) {
         const t = TRANS[lang];
+        const rgpd = resolveRgpdConfig(lang);
 
         const studyLevelOptions = buildOptions(EDC_PICKLISTS.studyLevel, t.studyLevelPh);
         const campusOptions     = buildOptions(EDC_PICKLISTS.campus,     t.campusPh);
@@ -356,7 +357,7 @@ export default function (editor, categories) {
         <div class="pc-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
             <label class="pc-rgpd-label">
-                <span data-rgpd-text>...</span> <a data-rgpd-link href="#privacy-policy" target="_blank">ici</a>
+                <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
         </div>
 
