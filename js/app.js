@@ -511,7 +511,16 @@ function initEditor(schoolId) {
             type: 'local',
             autosave: true,
             stepsBeforeSave: 1,
-            key: storageKey,
+            // GrapesJS 0.23 : la clé du storage local se lit dans options.local.key
+            // (cf. getCurrentOptions → config.options[type]). Un `key` à la racine est
+            // IGNORÉ → GrapesJS retombait sur sa clé par défaut « gjsProject », partagée
+            // par TOUTES les écoles + le Master (contamination croisée), et jamais purgée
+            // par cleanCorruptedAutosave (qui vise reetain-builder__<school>__gjsProject).
+            // Un blob corrompu/incompatible dans « gjsProject » plantait alors l'init
+            // (« Cannot read properties of undefined (reading 'getFrames') »), laissant le
+            // canvas à moitié initialisé → drag & drop KO (surtout sur un Master vierge).
+            // On place la clé au bon endroit : storage par école + guard anti-corruption effectif.
+            options: { local: { key: storageKey } },
         },
         assetManager: {
             // Les images uploadées sont compressées puis gardées en data URL ;
