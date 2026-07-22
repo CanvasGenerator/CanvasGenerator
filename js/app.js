@@ -601,6 +601,7 @@ function initEditor(schoolId) {
     });
 
     editor.on('load', () => {
+        setEditorPreviewAnchors(true); // Active l'ancrage pour l'éditeur aussi
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
@@ -1317,7 +1318,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
     <title>${title}</title>
     <meta name="description" content="${metaDesc}">
     <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${fontLinks}
-    <style>${css}</style>
+    <style>html { scroll-behavior: smooth; }\n${css}</style>
 </head>
 <body>
 ${bodyHtml}
@@ -2045,6 +2046,7 @@ function injectComponentFixedStyles(editor) {
             doc.head.appendChild(style);
         }
         style.innerHTML = `
+            html { scroll-behavior: smooth !important; }
             /* CarouselVariantC — force grille 3 colonnes desktop */
             @media (min-width: 769px) {
                 .mcc-grid { grid-template-columns: repeat(3, 1fr) !important; display: grid !important; }
@@ -3216,13 +3218,31 @@ function initUI(editor) {
                 }
             }
 
-            // 2) Ancre interne classique (#id).
-            const a = el.closest('a[href^="#"]');
+            // 2) Lien <a> classique : ancre interne (#id) OU lien externe.
+            const a = el.closest('a[href]');
             if (!a) return;
-            const raw = a.getAttribute('href') || '';
-            if (raw.length < 2) return; // href="#" seul → rien à cibler
-            if (editorPreviewScrollToHash(raw, a.ownerDocument)) {
+            const raw = (a.getAttribute('href') || '').trim();
+            if (!raw || raw === '#') return; // href vide / "#" seul → rien à cibler
+
+            // Ancre : soit "#id", soit une URL de la MÊME page contenant "#id"
+            // (ex. "…/page#programmes"). Si un élément porte cet id → on défile.
+            const hashPos = raw.indexOf('#');
+            if (hashPos !== -1) {
+                const frag = raw.slice(hashPos); // "#id"
+                if (frag.length > 1 && editorPreviewScrollToHash(frag, a.ownerDocument)) {
+                    if (window.__editorPreviewActive) e.preventDefault();
+                    return;
+                }
+                if (raw.charAt(0) === '#') return; // ancre sans cible → ne rien faire
+            }
+
+            // Lien externe (http, https, //, mailto, tel) : le canvas est un iframe ;
+            // le laisser naviguer dedans casse l'aperçu (site cible souvent bloqué en
+            // iframe). On ouvre donc le lien dans un nouvel onglet — ainsi les icônes
+            // réseaux sociaux et tous les liens sont cliquables en aperçu.
+            if (/^(https?:|mailto:|tel:|\/\/)/i.test(raw)) {
                 e.preventDefault();
+                window.open(a.href, '_blank', 'noopener,noreferrer');
             }
         } catch (err) { /* ne jamais casser l'aperçu */ }
     }
@@ -3276,7 +3296,6 @@ function initUI(editor) {
                 window.__editorPreviewActive = false;
                 editor.stopCommand('core:preview');
                 setEditorPreviewViewport(false); // retire la contrainte de largeur
-                setEditorPreviewAnchors(false); // retire le simulateur d'ancrage
                 if (tb) tb.style.display = '';
                 if (sl) sl.style.display = '';
                 if (sr) sr.style.display = '';
