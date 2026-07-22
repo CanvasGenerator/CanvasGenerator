@@ -258,6 +258,24 @@ document.addEventListener('DOMContentLoaded', async () => {
         }
     } catch (e) { console.error('Failed to load school config', e); }
 
+    // Liens par école (site web + réseaux sociaux) pour pré-remplir automatiquement
+    // les logos et icônes RS des headers/footers. DOIT être peuplé AVANT initEditor
+    // (registerBlocks lit window.__SCHOOL_LINKS au moment de construire les blocs).
+    try {
+        const schoolsResp = await fetch(`/api/schools?v=${Date.now()}`);
+        if (schoolsResp.ok) {
+            const allSchools = await schoolsResp.json();
+            const map = {};
+            (Array.isArray(allSchools) ? allSchools : []).forEach(s => {
+                map[String(s.id).toLowerCase()] = {
+                    baseUrl: s.baseUrl || s.base_url || '',
+                    social: (s.branding && s.branding.social) || {}
+                };
+            });
+            window.__SCHOOL_LINKS = map;
+        }
+    } catch (e) { console.warn('Failed to load school links map', e); }
+
     initEditor(schoolId);
 
     // If opened from CMS dashboard with ?pageId=<id>, load the structured page first.
@@ -3275,8 +3293,11 @@ function initUI(editor) {
             const response = await fetch('/api/projects');
             const projects = await response.json();
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-            const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
-            
+            const filtered = projects.filter(p =>
+                p.project_name.startsWith(`school-${schoolId}__`) &&
+                p.status !== 'deleted' && p.status !== 'archived'
+            );
+
             let listHtml = `
                 <div class="selection-grid">
                     <div class="selection-section">
@@ -3392,8 +3413,11 @@ async function showOpeningPopup() {
     try {
         const response = await fetch('/api/projects');
         const projects = await response.json();
-        const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
-        
+        const filtered = projects.filter(p =>
+            p.project_name.startsWith(`school-${schoolId}__`) &&
+            p.status !== 'deleted' && p.status !== 'archived'
+        );
+
         if (filtered.length === 0) {
             listContainer.innerHTML = '<div style="text-align:center; padding: 2rem; color: #6b7280; font-size: 14px;">Aucun projet récent. Créez-en un nouveau !</div>';
         } else {

@@ -11,6 +11,8 @@
  * LOGO_H + margin-top négatif (valeurs mesurées au pixel).
  * Le bloc principal garde l'id `header-3wa` (référencé dans schools.json).
  */
+import { logoLinkAttrs } from '../school-links.js';
+
 export default function(editor, categories) {
     const cat = (categories && categories['3WA']) ? categories['3WA'] : '3W ACADEMY Components';
     const ROUGE = '#CD1316';
@@ -34,7 +36,7 @@ export default function(editor, categories) {
             content: `
                 <header class="${v.id}">
                     <div class="hdr-inner">
-                        <span class="hdr-logo"><img class="hdr-logo-img" src="${v.img}" alt="3W ACADEMY"></span>
+                        <span class="hdr-logo"><img class="hdr-logo-img" src="${v.img}" alt="3W ACADEMY"${logoLinkAttrs('3wa')}></span>
                         <div class="hdr-lang">FR</div>
                     </div>
                 </header>

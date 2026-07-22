@@ -888,6 +888,14 @@
         }
         .btn-master-decline:hover { background: #f0ede4; color: #c9b87a; border-color: #c9b87a; }
 
+        .btn-master-delete {
+            width: 30px; height: 30px; border-radius: 6px; border: 1px solid #e5e7eb;
+            background: #fff; color: #9ca3af; cursor: pointer; font-size: 12px;
+            display: inline-flex; align-items: center; justify-content: center;
+            transition: background 0.15s, color 0.15s;
+        }
+        .btn-master-delete:hover { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+
         .btn-master-new {
             padding: 8px 18px; font-size: 13px; font-weight: 700; border-radius: 7px;
             border: none; background: #c9b87a; color: #fff; cursor: pointer;
@@ -985,6 +993,40 @@
             </div>
         </div>
 
+        <!-- Modal : delete master -->
+        <div class="decline-modal-overlay" id="del-master-modal">
+            <div class="decline-modal">
+                <div class="decline-modal-header" style="background:#fff1f2; border-bottom:1px solid #fecdd3;">
+                    <h3 style="color:#be123c;"><i class="fas fa-trash-alt" style="margin-right:8px;"></i>Supprimer le template</h3>
+                    <button class="decline-modal-close" id="btn-close-del-master-modal">&times;</button>
+                </div>
+                <div class="decline-modal-body">
+                    <p style="font-size:14px;color:#374151;margin-bottom:12px;" id="del-master-source-label">Êtes-vous sûr de vouloir supprimer ce template ?</p>
+                    <div style="margin-bottom:12px;">
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:#4b5563;">Traitement</label>
+                        <select id="delete-master-action" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">
+                            <option value="trash">Mettre à la corbeille</option>
+                            <option value="archive">Archiver</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label style="display:block;font-size:12px;font-weight:600;margin-bottom:6px;color:#4b5563;">Note interne</label>
+                        <input id="delete-master-reason" type="text" placeholder="Optionnel" style="width:100%;padding:8px 12px;border:1px solid #d1d5db;border-radius:6px;font-size:13px;background:#fff;">
+                    </div>
+                    <div id="del-master-error" style="display:none; color:#be123c; background:#fff1f2; padding:10px; border-radius:6px; font-size:12px; margin-top:12px;"></div>
+                </div>
+                <div class="decline-modal-footer">
+                    <div></div>
+                    <div style="display:flex;gap:10px;">
+                        <button class="btn-master-cancel" id="btn-cancel-del-master">Annuler</button>
+                        <button class="btn-decline-confirm" id="btn-confirm-del-master" style="background:#be123c;color:#fff;border:none;">
+                            <i class="fas fa-trash-alt" style="margin-right:6px;"></i> Supprimer
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <!-- Modal : déclinaison master → écoles -->
         <div class="decline-modal-overlay" id="decline-modal">
             <div class="decline-modal">
@@ -1072,6 +1114,30 @@
                     <div class="admin-field">
                         <label for="school-emoji">Emoji</label>
                         <input id="school-emoji" type="text" maxlength="4" placeholder="🏫">
+                    </div>
+
+                    <!-- ═══ Réseaux sociaux ═══ -->
+                    <div class="form-section-title"><i class="fas fa-share-nodes"></i> Réseaux sociaux</div>
+                    <div class="form-section-desc">Les liens des icônes réseaux sociaux des footers. Renseignés une fois ici, ils sont pré-remplis automatiquement à chaque header/footer ajouté (et restent modifiables dans l'éditeur).</div>
+                    <div class="admin-field">
+                        <label for="school-social-instagram">Instagram</label>
+                        <input id="school-social-instagram" type="url" placeholder="https://instagram.com/ecole">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-social-facebook">Facebook</label>
+                        <input id="school-social-facebook" type="url" placeholder="https://facebook.com/ecole">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-social-tiktok">TikTok</label>
+                        <input id="school-social-tiktok" type="url" placeholder="https://tiktok.com/@ecole">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-social-linkedin">LinkedIn</label>
+                        <input id="school-social-linkedin" type="url" placeholder="https://linkedin.com/company/ecole">
+                    </div>
+                    <div class="admin-field">
+                        <label for="school-social-youtube">YouTube</label>
+                        <input id="school-social-youtube" type="url" placeholder="https://youtube.com/@ecole">
                     </div>
 
                     <!-- ═══ Typographie ═══ -->
@@ -1411,7 +1477,10 @@
             list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>';
             try {
                 const projects = await fetchJSON('/api/projects');
-                const masterProjects = projects.filter(p => p.project_name.startsWith('school-master__'));
+                const masterProjects = projects.filter(p =>
+                    p.project_name.startsWith('school-master__') &&
+                    p.status !== 'deleted' && p.status !== 'archived'
+                );
                 if (masterProjects.length === 0) {
                     list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;">Aucun template maître. Créez-en un nouveau !</div>';
                     return;
@@ -1440,6 +1509,7 @@
                                 <button class="btn-rename-confirm" style="display:none;" onclick="confirmRename(this)"><i class="fas fa-check"></i></button>
                                 <button class="btn-rename-cancel" style="display:none;" onclick="cancelRename(this)"><i class="fas fa-times"></i></button>
                                 <button class="btn-master-decline" title="Décliner vers les écoles" onclick="openDeclineModal('${safeOldName}', '${escHtml(displayName)}')"><i class="fas fa-code-branch"></i></button>
+                                <button class="btn-master-delete" title="Supprimer le template" onclick="openDeleteMasterModal('${safeOldName}', '${escHtml(displayName)}')"><i class="fas fa-trash-alt"></i></button>
                                 <button class="btn-master-edit" onclick="window.location.href='${editUrl}'"><i class="fas fa-pen"></i> Modifier</button>
                             </div>
                         </div>`;
@@ -1502,6 +1572,57 @@
         function closeMasterModal() {
             document.getElementById('master-projects-modal').classList.remove('open');
         }
+
+        // ── Delete Master Template ───────────────────────────────────────────
+        let _delMasterTarget = null;
+        function openDeleteMasterModal(projectName, displayName) {
+            _delMasterTarget = projectName;
+            document.getElementById('del-master-source-label').textContent = `Choisissez le traitement pour « ${displayName} ». Aucun contenu ne sera supprimé définitivement.`;
+            document.getElementById('delete-master-action').value = 'trash';
+            document.getElementById('delete-master-reason').value = '';
+            document.getElementById('del-master-error').style.display = 'none';
+            document.getElementById('del-master-error').textContent = '';
+            document.getElementById('del-master-modal').classList.add('open');
+        }
+
+        function closeDeleteMasterModal() {
+            document.getElementById('del-master-modal').classList.remove('open');
+            _delMasterTarget = null;
+        }
+
+        document.getElementById('btn-close-del-master-modal').onclick = closeDeleteMasterModal;
+        document.getElementById('btn-cancel-del-master').onclick = closeDeleteMasterModal;
+
+        document.getElementById('btn-confirm-del-master').onclick = async () => {
+            const btn = document.getElementById('btn-confirm-del-master');
+            btn.disabled = true;
+            btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
+            try {
+                const res = await fetch('/api/pages/delete', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        projectName: _delMasterTarget,
+                        action: document.getElementById('delete-master-action').value,
+                        reason: document.getElementById('delete-master-reason').value.trim()
+                    })
+                });
+                if (!res.ok) {
+                    let errMsg = await res.text();
+                    try { errMsg = JSON.parse(errMsg).error || errMsg; } catch(e){}
+                    throw new Error(errMsg);
+                }
+                closeDeleteMasterModal();
+                await loadMasterProjects();
+            } catch (e) {
+                const err = document.getElementById('del-master-error');
+                err.textContent = e.message;
+                err.style.display = 'block';
+            } finally {
+                btn.disabled = false;
+                btn.innerHTML = '<i class="fas fa-trash-alt" style="margin-right:6px;"></i> Supprimer';
+            }
+        };
 
         // ── Déclinaison Master → Écoles ───────────────────────────────────────
         let _declineProjectName = '';
@@ -1802,8 +1923,14 @@
                 const input = document.getElementById('school-brand-color-' + role.key);
                 if (input) colors[role.key] = input.value;
             });
+            // Réseaux sociaux : URLs saisies dans la section dédiée.
+            const social = {};
+            (F.SOCIAL_KEYS || ['instagram', 'facebook', 'tiktok', 'linkedin', 'youtube']).forEach(key => {
+                const input = document.getElementById('school-social-' + key);
+                if (input) social[key] = input.value.trim();
+            });
             // normalizeBranding garantit un objet complet + default font incluse.
-            return F.normalizeBranding({ defaultFont, availableFonts, colors }, {});
+            return F.normalizeBranding({ defaultFont, availableFonts, colors, social }, {});
         }
 
         function openSchoolModal(school = null) {
@@ -1819,6 +1946,13 @@
             setValue('school-description', school?.description || '');
             setValue('school-contact', school?.contact || '');
             setValue('school-base-url', school?.baseUrl || '');
+            // Réseaux sociaux (branding.social)
+            const social = (school?.branding && school.branding.social) || {};
+            setValue('school-social-instagram', social.instagram || '');
+            setValue('school-social-facebook', social.facebook || '');
+            setValue('school-social-tiktok', social.tiktok || '');
+            setValue('school-social-linkedin', social.linkedin || '');
+            setValue('school-social-youtube', social.youtube || '');
             setValue('school-color', school?.color || '#3b82f6');
             setValue('school-secondary-color', school?.secondaryColor || '#1a1a1a');
             setValue('school-color-header', school?.colorHeader || school?.color || '#3b82f6');

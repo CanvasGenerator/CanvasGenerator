@@ -578,7 +578,7 @@ module.exports = async function handler(req, res) {
         // 8. General API (Project, Save)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
-            return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at') || []);
+            return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at,status:properties->>status') || []);
         }
 
         if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
