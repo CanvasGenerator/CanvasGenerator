@@ -2068,8 +2068,9 @@ function filterBlocksBySchool(editor, schoolId) {
     const allBlocks = [...bm.getAll().models];
 
     if (schoolId === 'master') {
-        // Mode Master : ne garder QUE les blocs Master Template et Form Blocks
-        const allowedCategories = ['master template', 'form blocks'];
+        // Mode Master : garder les blocs Master Template, Form Blocks, Essential Blocks
+        // et les composants custom (Component Builder) enregistrés pour le master.
+        const allowedCategories = ['master template', 'form blocks', 'essential blocks'];
         const toRemove = [];
         allBlocks.forEach(block => {
             const category = block.get('category');
@@ -2168,7 +2169,10 @@ function extractFormBlocks(editor) {
 }
 
 async function loadCustomComponents(editor, schoolId) {
-    if (!schoolId || schoolId === 'master') return;
+    // NB : on charge aussi les composants du master (schoolId === 'master'),
+    // sinon les composants créés dans le Component Builder du master template
+    // ne réapparaissent jamais au rechargement de la page.
+    if (!schoolId) return;
     try {
         const response = await fetch(`/api/components/${schoolId}`);
         if (!response.ok) throw new Error('Network response was not ok');

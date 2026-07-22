@@ -147,6 +147,7 @@ export class ComponentBuilder {
                             <div class="cb-control-group">
                                 <label>École cible</label>
                                 <select id="config-schoolId">
+                                    ${this.defaultSchoolId === 'master' ? `<option value="master" ${this.config.schoolId === 'master' ? 'selected' : ''}>Master Template</option>` : ''}
                                     <option value="global" ${this.config.schoolId === 'global' ? 'selected' : ''}>Toutes (Global)</option>
                                     ${this.allSchools.map(school => `
                                         <option value="${school.id}" ${this.config.schoolId === school.id ? 'selected' : ''}>${school.name}</option>
