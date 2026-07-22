@@ -601,7 +601,6 @@ function initEditor(schoolId) {
     });
 
     editor.on('load', () => {
-        setEditorPreviewAnchors(true); // Active l'ancrage pour l'éditeur aussi
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
@@ -3256,6 +3255,8 @@ function initUI(editor) {
             if (on) doc.addEventListener('click', editorPreviewAnchorHandler, true);
         } catch (e) { console.warn('setEditorPreviewAnchors', e); }
     }
+    
+    editor.on('load', () => setEditorPreviewAnchors(true));
 
     // Ré-applique la contrainte d'aperçu (largeur fixe 1280px + ancrage) si l'aperçu
     // est actif. Un switch de langue recharge le canvas (loadProjectData/setComponents)
