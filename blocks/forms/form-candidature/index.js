@@ -89,10 +89,7 @@ export default function (editor, categories) {
 
         return `
 <section class="cnd-section"
-  data-gjs-removable="false"
-  data-gjs-copyable="false"
-  data-gjs-droppable="false"
-  data-gjs-highlightable="false">
+  data-gjs-droppable="false">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
