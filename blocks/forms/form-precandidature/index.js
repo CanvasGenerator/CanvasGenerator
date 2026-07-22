@@ -112,10 +112,7 @@ export default function (editor, categories) {
 
         return `
 <section class="pc-section"
-  data-gjs-removable="false"
-  data-gjs-copyable="false"
-  data-gjs-droppable="false"
-  data-gjs-highlightable="false">
+  data-gjs-droppable="false">
 <style>
 .pc-section *, .pc-section *::before, .pc-section *::after { box-sizing: border-box; }
 .pc-section {

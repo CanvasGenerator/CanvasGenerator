@@ -120,10 +120,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang });
         return `
 <section class="jpo-section"
-  data-gjs-removable="false"
-  data-gjs-copyable="false"
-  data-gjs-droppable="false"
-  data-gjs-highlightable="false">
+  data-gjs-droppable="false">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
