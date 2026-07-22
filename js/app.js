@@ -3229,7 +3229,7 @@ function initUI(editor) {
             if (hashPos !== -1) {
                 const frag = raw.slice(hashPos); // "#id"
                 if (frag.length > 1 && editorPreviewScrollToHash(frag, a.ownerDocument)) {
-                    if (window.__editorPreviewActive) e.preventDefault();
+                    e.preventDefault();
                     return;
                 }
                 if (raw.charAt(0) === '#') return; // ancre sans cible → ne rien faire
@@ -3255,8 +3255,6 @@ function initUI(editor) {
             if (on) doc.addEventListener('click', editorPreviewAnchorHandler, true);
         } catch (e) { console.warn('setEditorPreviewAnchors', e); }
     }
-    
-    editor.on('load', () => setEditorPreviewAnchors(true));
 
     // Ré-applique la contrainte d'aperçu (largeur fixe 1280px + ancrage) si l'aperçu
     // est actif. Un switch de langue recharge le canvas (loadProjectData/setComponents)
@@ -3297,6 +3295,7 @@ function initUI(editor) {
                 window.__editorPreviewActive = false;
                 editor.stopCommand('core:preview');
                 setEditorPreviewViewport(false); // retire la contrainte de largeur
+                setEditorPreviewAnchors(false); // retire le simulateur d'ancrage
                 if (tb) tb.style.display = '';
                 if (sl) sl.style.display = '';
                 if (sr) sr.style.display = '';
