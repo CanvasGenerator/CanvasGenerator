@@ -12,6 +12,8 @@
  * débordement ni découpe.
  * Le bloc principal garde l'id `header-brassart` (référencé dans schools.json).
  */
+import { logoLinkAttrs } from '../school-links.js';
+
 export default function(editor, categories) {
     const cat = (categories && categories.BRASSART) ? categories.BRASSART : 'BRASSART Components';
     const ROSE = '#C7005D';
@@ -35,7 +37,7 @@ export default function(editor, categories) {
             content: `
                 <header class="${v.id}">
                     <div class="hdr-inner">
-                        <img class="hdr-logo-img" src="${v.img}" alt="BRASSART">
+                        <img class="hdr-logo-img" src="${v.img}" alt="BRASSART"${logoLinkAttrs('brassart')}>
                         <div class="hdr-lang">FR</div>
                     </div>
                 </header>

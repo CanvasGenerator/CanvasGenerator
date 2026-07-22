@@ -10,6 +10,8 @@
  * hauteur LOGO_H + margin-top négatif (valeurs mesurées au pixel).
  * Le bloc principal garde l'id `header-efap` (référencé dans schools.json).
  */
+import { logoLinkAttrs } from '../school-links.js';
+
 export default function(editor, categories) {
     const cat = (categories && categories.EFAP) ? categories.EFAP : 'EFAP Components';
     const NOIR = '#000000';
@@ -31,7 +33,7 @@ export default function(editor, categories) {
             content: `
                 <header class="${v.id}">
                     <div class="hdr-inner">
-                        <span class="hdr-logo"><img class="hdr-logo-img" src="${v.img}" alt="EFAP"></span>
+                        <span class="hdr-logo"><img class="hdr-logo-img" src="${v.img}" alt="EFAP"${logoLinkAttrs('efap')}></span>
                         <div class="hdr-lang">FR</div>
                     </div>
                 </header>

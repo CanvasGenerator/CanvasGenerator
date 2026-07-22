@@ -60,6 +60,16 @@
         { key: 'error',            label: 'Error' }
     ];
 
+    // Réseaux sociaux gérés par école (ordre = ordre d'affichage des icônes footer).
+    const SOCIAL_ROLES = [
+        { key: 'instagram', label: 'Instagram' },
+        { key: 'facebook',  label: 'Facebook' },
+        { key: 'tiktok',    label: 'TikTok' },
+        { key: 'linkedin',  label: 'LinkedIn' },
+        { key: 'youtube',   label: 'YouTube' }
+    ];
+    const SOCIAL_KEYS = SOCIAL_ROLES.map(r => r.key);
+
     function fontById(id) {
         return PROJECT_FONTS.find(f => f.id === id) || null;
     }
@@ -159,7 +169,16 @@
             colors[key] = normalizeHex(inColors[key], defaults.colors[key]);
         });
 
-        return { defaultFont, availableFonts: available, colors };
+        // social : URLs des réseaux sociaux de l'école (5 réseaux fixes). Chaque
+        // valeur est une URL (chaîne) ou '' si non renseignée. Utilisées pour
+        // pré-remplir automatiquement les icônes RS des footers.
+        const inSocial = (branding.social && typeof branding.social === 'object') ? branding.social : {};
+        const social = {};
+        SOCIAL_KEYS.forEach(key => {
+            social[key] = typeof inSocial[key] === 'string' ? inSocial[key].trim() : '';
+        });
+
+        return { defaultFont, availableFonts: available, colors, social };
     }
 
     return {
@@ -167,6 +186,8 @@
         GOOGLE_FONTS,
         DEFAULT_FONT_ID,
         COLOR_ROLES,
+        SOCIAL_ROLES,
+        SOCIAL_KEYS,
         fontById,
         fontStackById,
         buildDefaultColors,

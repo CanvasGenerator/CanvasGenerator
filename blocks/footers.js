@@ -1,3 +1,5 @@
+import { logoLinkAttrs, socialHref } from './school-links.js';
+
 // Footers des écoles — style unique (maquette officielle) :
 //   fond BLANC · logo NOIR (image, avec baseline) à gauche · réseaux sociaux
 //   (cercles noirs, glyphe blanc) à droite · texte légal RGPD avec le nom de l'école.
@@ -24,18 +26,28 @@ export default function(editor, categories) {
 
     // Icônes sociales : jeu fourni par le client — cercles noirs, glyphes blancs
     // (couleurs codées en dur dans les SVG). Classe .reseau-icone.
-    const socialIcons = `
-        <a href="#" class="reseau-icone" aria-label="Instagram"><svg viewBox="0 0 24 24"><g fill="none" stroke="#ffffff" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="4.5"/><circle cx="12" cy="12" r="3.6"/><circle cx="16.9" cy="7.1" r="1.15" fill="#ffffff" stroke="none"/></g></svg></a>
-        <a href="#" class="reseau-icone" aria-label="Facebook"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M13.4 20v-6.2h2.1l.32-2.42H13.4V9.83c0-.7.2-1.18 1.2-1.18h1.3V6.48c-.23-.03-1-.1-1.9-.1-1.88 0-3.17 1.15-3.17 3.26v1.74H8.7v2.42h2.13V20h2.57z"/></svg></a>
-        <a href="#" class="reseau-icone" aria-label="TikTok"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.78.12V9.77a5.76 5.76 0 0 0-.78-.05 5.68 5.68 0 1 0 5.68 5.68V9.29a7.35 7.35 0 0 0 4.3 1.38V7.58a4.34 4.34 0 0 1-3.24-1.76z"/></svg></a>
-        <a href="#" class="reseau-icone" aria-label="LinkedIn"><svg viewBox="0 0 24 24"><path fill="#ffffff" d="M6.94 8.5H4.2V19.6h2.74V8.5zM5.57 7.34a1.62 1.62 0 1 0 0-3.24 1.62 1.62 0 0 0 0 3.24zM19.8 13.5c0-3.03-1.62-4.44-3.78-4.44-1.74 0-2.52.96-2.96 1.63V8.5h-2.74c.04.78 0 11.1 0 11.1h2.74v-6.2c0-.33.02-.66.12-.9.27-.66.87-1.35 1.89-1.35 1.33 0 1.99 1.02 1.99 2.51v5.94h2.74V13.5z"/></svg></a>
-        <a href="#" class="reseau-icone" aria-label="YouTube"><svg viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="17" height="11" rx="3" fill="#ffffff"/><polygon points="10.4,9.5 15.2,12 10.4,14.5" fill="#000000"/></svg></a>
-    `;
+    // Les href sont pré-remplis par école (config → window.__SCHOOL_LINKS) et
+    // restent modifiables dans l'éditeur. Sans URL configurée → href="#".
+    const socialDefs = [
+        { key: 'instagram', label: 'Instagram', svg: `<svg viewBox="0 0 24 24"><g fill="none" stroke="#ffffff" stroke-width="1.8"><rect x="4" y="4" width="16" height="16" rx="4.5"/><circle cx="12" cy="12" r="3.6"/><circle cx="16.9" cy="7.1" r="1.15" fill="#ffffff" stroke="none"/></g></svg>` },
+        { key: 'facebook',  label: 'Facebook',  svg: `<svg viewBox="0 0 24 24"><path fill="#ffffff" d="M13.4 20v-6.2h2.1l.32-2.42H13.4V9.83c0-.7.2-1.18 1.2-1.18h1.3V6.48c-.23-.03-1-.1-1.9-.1-1.88 0-3.17 1.15-3.17 3.26v1.74H8.7v2.42h2.13V20h2.57z"/></svg>` },
+        { key: 'tiktok',    label: 'TikTok',    svg: `<svg viewBox="0 0 24 24"><path fill="#ffffff" d="M16.6 5.82A4.28 4.28 0 0 1 15.54 3h-3.09v12.4a2.59 2.59 0 1 1-2.59-2.59c.27 0 .53.04.78.12V9.77a5.76 5.76 0 0 0-.78-.05 5.68 5.68 0 1 0 5.68 5.68V9.29a7.35 7.35 0 0 0 4.3 1.38V7.58a4.34 4.34 0 0 1-3.24-1.76z"/></svg>` },
+        { key: 'linkedin',  label: 'LinkedIn',  svg: `<svg viewBox="0 0 24 24"><path fill="#ffffff" d="M6.94 8.5H4.2V19.6h2.74V8.5zM5.57 7.34a1.62 1.62 0 1 0 0-3.24 1.62 1.62 0 0 0 0 3.24zM19.8 13.5c0-3.03-1.62-4.44-3.78-4.44-1.74 0-2.52.96-2.96 1.63V8.5h-2.74c.04.78 0 11.1 0 11.1h2.74v-6.2c0-.33.02-.66.12-.9.27-.66.87-1.35 1.89-1.35 1.33 0 1.99 1.02 1.99 2.51v5.94h2.74V13.5z"/></svg>` },
+        { key: 'youtube',   label: 'YouTube',   svg: `<svg viewBox="0 0 24 24"><rect x="3.5" y="6.5" width="17" height="11" rx="3" fill="#ffffff"/><polygon points="10.4,9.5 15.2,12 10.4,14.5" fill="#000000"/></svg>` }
+    ];
+    const buildSocialIcons = (schoolId) => socialDefs.map(s => {
+        const url = socialHref(schoolId, s.key);
+        const ext = url && url !== '#';
+        const tgt = ext ? ' target="_blank" rel="noopener noreferrer"' : '';
+        return `<a href="${url}"${tgt} class="reseau-icone" aria-label="${s.label}">${s.svg}</a>`;
+    }).join('');
 
     schools.forEach(school => {
         // Brassart / IFA Paris / ICART ont des logos larges → on garde une hauteur
         // modérée (sinon ils débordent). Les autres écoles peuvent être un peu plus grandes.
         const logoH = ['footer-brassart', 'footer-ifa-paris', 'footer-icart'].includes(school.id) ? 46 : 58;
+        // id d'école (schools.json) = id du bloc sans le préfixe « footer- ».
+        const schoolId = school.id.replace(/^footer-/, '');
         editor.BlockManager.add(school.id, {
             label: school.label,
             category: school.category || 'Footers',
@@ -44,10 +56,10 @@ export default function(editor, categories) {
                     <div class="ft-inner">
                         <div class="ft-top">
                             <div class="ft-brand">
-                                <span class="ft-logo"><img class="ft-logo-img" src="${school.A}/baseline-noir.png" alt="${school.label}"></span>
+                                <span class="ft-logo"><img class="ft-logo-img" src="${school.A}/baseline-noir.png" alt="${school.label}"${logoLinkAttrs(schoolId)}></span>
                             </div>
                             <div class="ft-social-row">
-                                ${socialIcons}
+                                ${buildSocialIcons(schoolId)}
                             </div>
                         </div>
                         <p class="ft-legal">
