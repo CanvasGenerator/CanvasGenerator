@@ -3293,8 +3293,11 @@ function initUI(editor) {
             const response = await fetch('/api/projects');
             const projects = await response.json();
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-            const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
-            
+            const filtered = projects.filter(p =>
+                p.project_name.startsWith(`school-${schoolId}__`) &&
+                p.status !== 'deleted' && p.status !== 'archived'
+            );
+
             let listHtml = `
                 <div class="selection-grid">
                     <div class="selection-section">
@@ -3410,8 +3413,11 @@ async function showOpeningPopup() {
     try {
         const response = await fetch('/api/projects');
         const projects = await response.json();
-        const filtered = projects.filter(p => p.project_name.startsWith(`school-${schoolId}__`));
-        
+        const filtered = projects.filter(p =>
+            p.project_name.startsWith(`school-${schoolId}__`) &&
+            p.status !== 'deleted' && p.status !== 'archived'
+        );
+
         if (filtered.length === 0) {
             listContainer.innerHTML = '<div style="text-align:center; padding: 2rem; color: #6b7280; font-size: 14px;">Aucun projet récent. Créez-en un nouveau !</div>';
         } else {

@@ -1258,7 +1258,7 @@ http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/projects') {
         try {
             console.log(`\n📋 Récupération de tous les projets`);
-            const result = await supabaseRequest('GET', '/Projects?select=project_name,created_at');
+            const result = await supabaseRequest('GET', '/Projects?select=project_name,created_at,status:properties->>status');
             console.log(`📋 ${result?.length || 0} projet(s) trouvé(s)`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result || []));

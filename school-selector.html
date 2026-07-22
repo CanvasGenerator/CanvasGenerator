@@ -1477,7 +1477,10 @@
             list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;"><i class="fas fa-spinner fa-spin"></i> Chargement...</div>';
             try {
                 const projects = await fetchJSON('/api/projects');
-                const masterProjects = projects.filter(p => p.project_name.startsWith('school-master__'));
+                const masterProjects = projects.filter(p =>
+                    p.project_name.startsWith('school-master__') &&
+                    p.status !== 'deleted' && p.status !== 'archived'
+                );
                 if (masterProjects.length === 0) {
                     list.innerHTML = '<div style="text-align:center;padding:24px;color:#9ca3af;font-size:13px;">Aucun template maître. Créez-en un nouveau !</div>';
                     return;
