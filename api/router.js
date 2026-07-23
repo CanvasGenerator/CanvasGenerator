@@ -1,5 +1,5 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('../lib/sfmc');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
@@ -592,6 +592,70 @@ module.exports = async function handler(req, res) {
             const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
+
+        if (req.method === 'PATCH' && pathname === '/api/project/rename') {
+            const { oldName, newName } = req.body || {};
+            if (!oldName || !newName) return res.status(400).json({ error: 'Missing oldName or newName' });
+
+            console.log(`\n✏️  [Router] Renommage projet: "${oldName}" → "${newName}"`);
+
+            // 1. Mettre à jour la table héritée Projects
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+
+            // 2. Mettre à jour seo_history (historique SEO)
+            try {
+                await supabaseRequest('PATCH', `/seo_history?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+            } catch (seoErr) {
+                console.warn(`[Rename] Impossible de mettre à jour seo_history:`, seoErr.message);
+            }
+
+            // 3. Mettre à jour la table pages (schéma structuré)
+            try {
+                const pageResult = await supabaseRequest('GET', `/pages?metadata->>legacyProjectName=eq.${encodeURIComponent(oldName)}`);
+                if (Array.isArray(pageResult) && pageResult.length > 0) {
+                    const nameParts = newName.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+                    const newTitle = nameParts ? nameParts[2] : newName;
+                    const newSlug = slugify(newTitle) || 'page';
+
+                    for (const page of pageResult) {
+                        const updatedMetadata = { ...(page.metadata || {}), legacyProjectName: newName };
+                        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+                            title: newTitle,
+                            slug: newSlug,
+                            metadata: updatedMetadata,
+                            updated_at: new Date().toISOString()
+                        });
+                    }
+                    console.log(`✅ [Router] Tables de pages structurées mises à jour pour le renommage`);
+                }
+            } catch (pageErr) {
+                console.warn(`[Rename] Impossible de mettre à jour les pages structurées:`, pageErr.message);
+            }
+
+            // 4. Renommer l'asset correspondant sur Salesforce Marketing Cloud (SFMC) si configuré
+            if (isSfmcConfigured()) {
+                try {
+                    const oldKey = customerKeyFor(oldName);
+                    const newKey = customerKeyFor(newName);
+                    const newAssetName = assetNameFor(newName);
+
+                    const assetId = await findAssetIdByCustomerKey(oldKey);
+                    if (assetId) {
+                        console.log(`☁️  [Router] SFMC: Renommage de l'asset ${assetId} ("${oldKey}" → "${newKey}")`);
+                        await sfmcFetch('PATCH', `/asset/v1/content/assets/${assetId}`, {
+                            name: newAssetName,
+                            customerKey: newKey
+                        });
+                        console.log(`☁️  [Router] SFMC: Renommage asset OK`);
+                    }
+                } catch (sfmcErr) {
+                    console.warn(`[Rename] Impossible de renommer l'asset dans SFMC (non bloquant):`, sfmcErr.message);
+                }
+            }
+
+            return res.status(200).json({ ok: true });
+        }
+
 
         if (req.method === 'POST' && pathname === '/api/save') {
             const { projectName, html: submittedHtml, css, projectData, properties: rawProperties, language } = req.body || {};
