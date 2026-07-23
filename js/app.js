@@ -566,11 +566,37 @@ function initEditor(schoolId) {
                 // rendu forcé à 1280px + dézoom auto, mais ça gelait l'éditeur / cassait
                 // la sélection (boucle ResizeObserver↔setZoom). Le rendu 1280px reste
                 // appliqué côté PREVIEW et SFMC (serveur), pas dans l'éditeur.
+                // widthMedia = le breakpoint où la règle CSS s'applique (peut différer
+                // de la largeur d'aperçu). On l'aligne sur les breakpoints réels des
+                // blocs (768px) et des vrais téléphones : ainsi une modif faite en mode
+                // Mobile s'écrit dans @media(max-width:767px) → visible sur TOUS les
+                // téléphones (≤767), plus besoin de repasser par Desktop.
                 { name: 'Desktop', width: '' },
-                { name: 'Tablet', width: '600px', widthMedia: '600px' },
-                { name: 'Mobile', width: '375px', widthMedia: '375px' },
+                { name: 'Tablet', width: '768px', widthMedia: '991px' },
+                { name: 'Mobile', width: '375px', widthMedia: '767px' },
             ],
         },
+        selectorManager: {
+            componentFirst: true, // Applique les styles par ID plutôt que par classe par défaut
+        },
+    });
+
+    // Ajout d'un bouton "Annuler la mise en forme" dans l'éditeur de texte enrichi (RTE)
+    const rte = editor.RichTextEditor;
+    rte.add('clear-format', {
+        icon: '<i class="fa-solid fa-eraser" style="font-size: 14px; margin-top: 2px;"></i>',
+        attributes: { title: 'Annuler la mise en forme (effacer le style)' },
+        result: rte => {
+            const doc = editor.Canvas.getDocument();
+            const selection = doc.getSelection();
+            if (selection && !selection.isCollapsed) {
+                // Remplace tout le HTML collé par du texte brut
+                const plainText = selection.toString();
+                doc.execCommand('insertText', false, plainText);
+            } else {
+                rte.exec('removeFormat');
+            }
+        }
     });
 
     initUI(editor);
@@ -661,6 +687,56 @@ function initEditor(schoolId) {
                 if (el) el.placeholder = '';
             });
         } catch(e) { /* silencieux */ }
+    });
+
+    // ── Réordonner les blocs : flèches Monter / Descendre dans la toolbar ──
+    // Retour client : la flèche « haut » actuelle (sélection du parent) ne sert à
+    // rien. On la retire et on ajoute deux flèches qui changent l'ordre des blocs
+    // (monter / descendre parmi les blocs voisins). Ne touche qu'à la barre d'outils
+    // (affichage) — aucune incidence sur le HTML exporté.
+    function lpMoveSelected(dir) {
+        const sel = editor.getSelected();
+        if (!sel) return;
+        // Voisins = enfants du parent (plus fiable que sel.collection pour tous les
+        // types de composants, y compris les <div>).
+        const parent = sel.parent && sel.parent();
+        const coll = parent ? parent.components() : sel.collection;
+        if (!coll || typeof coll.indexOf !== 'function') return;
+        const at = coll.indexOf(sel);
+        if (at < 0) return;
+        const newAt = dir === 'up' ? at - 1 : at + 1;
+        if (newAt < 0 || newAt >= coll.length) return; // déjà tout en haut / en bas
+        coll.remove(sel);              // détache (ne détruit pas le composant)
+        coll.add(sel, { at: newAt });  // ré-insère à la nouvelle position
+        editor.select(sel);
+    }
+    editor.Commands.add('lp-move-up',   { run: () => lpMoveSelected('up') });
+    editor.Commands.add('lp-move-down', { run: () => lpMoveSelected('down') });
+
+    editor.on('component:selected', () => {
+        const sel = editor.getSelected();
+        if (!sel) return;
+        // Force la construction de la toolbar par défaut. Indispensable pour les
+        // composants « par défaut » (div, blocs Essentiels…) : GrapesJS ne la
+        // remplit que tardivement → sans ça, les flèches n'apparaissaient que sur
+        // les <section> (type custom, toolbar déjà définie).
+        if (typeof sel.initToolbar === 'function') { try { sel.initToolbar(); } catch (e) {} }
+        let tb = Array.isArray(sel.get('toolbar')) ? [...sel.get('toolbar')] : [];
+        // Retire l'ancienne flèche « sélectionner le parent » (jugée inutile).
+        tb = tb.filter(item => {
+            const cmd = item && item.command;
+            const cls = (item && item.attributes && item.attributes.class) || '';
+            return cmd !== 'select-parent' && !/fa-arrow-up/.test(cls);
+        });
+        // Ajoute Monter / Descendre en tête (une seule fois), pour tout bloc
+        // déplaçable/copiable — sections ET div.
+        if (!tb.some(i => i.command === 'lp-move-up')) {
+            tb.unshift(
+                { attributes: { class: 'fa fa-angle-up',   title: 'Monter le bloc' },   command: 'lp-move-up' },
+                { attributes: { class: 'fa fa-angle-down', title: 'Descendre le bloc' }, command: 'lp-move-down' }
+            );
+        }
+        sel.set('toolbar', tb);
     });
 
     // ── Verrouillage et ouverture automatique du picker FAQ ─────────────
@@ -2961,7 +3037,8 @@ function initUI(editor) {
                     currentOriginalLanguage = lang;
                     applyLogoLanguage(editor, lang);
 
-                    const fullName = `school-${schoolId}__${nameInput}`;
+                    const finalProjectTitle = currentProjectProperties.title || nameInput;
+                    const fullName = `school-${schoolId}__${finalProjectTitle}`;
                     const propsToSave = collectProperties();
 
                     if (propsToSave.schemaLd) {
@@ -3003,7 +3080,7 @@ function initUI(editor) {
                         currentProjectLanguage = lang;
                         currentProjectProperties.status = 'draft';
                         localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
-                        localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, nameInput);
+                        localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, finalProjectTitle);
                         setActiveLangUI(lang);
                         updatePageIdBadge(); // Met à jour le badge ET l'URL
                         await refreshVariants(currentStructuredPageId);
@@ -3164,8 +3241,12 @@ function initUI(editor) {
                 if (!st) {
                     st = doc.createElement('style');
                     st.id = 'editor-preview-viewport';
+                    // Pleine largeur (pas de plafond) : la page s'affiche comme sur un
+                    // vrai navigateur — sections pleine largeur, contenu centré par
+                    // leurs propres conteneurs. Les espacements entre blocs (en px) et
+                    // le texte restent intacts, seule la largeur totale change.
                     st.textContent = 'html{background:#e9e9ec;}'
-                        + 'body{max-width:1280px!important;margin-left:auto!important;margin-right:auto!important;background:#ffffff;}';
+                        + 'body{width:100%!important;margin-left:auto!important;margin-right:auto!important;background:#ffffff;}';
                     (doc.head || doc.documentElement).appendChild(st);
                 }
             } else if (st) {
@@ -3278,7 +3359,7 @@ function initUI(editor) {
         window.__editorPreviewActive = true; // survit aux rechargements du canvas (switch de langue)
         editor.runCommand('core:preview');
         editor.refresh(); // Force resize
-        setEditorPreviewViewport(true); // même largeur que l'aperçu dashboard (1280px centré)
+        setEditorPreviewViewport(true); // pleine largeur (comme un vrai navigateur)
         setEditorPreviewAnchors(true); // simule le défilement vers les blocs cibles (#id)
 
         // Create or show custom exit button
@@ -3828,6 +3909,43 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
             body: JSON.stringify({ projectName, properties: newProps })
         });
         if (!res.ok) throw new Error(await res.text());
+
+        // ── Synchroniser l'URL et le badge SFMC si le titre a changé ──────────
+        // Le project_name a le format : school-<id>__<DisplayName>[__<LANG>]
+        // Si le titre est modifié, on renomme project_name pour garder la cohérence
+        // entre l'URL (?project=), le badge "Nom SFMC" et properties.title.
+        const newTitle = newProps.title;
+        if (newTitle) {
+            // IMPORTANT : on utilise (.+?) lazy + ((?:__[A-Z]{2})?)$ pour gérer
+            // les noms contenant des underscores (ex: test_efap, my_page, etc.)
+            const nameParts    = projectName.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+            const currentTitle = nameParts ? nameParts[2] : null;
+            if (nameParts && currentTitle && currentTitle !== newTitle) {
+                const newProjectName = nameParts[1] + newTitle + nameParts[3];
+                try {
+                    const renameRes = await fetch('/api/project/rename', {
+                        method: 'PATCH',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ oldName: projectName, newName: newProjectName })
+                    });
+                    if (renameRes.ok) {
+                        // Mettre à jour le hidden input pour éviter un double-rename si on clique encore
+                        const pnInput = document.getElementById('seo-settings-project-name');
+                        if (pnInput) pnInput.value = newProjectName;
+                        // Mettre à jour le localStorage → badge SFMC + URL
+                        const schoolId = window.CURRENT_SCHOOL?.id
+                            || new URLSearchParams(window.location.search).get('school')?.toLowerCase();
+                        if (schoolId) {
+                            localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, newProjectName);
+                            localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, newTitle);
+                        }
+                        updatePageIdBadge();
+                    }
+                } catch (renameErr) {
+                    console.warn('[SEO] Renommage échoué (non bloquant) :', renameErr.message);
+                }
+            }
+        }
 
         _seoShowStatus('✅ SEO sauvegardé ! L\'envoi vers SFMC se fait en arrière-plan.', 'success');
         btn.innerHTML = '<i class="fas fa-check" style="margin-right: 6px;"></i> Sauvegardé !';

@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus } = require('./lib/sfmc');
+const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -26,7 +26,7 @@ const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
-const { ensureFormAnchors, extractFormIds } = require('./lib/api-shared');
+const { ensureFormAnchors, extractFormIds, slugify } = require('./lib/api-shared');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -118,19 +118,17 @@ function ensureFontLinks(html) {
 }
 
 /**
- * Contraint la page à une largeur desktop FIXE (1280px, centrée) + plafonne les
- * logos de header en mobile → l'APERÇU du dashboard rend comme l'espace de travail
- * de l'éditeur. ⚠️ Route /preview/ UNIQUEMENT (jamais les pages publiques). Idempotent.
+ * Aperçu dashboard en PLEINE LARGEUR (comme un vrai navigateur) + plafonne les
+ * logos de header en mobile. Les espacements entre blocs (px) et le texte restent
+ * intacts. ⚠️ Route /preview/ UNIQUEMENT (jamais les pages publiques). Idempotent.
  */
-const PREVIEW_VIEWPORT_WIDTH = 1280;
 function injectPreviewViewport(html) {
     const s = String(html || '');
     if (/id="preview-viewport"/.test(s)) return s;
-    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur,
-    // corrige aussi les pages figées). Logos cappés en MOBILE uniquement.
+    // Pleine largeur + format code pays / logos mobile. Logos cappés en MOBILE uniquement.
     const style = `<style id="preview-viewport">`
         + `html{background:#e9e9ec;}`
-        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `body{width:100%;margin-left:auto;margin-right:auto;background:#ffffff;}`
         + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
         + `.jpo-flag{display:none!important;}`
         + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,.ft-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
@@ -1281,7 +1279,61 @@ http.createServer(async (req, res) => {
                     res.writeHead(400); return res.end('Missing oldName or newName');
                 }
                 console.log(`\n✏️  Renommage projet: "${oldName}" → "${newName}"`);
+                
+                // 1. Mettre à jour la table héritée Projects
                 await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+                
+                // 2. Mettre à jour seo_history (historique SEO)
+                try {
+                    await supabaseRequest('PATCH', `/seo_history?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+                } catch (seoErr) {
+                    console.warn(`[Rename] Impossible de mettre à jour seo_history:`, seoErr.message);
+                }
+
+                // 3. Mettre à jour la table pages (schéma structuré)
+                try {
+                    const pageResult = await supabaseRequest('GET', `/pages?metadata->>legacyProjectName=eq.${encodeURIComponent(oldName)}`);
+                    if (Array.isArray(pageResult) && pageResult.length > 0) {
+                        const nameParts = newName.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+                        const newTitle = nameParts ? nameParts[2] : newName;
+                        const newSlug = slugify(newTitle) || 'page';
+
+                        for (const page of pageResult) {
+                            const updatedMetadata = { ...(page.metadata || {}), legacyProjectName: newName };
+                            await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+                                title: newTitle,
+                                slug: newSlug,
+                                metadata: updatedMetadata,
+                                updated_at: new Date().toISOString()
+                            });
+                        }
+                        console.log(`✅ Tables de pages structurées mises à jour pour le renommage`);
+                    }
+                } catch (pageErr) {
+                    console.warn(`[Rename] Impossible de mettre à jour les pages structurées:`, pageErr.message);
+                }
+
+                // 4. Renommer l'asset correspondant sur Salesforce Marketing Cloud (SFMC) si configuré
+                if (isSfmcConfigured()) {
+                    try {
+                        const oldKey = customerKeyFor(oldName);
+                        const newKey = customerKeyFor(newName);
+                        const newAssetName = assetNameFor(newName);
+                        
+                        const assetId = await findAssetIdByCustomerKey(oldKey);
+                        if (assetId) {
+                            console.log(`☁️  SFMC: Renommage de l'asset ${assetId} ("${oldKey}" → "${newKey}")`);
+                            await sfmcFetch('PATCH', `/asset/v1/content/assets/${assetId}`, {
+                                name: newAssetName,
+                                customerKey: newKey
+                            });
+                            console.log(`☁️  SFMC: Renommage asset OK`);
+                        }
+                    } catch (sfmcErr) {
+                        console.warn(`[Rename] Impossible de renommer l'asset dans SFMC (non bloquant):`, sfmcErr.message);
+                    }
+                }
+
                 console.log(`✅ Renommage OK`);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ ok: true }));

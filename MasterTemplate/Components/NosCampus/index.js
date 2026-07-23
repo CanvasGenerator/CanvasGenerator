@@ -32,7 +32,7 @@ export default function(editor, categories) {
                     { attributes: { class: 'fa fa-clone' },               command: 'tlb-clone' },
                     { attributes: { class: 'fa fa-trash-o' },             command: 'tlb-delete' }
                 ],
-                'script-props': ['data-campus-prefix', 'data-campus-separator'],
+                'script-props': ['data-campus-prefix', 'data-campus-separator', 'data-title-color', 'data-cities-color'],
                 traits: [
                     {
                         type: 'text',
@@ -45,6 +45,18 @@ export default function(editor, categories) {
                         name: 'data-campus-separator',
                         label: 'Séparateur',
                         placeholder: 'ex:  ·  '
+                    },
+                    {
+                        // Vide = hérite de la couleur de la charte (--brand-text).
+                        type: 'color',
+                        name: 'data-title-color',
+                        label: 'Couleur du titre'
+                    },
+                    {
+                        // Vide = hérite de la couleur de la charte (--brand-text).
+                        type: 'color',
+                        name: 'data-cities-color',
+                        label: 'Couleur des villes'
                     }
                 ],
                 /* Runtime script (page exportée) : amélioration progressive.
@@ -52,6 +64,16 @@ export default function(editor, categories) {
                    ce script re-synchronise depuis l'API si elle est joignable. */
                 script: function() {
                     var section = this;
+
+                    // Couleurs personnalisées : si renseignées, elles surchargent la
+                    // charte via des variables CSS ; sinon on hérite de --brand-text.
+                    var _tc = section.getAttribute('data-title-color') || '';
+                    var _cc = section.getAttribute('data-cities-color') || '';
+                    if (_tc) section.style.setProperty('--mnc-title-color', _tc);
+                    else section.style.removeProperty('--mnc-title-color');
+                    if (_cc) section.style.setProperty('--mnc-cities-color', _cc);
+                    else section.style.removeProperty('--mnc-cities-color');
+
                     var list = section.querySelector('.mnc-list');
                     if (!list) return;
 
@@ -109,6 +131,17 @@ export default function(editor, categories) {
                 const prefix = attrs['data-campus-prefix'] || '';
                 const separator = attrs['data-campus-separator'] || ' · ';
 
+                // Couleurs personnalisées (surchargent la charte). Vide → hérite de
+                // --brand-text via le fallback CSS. Appliquées en direct dans l'éditeur.
+                const titleColor = attrs['data-title-color'] || '';
+                const citiesColor = attrs['data-cities-color'] || '';
+                if (this.el) {
+                    if (titleColor) this.el.style.setProperty('--mnc-title-color', titleColor);
+                    else this.el.style.removeProperty('--mnc-title-color');
+                    if (citiesColor) this.el.style.setProperty('--mnc-cities-color', citiesColor);
+                    else this.el.style.removeProperty('--mnc-cities-color');
+                }
+
                 const listComp = component.find('.mnc-list')[0];
                 if (!listComp) return;
 
@@ -151,7 +184,8 @@ export default function(editor, categories) {
   .mnc-section { padding: 40px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .mnc-inner { max-width: 900px; margin: 0 auto; text-align: center; }
   .mnc-title {
-    font-size: 22px; font-weight: 900; color: var(--brand-text, #1a1a1a);
+    font-size: 22px; font-weight: 900;
+    color: var(--mnc-title-color, var(--brand-text, #1a1a1a));
     letter-spacing: 2px; margin: 0 0 24px; text-transform: uppercase;
   }
   .mnc-list {
@@ -159,14 +193,15 @@ export default function(editor, categories) {
     align-items: center; gap: 6px 4px; line-height: 1.8;
   }
   .mnc-campus-name {
-    font-size: 13px; font-weight: 700; color: var(--brand-text, #1a1a1a);
+    font-size: 13px; font-weight: 700;
+    color: var(--mnc-cities-color, var(--brand-text, #1a1a1a));
     letter-spacing: 1px; white-space: nowrap; padding: 0 4px;
   }
   a.mnc-campus-link,
   a.mnc-campus-link:hover,
   a.mnc-campus-link:focus,
   a.mnc-campus-link:visited {
-    color: inherit; text-decoration: none; cursor: pointer;
+    color: var(--mnc-cities-color, var(--brand-text, #1a1a1a)); text-decoration: none; cursor: pointer;
   }
   .mnc-dot {
     font-size: 16px; color: #999; padding: 0 2px;

@@ -1683,10 +1683,21 @@
         }
         function closeSeoModal() { document.getElementById('seo-modal').style.display = 'none'; seoTarget = null; }
         function updateSeoPreview() {
-            const titleVal = document.getElementById('seo-modal-title').value;
-            const descVal  = document.getElementById('seo-modal-desc').value;
+            const titleVal    = document.getElementById('seo-modal-title').value;
+            const descVal     = document.getElementById('seo-modal-desc').value;
+            const pageTitleVal = document.getElementById('seo-modal-page-title').value.trim();
             document.getElementById('seo-preview-title').textContent = titleVal.substring(0, 60) || 'Titre de la page';
             document.getElementById('seo-preview-desc').textContent  = descVal.substring(0, 160) || 'Description de la page…';
+            // ── Mise à jour dynamique de l'URL preview quand le titre de page change ──
+            if (pageTitleVal && seoTarget) {
+                // Reconstruire le futur project_name à partir du nouveau titre
+                // Format : school-<id>__<DisplayName>[__<LANG>]
+                // On utilise .+? (lazy) + (__[A-Z]{2})?$ pour gérer les noms avec underscores
+                const nameParts = seoTarget.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+                if (nameParts) {
+                    document.getElementById('seo-preview-url').textContent = nameParts[1] + pageTitleVal + nameParts[3];
+                }
+            }
             const tLen = titleVal.length, dLen = descVal.length;
             const tColor = tLen === 0 ? '#9ca3af' : tLen <= 30 ? '#f59e0b' : tLen <= 60 ? '#22c55e' : '#ef4444';
             const dColor = dLen === 0 ? '#9ca3af' : dLen <= 70 ? '#f59e0b' : dLen <= 160 ? '#22c55e' : '#ef4444';
@@ -1697,6 +1708,7 @@
         }
         document.getElementById('seo-modal-title').addEventListener('input', updateSeoPreview);
         document.getElementById('seo-modal-desc').addEventListener('input',  updateSeoPreview);
+        document.getElementById('seo-modal-page-title').addEventListener('input', updateSeoPreview);
         document.getElementById('seo-modal-close').onclick = closeSeoModal;
         document.getElementById('seo-cancel').onclick      = closeSeoModal;
         document.getElementById('seo-save').onclick        = async () => {
@@ -1720,6 +1732,33 @@
                     body: JSON.stringify({ projectName: seoTarget, properties })
                 });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
+
+                // ── Synchroniser project_name si le titre a changé ────────────
+                // L'URL et le badge SFMC sont basés sur project_name (pas sur properties.title).
+                // Si l'utilisateur a modifié le titre, on renomme en base.
+                // IMPORTANT : on utilise (.+?) lazy + ((?:__[A-Z]{2})?)$ pour gérer
+                // les noms contenant des underscores (ex: test_efap, my_page, etc.)
+                const newTitle = properties.title;
+                if (newTitle) {
+                    const nameParts    = seoTarget.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+                    const currentTitle = nameParts ? nameParts[2] : null;
+                    if (nameParts && currentTitle && currentTitle !== newTitle) {
+                        const newProjectName = nameParts[1] + newTitle + nameParts[3];
+                        try {
+                            const renameRes = await fetch('/api/project/rename', {
+                                method: 'PATCH',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({ oldName: seoTarget, newName: newProjectName })
+                            });
+                            if (renameRes.ok) {
+                                seoTarget = newProjectName; // Évite un double-rename si sauvegarde répétée
+                            }
+                        } catch (renameErr) {
+                            console.warn('[SEO-dashboard] Renommage échoué (non bloquant) :', renameErr.message);
+                        }
+                    }
+                }
+
                 closeSeoModal(); await loadPages();
             } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
             finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-save" style="margin-right:6px;"></i>Enregistrer'; }
