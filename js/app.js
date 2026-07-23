@@ -3903,17 +3903,11 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
     _seoShowStatus('Sauvegarde en cours...', 'info');
 
     try {
-        const res = await fetch('/api/save-seo', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ projectName, properties: newProps })
-        });
-        if (!res.ok) throw new Error(await res.text());
+        let activeProjectName = projectName;
 
-        // ── Synchroniser l'URL et le badge SFMC si le titre a changé ──────────
-        // Le project_name a le format : school-<id>__<DisplayName>[__<LANG>]
-        // Si le titre est modifié, on renomme project_name pour garder la cohérence
-        // entre l'URL (?project=), le badge "Nom SFMC" et properties.title.
+        // ── Renommer D'ABORD si le titre a changé ──────────
+        // Cela évite que les tâches asynchrones en arrière-plan (SFMC)
+        // tournent sur l'ancien nom et créent des doublons.
         const newTitle = newProps.title;
         if (newTitle) {
             // IMPORTANT : on utilise (.+?) lazy + ((?:__[A-Z]{2})?)$ pour gérer
@@ -3929,6 +3923,7 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
                         body: JSON.stringify({ oldName: projectName, newName: newProjectName })
                     });
                     if (renameRes.ok) {
+                        activeProjectName = newProjectName;
                         // Mettre à jour le hidden input pour éviter un double-rename si on clique encore
                         const pnInput = document.getElementById('seo-settings-project-name');
                         if (pnInput) pnInput.value = newProjectName;
@@ -3940,12 +3935,22 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
                             localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, newTitle);
                         }
                         updatePageIdBadge();
+                    } else {
+                        throw new Error(await renameRes.text());
                     }
                 } catch (renameErr) {
-                    console.warn('[SEO] Renommage échoué (non bloquant) :', renameErr.message);
+                    throw new Error('Échec du renommage : ' + renameErr.message);
                 }
             }
         }
+
+        // ── Sauvegarder le SEO sous le nom de projet actif ───────────
+        const res = await fetch('/api/save-seo', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ projectName: activeProjectName, properties: newProps })
+        });
+        if (!res.ok) throw new Error(await res.text());
 
         _seoShowStatus('✅ SEO sauvegardé ! L\'envoi vers SFMC se fait en arrière-plan.', 'success');
         btn.innerHTML = '<i class="fas fa-check" style="margin-right: 6px;"></i> Sauvegardé !';
