@@ -1,5 +1,5 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds } = require('../lib/api-shared');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('../lib/sfmc');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
@@ -47,17 +47,17 @@ function ensureFontLinks(html) {
 }
 
 /**
- * Contraint la page à 1280px centrés + plafonne les logos header en mobile → l'APERÇU
- * du dashboard rend comme l'éditeur. ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
+ * Aperçu dashboard en PLEINE LARGEUR (comme un vrai navigateur) + plafonne les logos
+ * header en mobile. Les espacements entre blocs (px) et le texte restent intacts.
+ * ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
  */
-const PREVIEW_VIEWPORT_WIDTH = 1280;
 function injectPreviewViewport(html) {
     const s = String(html || '');
     if (/id="preview-viewport"/.test(s)) return s;
-    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur).
+    // Pleine largeur + format code pays / logos mobile (identique à l'éditeur).
     const style = `<style id="preview-viewport">`
         + `html{background:#e9e9ec;}`
-        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `body{width:100%;margin-left:auto;margin-right:auto;background:#ffffff;}`
         + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
         + `.jpo-flag{display:none!important;}`
         + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
@@ -592,6 +592,61 @@ module.exports = async function handler(req, res) {
             const result = await supabaseRequest('GET', `/Projects?project_name=eq.${encodeURIComponent(projectName)}&limit=1`);
             return result?.length ? res.status(200).json(result[0]) : res.status(404).json({ error: 'Not found' });
         }
+
+        if (req.method === 'PATCH' && pathname === '/api/project/rename') {
+            const { oldName, newName } = req.body || {};
+            if (!oldName || !newName) return res.status(400).json({ error: 'Missing oldName or newName' });
+
+            console.log(`\n✏️  [Router] Renommage projet: "${oldName}" → "${newName}"`);
+
+            // 1. Mettre à jour la table héritée Projects
+            await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+
+            // 2. Mettre à jour seo_history (historique SEO)
+            try {
+                await supabaseRequest('PATCH', `/seo_history?project_name=eq.${encodeURIComponent(oldName)}`, { project_name: newName });
+            } catch (seoErr) {
+                console.warn(`[Rename] Impossible de mettre à jour seo_history:`, seoErr.message);
+            }
+
+            // 3. Mettre à jour la table pages (schéma structuré)
+            try {
+                const pageResult = await supabaseRequest('GET', `/pages?metadata->>legacyProjectName=eq.${encodeURIComponent(oldName)}`);
+                if (Array.isArray(pageResult) && pageResult.length > 0) {
+                    const nameParts = newName.match(/^(school-[a-z0-9-]+__)(.+?)((?:__[A-Z]{2})?)$/i);
+                    const newTitle = nameParts ? nameParts[2] : newName;
+                    const newSlug = slugify(newTitle) || 'page';
+
+                    for (const page of pageResult) {
+                        const updatedMetadata = { ...(page.metadata || {}), legacyProjectName: newName };
+                        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+                            title: newTitle,
+                            slug: newSlug,
+                            metadata: updatedMetadata,
+                            updated_at: new Date().toISOString()
+                        });
+                    }
+                    console.log(`✅ [Router] Tables de pages structurées mises à jour pour le renommage`);
+                }
+            } catch (pageErr) {
+                console.warn(`[Rename] Impossible de mettre à jour les pages structurées:`, pageErr.message);
+            }
+
+            // 4. Dépublier l'ancien asset de Salesforce Marketing Cloud (SFMC) si configuré
+            // Cela évite la duplication d'assets en supprimant l'ancien (car SFMC ne permet pas
+            // de modifier la clé unique customerKey d'un asset existant).
+            if (isSfmcConfigured()) {
+                try {
+                    console.log(`☁️  [Router] SFMC: Dépublication de l'ancien asset pour "${oldName}"...`);
+                    await unpublishProjectFromSfmc({ projectName: oldName });
+                } catch (sfmcErr) {
+                    console.warn(`[Rename] Impossible de dépublier l'ancien asset dans SFMC (non bloquant):`, sfmcErr.message);
+                }
+            }
+
+            return res.status(200).json({ ok: true });
+        }
+
 
         if (req.method === 'POST' && pathname === '/api/save') {
             const { projectName, html: submittedHtml, css, projectData, properties: rawProperties, language } = req.body || {};

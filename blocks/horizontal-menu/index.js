@@ -82,6 +82,7 @@ export default function(editor, categories) {
                     display: block;
                     position: relative;
                     padding-bottom: 4px;
+                    white-space: nowrap;
                 }
                 .hm-nav-item::after {
                     content: '';
@@ -107,11 +108,11 @@ export default function(editor, categories) {
                         background-color: var(--brand-secondary, #A8174F);
                     }
                     .hm-nav-list {
-                        gap: 25px; 
+                        gap: 25px;
                     }
-                    .hm-nav-list li:nth-child(n+3) {
-                        display: none;
-                    }
+                    /* Sur mobile, on garde TOUS les items : ils défilent horizontalement
+                       (.hm-scroll-container a overflow-x:auto). On ne les masque plus —
+                       sinon impossible d'atteindre les programmes au-delà du 2e. */
                     .hm-nav-item {
                         font-size: 14px;
                         text-transform: none;
