@@ -47,17 +47,17 @@ function ensureFontLinks(html) {
 }
 
 /**
- * Contraint la page à 1280px centrés + plafonne les logos header en mobile → l'APERÇU
- * du dashboard rend comme l'éditeur. ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
+ * Aperçu dashboard en PLEINE LARGEUR (comme un vrai navigateur) + plafonne les logos
+ * header en mobile. Les espacements entre blocs (px) et le texte restent intacts.
+ * ⚠️ Route /preview/ UNIQUEMENT. Idempotent.
  */
-const PREVIEW_VIEWPORT_WIDTH = 1280;
 function injectPreviewViewport(html) {
     const s = String(html || '');
     if (/id="preview-viewport"/.test(s)) return s;
-    // Cadrage 1280px centré + format code pays / logos mobile (identique à l'éditeur).
+    // Pleine largeur + format code pays / logos mobile (identique à l'éditeur).
     const style = `<style id="preview-viewport">`
         + `html{background:#e9e9ec;}`
-        + `body{max-width:${PREVIEW_VIEWPORT_WIDTH}px;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `body{width:100%;margin-left:auto;margin-right:auto;background:#ffffff;}`
         + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
         + `.jpo-flag{display:none!important;}`
         + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`
@@ -632,24 +632,15 @@ module.exports = async function handler(req, res) {
                 console.warn(`[Rename] Impossible de mettre à jour les pages structurées:`, pageErr.message);
             }
 
-            // 4. Renommer l'asset correspondant sur Salesforce Marketing Cloud (SFMC) si configuré
+            // 4. Dépublier l'ancien asset de Salesforce Marketing Cloud (SFMC) si configuré
+            // Cela évite la duplication d'assets en supprimant l'ancien (car SFMC ne permet pas
+            // de modifier la clé unique customerKey d'un asset existant).
             if (isSfmcConfigured()) {
                 try {
-                    const oldKey = customerKeyFor(oldName);
-                    const newKey = customerKeyFor(newName);
-                    const newAssetName = assetNameFor(newName);
-
-                    const assetId = await findAssetIdByCustomerKey(oldKey);
-                    if (assetId) {
-                        console.log(`☁️  [Router] SFMC: Renommage de l'asset ${assetId} ("${oldKey}" → "${newKey}")`);
-                        await sfmcFetch('PATCH', `/asset/v1/content/assets/${assetId}`, {
-                            name: newAssetName,
-                            customerKey: newKey
-                        });
-                        console.log(`☁️  [Router] SFMC: Renommage asset OK`);
-                    }
+                    console.log(`☁️  [Router] SFMC: Dépublication de l'ancien asset pour "${oldName}"...`);
+                    await unpublishProjectFromSfmc({ projectName: oldName });
                 } catch (sfmcErr) {
-                    console.warn(`[Rename] Impossible de renommer l'asset dans SFMC (non bloquant):`, sfmcErr.message);
+                    console.warn(`[Rename] Impossible de dépublier l'ancien asset dans SFMC (non bloquant):`, sfmcErr.message);
                 }
             }
 
