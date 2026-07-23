@@ -1313,24 +1313,15 @@ http.createServer(async (req, res) => {
                     console.warn(`[Rename] Impossible de mettre à jour les pages structurées:`, pageErr.message);
                 }
 
-                // 4. Renommer l'asset correspondant sur Salesforce Marketing Cloud (SFMC) si configuré
+                // 4. Dépublier l'ancien asset de Salesforce Marketing Cloud (SFMC) si configuré
+                // Cela évite la duplication d'assets en supprimant l'ancien (car SFMC ne permet pas
+                // de modifier la clé unique customerKey d'un asset existant).
                 if (isSfmcConfigured()) {
                     try {
-                        const oldKey = customerKeyFor(oldName);
-                        const newKey = customerKeyFor(newName);
-                        const newAssetName = assetNameFor(newName);
-                        
-                        const assetId = await findAssetIdByCustomerKey(oldKey);
-                        if (assetId) {
-                            console.log(`☁️  SFMC: Renommage de l'asset ${assetId} ("${oldKey}" → "${newKey}")`);
-                            await sfmcFetch('PATCH', `/asset/v1/content/assets/${assetId}`, {
-                                name: newAssetName,
-                                customerKey: newKey
-                            });
-                            console.log(`☁️  SFMC: Renommage asset OK`);
-                        }
+                        console.log(`☁️  SFMC: Dépublication de l'ancien asset pour "${oldName}"...`);
+                        await unpublishProjectFromSfmc({ projectName: oldName });
                     } catch (sfmcErr) {
-                        console.warn(`[Rename] Impossible de renommer l'asset dans SFMC (non bloquant):`, sfmcErr.message);
+                        console.warn(`[Rename] Impossible de dépublier l'ancien asset dans SFMC (non bloquant):`, sfmcErr.message);
                     }
                 }
 
