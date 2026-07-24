@@ -999,6 +999,33 @@ body {
     transform: scale(1.1) rotate(5deg);
 }
 
+/* Petit ✕ pour masquer le widget IA quand il gêne (revient au rechargement). */
+.ai-bot-dismiss {
+    position: absolute;
+    right: -4px;
+    bottom: 50px;              /* coin haut-droit de la bulle (60px, ancrée en bas) */
+    width: 22px;
+    height: 22px;
+    padding: 0;
+    border: 2px solid #ffffff;
+    border-radius: 50%;
+    background: #ef4444;
+    color: #ffffff;
+    font-size: 14px;
+    line-height: 1;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 2px 6px rgba(0, 0, 0, 0.25);
+    z-index: 10001;
+    transition: background 0.2s, transform 0.2s;
+}
+.ai-bot-dismiss:hover {
+    background: #dc2626;
+    transform: scale(1.1);
+}
+
 .ai-badge {
     position: absolute;
     top: -5px;

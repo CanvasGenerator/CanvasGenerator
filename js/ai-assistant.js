@@ -13,6 +13,8 @@ export function initAiAssistant(editor) {
     const btnToggle = document.getElementById('btn-toggle-ai-bot');
     const btnClose = document.getElementById('btn-close-ai-bot');
     const botPanel = document.getElementById('ai-bot-panel');
+    const btnDismiss = document.getElementById('btn-dismiss-ai-bot');
+    const botWidget = document.getElementById('ai-bot-widget');
 
     let currentConversationId = 'chat_' + Date.now();
     let allMessages = [];
@@ -38,6 +40,15 @@ export function initAiAssistant(editor) {
     btnClose.onclick = () => {
         botPanel.classList.add('hidden');
     };
+
+    // Masquer complètement le widget IA (bulle incluse) quand il gêne.
+    // Masquage pour la session courante : il réapparaît au rechargement de la page.
+    if (btnDismiss && botWidget) {
+        btnDismiss.onclick = (e) => {
+            e.stopPropagation(); // ne pas déclencher le toggle de la bulle
+            botWidget.style.display = 'none';
+        };
+    }
 
     btnSend.onclick = () => handleSendMessage();
     chatInput.onkeydown = (e) => {

@@ -631,6 +631,7 @@ function initEditor(schoolId) {
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
         addFontStyleControl(editor);
+        addTextTransformControl(editor);
         setStyleManagerLabels(editor);
         loadCustomComponents(editor, schoolId);
 
@@ -1460,6 +1461,40 @@ function addFontStyleControl(editor) {
         sm.render();
     } catch (e) {
         console.warn('addFontStyleControl: impossible d’ajouter le contrôle italique', e);
+    }
+}
+
+// Ajoute un contrôle « Casse du texte » (text-transform) à la Typographie :
+// tout en MAJUSCULES, minuscules, etc. — non exposé par défaut dans GrapesJS.
+// Idempotent (n'ajoute pas 2 fois).
+function addTextTransformControl(editor) {
+    if (!editor) return;
+    try {
+        const sm = editor.StyleManager;
+        if (sm.getProperty('typography', 'text-transform')) return; // déjà présent
+        sm.addProperty('typography', {
+            name: 'Casse du texte',
+            property: 'text-transform',
+            type: 'select',
+            defaults: 'none',
+            default: 'none',
+            // `list` (anciennes versions GrapesJS) + `options` (récentes)
+            list: [
+                { value: 'none', name: 'Normal' },
+                { value: 'uppercase', name: 'MAJUSCULES' },
+                { value: 'lowercase', name: 'minuscules' },
+                { value: 'capitalize', name: 'Initiales Majuscules' }
+            ],
+            options: [
+                { id: 'none', label: 'Normal' },
+                { id: 'uppercase', label: 'MAJUSCULES' },
+                { id: 'lowercase', label: 'minuscules' },
+                { id: 'capitalize', label: 'Initiales Majuscules' }
+            ]
+        }, { at: 4 }); // juste après Font Style
+        sm.render();
+    } catch (e) {
+        console.warn('addTextTransformControl: impossible d’ajouter le contrôle casse du texte', e);
     }
 }
 
