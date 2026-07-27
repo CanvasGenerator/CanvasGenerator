@@ -97,7 +97,7 @@ export default function(editor, categories) {
   .ma-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .ma-inner { max-width: 900px; margin: 0 auto; }
   .ma-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; }
+  .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; width: 100%; }
   .ma-item { border-bottom: 1px solid #e0e0e0; }
   .ma-q { display: flex; justify-content: space-between; align-items: center; padding: 16px 4px; cursor: pointer; gap: 16px; }
   .ma-q span { font-size: 14px; color: var(--text-main, #222); line-height: 1.4; flex: 1; }

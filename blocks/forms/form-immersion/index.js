@@ -140,13 +140,13 @@ export default function (editor, categories) {
 .imf-phone-wrap { display: flex; gap: 8px; }
 .imf-phone-prefix-wrap {
     position: relative;
-    width: 92px;
+    width: 84px;
     flex-shrink: 0;
 }
 .imf-phone-prefix-wrap::after {
     content: '';
     position: absolute;
-    right: 14px;
+    right: 8px;
     top: 50%;
     width: 8px;
     height: 8px;
@@ -158,10 +158,10 @@ export default function (editor, categories) {
 .imf-phone-prefix {
     width: 100%;
     height: 46px;
-    padding: 0 24px 0 12px;
+    padding: 0 20px 0 8px;
     border: 1px solid #000;
     border-radius: 0;
-    font-size: 13px;
+    font-size: 11px;
     font-family: inherit;
     color: #000;
     background: var(--brand-background, #ffffff);
@@ -219,7 +219,7 @@ export default function (editor, categories) {
 @keyframes imf-spin { to { transform: rotate(360deg); } }
 @media(max-width:460px){
     .imf-row { grid-template-columns: 1fr; }
-    .imf-phone-prefix-wrap { width: 90px; }
+    .imf-phone-prefix-wrap { width: 80px; }
 }
 </style>
 

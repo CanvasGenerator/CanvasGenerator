@@ -583,6 +583,17 @@ function initEditor(schoolId) {
 
     // Ajout d'un bouton "Annuler la mise en forme" dans l'éditeur de texte enrichi (RTE)
     const rte = editor.RichTextEditor;
+
+    // Bouton "Exposant" : surélève le texte sélectionné (ex. 4ᵉ, m², 1er).
+    // Enveloppe la sélection dans un <sup> via execCommand('superscript') ; un
+    // second clic l'annule (toggle natif du navigateur). Même approche que
+    // 'clear-format' ci-dessous (on passe par le document du canvas).
+    rte.add('superscript', {
+        icon: '<span style="font-weight:700;font-size:13px;">x<sup style="font-size:9px;">2</sup></span>',
+        attributes: { title: 'Exposant (ex. 4ᵉ année)' },
+        result: rte => rte.exec('superscript')
+    });
+
     rte.add('clear-format', {
         icon: '<i class="fa-solid fa-eraser" style="font-size: 14px; margin-top: 2px;"></i>',
         attributes: { title: 'Annuler la mise en forme (effacer le style)' },
@@ -632,6 +643,7 @@ function initEditor(schoolId) {
         restrictFontSelector(editor, CURRENT_SCHOOL);
         addFontStyleControl(editor);
         addTextTransformControl(editor);
+        addPerSideBorderControls(editor);
         setStyleManagerLabels(editor);
         loadCustomComponents(editor, schoolId);
 
@@ -740,6 +752,31 @@ function initEditor(schoolId) {
         sel.set('toolbar', tb);
     });
 
+    // ── Redimensionnement des blocs à la souris (retour client) ──────────
+    // Par défaut, seules les images ont des poignées de resize dans GrapesJS.
+    // On active le redimensionnement (largeur + hauteur) sur les BLOCS de
+    // premier niveau (= enfants directs du wrapper, càd les blocs déposés sur
+    // la page), comme pour les photos. Toutes les poignées sont actives (4 côtés
+    // + 4 coins) pour pouvoir tirer depuis n'importe quel bord.
+    const LP_RESIZE = {
+        tl: 1, tc: 1, tr: 1, cl: 1, cr: 1, bl: 1, bc: 1, br: 1,
+        minDim: 20,
+        keyWidth: 'width', keyHeight: 'height'
+    };
+    editor.on('component:add', (component) => {
+        try {
+            if (!component || typeof component.get !== 'function') return;
+            if (component.get('type') === 'image') return; // déjà resizable nativement
+            if (component.get('resizable')) return;         // ne pas écraser un réglage existant
+            const parent = component.parent && component.parent();
+            if (!parent || parent !== editor.getWrapper()) return; // uniquement les blocs de 1er niveau
+            // Mutation de config (cosmétique) → hors pile d'undo pour ne pas
+            // polluer les Ctrl+Z (même logique que le verrouillage FAQ / swap logo).
+            const setRes = () => component.set('resizable', LP_RESIZE);
+            try { editor.UndoManager.skip(setRes); } catch (e) { setRes(); }
+        } catch (e) { /* silencieux */ }
+    });
+
     // ── Verrouillage et ouverture automatique du picker FAQ ─────────────
     // Seul le .ma-title reste éditable ; tout le reste est verrouillé.
     function isFaqTitle(comp) {
@@ -771,6 +808,10 @@ function initEditor(schoolId) {
     // 2. Clic sur un enfant → rediriger la sélection vers le ma-faq-section parent
     editor.on('component:selected', (component) => {
         if (component.get('type') === 'ma-faq-section') return;
+        // Exception : le titre .ma-title reste sélectionnable INDIVIDUELLEMENT,
+        // pour pouvoir changer sa police / taille / alignement via le Style Manager
+        // (comme les réponses). Sans ça, le clic renvoyait vers la section entière.
+        if (isFaqTitle(component)) return;
         let parent = component.parent();
         while (parent) {
             if (parent.get('type') === 'ma-faq-section') {
@@ -1495,6 +1536,68 @@ function addTextTransformControl(editor) {
         sm.render();
     } catch (e) {
         console.warn('addTextTransformControl: impossible d’ajouter le contrôle casse du texte', e);
+    }
+}
+
+// Ajoute des contrôles de BORDURE PAR CÔTÉ (Haut / Droite / Bas / Gauche) au
+// secteur « Décorations ». Par défaut GrapesJS n'expose que la bordure globale
+// (les 4 côtés d'un coup). Ici on ajoute 4 groupes composites (épaisseur / style /
+// couleur) ciblant border-<side>-*, ce qui permet de choisir : bordure sur tout
+// le bloc (contrôle « Bordure » global) OU sur un seul côté. Idempotent.
+function addPerSideBorderControls(editor) {
+    if (!editor) return;
+    try {
+        const sm = editor.StyleManager;
+        const sides = [
+            { key: 'top',    label: 'Bordure haut' },
+            { key: 'right',  label: 'Bordure droite' },
+            { key: 'bottom', label: 'Bordure bas' },
+            { key: 'left',   label: 'Bordure gauche' }
+        ];
+        const styleList = [
+            { value: 'none',   name: 'Aucune' },
+            { value: 'solid',  name: 'Solide' },
+            { value: 'dashed', name: 'Tirets' },
+            { value: 'dotted', name: 'Points' },
+            { value: 'double', name: 'Double' }
+        ];
+        const styleOptions = styleList.map(s => ({ id: s.value, label: s.name }));
+
+        sides.forEach(side => {
+            const groupId = `border-${side.key}`;
+            if (sm.getProperty('decorations', groupId)) return; // déjà présent
+            sm.addProperty('decorations', {
+                name: side.label,
+                property: groupId,
+                type: 'composite',
+                properties: [
+                    {
+                        name: 'Épaisseur',
+                        property: `border-${side.key}-width`,
+                        type: 'integer',
+                        units: ['px', 'em', 'rem', '%'],
+                        defaults: '0', default: '0', min: 0
+                    },
+                    {
+                        name: 'Style',
+                        property: `border-${side.key}-style`,
+                        type: 'select',
+                        defaults: 'solid', default: 'solid',
+                        list: styleList,
+                        options: styleOptions
+                    },
+                    {
+                        name: 'Couleur',
+                        property: `border-${side.key}-color`,
+                        type: 'color',
+                        defaults: 'black', default: 'black'
+                    }
+                ]
+            });
+        });
+        sm.render();
+    } catch (e) {
+        console.warn('addPerSideBorderControls: impossible d’ajouter les bordures par côté', e);
     }
 }
 
