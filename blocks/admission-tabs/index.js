@@ -108,7 +108,7 @@ export default function (editor, categories) {
         .integration .etape-texte .lien-epreuves{font-weight:700;text-decoration:underline;cursor:pointer;}
         .integration .epreuves-detail{max-height:0;overflow:hidden;transition:max-height .3s ease;font-size:12.5px;color:#444;}
         .integration .epreuves-detail.ouvert{max-height:200px;margin-top:8px;}
-        @media (max-width:768px){.integration .etapes-grille{grid-template-columns:1fr;gap:24px;}.integration .onglet-panneau{padding:28px 24px;}}
+        @media (max-width:768px){.integration .etapes-grille{grid-template-columns:1fr;gap:24px;}.integration .onglet-panneau{padding:28px 24px;}.integration .onglet-btn{flex:1;text-align:center;}}
       </style>
     </section>`;
 

@@ -383,13 +383,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-phone-prefix-wrap {
     position: relative;
-    width: 92px;
+    width: 84px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
     gap: 6px;
     height: 46px;
-    padding: 0 8px;
+    padding: 0;
     border: 1px solid #000;
     background: var(--brand-background, #ffffff);
     box-sizing: border-box;
@@ -401,8 +401,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     position: absolute;
     right: 8px;
     top: 50%;
-    width: 7px;
-    height: 7px;
+    width: 8px;
+    height: 8px;
     border-right: 1.5px solid #000;
     border-bottom: 1.5px solid #000;
     transform: translateY(-70%) rotate(45deg);
@@ -413,10 +413,10 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     flex: 1;
     min-width: 0;
     height: 100%;
-    padding: 0 14px 0 0;
+    padding: 0 20px 0 8px;
     border: none;
     border-radius: 0;
-    font-size: 13px;
+    font-size: 11px;
     font-family: inherit;
     color: #000;
     background: transparent;
@@ -550,7 +550,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     }
 
     .jpo-phone-prefix-wrap {
-        width: 90px;
+        width: 80px;
     }
 
     .jpo-event-inner {

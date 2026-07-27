@@ -34,36 +34,27 @@ export default function(editor, categories) {
                     { attributes: { class: 'fa fa-arrows', cursor: true }, command: 'tlb-move' },
                     { attributes: { class: 'fa fa-clone' },               command: 'tlb-clone' },
                     { attributes: { class: 'fa fa-trash-o' },             command: 'tlb-delete' }
-                ]
-            }
-        },
-
-        view: {
-            // Accordion interactif dans le canvas de l'éditeur
-            events: {
-                'click .ma-toggle': 'onToggle',
-                'click .ma-q':      'onRowClick'
-            },
-
-            onToggle(e) {
-                e.stopPropagation();
-                e.preventDefault();
-                this._toggle(e.target.closest('.ma-item'));
-            },
-
-            onRowClick(e) {
-                e.stopPropagation(); // empêche la sélection GrapesJS des enfants verrouillés
-                this._toggle(e.target.closest('.ma-item'));
-            },
-
-            _toggle(item) {
-                if (!item) return;
-                const answer = item.querySelector('.ma-a');
-                const btn    = item.querySelector('.ma-toggle');
-                const isOpen = item.classList.contains('ma-open');
-                item.classList.toggle('ma-open', !isOpen);
-                if (answer) answer.style.display = isOpen ? 'none' : 'block';
-                if (btn)    btn.innerHTML = isOpen ? '&#43;' : '&#8722;';
+                ],
+                // Toggle accordéon via `script` (et NON via la `view` GrapesJS) : la
+                // `view` ne s'exécute QUE dans l'éditeur, donc le +/- ne fonctionnait
+                // pas sur la page publiée / preview. Le `script` est exporté avec la
+                // page → l'ouverture/fermeture marche partout. Délégation sur la
+                // racine → fonctionne aussi pour les items injectés par le picker FAQ.
+                script: function () {
+                    var root = this;
+                    root.onclick = function (e) {
+                        var q = e.target && e.target.closest ? e.target.closest('.ma-q') : null;
+                        if (!q || !root.contains(q)) return;
+                        var item = q.closest('.ma-item');
+                        if (!item) return;
+                        var answer = item.querySelector('.ma-a');
+                        var btn = item.querySelector('.ma-toggle');
+                        var isOpen = item.classList.contains('ma-open');
+                        item.classList.toggle('ma-open', !isOpen);
+                        if (answer) answer.style.display = isOpen ? 'none' : 'block';
+                        if (btn) btn.innerHTML = isOpen ? '+' : '−';
+                    };
+                }
             }
         }
     });
@@ -97,7 +88,7 @@ export default function(editor, categories) {
   .ma-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
   .ma-inner { max-width: 900px; margin: 0 auto; }
   .ma-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; }
+  .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; width: 100%; }
   .ma-item { border-bottom: 1px solid #e0e0e0; }
   .ma-q { display: flex; justify-content: space-between; align-items: center; padding: 16px 4px; cursor: pointer; gap: 16px; }
   .ma-q span { font-size: 14px; color: var(--text-main, #222); line-height: 1.4; flex: 1; }

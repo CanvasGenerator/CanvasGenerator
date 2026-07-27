@@ -56,7 +56,7 @@ export default function (editor, categories) {
                         .sticky-cta{position:fixed;left:0;right:0;bottom:0;background:#000000;text-align:center;padding:20px 16px;z-index:90;}
                         .sticky-cta .sticky-cta-link{color:#ffffff;font-family:var(--brand-font,'Montserrat',Arial,sans-serif);font-size:13px;font-weight:700;letter-spacing:1px;text-transform:uppercase;text-decoration:none;display:block;cursor:pointer;}
                         .sticky-cta .sticky-cta-link:hover{opacity:.85;}
-                        body{padding-bottom:62px;} /* espace réservé pour la barre sticky */
+                        body{padding-bottom:200px !important;} /* espace réservé pour la barre sticky */
                     </style>
                 `,
                 'script-props': ['data-target-form'],
@@ -70,8 +70,14 @@ export default function (editor, categories) {
                         e.preventDefault();
                         var doc = el.ownerDocument;
                         var target = doc.querySelector(selector) || doc.querySelector('form');
-                        if (target && target.scrollIntoView) {
-                            target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                        if (target) {
+                            // On scrolle vers le CONTENEUR <section> du formulaire (titre
+                            // + tous les champs) et non vers le <form> interne, qui est
+                            // imbriqué plus bas → sinon le haut du formulaire est coupé.
+                            var scrollTarget = (target.closest && target.closest('section')) || target;
+                            if (scrollTarget.scrollIntoView) {
+                                scrollTarget.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                            }
                         }
                     };
                 }
