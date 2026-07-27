@@ -56,8 +56,9 @@ function injectPreviewViewport(html) {
     if (/id="preview-viewport"/.test(s)) return s;
     // Pleine largeur + format code pays / logos mobile (identique à l'éditeur).
     const style = `<style id="preview-viewport">`
-        + `html{background:#e9e9ec;}`
+        + `html{background:#e9e9ec;scroll-behavior:smooth;scroll-padding-top:100px;scroll-padding-bottom:120px;}`
         + `body{width:100%;margin-left:auto;margin-right:auto;background:#ffffff;}`
+        + `[id^="form-"]{scroll-margin-top:100px;scroll-margin-bottom:120px;}`
         + `[class*="-phone-prefix-wrap"]{width:92px!important;flex-shrink:0!important;}`
         + `.jpo-flag{display:none!important;}`
         + `@media(max-width:768px){.mh-logo img,.mh-logo svg,.hdr-logo-img,.dh-logo-img,#logo img,#logo svg{max-height:40px!important;height:auto!important;width:auto!important;}`

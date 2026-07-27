@@ -34,36 +34,27 @@ export default function(editor, categories) {
                     { attributes: { class: 'fa fa-arrows', cursor: true }, command: 'tlb-move' },
                     { attributes: { class: 'fa fa-clone' },               command: 'tlb-clone' },
                     { attributes: { class: 'fa fa-trash-o' },             command: 'tlb-delete' }
-                ]
-            }
-        },
-
-        view: {
-            // Accordion interactif dans le canvas de l'éditeur
-            events: {
-                'click .ma-toggle': 'onToggle',
-                'click .ma-q':      'onRowClick'
-            },
-
-            onToggle(e) {
-                e.stopPropagation();
-                e.preventDefault();
-                this._toggle(e.target.closest('.ma-item'));
-            },
-
-            onRowClick(e) {
-                e.stopPropagation(); // empêche la sélection GrapesJS des enfants verrouillés
-                this._toggle(e.target.closest('.ma-item'));
-            },
-
-            _toggle(item) {
-                if (!item) return;
-                const answer = item.querySelector('.ma-a');
-                const btn    = item.querySelector('.ma-toggle');
-                const isOpen = item.classList.contains('ma-open');
-                item.classList.toggle('ma-open', !isOpen);
-                if (answer) answer.style.display = isOpen ? 'none' : 'block';
-                if (btn)    btn.innerHTML = isOpen ? '&#43;' : '&#8722;';
+                ],
+                // Toggle accordéon via `script` (et NON via la `view` GrapesJS) : la
+                // `view` ne s'exécute QUE dans l'éditeur, donc le +/- ne fonctionnait
+                // pas sur la page publiée / preview. Le `script` est exporté avec la
+                // page → l'ouverture/fermeture marche partout. Délégation sur la
+                // racine → fonctionne aussi pour les items injectés par le picker FAQ.
+                script: function () {
+                    var root = this;
+                    root.onclick = function (e) {
+                        var q = e.target && e.target.closest ? e.target.closest('.ma-q') : null;
+                        if (!q || !root.contains(q)) return;
+                        var item = q.closest('.ma-item');
+                        if (!item) return;
+                        var answer = item.querySelector('.ma-a');
+                        var btn = item.querySelector('.ma-toggle');
+                        var isOpen = item.classList.contains('ma-open');
+                        item.classList.toggle('ma-open', !isOpen);
+                        if (answer) answer.style.display = isOpen ? 'none' : 'block';
+                        if (btn) btn.innerHTML = isOpen ? '+' : '−';
+                    };
+                }
             }
         }
     });

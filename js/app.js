@@ -710,17 +710,22 @@ function initEditor(schoolId) {
     function lpMoveSelected(dir) {
         const sel = editor.getSelected();
         if (!sel) return;
-        // Voisins = enfants du parent (plus fiable que sel.collection pour tous les
-        // types de composants, y compris les <div>).
-        const parent = sel.parent && sel.parent();
-        const coll = parent ? parent.components() : sel.collection;
+        const parent = (sel.parent && sel.parent()) || editor.getWrapper();
+        if (!parent) return;
+        const coll = parent.components();
         if (!coll || typeof coll.indexOf !== 'function') return;
         const at = coll.indexOf(sel);
         if (at < 0) return;
         const newAt = dir === 'up' ? at - 1 : at + 1;
-        if (newAt < 0 || newAt >= coll.length) return; // déjà tout en haut / en bas
-        coll.remove(sel);              // détache (ne détruit pas le composant)
-        coll.add(sel, { at: newAt });  // ré-insère à la nouvelle position
+        if (newAt < 0 || newAt >= coll.length) return;
+        
+        // Remove temporarily to avoid style deletion, then add at new index
+        if (typeof sel.remove === 'function') {
+            sel.remove({ temporary: true });
+        } else {
+            coll.remove(sel);
+        }
+        coll.add(sel, { at: newAt });
         editor.select(sel);
     }
     editor.Commands.add('lp-move-up',   { run: () => lpMoveSelected('up') });
@@ -754,10 +759,10 @@ function initEditor(schoolId) {
 
     // ── Redimensionnement des blocs à la souris (retour client) ──────────
     // Par défaut, seules les images ont des poignées de resize dans GrapesJS.
-    // On active le redimensionnement (largeur + hauteur) sur les BLOCS de
-    // premier niveau (= enfants directs du wrapper, càd les blocs déposés sur
-    // la page), comme pour les photos. Toutes les poignées sont actives (4 côtés
-    // + 4 coins) pour pouvoir tirer depuis n'importe quel bord.
+    // On active le redimensionnement (largeur + hauteur) sur TOUS les composants
+    // (blocs de toutes les catégories : Master, Essential, blocs école… ainsi que
+    // les éléments imbriqués), comme pour les photos. Toutes les poignées sont
+    // actives (4 côtés + 4 coins) pour pouvoir tirer depuis n'importe quel bord.
     const LP_RESIZE = {
         tl: 1, tc: 1, tr: 1, cl: 1, cr: 1, bl: 1, bc: 1, br: 1,
         minDim: 20,
@@ -768,8 +773,6 @@ function initEditor(schoolId) {
             if (!component || typeof component.get !== 'function') return;
             if (component.get('type') === 'image') return; // déjà resizable nativement
             if (component.get('resizable')) return;         // ne pas écraser un réglage existant
-            const parent = component.parent && component.parent();
-            if (!parent || parent !== editor.getWrapper()) return; // uniquement les blocs de 1er niveau
             // Mutation de config (cosmétique) → hors pile d'undo pour ne pas
             // polluer les Ctrl+Z (même logique que le verrouillage FAQ / swap logo).
             const setRes = () => component.set('resizable', LP_RESIZE);
@@ -782,6 +785,24 @@ function initEditor(schoolId) {
     function isFaqTitle(comp) {
         try { return comp.getClasses && comp.getClasses().includes('ma-title'); } catch(e) { return false; }
     }
+    // La réponse (.ma-a) reste éditable : permet de mettre du GRAS sur certains mots
+    // via le RTE (bouton Gras), tout en gardant question/structure verrouillées.
+    function isFaqAnswer(comp) {
+        try { return comp.getClasses && comp.getClasses().includes('ma-a'); } catch(e) { return false; }
+    }
+    // Le composant est-il la réponse .ma-a OU un de ses enfants (ex. le <p>) ?
+    // Sert à ne PAS rediriger le clic vers la section quand on édite une réponse.
+    function isFaqAnswerText(comp) {
+        try {
+            let c = comp;
+            while (c && c.get) {
+                if (c.get('type') === 'ma-faq-section') return false;
+                if (c.getClasses && c.getClasses().includes('ma-a')) return true;
+                c = c.parent && c.parent();
+            }
+        } catch(e) {}
+        return false;
+    }
 
     editor.on('component:add', (component) => {
         // Verrouiller si enfant d'un ma-faq-section (sauf le titre).
@@ -790,7 +811,7 @@ function initEditor(schoolId) {
         while (parent) {
             if (parent.get('type') === 'ma-faq-section') {
                 const lock = () => {
-                    if (isFaqTitle(component)) {
+                    if (isFaqTitle(component) || isFaqAnswerText(component)) {
                         component.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
                     } else {
                         component.set({ editable: false, selectable: false, hoverable: false, droppable: false });
@@ -808,10 +829,10 @@ function initEditor(schoolId) {
     // 2. Clic sur un enfant → rediriger la sélection vers le ma-faq-section parent
     editor.on('component:selected', (component) => {
         if (component.get('type') === 'ma-faq-section') return;
-        // Exception : le titre .ma-title reste sélectionnable INDIVIDUELLEMENT,
-        // pour pouvoir changer sa police / taille / alignement via le Style Manager
-        // (comme les réponses). Sans ça, le clic renvoyait vers la section entière.
-        if (isFaqTitle(component)) return;
+        // Exceptions : le titre .ma-title (styling) ET la réponse .ma-a (édition +
+        // gras via le RTE) restent sélectionnables INDIVIDUELLEMENT. Sans ça, le
+        // clic renvoyait vers la section entière et empêchait de les éditer.
+        if (isFaqTitle(component) || isFaqAnswerText(component)) return;
         let parent = component.parent();
         while (parent) {
             if (parent.get('type') === 'ma-faq-section') {
@@ -883,20 +904,49 @@ function initEditor(schoolId) {
                         return;
                     }
 
+                    // Ordre d'affichage : les FAQ déjà sélectionnées d'abord, dans
+                    // l'ordre mémorisé (data-faq-ids), puis les autres. L'ordre des
+                    // lignes = l'ordre final des Q/A sur la page (modifiable via ▲/▼).
+                    const orderMap = new Map(existingIds.map((id, i) => [id, i]));
+                    faqs.sort((a, b) => {
+                        const ai = orderMap.has(a.id) ? orderMap.get(a.id) : Infinity;
+                        const bi = orderMap.has(b.id) ? orderMap.get(b.id) : Infinity;
+                        return ai - bi;
+                    });
+                    allFaqs = faqs;
+
                     body.innerHTML = faqs.map(faq => `
-                        <label style="display:flex;align-items:flex-start;gap:12px;padding:12px 20px;border-bottom:1px solid #f3f4f6;cursor:pointer;">
+                        <div class="faq-row" data-id="${escapeHtml(faq.id)}" style="display:flex;align-items:flex-start;gap:10px;padding:12px 20px;border-bottom:1px solid #f3f4f6;">
                             <input type="checkbox" value="${escapeHtml(faq.id)}"
                                 ${existingIds.includes(faq.id) ? 'checked' : ''}
                                 style="margin-top:3px;width:15px;height:15px;flex-shrink:0;cursor:pointer;accent-color:#1a7a5e;">
-                            <div style="min-width:0;">
+                            <div style="min-width:0;flex:1;">
                                 <div style="font-size:13px;font-weight:600;color:#111;line-height:1.35;">${escapeHtml(faq.question)}</div>
                                 <div style="font-size:11px;color:#9ca3af;margin-top:3px;line-height:1.4;">${escapeHtml(faq.answer.slice(0, 110))}${faq.answer.length > 110 ? '…' : ''}</div>
                             </div>
-                        </label>
+                            <div style="display:flex;flex-direction:column;gap:3px;flex-shrink:0;">
+                                <button type="button" class="faq-move-up" title="Monter cette question" style="border:1px solid #d1d5db;background:#fff;border-radius:4px;width:24px;height:20px;line-height:1;cursor:pointer;font-size:10px;color:#374151;">▲</button>
+                                <button type="button" class="faq-move-down" title="Descendre cette question" style="border:1px solid #d1d5db;background:#fff;border-radius:4px;width:24px;height:20px;line-height:1;cursor:pointer;font-size:10px;color:#374151;">▼</button>
+                            </div>
+                        </div>
                     `).join('');
 
-                    body.querySelectorAll('input[type=checkbox]').forEach(cb => {
+                    body.querySelectorAll('.faq-row input[type=checkbox]').forEach(cb => {
                         cb.addEventListener('change', updateSelCount);
+                    });
+                    body.querySelectorAll('.faq-move-up').forEach(btn => {
+                        btn.onclick = () => {
+                            const row = btn.closest('.faq-row');
+                            const prev = row && row.previousElementSibling;
+                            if (prev) row.parentNode.insertBefore(row, prev);
+                        };
+                    });
+                    body.querySelectorAll('.faq-move-down').forEach(btn => {
+                        btn.onclick = () => {
+                            const row = btn.closest('.faq-row');
+                            const next = row && row.nextElementSibling;
+                            if (next) row.parentNode.insertBefore(next, row);
+                        };
                     });
                     updateSelCount();
                 })
@@ -915,10 +965,14 @@ function initEditor(schoolId) {
             };
 
             function confirmSelection() {
-                const selectedIds  = [...body.querySelectorAll('input[type=checkbox]:checked')].map(cb => cb.value);
-                const selectedFaqs = allFaqs.filter(f => selectedIds.includes(f.id));
+                // Ordre = ordre des lignes dans le picker (modifiable via ▲/▼).
+                const orderedIds = [...body.querySelectorAll('.faq-row')].map(r => r.getAttribute('data-id'));
+                const checkedIds = new Set([...body.querySelectorAll('.faq-row input[type=checkbox]:checked')].map(cb => cb.value));
+                const selectedIds  = orderedIds.filter(id => checkedIds.has(id));
+                const byId         = new Map(allFaqs.map(f => [f.id, f]));
+                const selectedFaqs = selectedIds.map(id => byId.get(id)).filter(Boolean);
 
-                // Stocker les IDs sélectionnés
+                // Stocker les IDs sélectionnés (dans l'ordre choisi)
                 component.addAttributes({ 'data-faq-ids': selectedIds.join(',') });
 
                 // Reconstruire le HTML statique de la liste
@@ -938,10 +992,13 @@ function initEditor(schoolId) {
                             </div>`;
                         }).join('');
                         listComp.components(itemsHtml);
-                        // Re-verrouiller tous les enfants après mise à jour du contenu (titre exclu)
+                        // Re-verrouiller tous les enfants après mise à jour du contenu.
+                        // Exceptions : le titre (styling) et la réponse .ma-a (gras via RTE)
+                        // restent éditables. Pour la réponse, on NE descend PAS le verrou
+                        // dans ses enfants (le <p> reste éditable pour appliquer le gras).
                         const lockAll = (comp) => {
                             comp.get('components').each(child => {
-                                if (isFaqTitle(child)) {
+                                if (isFaqTitle(child) || isFaqAnswer(child)) {
                                     child.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
                                 } else {
                                     child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
@@ -1435,7 +1492,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
     <title>${title}</title>
     <meta name="description" content="${metaDesc}">
     <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${fontLinks}
-    <style>html { scroll-behavior: smooth; }\n${css}</style>
+    <style>html { scroll-behavior: smooth; scroll-padding-top: 90px; }\n${css}</style>
 </head>
 <body>
 ${bodyHtml}
@@ -2259,7 +2316,8 @@ function injectComponentFixedStyles(editor) {
             doc.head.appendChild(style);
         }
         style.innerHTML = `
-            html { scroll-behavior: smooth !important; }
+            html { scroll-behavior: smooth !important; scroll-padding-top: 100px !important; scroll-padding-bottom: 120px !important; }
+            [id^="form-"] { scroll-margin-top: 100px !important; scroll-margin-bottom: 120px !important; }
             /* CarouselVariantC — force grille 3 colonnes desktop */
             @media (min-width: 769px) {
                 .mcc-grid { grid-template-columns: repeat(3, 1fr) !important; display: grid !important; }

@@ -89,12 +89,16 @@ export default function(editor, categories) {
     flex-shrink: 0;
   }
   @media (max-width: 600px) {
+    /* Layout 2×2 comme avant, MAIS on garde les traits verticaux gris entre les
+       deux colonnes de chaque rangée. On masque uniquement le séparateur du
+       milieu (4e enfant), qui tomberait entre les deux rangées. */
     .mcc2-inner {
       flex-wrap: wrap;
-      gap: 24px;
+      gap: 24px 0;
     }
-    .mcc2-divider { display: none; }
-    .mcc2-stat { flex: 0 0 45%; }
+    .mcc2-stat { flex: 0 0 42%; }
+    .mcc2-divider { display: block; height: 44px; }
+    .mcc2-divider:nth-child(4) { display: none; }
   }
 </style>`
     });
