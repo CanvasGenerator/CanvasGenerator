@@ -1502,7 +1502,10 @@ ${bodyHtml}
 
 function extractBodyHtml(html = '') {
     const value = String(html || '');
-    const bodyMatch = value.match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    // ⚠️ Regex GREEDY pour capturer jusqu'au DERNIER </body> — le bloc <script>
+    // GrapesJS (var props = {...}) est injecté en fin de body et serait
+    // perdu avec un match non-greedy si le HTML contient des </body> internes.
+    const bodyMatch = value.match(/<body[^>]*>([\s\S]*)<\/body>/i);
     return bodyMatch ? bodyMatch[1] : value;
 }
 

@@ -42,6 +42,19 @@ export default function(editor, categories) {
                 // racine → fonctionne aussi pour les items injectés par le picker FAQ.
                 script: function () {
                     var root = this;
+
+                    // ⚠️ BUG CORRIGÉ : initialiser l'état d'affichage de TOUTES les réponses
+                    // au chargement. Sans ça, après déclinaison, les items non-ouverts
+                    // sont visibles alors que le CSS les cache (`.ma-a` sans `.ma-open`
+                    // parent) — mais seulement si le style CSS est absent ou surchargé.
+                    root.querySelectorAll('.ma-item').forEach(function(item) {
+                        var answer = item.querySelector('.ma-a');
+                        var btn    = item.querySelector('.ma-toggle');
+                        var isOpen = item.classList.contains('ma-open');
+                        if (answer) answer.style.display = isOpen ? 'block' : 'none';
+                        if (btn)    btn.innerHTML = isOpen ? '&#8722;' : '+';
+                    });
+
                     root.onclick = function (e) {
                         var q = e.target && e.target.closest ? e.target.closest('.ma-q') : null;
                         if (!q || !root.contains(q)) return;
@@ -52,7 +65,7 @@ export default function(editor, categories) {
                         var isOpen = item.classList.contains('ma-open');
                         item.classList.toggle('ma-open', !isOpen);
                         if (answer) answer.style.display = isOpen ? 'none' : 'block';
-                        if (btn) btn.innerHTML = isOpen ? '+' : '−';
+                        if (btn) btn.innerHTML = isOpen ? '+' : '&#8722;';
                     };
                 }
             }
