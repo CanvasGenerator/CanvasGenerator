@@ -1430,7 +1430,19 @@ function toRootRelativeAssets(str) {
 const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
 function buildFinalHtml(bodyHtml, css, properties = {}) {
-    bodyHtml = toRootRelativeAssets(extractBodyHtml(bodyHtml));
+    // Le bloc de scripts renvoyé APRÈS </body> par getHtml() porte le comportement
+    // des blocs (onglets, +/- FAQ, carrousels…) → il doit être réinjecté dans le body.
+    const exported = splitExportedHtml(bodyHtml);
+    // Cas d'un HTML DÉJÀ stocké repassé ici : le bloc marqué est dans le body,
+    // plus après </body> → on le récupère pour ne pas perdre les comportements.
+    const stored = (exported.body.match(
+        new RegExp(`${GJS_RUNTIME_START}([\\s\\S]*?)${GJS_RUNTIME_END}`, 'i')
+    ) || [])[1] || '';
+    const runtime = exported.runtime || stored;
+    bodyHtml = toRootRelativeAssets(extractBodyHtml(exported.body));
+    const runtimeScripts = runtime
+        ? `\n${GJS_RUNTIME_START}${runtime}${GJS_RUNTIME_END}`
+        : '';
     css = toRootRelativeAssets(css);
 
     // If SEO fields are empty, try to derive sensible defaults from the body
@@ -1495,18 +1507,45 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
     <style>html { scroll-behavior: smooth; scroll-padding-top: 90px; }\n${css}</style>
 </head>
 <body>
-${bodyHtml}
+${bodyHtml}${runtimeScripts}
 </body>
 </html>`;
 }
 
-function extractBodyHtml(html = '') {
+// Marqueurs du bloc de scripts de comportement des blocs (onglets, FAQ, carrousels…).
+// Permettent de le retirer au chargement pour ne pas l'importer comme composant.
+const GJS_RUNTIME_START = '<!-- gjs-runtime:start -->';
+const GJS_RUNTIME_END   = '<!-- gjs-runtime:end -->';
+
+/**
+ * Découpe la sortie de `editor.getHtml()`.
+ *
+ * ⚠️ GrapesJS 0.23 sérialise le wrapper en `<body>…</body>` PUIS concatène, APRÈS
+ * `</body>`, le `<script>` qui porte le comportement des composants ayant un
+ * `script:` (onglets admission, accordéon FAQ, carrousels, sticky CTA…).
+ * Ne garder que l'intérieur du <body> supprimait donc ces comportements du HTML
+ * enregistré : ils ne marchaient plus que dans l'éditeur (où GrapesJS exécute le
+ * script dans le canvas), pas dans l'aperçu dashboard / la page publiée / SFMC.
+ *
+ * @returns {{ body: string, runtime: string }} contenu du body + scripts de fin.
+ */
+function splitExportedHtml(html = '') {
     const value = String(html || '');
-    // ⚠️ Regex GREEDY pour capturer jusqu'au DERNIER </body> — le bloc <script>
-    // GrapesJS (var props = {...}) est injecté en fin de body et serait
-    // perdu avec un match non-greedy si le HTML contient des </body> internes.
-    const bodyMatch = value.match(/<body[^>]*>([\s\S]*)<\/body>/i);
-    return bodyMatch ? bodyMatch[1] : value;
+    const match = value.match(/<body[^>]*>([\s\S]*)<\/body>([\s\S]*)$/i);
+    if (!match) return { body: value, runtime: '' };
+    // Après </body> : uniquement le(s) <script> GrapesJS (et un éventuel </html>).
+    const runtime = match[2].replace(/<\/html\s*>/gi, '').trim();
+    return { body: match[1], runtime };
+}
+
+function extractBodyHtml(html = '') {
+    // Chargement dans l'éditeur : on retire le bloc de scripts (il est régénéré par
+    // GrapesJS à l'export), sinon il serait importé comme composant et dupliqué.
+    const { body } = splitExportedHtml(html);
+    return body.replace(
+        new RegExp(`${GJS_RUNTIME_START}[\\s\\S]*?${GJS_RUNTIME_END}`, 'gi'),
+        ''
+    );
 }
 
 // Restreint la liste de fonts du Style Manager aux SEULES fonts configurées
