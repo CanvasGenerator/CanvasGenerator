@@ -345,7 +345,11 @@ export default function(editor, categories) {
                 components: [{
                     tagName: 'div',
                     classes: ['mta-wrapper'],
-                    attributes: { id: 'mta-wrapper' },
+                    // ⚠️ L'id 'mta-wrapper' est RETIRÉ intentionnellement :
+                    // l'id hardcodé était utilisé comme fallback dans le script
+                    // (document.getElementById), ce qui causait des conflits
+                    // entre instances et après déclinaison. Le script utilise
+                    // maintenant uniquement `this` pour trouver le wrapper.
                     components: wrapperComps,
                 }]
             }]
@@ -361,9 +365,20 @@ export default function(editor, categories) {
             defaults: {
                 'script-props': [],
                 script: function() {
-                    // `this` = l'élément racine du composant (scopé par GrapesJS),
-                    // donc on ne dépend pas de l'export de l'id #mta-wrapper.
-                    var wrapper = this.querySelector('.mta-wrapper') || document.getElementById('mta-wrapper');
+                    // `this` = l'élément racine du composant (scopé par GrapesJS).
+                    // ⚠️ BUG CORRIGÉ : on n'utilise PLUS document.getElementById('mta-wrapper')
+                    // car cet identifiant hardcodé causait deux problèmes :
+                    //   1. Après déclinaison, le script est ré-exécuté dans un nouveau contexte
+                    //      et getElementById peut trouver l'élément du mauvais projet.
+                    //   2. Avec plusieurs instances du composant sur la même page, seule
+                    //      la première instance répondait aux clics.
+                    // Solution : utiliser uniquement `this` (rootElement scopé par GrapesJS).
+                    var root = this;
+                    var wrapper = root.querySelector('.mta-wrapper');
+                    if (!wrapper) {
+                        // Fallback sûr : si `root` est directement le wrapper
+                        wrapper = root.classList.contains('mta-wrapper') ? root : root;
+                    }
                     if (!wrapper) return;
 
                     var tabHds  = wrapper.querySelectorAll('.mta-tab-hd');

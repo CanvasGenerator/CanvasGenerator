@@ -72,7 +72,10 @@ function injectPreviewViewport(html) {
  * Utile pour pouvoir reconstruire le <head> avec des balises SEO à jour.
  */
 function extractBodyContent(fullHtml) {
-    const match = String(fullHtml || '').match(/<body[^>]*>([\s\S]*?)<\/body>/i);
+    // ⚠️ Regex GREEDY pour capturer jusqu'au DERNIER </body> — le bloc <script>
+    // GrapesJS est en fin de body et serait perdu avec un match non-greedy
+    // si des composants contiennent des balises </body> internes.
+    const match = String(fullHtml || '').match(/<body[^>]*>([\s\S]*)<\/body>/i);
     return match ? match[1] : fullHtml;
 }
 
