@@ -1,8 +1,10 @@
 /*
  * Fonts auto-hébergées du projet (branding des écoles).
- * Familles : Gotham (font principale des écoles) et Space Grotesk.
+ * Familles : Gotham (font principale des écoles), Space Grotesk,
+ * Garamond (IFA Paris) et Inter (École Bleue).
  * Fichiers : assets/fonts/. Voir js/fonts.js pour le registre associé.
- * NB : Gotham est une police commerciale — usage projet interne uniquement.
+ * NB : Gotham et Garamond sont des polices commerciales — usage projet interne
+ * uniquement. Inter est sous SIL Open Font License (assets/fonts/inter/OFL.txt).
  */
 
 /* ── Gotham (.otf) — graisses complètes + italiques ─────────────────────────
@@ -77,5 +79,52 @@
     src: url('../assets/fonts/space-grotesk/SpaceGrotesk-Bold.ttf') format('truetype');
     font-weight: 700;
     font-style: normal;
+    font-display: swap;
+}
+
+/* ── Garamond (.ttf) — police de l'école IFA Paris ─────────────────────────
+   Le lot ne fournit que 3 fichiers : Regular, Bold et Italic. Les graisses
+   intermédiaires (300/500/600) sont donc synthétisées par le navigateur ;
+   c'est voulu, il n'existe pas de fichier pour elles. Pas de Bold Italic. */
+@font-face {
+    font-family: 'Garamond';
+    src: url('../assets/fonts/garamond/Garamond-Regular.ttf') format('truetype');
+    font-weight: 400;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Garamond';
+    src: url('../assets/fonts/garamond/Garamond-Italic.ttf') format('truetype');
+    font-weight: 400;
+    font-style: italic;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Garamond';
+    src: url('../assets/fonts/garamond/Garamond-Bold.ttf') format('truetype');
+    font-weight: 700;
+    font-style: normal;
+    font-display: swap;
+}
+
+/* ── Inter (.ttf variable) — police de l'école École Bleue ─────────────────
+   Fonts variables (axes opsz + wght) : 2 fichiers couvrent TOUTE la plage de
+   graisses 100→900, en normal et en italique. D'où la syntaxe de plage
+   `font-weight: 100 900` au lieu d'une déclaration par graisse.
+   Inter était auparavant chargée depuis Google Fonts : elle est désormais
+   auto-hébergée (plus de dépendance réseau externe). */
+@font-face {
+    font-family: 'Inter';
+    src: url('../assets/fonts/inter/Inter-Variable.ttf') format('truetype-variations');
+    font-weight: 100 900;
+    font-style: normal;
+    font-display: swap;
+}
+@font-face {
+    font-family: 'Inter';
+    src: url('../assets/fonts/inter/Inter-Italic-Variable.ttf') format('truetype-variations');
+    font-weight: 100 900;
+    font-style: italic;
     font-display: swap;
 }

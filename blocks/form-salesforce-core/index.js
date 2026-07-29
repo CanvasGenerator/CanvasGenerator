@@ -32,7 +32,7 @@ export default function (editor, categories) {
                                 gap: 12px;
                                 padding: 16px 20px;
                                 border-radius: 10px;
-                                font-family: Outfit, sans-serif;
+                                font-family: var(--brand-font, 'Inter', sans-serif);
                                 font-size: 14px;
                                 line-height: 1.5;
                                 margin-bottom: 20px;
@@ -120,7 +120,7 @@ export default function (editor, categories) {
 
             <style>
                 .sfmc-snippet-logic, .sfmc-snippet-messages { display: none !important; }
-                .form-core-section { padding: 60px 20px; background: var(--brand-surface, #f5f5f5); font-family: 'Outfit', sans-serif; }
+                .form-core-section { padding: 60px 20px; background: var(--brand-surface, #f5f5f5); font-family: var(--brand-font, 'Inter', sans-serif); }
                 .form-core-container { max-width: 480px; margin: 0 auto; background: var(--brand-background, #ffffff); padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
                 .sf-logo-badge { width: 40px; height: 40px; background: #00A1E0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; color: white; font-size: 18px; }
                 .form-header-premium { text-align: center; margin-bottom: 25px; }

@@ -1,6 +1,7 @@
 const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
+const { normalizeBranding, fontStackById } = require('../js/fonts');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
 const cheerio = require('cheerio');
@@ -33,10 +34,10 @@ function rewriteAssetsToRoot(html) {
 }
 
 // Feuille Google Fonts des familles additionnelles proposées dans l'éditeur.
-const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
 /**
- * Garantit le chargement des polices (Gotham/Space Grotesk via /css/fonts.css +
+ * Garantit le chargement des polices (Gotham/Space Grotesk/Garamond/Inter via /css/fonts.css +
  * Google Fonts). Injecte les <link> avant </head> UNIQUEMENT si absents.
  */
 function ensureFontLinks(html) {
@@ -944,12 +945,21 @@ module.exports = async function handler(req, res) {
                 if (school) {
                     const primary   = school.color || '#3b82f6';
                     const secondary = school.secondaryColor || (schoolId === 'efap' ? '#1a1a1a' : '#2563eb');
+                    // --brand-font : sans elle, les blocs (qui déclarent tous
+                    // `var(--brand-font, 'Inter', sans-serif)`) retombaient sur le
+                    // fallback Inter dans l'aperçu. Nécessaire pour les pages
+                    // enregistrées AVANT que buildFinalHtml ne grave la variable.
+                    // Faible spécificité, pas de !important → un override de police
+                    // sur un composant précis continue de primer.
+                    const schoolFont = fontStackById(normalizeBranding(school.branding, school).defaultFont);
                     const brandStyles = `
                         <style id="brand-variables-preview">
                             :root {
                                 --brand-primary: ${primary};
                                 --brand-secondary: ${secondary};
+                                --brand-font: ${schoolFont};
                             }
+                            body { font-family: var(--brand-font); }
                         </style>
                     `;
                     html = html.replace('</head>', `${brandStyles}</head>`);
