@@ -22,7 +22,12 @@
     // ── Fonts disponibles dans le projet (auto-hébergées, voir css/fonts.css) ──
     const PROJECT_FONTS = [
         { id: 'gotham',        name: 'Gotham',        stack: "'Gotham', Arial, sans-serif" },
-        { id: 'space-grotesk', name: 'Space Grotesk', stack: "'Space Grotesk', 'Segoe UI', sans-serif" }
+        { id: 'space-grotesk', name: 'Space Grotesk', stack: "'Space Grotesk', 'Segoe UI', sans-serif" },
+        // Garamond : police de l'école IFA Paris (serif → fallbacks serif).
+        { id: 'garamond',      name: 'Garamond',      stack: "'Garamond', 'EB Garamond', Georgia, serif" },
+        // Inter : police de l'école École Bleue (désormais auto-hébergée, elle
+        // ne fait donc plus partie de GOOGLE_FONTS).
+        { id: 'inter',         name: 'Inter',         stack: "'Inter', 'Segoe UI', sans-serif" }
     ];
 
     // ── Fonts Google additionnelles (chargées dynamiquement dans l'éditeur) ──
@@ -32,7 +37,6 @@
         { id: 'montserrat', name: 'Montserrat', stack: "'Montserrat', sans-serif" },
         { id: 'lato',       name: 'Lato',       stack: "'Lato', sans-serif" },
         { id: 'poppins',    name: 'Poppins',    stack: "'Poppins', sans-serif" },
-        { id: 'inter',      name: 'Inter',      stack: "'Inter', sans-serif" },
         { id: 'oswald',     name: 'Oswald',     stack: "'Oswald', sans-serif" },
         { id: 'raleway',    name: 'Raleway',    stack: "'Raleway', sans-serif" }
     ];

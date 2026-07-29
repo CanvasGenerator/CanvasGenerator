@@ -3,7 +3,7 @@ export function initExport(editor) {
     const exportJson = document.getElementById('export-json');
     const exportZip = document.getElementById('export-zip');
 
-    // Récupère le CSS @font-face (Gotham, Space Grotesk) et réécrit les URLs
+    // Récupère le CSS @font-face (Gotham, Space Grotesk, Garamond, Inter) et réécrit les URLs
     // relatives en absolues (origin) pour que les fonts se chargent dans le
     // fichier exporté. Mis en cache après le premier fetch.
     let _fontCssCache = null;
@@ -22,7 +22,7 @@ export function initExport(editor) {
         return _fontCssCache;
     }
 
-    const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+    const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
     // Récupère la page bilingue auto-portée (toutes les langues + switch) depuis le
     // serveur si la page a ≥2 variantes de langue. Renvoie null sinon (→ export normal).

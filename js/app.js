@@ -557,7 +557,7 @@ function initEditor(schoolId) {
         // imprévisible qui fait perdre du travail). On ne trace que les vraies éditions
         // (ajout, suppression, style/dimension, typo, attributs).
         undoManager: { trackSelection: false, maximumStackLength: 500 },
-        // NB : les @font-face (Gotham, Space Grotesk) sont chargés dans l'iframe
+        // NB : les @font-face (Gotham, Space Grotesk, Garamond, Inter) sont chargés dans l'iframe
         // canvas via injectBrandVariables (link explicite en URL absolue), plus
         // fiable que l'option canvas.styles.
         deviceManager: {
@@ -1427,7 +1427,7 @@ function toRootRelativeAssets(str) {
 
 // Feuille Google Fonts des familles additionnelles proposées dans l'éditeur
 // (cf. ReetainFonts.GOOGLE_FONTS / export.js). Constante unique = source de vérité.
-const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
 function buildFinalHtml(bodyHtml, css, properties = {}) {
     // Le bloc de scripts renvoyé APRÈS </body> par getHtml() porte le comportement
@@ -1489,12 +1489,37 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
         ? `\n    <script type="application/ld+json">\n    ${schemaLd}\n    </script>`
         : '';
 
-    // Polices : @font-face auto-hébergés (Gotham, Space Grotesk) via /css/fonts.css
+    // Polices : @font-face auto-hébergés (Gotham, Space Grotesk, Garamond, Inter) via /css/fonts.css
     // (URL root-relative → fonctionne en preview et sur les URLs publiques ; ses url()
     // internes '../assets/fonts/…' résolvent alors vers /assets/fonts/…), + Google Fonts
     // pour les familles additionnelles proposées dans l'éditeur. Sans ça, la page servie
     // hors éditeur retombe sur une police système.
     const fontLinks = `\n    <link href="${GOOGLE_FONTS_HREF}" rel="stylesheet">\n    <link rel="stylesheet" href="/css/fonts.css">`;
+
+    // ── Identité de l'école GRAVÉE dans la page ──────────────────────────────
+    // Les blocs consomment tous des `var(--brand-*, <défaut du bloc>)` : couleurs
+    // (--brand-text, --brand-primary, --brand-button-bg…) ET police
+    // (--brand-font). Ces variables étaient injectées dans le canvas de
+    // l'éditeur mais JAMAIS écrites dans la page enregistrée → un bloc glissé
+    // héritait bien des couleurs de l'école dans l'éditeur, puis retombait sur
+    // ses couleurs/police par défaut une fois publié.
+    // Pourquoi ici et pas côté serveur : SFMC sert la page en STATIQUE (asset
+    // webpage), aucun serveur n'intervient au rendu → les variables doivent être
+    // écrites dans le HTML au moment de la sauvegarde.
+    // Même source que le canvas (buildBrandRootVars) → aucune dérive possible.
+    // Faible spécificité, AUCUN !important, et placé AVANT ${css} → une couleur
+    // ou une police posée sur un composant précis (Style Manager → règle #id, ou
+    // style inline) prime toujours. C'est la règle métier : l'override gagne.
+    let brandCss = '';
+    const brandVars = CURRENT_SCHOOL ? buildBrandRootVars(CURRENT_SCHOOL) : '';
+    if (brandVars) {
+        // NB : on pose UNIQUEMENT font-family sur body, comme le fait le canvas
+        // de l'éditeur (fontBaseCss). Surtout PAS `color: var(--brand-text)` :
+        // Brassart (#3227d3) et 3WA (#55d327) ont un --brand-text coloré, tout le
+        // texte par défaut deviendrait bleu / vert vif. Ce sont les blocs qui
+        // décident où --brand-text s'applique, via leurs propres var().
+        brandCss = `:root { ${brandVars} }\nbody { font-family: var(--brand-font); }\n`;
+    }
 
     return `<!DOCTYPE html>
 <html lang="fr">
@@ -1504,7 +1529,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
     <title>${title}</title>
     <meta name="description" content="${metaDesc}">
     <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${fontLinks}
-    <style>html { scroll-behavior: smooth; scroll-padding-top: 90px; }\n${css}</style>
+    <style>html { scroll-behavior: smooth; scroll-padding-top: 90px; }\n${brandCss}${css}</style>
 </head>
 <body>
 ${bodyHtml}${runtimeScripts}
@@ -2200,8 +2225,23 @@ function attachHdrLangSwitch(editor) {
 }
 window.attachHdrLangSwitch = attachHdrLangSwitch;
 
-function injectBrandVariables(editor, school, intoMainDoc = false) {
-    if (!school) return;
+/**
+ * Construit le bloc `:root { --brand-* }` d'une école — SOURCE UNIQUE.
+ *
+ * Utilisé par DEUX consommateurs qui doivent rester rigoureusement alignés :
+ *   1. injectBrandVariables() → injecte dans le canvas de l'éditeur (aperçu live)
+ *   2. buildFinalHtml()       → GRAVE les mêmes variables dans la page enregistrée
+ *
+ * ⚠️ Ne jamais dupliquer cette liste ailleurs. C'est précisément la duplication
+ * qui a causé le bug « ça marche dans l'éditeur, pas sur la page publiée » :
+ * l'éditeur définissait les 21 variables, la page publiée AUCUNE, donc tous les
+ * blocs retombaient sur leur fallback (couleurs et police par défaut du bloc)
+ * au lieu d'utiliser celles de l'école.
+ *
+ * @returns {string} le contenu du `:root { … }` (sans le sélecteur)
+ */
+function buildBrandRootVars(school) {
+    if (!school) return '';
     const primary = school.color || '#3b82f6';
     const secondary = school.secondaryColor || '#1a1a1a';
     const colorHeader = school.colorHeader || primary;
@@ -2212,8 +2252,6 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     if (school.id === 'efap') bandeColor = '#1a1a1a';
     if (school.id === 'cread') bandeColor = '#d4af37';
 
-    // Branding : font par défaut + palette 16 rôles (normalizeBranding garantit
-    // un objet complet, dérivé des couleurs de l'école si non configuré).
     const RF = window.ReetainFonts;
     const branding = RF ? RF.normalizeBranding(school.branding, school) : (school.branding || {});
     const c = branding.colors || {};
@@ -2221,35 +2259,63 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
     // n'est pas chargé → la font choisie pour l'école s'applique quand même.
     const FONT_STACKS = {
         'gotham': "'Gotham', Arial, sans-serif",
-        'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif"
+        'space-grotesk': "'Space Grotesk', 'Segoe UI', sans-serif",
+        'garamond': "'Garamond', 'EB Garamond', Georgia, serif",
+        'inter': "'Inter', 'Segoe UI', sans-serif"
     };
-    const FONT_NAMES = { 'gotham': 'Gotham', 'space-grotesk': 'Space Grotesk' };
     const brandFont =
         (RF && RF.fontStackById(branding.defaultFont)) ||
         FONT_STACKS[branding.defaultFont] ||
         FONT_STACKS.gotham;
+
+    return `--brand-primary: ${c.primary || primary};`
+        + ` --brand-secondary: ${c.secondary || secondary};`
+        + ` --brand-primary-rgb: ${rgb};`
+        + ` --brand-header: ${colorHeader};`
+        + ` --brand-carousel: ${colorCarousel};`
+        + ` --bande-color: ${bandeColor};`
+        + ` --brand-font: ${brandFont};`
+        + ` --brand-background: ${c.background || '#ffffff'};`
+        + ` --brand-surface: ${c.surface || '#f5f5f5'};`
+        + ` --brand-text: ${c.text || '#1a1a1a'};`
+        + ` --brand-muted: ${c.mutedText || '#6b7280'};`
+        + ` --brand-border: ${c.border || '#e5e7eb'};`
+        + ` --brand-accent: ${c.accent || secondary};`
+        + ` --brand-button-bg: ${c.buttonBackground || primary};`
+        + ` --brand-button-hover: ${c.buttonHover || primary};`
+        + ` --brand-button-text: ${c.buttonText || '#ffffff'};`
+        + ` --brand-link: ${c.link || primary};`
+        + ` --brand-link-hover: ${c.linkHover || primary};`
+        + ` --brand-success: ${c.success || '#16a34a'};`
+        + ` --brand-warning: ${c.warning || '#f59e0b'};`
+        + ` --brand-error: ${c.error || '#dc2626'};`;
+}
+
+function injectBrandVariables(editor, school, intoMainDoc = false) {
+    if (!school) return;
+    // NB : les couleurs/police de marque sont désormais toutes calculées par
+    // buildBrandRootVars(). On ne garde ici que ce qui sert AUX RÈGLES
+    // spécifiques au canvas (override header/carrousel, préchargement font).
+    const primary = school.color || '#3b82f6';
+    const colorHeader = school.colorHeader || primary;
+    const colorCarousel = school.colorCarousel || primary;
+
+    const RF = window.ReetainFonts;
+    const branding = RF ? RF.normalizeBranding(school.branding, school) : (school.branding || {});
+    const FONT_NAMES = {
+        'gotham': 'Gotham',
+        'space-grotesk': 'Space Grotesk',
+        'garamond': 'Garamond',
+        'inter': 'Inter'
+    };
     // Nom de famille (pas le stack) pour forcer le préchargement de la police.
     const brandFontName =
         (RF && RF.fontById(branding.defaultFont) && RF.fontById(branding.defaultFont).name) ||
         FONT_NAMES[branding.defaultFont] || 'Gotham';
     // Rôles de couleurs → CSS vars consommées par les blocs.
-    const roleVars = `
-      --brand-font: ${brandFont};
-      --brand-background: ${c.background || '#ffffff'};
-      --brand-surface: ${c.surface || '#f5f5f5'};
-      --brand-text: ${c.text || '#1a1a1a'};
-      --brand-muted: ${c.mutedText || '#6b7280'};
-      --brand-border: ${c.border || '#e5e7eb'};
-      --brand-accent: ${c.accent || secondary};
-      --brand-button-bg: ${c.buttonBackground || primary};
-      --brand-button-hover: ${c.buttonHover || primary};
-      --brand-button-text: ${c.buttonText || '#ffffff'};
-      --brand-link: ${c.link || primary};
-      --brand-link-hover: ${c.linkHover || primary};
-      --brand-success: ${c.success || '#16a34a'};
-      --brand-warning: ${c.warning || '#f59e0b'};
-      --brand-error: ${c.error || '#dc2626'};`;
-    const css = `:root { --brand-primary: ${c.primary || primary}; --brand-secondary: ${c.secondary || secondary}; --brand-primary-rgb: ${rgb}; --brand-header: ${colorHeader}; --brand-carousel: ${colorCarousel}; --bande-color: ${bandeColor};${roleVars} }`;
+    // Construites par buildBrandRootVars() : MÊME source que buildFinalHtml(),
+    // pour que l'aperçu éditeur et la page publiée ne puissent plus diverger.
+    const css = `:root { ${buildBrandRootVars(school)} }`;
 
     // Règles directes avec !important pour overrider les couleurs hardcodées
     // GrapesJS peut stocker des valeurs résolues (#hex) au lieu de var() → on force ici
@@ -2288,7 +2354,7 @@ body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-seri
             try {
                 const doc = editor.Canvas.getDocument();
                 if (!doc) return false;
-                // 1. Charger les @font-face (Gotham, Space Grotesk) DANS l'iframe.
+                // 1. Charger les @font-face (Gotham, Space Grotesk, Garamond, Inter) DANS l'iframe.
                 // On l'injecte explicitement ici (en plus de canvas.styles) car
                 // cette option ne charge pas toujours la feuille dans l'iframe.
                 // URL absolue → les url() relatives de fonts.css résolvent bien.
@@ -2303,7 +2369,7 @@ body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-seri
                     const gLink = doc.createElement('link');
                     gLink.id = 'google-fonts-link';
                     gLink.rel = 'stylesheet';
-                    gLink.href = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+                    gLink.href = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
                     doc.head.appendChild(gLink);
                 }
                 // 2. Variables de marque + font par défaut.

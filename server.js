@@ -60,6 +60,7 @@ const mimeTypes = {
     '.woff': 'font/woff',
     '.woff2': 'font/woff2',
     '.ttf': 'font/ttf',
+    '.otf': 'font/otf',
 };
 
 function escapeHtml(value = '') {
@@ -102,10 +103,10 @@ function rewriteAssetsToRoot(html) {
 }
 
 // Feuille Google Fonts des familles additionnelles proposées dans l'éditeur.
-const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
+const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
 /**
- * Garantit le chargement des polices (Gotham/Space Grotesk via /css/fonts.css +
+ * Garantit le chargement des polices (Gotham/Space Grotesk/Garamond/Inter via /css/fonts.css +
  * Google Fonts) dans le HTML servi. Injecte les <link> avant </head> UNIQUEMENT
  * si absents → répare les pages sauvegardées avant l'ajout des polices, sans
  * doublonner celles qui les contiennent déjà.
@@ -286,6 +287,15 @@ function buildBrandCssVarsForPreview(school) {
   --brand-error:       ${c.error       || '#dc2626'};
   ${colorsVarsArray.join('\n  ')}
 }
+/* Font de l'école appliquée à la racine — pendant serveur du fontBaseCss de
+   l'éditeur (app.js). Sans cette règle, un composant qui ne déclare PAS sa
+   propre font (bloc texte brut ajouté par le marketeur) s'affiche à la bonne
+   police dans l'éditeur mais retombe sur la police par défaut du navigateur
+   sur la page publiée. Les sélecteurs GrapesJS ([data-gjs-type]) ne sont pas
+   repris : ils n'existent que dans le canvas.
+   Volontairement SANS !important et à faible spécificité → un override de font
+   sur un composant précis (Style Manager) continue de primer. */
+body { font-family: var(--brand-font, 'Inter', sans-serif); }
 /* PREVIEW – override couleur hardcodée du SEUL header générique master
    (aligné sur injectBrandVariables() de l'éditeur, qui ne force que .mh-header).
    .header-efap / .header-brassart ne sont PAS forcés : ces headers de marque
