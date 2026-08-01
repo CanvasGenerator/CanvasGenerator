@@ -579,6 +579,15 @@ function initEditor(schoolId) {
         selectorManager: {
             componentFirst: true, // Applique les styles par ID plutôt que par classe par défaut
         },
+        // Conserve les attributs `onclick` du HTML parsé. Par défaut GrapesJS les
+        // supprime (allowUnsafeAttr:false) à CHAQUE re-parse — notamment à la fin
+        // de l'édition d'un texte : le « texte déroulant » inséré via la barre
+        // d'outils (blocks/texte-deroulant/index.js) perdait alors sa bascule dès
+        // qu'on cliquait ailleurs. `allowScripts` reste false : une balise <script>
+        // collée dans du contenu importé est toujours retirée.
+        parser: {
+            optionsHtml: { allowUnsafeAttr: true },
+        },
     });
 
     // Ajout d'un bouton "Annuler la mise en forme" dans l'éditeur de texte enrichi (RTE)
@@ -2437,6 +2446,19 @@ function injectComponentFixedStyles(editor) {
             [class*="-phone-prefix-wrap"] { width: 92px !important; flex-shrink: 0 !important; }
             /* Plus de drapeau dans les formulaires (même sur les pages figées). */
             .jpo-flag { display: none !important; }
+            /* « Texte déroulant » (bouton ⌄ de la barre d'outils de texte) : le
+               détail est masqué par un style inline display:none tant qu'on n'a
+               pas cliqué. On ne le force visible QUE pendant la rédaction du texte
+               qui le contient (GrapesJS pose contenteditable="true" sur l'élément
+               en cours d'édition), sinon il serait impossible de le rédiger une
+               fois replié. Hors édition, le déroulant se comporte dans le canvas
+               exactement comme sur la page publiée.
+               Voir blocks/texte-deroulant/index.js. */
+            [contenteditable="true"] .txt-deroulant-detail {
+                display: block !important;
+                outline: 1px dashed rgba(0,0,0,.35);
+                outline-offset: 2px;
+            }
             /* Logos header COMPACTS en MOBILE UNIQUEMENT (le desktop reste librement
                redimensionnable via le panneau Style). Corrige aussi les pages figées. */
             @media (max-width: 768px) {
