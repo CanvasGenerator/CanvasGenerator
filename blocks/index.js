@@ -21,6 +21,9 @@ import imageCaption from './image-caption/index.js';
 // les images de TOUS les blocs (hero, carrousels, deux colonnes, image & caption…).
 // À charger une seule fois ; l'<img> est enveloppée dans un <a href> à l'export.
 import imageLink from './image-link/index.js';
+// N'ajoute PAS un bloc : ajoute un bouton « Texte déroulant » à la barre d'outils
+// de texte (RTE), donc utilisable dans les textes de TOUS les blocs.
+import texteDeroulant from './texte-deroulant/index.js';
 import spacer from './spacer/index.js';
 import horizontalMenu from './horizontal-menu/index.js';
 import bandeRose from './bande-rose/index.js';
@@ -66,7 +69,8 @@ export function registerBlocks(editor) {
     // Load all blocks
     [
         headers, brassartHeaders, efapHeaders, wa3Headers, moreSchoolHeaders, footers, icartBlocks,
-        hero, twoColumn, richText, ctaButton, stickyCta, insertionVideo, admissionTabs, imageCaption, imageLink, spacer,
+        hero, twoColumn, richText, ctaButton, stickyCta, insertionVideo, admissionTabs, imageCaption, imageLink,
+        texteDeroulant, spacer,
         horizontalMenu, bandeRose, programmeList, programmeEditorial,
         troisRaisons, formSfmc, chiffresCles,
         carousel, CarrouselTemoignages,
