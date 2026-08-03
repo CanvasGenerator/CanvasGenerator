@@ -29,7 +29,10 @@ export function initExport(editor) {
     async function getBilingualExportHtml() {
         try {
             const schoolId = new URLSearchParams(location.search).get('school') || 'unknown';
-            const projectName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+            // Identité du projet : sessionStorage (portée = cet onglet). Voir tabStore
+            // dans app.js — localStorage était partagé entre onglets et exportait la
+            // page d'un autre template ouvert ailleurs.
+            const projectName = sessionStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
             if (!projectName) return null;
             const res = await fetch(`/api/content/bilingual/${encodeURIComponent(projectName)}`);
             if (!res.ok) return null;

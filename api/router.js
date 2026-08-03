@@ -587,7 +587,10 @@ module.exports = async function handler(req, res) {
         }
 
         if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
-            const projectName = pathname.replace('/api/project/', '');
+            // Le client encode le nom (encodeURIComponent) : sans décodage, un nom
+            // contenant un espace/accent (« school-master__BROCHURE TEST 2 ») est
+            // ré-encodé en %2520 → 404 silencieux côté éditeur.
+            const projectName = decodeURIComponent(pathname.replace('/api/project/', ''));
             const structured = await getStructuredProjectForLegacyProject(projectName).catch(e => {
                 if (!isMissingContentSchemaError(e)) console.warn('Structured project load unavailable:', e.message);
                 return null;
