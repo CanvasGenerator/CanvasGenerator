@@ -124,6 +124,24 @@ let currentProjectIsNew = true;
 let currentProjectLanguage = 'FR';
 let currentStructuredPageId = null;
 
+// ── Identité du projet ouvert : PAR ONGLET, jamais partagée ────────────────
+// L'identité de la page en cours d'édition (`__currentFullName`, `__currentProject`,
+// `__currentPageId`) était stockée dans localStorage, qui est PARTAGÉ par tous les
+// onglets de l'origine et n'est indexé que par école. Conséquences :
+//   • ouvrir un 2ᵉ template de la même école (tous les masters ont school=master)
+//     dans un autre onglet repointait le bouton « Enregistrer » de TOUS les onglets
+//     ouverts vers ce dernier template → le contenu de l'onglet A était écrit dans
+//     le projet B (MASTER_CANDIDATURE écrasé par MASTER_BROCHURE, puis par
+//     MASTER_ATELIER, etc.) ;
+//   • un simple rechargement héritait de l'identité du dernier projet ouvert.
+// sessionStorage est propre à l'onglet ET survit au rechargement (F5) : c'est
+// exactement la portée attendue pour « la page que CET onglet est en train d'éditer ».
+const tabStore = {
+    get(key) { try { return sessionStorage.getItem(key); } catch (e) { return null; } },
+    set(key, value) { try { sessionStorage.setItem(key, value); } catch (e) {} },
+    remove(key) { try { sessionStorage.removeItem(key); } catch (e) {} }
+};
+
 // ── Modèle « un projet, plusieurs langues » ────────────────────────────────
 // Langue D'ORIGINE de la page (la variante originale). Les autres langues sont
 // des variantes de traduction stockées dans la même page (table page_variants).
@@ -174,7 +192,7 @@ function updatePageIdBadge() {
     if (!badge) return;
     
     const schoolId = window.CURRENT_SCHOOL?.id || new URLSearchParams(window.location.search).get('school')?.toLowerCase();
-    const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+    const fullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
     
     if (fullName && !currentProjectIsNew) {
         // Strip the school prefix to match SFMC logic (e.g. school-mopa__MyPage__FR -> MyPage__FR)
@@ -197,6 +215,9 @@ function updatePageIdBadge() {
             url.searchParams.set('project', fullName);
             url.searchParams.delete('pageId'); // Nettoyage de l'ancien paramètre
             window.history.replaceState({}, '', url);
+            // L'URL fait foi pour l'autoload GrapesJS : le brouillon local appartient
+            // désormais à ce projet (sinon il serait purgé au prochain rechargement).
+            setAutosaveOwner(`reetain-builder__${schoolId}__gjsProject`, fullName);
         } catch(e) {}
     } else {
         badge.style.display = 'none';
@@ -294,18 +315,24 @@ document.addEventListener('DOMContentLoaded', async () => {
                 }
 
                 const res = await fetch(`/api/project/${encodeURIComponent(projectParam)}`);
-                if (!res.ok) return;
+                if (!res.ok) throw new Error(`${res.status} ${await res.text()}`);
                 const project = await res.json();
-                window.editor.loadProjectData(parseProjectData(project.project_data));
+                const loadedData = parseProjectData(project.project_data);
+                if (!Array.isArray(loadedData.pages) || !loadedData.pages.length) {
+                    // loadProjectData({}) est un no-op : le canvas garderait le contenu
+                    // autochargé (un AUTRE projet) tout en pointant sur celui-ci.
+                    throw new Error('project_data vide ou illisible');
+                }
+                window.editor.loadProjectData(loadedData);
                 injectBrandVariables(window.editor, CURRENT_SCHOOL);
                 populateProperties(project.properties || {});
                 setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
                 updatePageIdBadge();
-                localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, projectParam);
+                tabStore.set(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
-                localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
+                tabStore.set(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
                 // Modèle multilingue : la langue affichée est la langue D'ORIGINE de la
                 // page (les traductions se chargent ensuite via le switch). On lit le
                 // résumé des variantes renvoyé par le serveur.
@@ -319,7 +346,21 @@ document.addEventListener('DOMContentLoaded', async () => {
                 if (overlay) overlay.classList.add('hidden');
                 const openModal = document.getElementById('school-open-modal');
                 if (openModal) openModal.classList.add('hidden');
-            } catch (e) { console.error('Auto-load project failed:', e); }
+            } catch (e) {
+                // Échec silencieux = piège : le canvas afficherait le brouillon local
+                // (potentiellement un autre template) alors que l'utilisateur croit
+                // éditer celui demandé — et « Enregistrer » l'écraserait.
+                console.error('Auto-load project failed:', e);
+                currentProjectIsNew = true;
+                currentStructuredPageId = null;
+                tabStore.remove(`reetain-builder__${schoolId}__currentFullName`);
+                try { window.editor.setComponents(''); window.editor.setStyle(''); } catch (err) {}
+                const msg = `Impossible de charger « ${pageIdParam || projectParam} ».\n`
+                    + `L'éditeur a été vidé pour éviter d'écraser une autre page. `
+                    + `Rechargez la page ou rouvrez le projet depuis le tableau de bord.\n\n${e.message}`;
+                if (window.showAlert) await window.showAlert({ title: 'Chargement impossible', message: msg });
+                else alert(msg);
+            }
         }, 200);
     }
 });
@@ -386,11 +427,11 @@ async function loadStructuredPageIntoEditor(pageId, schoolId) {
     // IMPORTANT : écrire le fullName en localStorage AVANT updatePageIdBadge(),
     // car le badge + l'URL (?project=) sont lus depuis localStorage. Sinon le
     // badge/URL reflètent l'ancienne page (bug « l'URL ne change pas »).
-    localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
+    tabStore.set(`reetain-builder__${schoolId}__currentProject`, displayName);
     if (legacyProjectName) {
-        localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, legacyProjectName);
+        tabStore.set(`reetain-builder__${schoolId}__currentFullName`, legacyProjectName);
     } else {
-        localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
+        tabStore.remove(`reetain-builder__${schoolId}__currentFullName`);
     }
     updatePageIdBadge();
 
@@ -416,6 +457,47 @@ function cleanCorruptedAutosave(storageKey) {
         console.warn(`⚠️ Autosave corrompu supprimé (${storageKey})`, e.message);
         localStorage.removeItem(storageKey);
     }
+}
+
+// ── Propriétaire de l'autosave GrapesJS ────────────────────────────────────
+// La clé d'autosave est par ÉCOLE (`reetain-builder__<school>__gjsProject`) : tous
+// les templates maîtres (school=master) la partagent. GrapesJS l'autocharge au
+// démarrage (storageManager.autoload, activé par défaut) AVANT que le projet
+// demandé par l'URL n'arrive du serveur → on voyait apparaître le dernier master
+// édité à la place de celui demandé (« je clique Modifier sur CANDIDATURE et c'est
+// BROCHURE qui s'affiche »). On tamponne donc le blob avec l'identité du projet
+// auquel il appartient, et on le jette s'il vient d'un autre projet.
+function autosaveOwnerKey(storageKey) { return `${storageKey}__owner`; }
+
+// Identité du projet ciblé par l'URL courante ('' = nouveau projet).
+function currentProjectScope() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('project') || (params.get('pageId') ? `page:${params.get('pageId')}` : '');
+}
+
+function setAutosaveOwner(storageKey, owner) {
+    try { localStorage.setItem(autosaveOwnerKey(storageKey), owner || ''); } catch (e) {}
+}
+
+// Purge l'autosave s'il appartient à un AUTRE projet que celui qu'on ouvre.
+// Sans cela le canvas affiche (et peut réenregistrer) le contenu d'un autre template.
+function dropForeignAutosave(storageKey) {
+    try {
+        const scope = currentProjectScope();
+        const owner = localStorage.getItem(autosaveOwnerKey(storageKey));
+        if (owner === null) {
+            // Aucun tampon (1ʳᵉ exécution après cette correction) : on ne peut pas
+            // garantir la provenance du brouillon → on le jette par sécurité.
+            if (localStorage.getItem(storageKey)) {
+                console.warn(`⚠️ Autosave sans propriétaire connu supprimé (${storageKey})`);
+                localStorage.removeItem(storageKey);
+            }
+        } else if (owner !== scope) {
+            console.warn(`⚠️ Autosave d'un autre projet ignoré (${owner || 'nouveau projet'} ≠ ${scope || 'nouveau projet'})`);
+            localStorage.removeItem(storageKey);
+        }
+        setAutosaveOwner(storageKey, scope);
+    } catch (e) { /* localStorage indisponible : rien à purger */ }
 }
 
 // ── WYSIWYG : ajuste le zoom du canvas pour que le device Desktop (1280px) tienne
@@ -485,6 +567,8 @@ function initBlockSearch(editor) {
 function initEditor(schoolId) {
     const storageKey = `reetain-builder__${schoolId}__gjsProject`;
     cleanCorruptedAutosave(storageKey);
+    // Le brouillon local ne doit jamais provenir d'un autre projet de la même école.
+    dropForeignAutosave(storageKey);
 
     // Palette de couleurs de l'école → échantillons du color picker (Spectrum).
     // Ce même picker est partagé par le Style Manager (Propriétés) ET les traits de
@@ -1157,7 +1241,7 @@ function initEditor(schoolId) {
         getSchoolId:    () => CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id || 'master',
         getProjectName: () => {
             const sid = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id || 'unknown';
-            return localStorage.getItem(`reetain-builder__${sid}__currentProject`) || '';
+            return tabStore.get(`reetain-builder__${sid}__currentProject`) || '';
         },
         onSelectionChange: (ids) => { currentProjectProperties.campusIds = ids; }
     });
@@ -1389,7 +1473,7 @@ function collectProperties() {
 
 function populateProperties(props = {}) {
     const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-    const currentProjectSimpleName = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`) || 'Nouveau Projet';
+    const currentProjectSimpleName = tabStore.get(`reetain-builder__${schoolId}__currentProject`) || 'Nouveau Projet';
 
     const pageTitle = (props.title || '').trim() || currentProjectSimpleName;
     const seoTitle = (props.seoTitle || '').trim() || pageTitle;
@@ -2061,7 +2145,7 @@ function applyVariantsSummary(payload = {}) {
 async function triggerSfmcResync() {
     try {
         const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
-        const projectName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+        const projectName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
         if (!projectName) return;
         await fetch('/api/sfmc/resync', {
             method: 'POST',
@@ -2774,10 +2858,10 @@ function initUI(editor) {
 
     const getProjectName = async (action) => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        let name = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`);
+        let name = tabStore.get(`reetain-builder__${schoolId}__currentProject`);
         if (!name) {
             name = await showPrompt({ title: `${action} le projet`, message: 'Entrez un nom pour votre projet :', placeholder: 'ma-landing-page' });
-            if (name) localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
+            if (name) tabStore.set(`reetain-builder__${schoolId}__currentProject`, name);
         }
         return name;
     };
@@ -2787,8 +2871,8 @@ function initUI(editor) {
         const name = await showPrompt({ title: 'Nouveau Projet', message: 'Nom du nouveau projet :', placeholder: 'ma-landing-page' });
         if (name) {
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-            localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, name);
-            localStorage.removeItem(`reetain-builder__${schoolId}__currentFullName`);
+            tabStore.set(`reetain-builder__${schoolId}__currentProject`, name);
+            tabStore.remove(`reetain-builder__${schoolId}__currentFullName`);
             currentProjectIsNew = true;
             currentStructuredPageId = null;
             // Nouvelle page → aucune variante encore, langue d'origine FR par défaut
@@ -3153,7 +3237,7 @@ function initUI(editor) {
         const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
         showLoading('Sauvegarde en cours...');
         try {
-            const imgProjectName = localStorage.getItem(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentFullName`)
+            const imgProjectName = tabStore.get(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentFullName`)
                 || `school-${CURRENT_SCHOOL?.id || 'unknown'}__page`;
             const versionPayload = JSON.stringify({
                     html: finalHtml,
@@ -3163,7 +3247,7 @@ function initUI(editor) {
                     change_summary: `Saved from structured editor (${selectedLanguage || 'FR'})`,
                     metadata: { source: 'structured-editor' },
                     page: {
-                        title: propsToSave.title || localStorage.getItem(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentProject`) || 'Page',
+                        title: propsToSave.title || tabStore.get(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentProject`) || 'Page',
                         language: selectedLanguage || 'FR',
                         seo: {
                             title: propsToSave.seoTitle || '',
@@ -3199,9 +3283,22 @@ function initUI(editor) {
         const selectedLanguage = normLang(currentProjectLanguage);
 
         if (!currentProjectIsNew) {
-            const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+            const fullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
             const pageId = currentStructuredPageId;
             const isOriginalLang = selectedLanguage === normLang(currentOriginalLanguage);
+
+            // Garde-fou : la cible de la sauvegarde doit être le projet que CET onglet
+            // a réellement ouvert (l'URL fait foi). Un écart signale que l'identité a
+            // dérivé — on refuse plutôt que d'écraser le mauvais template.
+            const urlProject = new URLSearchParams(window.location.search).get('project');
+            if (fullName && urlProject && urlProject !== fullName) {
+                await showAlert({
+                    title: 'Sauvegarde bloquée',
+                    message: `Incohérence détectée : cet onglet affiche « ${urlProject} » mais s'apprête à `
+                        + `enregistrer dans « ${fullName} ». Rechargez la page avant de sauvegarder.`
+                });
+                return;
+            }
 
             // Validate JSON-LD before sending
             const propsToSave = collectProperties();
@@ -3282,7 +3379,7 @@ function initUI(editor) {
                 const savedPageId = saveData.page_id || saveData.content?.pageId || null;
                 if (savedPageId) {
                     currentStructuredPageId = savedPageId;
-                    localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
+                    tabStore.set(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                 }
                 currentProjectLanguage = selectedLanguage;
                 currentProjectProperties.status = 'draft';
@@ -3308,7 +3405,7 @@ function initUI(editor) {
 
             document.getElementById('btn-confirm-save-new').onclick = async () => {
                 const lang = document.getElementById('select-new-project-lang')?.value || selectedLanguage;
-                const nameInput = localStorage.getItem(`reetain-builder__${schoolId}__currentProject`);
+                const nameInput = tabStore.get(`reetain-builder__${schoolId}__currentProject`);
                 
                 if (!nameInput || nameInput === 'Nouveau Projet') {
                     await showAlert({ title: 'Erreur', message: 'Nom du projet introuvable. Veuillez recharger la page.' });
@@ -3399,14 +3496,14 @@ function initUI(editor) {
                         const savedPageId = saveData.page_id || saveData.content?.pageId || null;
                         if (savedPageId) {
                             currentStructuredPageId = savedPageId;
-                            localStorage.setItem(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
+                            tabStore.set(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                         }
 
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
                         currentProjectProperties.status = 'draft';
-                        localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
-                        localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, finalProjectTitle);
+                        tabStore.set(`reetain-builder__${schoolId}__currentFullName`, fullName);
+                        tabStore.set(`reetain-builder__${schoolId}__currentProject`, finalProjectTitle);
                         setActiveLangUI(lang);
                         updatePageIdBadge(); // Met à jour le badge ET l'URL
                         await refreshVariants(currentStructuredPageId);
@@ -3445,7 +3542,7 @@ function initUI(editor) {
     // ce bouton pousse le HTML vers SFMC uniquement à la demande.
     document.getElementById('btn-publish-sfmc').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+        const fullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
 
         // Il faut un projet déjà sauvegardé (brouillon en BD) avant de publier.
         if (currentProjectIsNew || !fullName) {
@@ -3503,7 +3600,7 @@ function initUI(editor) {
     // côté serveur) et repasse la page en brouillon.
     document.getElementById('btn-unpublish-sfmc').onclick = async () => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-        const fullName = localStorage.getItem(`reetain-builder__${schoolId}__currentFullName`);
+        const fullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
 
         if (currentProjectIsNew || !fullName) {
             await showAlert({ title: 'Action impossible', message: 'Aucun projet publié à dépublier.' });
@@ -3772,17 +3869,25 @@ function initUI(editor) {
 
     window.loadProject = async (fullName, displayName) => {
         try {
-            const response = await fetch(`/api/project/${fullName}`);
+            const response = await fetch(`/api/project/${encodeURIComponent(fullName)}`);
+            if (!response.ok) throw new Error(`${response.status} ${await response.text()}`);
             const project = await response.json();
-            editor.loadProjectData(parseProjectData(project.project_data));
+            // Un project_data vide ferait de loadProjectData() un no-op : le canvas
+            // garderait la page précédente tout en changeant d'identité → au prochain
+            // « Enregistrer », le projet ouvert serait écrasé par l'ancien contenu.
+            const loadedData = parseProjectData(project.project_data);
+            if (!Array.isArray(loadedData.pages) || !loadedData.pages.length) {
+                throw new Error('project_data vide ou illisible');
+            }
+            editor.loadProjectData(loadedData);
             injectBrandVariables(editor, CURRENT_SCHOOL);
             // Populate SEO / Properties panel
             populateProperties(project.properties || {});
             // Ouverture de page → historique undo vidé.
             setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
             const schoolId = CURRENT_SCHOOL?.id || 'unknown';
-            localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, displayName);
-            localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, fullName);
+            tabStore.set(`reetain-builder__${schoolId}__currentProject`, displayName);
+            tabStore.set(`reetain-builder__${schoolId}__currentFullName`, fullName);
             currentStructuredPageId = project.page_id || null;
             currentProjectIsNew = false;
             updatePageIdBadge();
@@ -3798,7 +3903,21 @@ function initUI(editor) {
             const modal = document.getElementById('modal-container');
             modal.querySelector('.modal-content').classList.remove('modal-lg');
             closeModal();
-        } catch (e) { console.error(e); }
+        } catch (e) {
+            console.error(e);
+            // Ne pas laisser l'éditeur sur la page précédente : l'utilisateur croirait
+            // éditer « fullName » et l'écraserait à la sauvegarde.
+            const schoolId = CURRENT_SCHOOL?.id || 'unknown';
+            currentProjectIsNew = true;
+            currentStructuredPageId = null;
+            tabStore.remove(`reetain-builder__${schoolId}__currentFullName`);
+            try { editor.setComponents(''); editor.setStyle(''); } catch (err) {}
+            await window.showAlert({
+                title: 'Ouverture impossible',
+                message: `Impossible d'ouvrir « ${displayName || fullName} ». L'éditeur a été vidé `
+                    + `pour éviter d'écraser une autre page.\n\n${e.message}`
+            });
+        }
     };
 }
 
@@ -4257,8 +4376,8 @@ document.getElementById('btn-seo-settings-save').onclick = async () => {
                         const schoolId = window.CURRENT_SCHOOL?.id
                             || new URLSearchParams(window.location.search).get('school')?.toLowerCase();
                         if (schoolId) {
-                            localStorage.setItem(`reetain-builder__${schoolId}__currentFullName`, newProjectName);
-                            localStorage.setItem(`reetain-builder__${schoolId}__currentProject`, newTitle);
+                            tabStore.set(`reetain-builder__${schoolId}__currentFullName`, newProjectName);
+                            tabStore.set(`reetain-builder__${schoolId}__currentProject`, newTitle);
                         }
                         updatePageIdBadge();
                     } else {
