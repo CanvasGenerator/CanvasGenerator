@@ -308,6 +308,10 @@ document.addEventListener('DOMContentLoaded', async () => {
         const tryLoad = setInterval(async () => {
             if (!window.editor) return;
             clearInterval(tryLoad);
+            // Le canvas n'est plus prérempli par le brouillon local (autoload off) :
+            // on couvre l'attente réseau pour qu'on ne puisse pas éditer un canvas
+            // vide qui serait remplacé par la réponse du serveur juste après.
+            if (window.showLoading) window.showLoading('Chargement du projet...');
             try {
                 if (pageIdParam) {
                     await loadStructuredPageIntoEditor(pageIdParam, schoolId);
@@ -329,10 +333,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 setTimeout(() => window.__clearUndoHistory && window.__clearUndoHistory(), 300);
                 currentProjectIsNew = false;
                 currentStructuredPageId = project.page_id || null;
-                updatePageIdBadge();
+                // IMPORTANT : écrire l'identité AVANT updatePageIdBadge(). Le badge
+                // « Nom SFMC » et la réécriture de l'URL lisent cette valeur : appelés
+                // trop tôt, ils affichaient le projet PRÉCÉDENT (URL et badge annonçant
+                // CANDIDATURE alors que le canvas montre BROCHURE, et inversement).
                 tabStore.set(`reetain-builder__${schoolId}__currentFullName`, projectParam);
                 const parts = projectParam.replace(/^school-[a-z0-9-]+__/, '').split('__');
                 tabStore.set(`reetain-builder__${schoolId}__currentProject`, parts[0] || projectParam);
+                updatePageIdBadge();
                 // Modèle multilingue : la langue affichée est la langue D'ORIGINE de la
                 // page (les traductions se chargent ensuite via le switch). On lit le
                 // résumé des variantes renvoyé par le serveur.
@@ -355,11 +363,14 @@ document.addEventListener('DOMContentLoaded', async () => {
                 currentStructuredPageId = null;
                 tabStore.remove(`reetain-builder__${schoolId}__currentFullName`);
                 try { window.editor.setComponents(''); window.editor.setStyle(''); } catch (err) {}
+                if (window.hideLoading) window.hideLoading();
                 const msg = `Impossible de charger « ${pageIdParam || projectParam} ».\n`
                     + `L'éditeur a été vidé pour éviter d'écraser une autre page. `
                     + `Rechargez la page ou rouvrez le projet depuis le tableau de bord.\n\n${e.message}`;
                 if (window.showAlert) await window.showAlert({ title: 'Chargement impossible', message: msg });
                 else alert(msg);
+            } finally {
+                if (window.hideLoading) window.hideLoading();
             }
         }, 200);
     }
@@ -622,6 +633,15 @@ function initEditor(schoolId) {
             // (« Cannot read properties of undefined (reading 'getFrames') »), laissant le
             // canvas à moitié initialisé → drag & drop KO (surtout sur un Master vierge).
             // On place la clé au bon endroit : storage par école + guard anti-corruption effectif.
+            //
+            // autoload : DÉSACTIVÉ dès que l'URL cible un projet précis. GrapesJS
+            // autochargeait le brouillon local (clé partagée par toute l'école, donc
+            // par tous les masters) AVANT la réponse du serveur → le canvas affichait
+            // un autre template pendant que l'URL et le badge « Nom SFMC » annonçaient
+            // celui demandé. Quand un ?project=/?pageId= est présent, le serveur fait
+            // foi et lui seul remplit le canvas : plus aucune course possible.
+            // Le brouillon local reste utile pour un projet neuf pas encore enregistré.
+            autoload: !currentProjectScope(),
             options: { local: { key: storageKey } },
         },
         assetManager: {
