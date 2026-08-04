@@ -522,7 +522,59 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
     }
 }
 
+// Liste des projets legacy avec leur statut RÉEL.
+// `Projects.properties.status` et `pages.status` sont deux colonnes distinctes qui
+// peuvent diverger : une page mise à la corbeille côté structuré pouvait rester
+// « draft » côté legacy. Le dashboard lit la vue fusionnée (/api/pages) où le statut
+// structuré l'emporte ; on aligne /api/projects dessus, sinon les compteurs affichés
+// par le sélecteur d'école et par le dashboard ne peuvent pas concorder.
+// Map { legacyProjectName (minuscule) → page structurée } depuis la table `pages`.
+// Le statut structuré fait AUTORITÉ : une page mise à la corbeille côté structuré
+// peut rester « draft » dans Projects.properties.status. Partagé par /api/projects
+// ET /api/pages pour que leurs compteurs de pages concordent d'un écran à l'autre.
+// On expose aussi `updated_at` : Projects n'a QUE `created_at`, seule la table pages
+// porte une vraie date de dernière modification.
+async function getStructuredStatusByLegacyName() {
+    const map = new Map();
+    try {
+        const pages = await supabaseRequest('GET', '/pages?select=status,updated_at,metadata');
+        (Array.isArray(pages) ? pages : []).forEach(page => {
+            const name = page.metadata?.legacyProjectName;
+            if (name) map.set(name.toLowerCase(), page);
+        });
+    } catch (e) {
+        // Schéma structuré absent : on retombe simplement sur les données legacy.
+        if (!isMissingContentSchemaError(e)) console.warn('Structured status overlay failed:', e.message);
+    }
+    return map;
+}
+
+async function listLegacyProjectsWithStatus() {
+    const projects = await supabaseRequest(
+        'GET',
+        '/Projects?select=project_name,created_at,status:properties->>status'
+    ) || [];
+
+    const structuredPages = await getStructuredStatusByLegacyName();
+
+    return projects.map(project => {
+        const page = structuredPages.get((project.project_name || '').toLowerCase());
+        return {
+            ...project,
+            status: page?.status || project.status || 'draft',
+            updated_at: page?.updated_at || project.created_at
+        };
+    });
+}
+
 async function listMigratedDashboardPages() {
+    // NE PAS filtrer les statuts ici. /api/pages fusionne la table Projects (non
+    // filtrée) avec ces pages structurées, ces dernières écrasant le statut legacy.
+    // Retirer les pages supprimées/archivées de cette requête les empêcherait
+    // d'écraser leur ligne Projects restée en « draft » : elles réapparaîtraient
+    // dans le dashboard au lieu d'en disparaître (constaté : 6 pages fantômes).
+    // La Corbeille a de toute façon besoin de ces lignes. Le tri par statut se fait
+    // après la fusion, côté dashboard (vue normale vs corbeille).
     const pages = await supabaseRequest(
         'GET',
         '/pages?select=*&order=updated_at.desc'
@@ -550,6 +602,10 @@ async function listMigratedDashboardPages() {
 
     return (Array.isArray(pages) ? pages : [])
         .filter(page => page.metadata?.legacyProjectName)
+        // Volontairement AUCUN filtre de statut ici : voir le commentaire en tête de
+        // fonction. Ces lignes doivent rester présentes pour écraser le statut de la
+        // ligne Projects correspondante lors de la fusion faite par /api/pages, et
+        // pour alimenter la Corbeille. Le tri par vue se fait côté dashboard.
         .map(page => {
             const entity = entityMap.get(page.entity_id) || {};
             const legacyProjectName = page.metadata.legacyProjectName;
@@ -1691,6 +1747,8 @@ async function contentApiModule(req, res) {
 contentApiModule.handleContentRoute = handleContentRoute;
 contentApiModule.syncLegacyProjectToContent = syncLegacyProjectToContent;
 contentApiModule.listMigratedDashboardPages = listMigratedDashboardPages;
+contentApiModule.listLegacyProjectsWithStatus = listLegacyProjectsWithStatus;
+contentApiModule.getStructuredStatusByLegacyName = getStructuredStatusByLegacyName;
 contentApiModule.getCurrentVersionForLegacyProject = getCurrentVersionForLegacyProject;
 contentApiModule.getStructuredProjectForLegacyProject = getStructuredProjectForLegacyProject;
 contentApiModule.getBilingualHtmlForProject = getBilingualHtmlForProject;

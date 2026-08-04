@@ -1490,7 +1490,9 @@
                     const parts = fullName.split('__');
                     const displayName = parts[0];
                     const lang = parts[1] || 'FR';
-                    const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+                    // « Modifié le » : la table Projects n'a que created_at, la vraie
+                    // date de modification vient de la page structurée (/api/projects).
+                    const date = new Date(p.updated_at || p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
                     const editUrl = `index.html?school=master&project=${encodeURIComponent(p.project_name)}`;
                     const safeOldName = escHtml(p.project_name);
                     return `
@@ -2307,6 +2309,12 @@
                 schools.forEach(s => { projectsMap[s.id] = []; });
 
                 (projects || []).forEach(p => {
+                    // Les pages à la corbeille (ou archivées) ne comptent pas : sans ce
+                    // filtre la carte école affichait le total brut de la table Projects
+                    // (15 pour EFAP) alors que le dashboard, lui, n'affiche que les pages
+                    // actives (6). Même filtre que la modale « Templates Maître ».
+                    const status = p.status || 'draft';
+                    if (status === 'deleted' || status === 'archived') return;
                     const match = (p.project_name || '').match(/^school-([^_]+)__(.+)$/);
                     if (match && projectsMap[match[1]]) {
                         projectsMap[match[1]].push(p);

@@ -10,6 +10,8 @@ const {
     handleContentRoute,
     syncLegacyProjectToContent,
     listMigratedDashboardPages,
+    listLegacyProjectsWithStatus,
+    getStructuredStatusByLegacyName,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
     getBilingualHtmlForProject,
@@ -1270,7 +1272,9 @@ http.createServer(async (req, res) => {
     if (req.method === 'GET' && pathname === '/api/projects') {
         try {
             console.log(`\n📋 Récupération de tous les projets`);
-            const result = await supabaseRequest('GET', '/Projects?select=project_name,created_at,status:properties->>status');
+            // Statut aligné sur la vue fusionnée du dashboard (le statut structuré
+            // prime), sinon les compteurs de pages divergent d'un écran à l'autre.
+            const result = await listLegacyProjectsWithStatus();
             console.log(`📋 ${result?.length || 0} projet(s) trouvé(s)`);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify(result || []));
@@ -2363,12 +2367,18 @@ Règles importantes :
                 'GET',
                 '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc'
             );
-            
+
             if (!Array.isArray(result)) {
                 console.error("Supabase returned an error or non-array:", result);
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: result.message || 'Failed to fetch pages' }));
             }
+
+            // Statut RÉEL (structuré) par nom de projet legacy : une page à la corbeille
+            // côté structuré peut rester « draft » dans properties.status → sans cet
+            // overlay, /api/pages la ré-affichait alors que /api/projects (sélecteur)
+            // l'excluait, d'où l'écart de comptage (ex. EFAP 6 vs 4).
+            const statusOverlay = await getStructuredStatusByLegacyName().catch(() => new Map());
 
             const legacyPages = result.map(p => {
                 const props = p.properties || {};
@@ -2391,13 +2401,14 @@ Règles importantes :
                     formIds:              Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:           p.created_at,
                     source:               'legacy',
-                    status:               props.status || 'draft',
+                    status:               statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }
 
                 };
-            });
+            // Exclure les pages supprimées ou archivées du dashboard
+            }).filter(p => !['deleted', 'archived'].includes(p.status));
             let structuredPages = [];
             try {
                 structuredPages = await listMigratedDashboardPages();

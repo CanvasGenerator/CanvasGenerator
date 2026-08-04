@@ -10,6 +10,8 @@ const {
     syncLegacyProjectToContent,
     handleContentRoute,
     listMigratedDashboardPages,
+    listLegacyProjectsWithStatus,
+    getStructuredStatusByLegacyName,
     getCurrentVersionForLegacyProject,
     getStructuredProjectForLegacyProject,
     getBilingualHtmlForProject,
@@ -235,6 +237,11 @@ module.exports = async function handler(req, res) {
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/pages') {
             const result = await supabaseRequest('GET',     '/Projects?select=project_name,html,properties,created_at,is_original_language,page_group_id&order=created_at.desc');
+            // Statut RÉEL (structuré) par nom de projet legacy : une page à la corbeille
+            // côté structuré peut rester « draft » dans properties.status → sans cet
+            // overlay, /api/pages la ré-affichait alors que /api/projects (sélecteur)
+            // l'excluait, d'où l'écart de comptage (ex. EFAP 6 vs 4).
+            const statusOverlay = await getStructuredStatusByLegacyName().catch(() => new Map());
             const legacyPages = (result || []).map(p => {
                 const props = p.properties || {};
                 const schoolMatch = (p.project_name || '').match(/^school-([a-z0-9-]+)_+/i);
@@ -259,12 +266,13 @@ module.exports = async function handler(req, res) {
                     formIds:      Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:   p.created_at,
                     source:       'legacy',
-                    status:       props.status || 'draft',
+                    status:       statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }
                 };
-            });
+            // Exclure les pages supprimées ou archivées du dashboard
+            }).filter(p => !['deleted', 'archived'].includes(p.status));
 
             let structuredPages = [];
             try {
@@ -583,7 +591,9 @@ module.exports = async function handler(req, res) {
         // 8. General API (Project, Save)
         // ==========================================
         if (req.method === 'GET' && pathname === '/api/projects') {
-            return res.status(200).json(await supabaseRequest('GET', '/Projects?select=project_name,created_at,status:properties->>status') || []);
+            // Statut aligné sur la vue fusionnée du dashboard (le statut structuré
+            // prime), sinon les compteurs de pages divergent d'un écran à l'autre.
+            return res.status(200).json(await listLegacyProjectsWithStatus());
         }
 
         if (req.method === 'GET' && pathname.startsWith('/api/project/')) {
