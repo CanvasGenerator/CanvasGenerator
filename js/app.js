@@ -683,6 +683,7 @@ function initEditor(schoolId) {
         selectorManager: {
             componentFirst: true, // Applique les styles par ID plutôt que par classe par défaut
         },
+        avoidInlineStyle: true,
         // Conserve les attributs `onclick` du HTML parsé. Par défaut GrapesJS les
         // supprime (allowUnsafeAttr:false) à CHAQUE re-parse — notamment à la fin
         // de l'édition d'un texte : le « texte déroulant » inséré via la barre
@@ -876,11 +877,96 @@ function initEditor(schoolId) {
     // (blocs de toutes les catégories : Master, Essential, blocs école… ainsi que
     // les éléments imbriqués), comme pour les photos. Toutes les poignées sont
     // actives (4 côtés + 4 coins) pour pouvoir tirer depuis n'importe quel bord.
+    //
+    // ── Poignées HAUT et GAUCHE : compensation par la marge ──────────────
+    // GrapesJS n'écrit `top`/`left` que pour les composants en positionnement
+    // absolu (`getDragMode(cmp) && (k.top=…, k.left=…)` dans son resizer). Nos
+    // blocs sont dans le flux du document : tirer la poignée du HAUT ne modifiait
+    // que la hauteur, donc le bord supérieur restait cloué par le flux et le bloc
+    // rétrécissait par le BAS (idem à gauche, qui rétrécissait par la droite).
+    // On compense avec la marge : hauteur −= Δ et margin-top += Δ, si bien que le
+    // bord opposé ne bouge pas et que le bord tiré suit réellement le curseur.
+    //
+    // On se greffe sur deux points d'extension prévus par GrapesJS, sans rien
+    // réimplémenter (ni conversion d'unités, ni persistance, ni undo) :
+    //   1. les callbacks passés dans `resizable` ne REMPLACENT pas ceux du resizer,
+    //      ils sont appelés EN PLUS, avant sa logique par défaut (`f(e,i)` en tête
+    //      de son onStart, `b(e,n,s)` en tête de son updateTarget) ;
+    //   2. l'événement `component:resize:update` reçoit l'objet `style` AVANT son
+    //      application et GrapesJS ne l'applique que si aucun écouteur ne l'a fait
+    //      (`t.trigger(resizeUpdate, L), !M && D()`). Enrichir `data.style` suffit
+    //      donc : marge et hauteur partent dans le MÊME addStyle, avec les bons
+    //      drapeaux (partiel pendant le glissement, enregistré au relâchement).
+    const LP_RESIZE_TOP_HANDLES = ['tl', 'tc', 'tr'];
+    const LP_RESIZE_LEFT_HANDLES = ['tl', 'cl', 'bl'];
+    let lpResizeStart = null;
+
     const LP_RESIZE = {
         tl: 1, tc: 1, tr: 1, cl: 1, cr: 1, bl: 1, bc: 1, br: 1,
         minDim: 20,
-        keyWidth: 'width', keyHeight: 'height'
+        keyWidth: 'width', keyHeight: 'height',
+
+        // État de départ du glissement. Renseigné uniquement pour les composants
+        // qui utilisent CETTE config : les images (resizable natif) n'y touchent pas.
+        onStart(ev, opts = {}) {
+            lpResizeStart = null;
+            try {
+                const el = opts.el;
+                const startDim = opts.resizer && opts.resizer.startDim;
+                if (!el || !startDim) return;
+                const cs = getComputedStyle(el);
+                lpResizeStart = {
+                    h: startDim.h,
+                    w: startDim.w,
+                    marginTop: parseFloat(cs.marginTop) || 0,
+                    marginLeft: parseFloat(cs.marginLeft) || 0,
+                    handler: null
+                };
+            } catch (e) { lpResizeStart = null; }
+        },
+
+        // Appelé juste avant que GrapesJS ne construise l'objet de styles : c'est
+        // le seul endroit où la poignée saisie est exposée. On la mémorise pour
+        // l'écouteur ci-dessous.
+        updateTarget(el, rect, opts = {}) {
+            if (lpResizeStart) lpResizeStart.handler = opts.selectedHandler;
+        }
     };
+
+    // Compensation proprement dite : on enrichit le style que GrapesJS s'apprête
+    // à appliquer, il se charge du reste.
+    editor.on('component:resize:update', (data = {}) => {
+        try {
+            const start = lpResizeStart;
+            const rect = data.rect;
+            const style = data.style;
+            if (!start || !rect || !style) return;
+
+            // La marge absorbe TOUTE la variation de taille (Δ = start − courant) :
+            //   • réduire → Δ > 0 → la marge grandit → le bloc descend, le bord bas
+            //     reste fixe et le bord haut tiré suit le curseur ;
+            //   • agrandir → Δ < 0 → la marge diminue (et peut devenir NÉGATIVE) →
+            //     le bloc remonte, le bord bas reste fixe et le bord haut tiré suit
+            //     le curseur vers le haut.
+            // On n'écrête PAS à 0 : sinon, une fois la marge d'origine épuisée, le
+            // bord haut se bloquait et le bloc grandissait par le BAS (le bug). La
+            // marge négative fait volontairement remonter le bloc — c'est le sens
+            // attendu de « le bord tiré suit le curseur » quand on agrandit ; le
+            // chevauchement éventuel du bloc précédent est le choix de l'utilisateur
+            // (réversible en re-tirant vers le bas). Idem à gauche pour la largeur.
+            if (LP_RESIZE_TOP_HANDLES.indexOf(start.handler) >= 0 && typeof rect.h === 'number') {
+                style['margin-top'] = (start.marginTop + (start.h - rect.h)) + 'px';
+            }
+            if (LP_RESIZE_LEFT_HANDLES.indexOf(start.handler) >= 0 && typeof rect.w === 'number') {
+                style['margin-left'] = (start.marginLeft + (start.w - rect.w)) + 'px';
+            }
+        } catch (e) { /* silencieux : ne jamais casser le redimensionnement */ }
+    });
+
+    // Fin du glissement : on oublie l'état pour qu'un resize d'image (qui n'utilise
+    // pas LP_RESIZE et ne renseigne donc pas lpResizeStart) ne réutilise pas
+    // les valeurs du glissement précédent.
+    editor.on('component:resize:end', () => { lpResizeStart = null; });
     editor.on('component:add', (component) => {
         try {
             if (!component || typeof component.get !== 'function') return;
@@ -1843,6 +1929,13 @@ function setStyleManagerLabels(editor) {
     if (!editor) return;
     try {
         const sm = editor.StyleManager;
+
+        // Détache les propriétés de marge et de marge intérieure (padding) pour éviter les écrasements de côté
+        const marginProp = sm.getProperty('dimension', 'margin');
+        if (marginProp) marginProp.set('detached', true);
+        const paddingProp = sm.getProperty('dimension', 'padding');
+        if (paddingProp) paddingProp.set('detached', true);
+
         const names = {
             // ── Général ──
             'display':          'Affichage',
@@ -3991,8 +4084,11 @@ async function showOpeningPopup() {
                 const parts = fullName.split('__');
                 const displayName = parts[0];
                 const lang = parts[1] || 'FR';
-                const date = new Date(p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
-                
+                // « Modifié le » doit afficher la date de MODIFICATION : la table
+                // Projects n'a que created_at, la vraie date vient de la page
+                // structurée (exposée par /api/projects).
+                const date = new Date(p.updated_at || p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+
                 return `
                     <div class="form-list-item" style="cursor: default;">
                         <i class="fas fa-folder-open"></i>

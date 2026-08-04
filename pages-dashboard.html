@@ -692,7 +692,7 @@
             if (!ids.length) return '';
             return `<div class="cms-page-formids">${ids.map(id => `
                 <button class="cms-formid-chip" type="button" title="Copier le lien d'ancrage vers ce formulaire"
-                    onclick="copyFormAnchor('${escAttr(page.public_url || '')}', '${escAttr(id)}')">
+                    onclick="copyFormAnchor('${escJsAttr(page.public_url || '')}', '${escJsAttr(id)}')">
                     <i class="fas fa-anchor"></i>#${escHtml(id)}
                 </button>`).join('')}</div>`;
         }
@@ -717,6 +717,20 @@
                 const code = String(l || 'FR').toUpperCase();
                 return `<span class="cms-badge cms-badge-lang" title="${escAttr(code)}">${LANG_FLAGS[code] || ''} ${escHtml(code)}</span>`;
             }).join('') + `</div>`;
+        }
+
+        // ── Modèle multilingue (migration 008) ─────────────────────────────────
+        // Une page = 1 structure + N variantes de langue (page_variants).
+        // `variantLanguages` (calculé côté serveur) liste toutes les langues d'une
+        // page. Une page est "traduite" si elle possède plus d'une langue.
+        function getPageLanguages(page) {
+            const langs = Array.isArray(page.variantLanguages) && page.variantLanguages.length
+                ? page.variantLanguages
+                : [page.lang || 'FR'];
+            return [...new Set(langs.map(l => String(l || 'FR').toUpperCase()))];
+        }
+        function hasTranslations(page) {
+            return getPageLanguages(page).length > 1;
         }
 
         // ── NEW: type badge helpers ────────────────────────────────────────────
@@ -756,7 +770,9 @@
         }
 
         function updateSummary(pages) {
-            const activePages  = pages.filter(p => (p.status || 'draft') !== 'deleted');
+            // Vue normale : exclure deleted ET archived (comme la liste, cf. filterPages),
+            // sinon les stats compteraient des pages non affichées.
+            const activePages  = pages.filter(p => { const s = p.status || 'draft'; return s !== 'deleted' && s !== 'archived'; });
             const trashPages   = pages.filter(p => (p.status || 'draft') === 'deleted');
             const visiblePages = currentView === 'trash' ? trashPages : activePages;
             const schoolSet    = new Set(visiblePages.map(p => p.school).filter(Boolean).filter(s => s !== '—'));
@@ -771,7 +787,8 @@
         function pageCountFor({ entityId = '', folderId = '' } = {}) {
             return allPages.filter(page => {
                 const ps = page.status || 'draft';
-                const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
+                // Exclure deleted ET archived de la vue normale (cohérent avec la liste)
+                const matchView   = currentView === 'trash' ? ps === 'deleted' : (ps !== 'deleted' && ps !== 'archived');
                 const matchEntity = !entityId || pageMatchesEntity(page, entityId);
                 const matchFolder = !folderId || page.folder_id === folderId;
                 return matchView && matchEntity && matchFolder;
@@ -828,18 +845,18 @@
 
         function generateActionButtons(page, isDeleted = false) {
             if (isDeleted) {
-                return `<button class="cms-btn cms-btn-history" onclick="restorePage('${escAttr(page.project_name)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>`;
+                return `<button class="cms-btn cms-btn-history" onclick="restorePage('${escJsAttr(page.project_name)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>`;
             }
 
             return `
                 <a href="${getBuilderUrl(page)}" class="cms-btn cms-btn-edit" title="Éditer"><i class="fas fa-pen"></i></a>
                 <a href="/preview/${encodeURIComponent(page.project_name)}" target="_blank" class="cms-btn cms-btn-preview" title="Prévisualiser"><i class="fas fa-eye"></i></a>
-                <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-copy"></i></button>
-                <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.seoTitle || '')}', '${escAttr(page.seoDescription || '')}', '${escAttr(page.school || 'site.com')}')"><i class="fas fa-magnifying-glass-chart"></i></button>
-                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-clock-rotate-left"></i></button>` : ''}
-                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.status || 'draft')}')"><i class="fas fa-flag"></i></button>` : ''}
-                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escAttr(page.page_id)}', '${escAttr(page.title || page.project_name)}', '${escAttr(page.entity_id || '')}')"><i class="fas fa-folder-open"></i></button>` : ''}
-                <button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escAttr(page.project_name)}', '${escAttr(page.title || page.project_name)}')"><i class="fas fa-trash-alt"></i></button>
+                <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-copy"></i></button>
+                <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.seoTitle || '')}', '${escJsAttr(page.seoDescription || '')}', '${escJsAttr(page.school || 'site.com')}')"><i class="fas fa-magnifying-glass-chart"></i></button>
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-clock-rotate-left"></i></button>` : ''}
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.status || 'draft')}')"><i class="fas fa-flag"></i></button>` : ''}
+                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.entity_id || '')}')"><i class="fas fa-folder-open"></i></button>` : ''}
+                <button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-trash-alt"></i></button>
             `;
         }
 
@@ -1035,73 +1052,74 @@
         }
 
         // ====================== RENDU GROUPÉ ======================
+        // Modèle multilingue (migration 008) : une page = 1 structure + N variantes
+        // de langue. On n'affiche donc PAS des lignes séparées par langue, mais les
+        // pages qui possèdent PLUSIEURS versions de langue (variantLanguages > 1),
+        // avec le détail des langues sous chaque page.
         function renderGroupedTable(pages) {
             const tbody = document.getElementById('pages-tbody');
-            const activePages = pages.filter(p => (p.status || 'draft') !== 'deleted');
+            // Exclure deleted ET archived de la vue normale
+            const activePages = pages.filter(p => !['deleted', 'archived'].includes(p.status || 'draft'));
 
-            const originals = activePages.filter(p => String(p.is_original_language) !== 'false');
+            // Pages ayant plusieurs versions de langue (donc au moins une traduction).
+            const multilingual = activePages.filter(hasTranslations);
 
-            if (!originals.length) {
-                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-language"></i> Aucun groupe de traduction trouvé.</td></tr>`;
+            if (!multilingual.length) {
+                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-language"></i> Aucune page avec plusieurs versions de langue.</td></tr>`;
                 return;
             }
 
-            const slice = originals.slice(currentTablePage * PAGE_SIZE, (currentTablePage + 1) * PAGE_SIZE);
+            const slice = multilingual.slice(currentTablePage * PAGE_SIZE, (currentTablePage + 1) * PAGE_SIZE);
 
             let html = '';
 
-            slice.forEach(original => {
-                const translations = activePages.filter(p =>
-                    p.page_group_id &&
-                    p.page_group_id === original.page_group_id &&
-                    String(p.is_original_language) === 'false'
-                );
+            slice.forEach(page => {
+                const origLang    = String(page.lang || 'FR').toUpperCase();
+                const langs       = getPageLanguages(page);
+                const translated  = langs.filter(l => l !== origLang);
 
-                // ==================== PAGE ORIGINALE ====================
+                // ==================== PAGE (toutes langues) ====================
                 html += `
                 <tr class="group-header">
                     <td>
                         <div class="cms-page-title">
-                            <i style="color:#eab308;margin-right:6px;"></i>
-                            ${escHtml(original.title || original.project_name)}
+                            <i class="fas fa-language" style="color:#8b5cf6;margin-right:6px;"></i>
+                            ${escHtml(page.title || page.project_name)}
                         </div>
-                        ${original.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(original.seoTitle)}</div>` : ''}
-                        ${getFormIdsHtml(original)}
+                        ${page.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(page.seoTitle)}</div>` : ''}
+                        ${getFormIdsHtml(page)}
                     </td>
-                    <td><span class="cms-badge cms-badge-school">${escHtml(original.school || '—')}</span></td>
-                    <td><span class="cms-badge cms-badge-lang">${escHtml(original.lang || 'FR')}</span></td>
-                    <td>${getTypeBadge(original)}</td>
-                    <td><span class="cms-badge ${getStatusClass(original)}">${getStatusLabel(original)}</span></td>
-                    <td style="color:#9ca3af;font-size:12px;">${formatDate(original.updated_at)}</td>
+                    <td><span class="cms-badge cms-badge-school">${escHtml(page.school || '—')}</span></td>
+                    <td>${getLangBadges(page)}</td>
+                    <td><span class="cms-badge-type-translated" title="${escAttr(translated.length + ' traduction(s)')}"><i class="fas fa-language"></i> ${translated.length} traduction${translated.length > 1 ? 's' : ''}</span></td>
+                    <td><span class="cms-badge ${getStatusClass(page)}">${getStatusLabel(page)}</span></td>
+                    <td style="color:#9ca3af;font-size:12px;">${formatDate(page.updated_at)}</td>
                     <td>
                         <div class="cms-actions" style="justify-content:flex-end;">
-                            ${generateActionButtons(original, false)}
+                            ${generateActionButtons(page, false)}
                         </div>
                     </td>
                 </tr>`;
 
-                // ==================== TRADUCTIONS ====================
-                translations.forEach(t => {
+                // ==================== DÉTAIL DES LANGUES ====================
+                // Ligne d'origine + une ligne par langue traduite (informatif : la
+                // traduction vit dans la même page, on l'ouvre via l'éditeur).
+                langs.forEach(code => {
+                    const isOrig = code === origLang;
                     html += `
                     <tr class="group-translation">
                         <td style="padding-left: 48px;">
-                            <div class="cms-page-title">
-                                <i class="fas fa-language" style="color:#8b5cf6;margin-right:6px;"></i>
-                                ${escHtml(t.title || t.project_name)}
-                            </div>
-                            ${t.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(t.seoTitle)}</div>` : ''}
-                            ${getFormIdsHtml(t)}
-                        </td>
-                        <td><span class="cms-badge cms-badge-school">${escHtml(t.school || '—')}</span></td>
-                        <td><span class="cms-badge cms-badge-lang">${escHtml(t.lang || '—')}</span></td>
-                        <td>${getTypeBadge(t)}</td>
-                        <td><span class="cms-badge ${getStatusClass(t)}">${getStatusLabel(t)}</span></td>
-                        <td style="color:#9ca3af;font-size:12px;">${formatDate(t.updated_at)}</td>
-                        <td>
-                            <div class="cms-actions" style="justify-content:flex-end;">
-                                ${generateActionButtons(t, false)}
+                            <div class="cms-page-title" style="font-size:13px;">
+                                <span style="margin-right:6px;">${LANG_FLAGS[code] || ''}</span>
+                                ${isOrig ? 'Version d\'origine' : 'Traduction'} — ${escHtml(code)}
                             </div>
                         </td>
+                        <td></td>
+                        <td><span class="cms-badge cms-badge-lang">${LANG_FLAGS[code] || ''} ${escHtml(code)}</span></td>
+                        <td>${isOrig ? '<span class="cms-badge-type-original"><i class="fas fa-star"></i> Originale</span>' : '<span class="cms-badge-type-translated"><i class="fas fa-language"></i> Traduite</span>'}</td>
+                        <td></td>
+                        <td></td>
+                        <td></td>
                     </tr>`;
                 });
             });
@@ -1115,9 +1133,10 @@
 
             if (currentSidebarMode === 'translations') {
                 renderGroupedTable(pages);
-                const activePages = pages.filter(p => (p.status || 'draft') !== 'deleted');
-                const originalsCount = activePages.filter(p => String(p.is_original_language) !== 'false').length;
-                renderPagination(originalsCount);
+                // Exclure deleted ET archived de la vue normale
+                const activePages = pages.filter(p => !['deleted', 'archived'].includes(p.status || 'draft'));
+                const multilingualCount = activePages.filter(hasTranslations).length;
+                renderPagination(multilingualCount);
             } else {
                 renderFlatTable(pages);
                 renderPagination(pages.length);
@@ -1143,7 +1162,7 @@
                     <i class="fas fa-chevron-left"></i> Précédent
                 </button>
                 <span style="color:#9ca3af;font-size:13px;">
-                    ${currentSidebarMode === 'translations' ? `Page ${page} / ${totalPages} · ${totalCount} groupes` : `Page ${page} / ${totalPages} · ${totalCount} pages`}
+                    ${currentSidebarMode === 'translations' ? `Page ${page} / ${totalPages} · ${totalCount} pages multilingues` : `Page ${page} / ${totalPages} · ${totalCount} pages`}
                 </span>
                 <button class="cms-btn cms-btn-preview" ${page >= totalPages ? 'disabled' : ''} onclick="changeDashboardPage(1)">
                     Suivant <i class="fas fa-chevron-right"></i>
@@ -1153,6 +1172,21 @@
         
         function escHtml(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
         function escAttr(s) { return String(s).replace(/'/g,"&#39;").replace(/"/g,'&quot;'); }
+
+        // Valeur destinée à un littéral JS placé DANS un attribut HTML : onclick="f('…')".
+        // escAttr() ne convient PAS ici : il transforme ' en &#39;, or le navigateur décode
+        // les entités de l'attribut AVANT d'analyser le JavaScript. L'apostrophe revient
+        // donc, ferme la chaîne et casse l'expression → le bouton ne réagit plus du tout
+        // (cas des pages dont le titre ou le SEO contient « l'EFAP », « d'Architecture »…).
+        // On échappe d'abord pour JS, puis on neutralise & et " pour l'attribut lui-même.
+        function escJsAttr(s) {
+            return String(s)
+                .replace(/\\/g, '\\\\')
+                .replace(/'/g, "\\'")
+                .replace(/\r?\n/g, '\\n')
+                .replace(/&/g, '&amp;')
+                .replace(/"/g, '&quot;');
+        }
 
 
         // ── Load pages ─────────────────────────────────────────────────────────
@@ -1203,7 +1237,15 @@
 
                 filterPages();
                 document.getElementById('nav-translation-count').textContent =
-                    allPages.filter(p => String(p.is_original_language) !== 'false').length;
+                    allPages.filter(p => {
+                        // Modèle multilingue : une page est "traduite" si elle possède
+                        // plusieurs versions de langue (variantLanguages.length > 1).
+                        // Exclure les pages supprimées (corbeille).
+                        const ps = p.status || 'draft';
+                        // Exclure deleted ET archived de la vue normale (hors corbeille)
+                        const matchView = currentView === 'trash' ? ps === 'deleted' : (ps !== 'deleted' && ps !== 'archived');
+                        return matchView && hasTranslations(p);
+                    }).length;
             } catch (e) {
                 document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="7" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
             }
@@ -1224,7 +1266,8 @@
                 const matchS      = !school || p.school === school;
                 
                 const ps          = p.status || 'draft';
-                const matchView   = currentView === 'trash' ? ps === 'deleted' : ps !== 'deleted';
+                // Exclure deleted ET archived de la vue normale (hors corbeille)
+                const matchView   = currentView === 'trash' ? ps === 'deleted' : (ps !== 'deleted' && ps !== 'archived');
                 
                 // Filtrage par école (sidebar) : utilise entity_id en priorité,
                 // puis fallback sur p.school (slug) pour les pages legacy non migrées.
@@ -1482,8 +1525,8 @@
                         </div>
                         <div class="cms-version-size">HTML ${formatBytes((v.html || '').length)}</div>
                         <div class="cms-version-actions">
-                            ${isCurrent || isHidden ? '' : `<button class="cms-btn cms-btn-history" onclick="openRestoreModal('${escAttr(page.id)}', '${escAttr(v.id)}', '${escAttr(v.version_number)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>
-                            <button class="cms-btn cms-btn-del" onclick="hideVersion('${escAttr(page.id)}', '${escAttr(v.id)}')"><i class="fas fa-eye-slash"></i></button>`}
+                            ${isCurrent || isHidden ? '' : `<button class="cms-btn cms-btn-history" onclick="openRestoreModal('${escJsAttr(page.id)}', '${escJsAttr(v.id)}', '${escJsAttr(v.version_number)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>
+                            <button class="cms-btn cms-btn-del" onclick="hideVersion('${escJsAttr(page.id)}', '${escJsAttr(v.id)}')"><i class="fas fa-eye-slash"></i></button>`}
                         </div>
                     </div>`;
                 }).join('');
