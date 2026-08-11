@@ -203,7 +203,12 @@ export default function (editor, categories) {
 .cnd-rgpd-label a { color: #000; text-decoration: underline; }
 .cnd-submit-wrap { display: block; width: 100%; }
 .cnd-submit {
-    width: 100%; display: inline-flex; justify-content: center; align-items: center;
+    /* display:block et NON inline-flex. Dans un conteneur flex, CSS supprime les
+       blancs situés ENTRE deux éléments. Quand l'éditeur de texte scinde le
+       libellé en plusieurs nœuds, l'espace tapé disparaissait donc :
+       « JE CANDIDATE » + « TEST » s'affichait « JE CANDIDATETEST ».
+       Un bouton centre déjà son texte, le flex n'apportait rien. */
+    width: 100%; display: block; text-align: center;
     padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
     border: none; border-radius: 0; font-size: 14px; font-weight: 700;
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
@@ -338,7 +343,9 @@ ${hidden}
         </div>
 
         <div class="cnd-submit-wrap">
-            <button type="submit" class="cnd-submit">${t.submit}</button>
+            <!-- Libellé dans un <span> éditable : sur un <button> focalisé, la
+                 touche Espace active le bouton au lieu d'insérer un caractère. -->
+            <button type="submit" class="cnd-submit"><span class="cnd-submit-label" data-gjs-type="text">${t.submit}</span></button>
         </div>
     </form>
 

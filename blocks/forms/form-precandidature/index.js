@@ -224,7 +224,10 @@ export default function (editor, categories) {
 .pc-rgpd-label a { color: #000; text-decoration: underline; }
 .pc-submit-wrap { display: block; width: 100%; }
 .pc-submit {
-    width: 100%; display: inline-flex; justify-content: center; align-items: center;
+    /* display:block et NON inline-flex : le flex supprime les blancs entre deux
+       éléments, donc l'espace tapé dans le libellé disparaissait dès que
+       l'éditeur scindait le texte en plusieurs nœuds. */
+    width: 100%; display: block; text-align: center;
     padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
     border: none; border-radius: 0; font-size: 14px; font-weight: 700;
     font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
@@ -359,7 +362,9 @@ export default function (editor, categories) {
         </div>
 
         <div class="pc-submit-wrap">
-            <button type="submit" class="pc-submit">${t.submit}</button>
+            <!-- Libellé dans un <span> éditable : sur un <button> focalisé, la
+                 touche Espace active le bouton au lieu d'insérer un caractère. -->
+            <button type="submit" class="pc-submit"><span class="pc-submit-label" data-gjs-type="text">${t.submit}</span></button>
         </div>
     </form>
 </div>

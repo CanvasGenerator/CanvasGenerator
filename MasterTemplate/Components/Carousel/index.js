@@ -1,6 +1,14 @@
 export default function(editor, categories) {
     const cat = categories && categories.MASTER ? categories.MASTER : 'Master Template';
 
+    // ⚠️ Tout élément porteur de texte éditable doit déclarer type:'text'.
+    // Ces blocs sont construits à partir d'OBJETS de définition, pas de HTML :
+    // GrapesJS n'y devine donc pas le type. Sans type:'text', le contenu devient
+    // un simple textnode dans un parent 'default' — visible, mais impossible à
+    // sélectionner ou à éditer au double-clic. Symptôme trompeur : un texte
+    // enveloppé dans <strong> ou <span> reste éditable (le parser HTML, lui,
+    // infère bien le type), donc seuls certains textes du bloc résistent.
+
     // ── Carrousel 1 : Cards programmes (variante A – image + header + body) ──
     editor.BlockManager.add('master-carousel-programmes', {
         label: 'Carrousel Programmes',
@@ -32,10 +40,10 @@ export default function(editor, categories) {
                     components: [{
                         tagName: 'div', classes: ['mcp-track'],
                         components: [
-                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 1'},{type:'image',attributes:{src:'https://placehold.co/380x190/dde3ea/374151?text=Programme+1',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{tagName:'div',classes:['mcp-card-body'],components:"Description du programme 1. Modifiez ce texte pour présenter votre formation."}]}]},
-                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 2'},{type:'image',attributes:{src:'https://placehold.co/380x190/cdd8e2/374151?text=Programme+2',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{tagName:'div',classes:['mcp-card-body'],components:'Description du programme 2. Modifiez ce texte pour présenter votre formation.'}]}]},
-                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 3'},{type:'image',attributes:{src:'https://placehold.co/380x190/c8d4de/374151?text=Programme+3',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{tagName:'div',classes:['mcp-card-body'],components:'Description du programme 3. Modifiez ce texte pour présenter votre formation.'}]}]},
-                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 4'},{type:'image',attributes:{src:'https://placehold.co/380x190/b5c7d6/374151?text=Programme+4',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{tagName:'div',classes:['mcp-card-body'],components:'Description du programme 4. Modifiez ce texte pour présenter votre formation.'}]}]}
+                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{type:'text',tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 1'},{type:'image',attributes:{src:'https://placehold.co/380x190/dde3ea/374151?text=Programme+1',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{type:'text',tagName:'div',classes:['mcp-card-body'],components:"Description du programme 1. Modifiez ce texte pour présenter votre formation."}]}]},
+                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{type:'text',tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 2'},{type:'image',attributes:{src:'https://placehold.co/380x190/cdd8e2/374151?text=Programme+2',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{type:'text',tagName:'div',classes:['mcp-card-body'],components:'Description du programme 2. Modifiez ce texte pour présenter votre formation.'}]}]},
+                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{type:'text',tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 3'},{type:'image',attributes:{src:'https://placehold.co/380x190/c8d4de/374151?text=Programme+3',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{type:'text',tagName:'div',classes:['mcp-card-body'],components:'Description du programme 3. Modifiez ce texte pour présenter votre formation.'}]}]},
+                            {tagName:'div',classes:['mcp-card'],components:[{tagName:'div',classes:['mcp-card-inner'],components:[{type:'text',tagName:'div',classes:['mcp-card-head'],components:'PROGRAMME 4'},{type:'image',attributes:{src:'https://placehold.co/380x190/b5c7d6/374151?text=Programme+4',alt:''},style:{width:'100%',height:'190px','object-fit':'cover'}},{type:'text',tagName:'div',classes:['mcp-card-body'],components:'Description du programme 4. Modifiez ce texte pour présenter votre formation.'}]}]}
                         ]
                     }, {
                         tagName:'div', classes:['mcp-nav'],
@@ -59,20 +67,36 @@ export default function(editor, categories) {
                     var track = el.querySelector('.mcp-track');
                     var next = el.querySelector('.mcp-next');
                     var prev = el.querySelector('.mcp-prev');
+                    // Garde : une flèche supprimée dans l'éditeur faisait planter
+                    // tout le script et figeait le carrousel sans message.
+                    if (!track || !next || !prev) return;
                     var idx = 0;
+                    // Cartes visibles mesurées sur les largeurs réelles plutôt que
+                    // sur window.innerWidth, faux dans une iframe d'aperçu.
                     function visible() {
-                        if (window.innerWidth <= 580) return 1;
-                        if (window.innerWidth <= 1024) return 2;
-                        return 3;
+                        var first = track.firstElementChild;
+                        var wrap = track.parentElement;
+                        if (!first || !first.offsetWidth || !wrap) return 1;
+                        return Math.max(1, Math.round(wrap.offsetWidth / first.offsetWidth));
                     }
+                    // Jamais négatif : sinon translateX(--300px), CSS invalide.
+                    function maxIdx() { return Math.max(0, track.children.length - visible()); }
                     function update() {
-                        var v = visible();
-                        var max = track.children.length - v;
+                        var first = track.firstElementChild;
+                        if (!first) return;
+                        var max = maxIdx();
                         idx = Math.min(Math.max(idx,0), max);
-                        track.style.transform = 'translateX(-' + (idx * track.firstElementChild.offsetWidth) + 'px)';
+                        track.style.transform = 'translateX(-' + (idx * first.offsetWidth) + 'px)';
+                        // Flèches grisées quand tout tient à l'écran, au lieu de
+                        // rester cliquables sans effet.
+                        var idle = max === 0;
+                        [prev, next].forEach(function(b) {
+                            b.setAttribute('aria-disabled', idle ? 'true' : 'false');
+                            b.style.opacity = idle ? '0.35' : '';
+                        });
                     }
-                    next.addEventListener('click', function() { idx = idx < track.children.length - visible() ? idx+1 : 0; update(); });
-                    prev.addEventListener('click', function() { idx = idx > 0 ? idx-1 : track.children.length - visible(); update(); });
+                    next.addEventListener('click', function() { var m = maxIdx(); if (!m) return; idx = idx < m ? idx+1 : 0; update(); });
+                    prev.addEventListener('click', function() { var m = maxIdx(); if (!m) return; idx = idx > 0 ? idx-1 : m; update(); });
                     window.addEventListener('resize', update);
                     update();
                 }
@@ -111,7 +135,7 @@ export default function(editor, categories) {
                             {tagName:'div',classes:['mct-slide'],components:[
                                 {type:'image',attributes:{src:'https://placehold.co/720x300/333/fff?text=Témoignage+vidéo',alt:''},style:{width:'100%',height:'300px','object-fit':'cover'}},
                                 {tagName:'div',classes:['mct-quote-box'],components:[
-                                    {tagName:'p',classes:['mct-quote'],components:'"Ce que j\'ai le plus appris ici, c\'est le processus de création de sa conception à sa fabrication. Aussi le travail en équipe, on est amené à travailler avec les services marketing."'},
+                                    {type:'text',tagName:'p',classes:['mct-quote'],components:'"Ce que j\'ai le plus appris ici, c\'est le processus de création de sa conception à sa fabrication. Aussi le travail en équipe, on est amené à travailler avec les services marketing."'},
                                     {tagName:'div',classes:['mct-profile'],components:[
                                         {type:'image',attributes:{src:'https://placehold.co/80x40/f0f0f0/333?text=Logo',alt:''},style:{height:'40px','object-fit':'contain'}},
                                         {tagName:'div',classes:['mct-profile-info'],components:'<strong>Angèle</strong><span>Étudiante en 4e année – Direction Artistique</span>'}
@@ -121,7 +145,7 @@ export default function(editor, categories) {
                             {tagName:'div',classes:['mct-slide'],components:[
                                 {type:'image',attributes:{src:'https://placehold.co/720x300/555/fff?text=Témoignage+2',alt:''},style:{width:'100%',height:'300px','object-fit':'cover'}},
                                 {tagName:'div',classes:['mct-quote-box'],components:[
-                                    {tagName:'p',classes:['mct-quote'],components:'"La formation m\'a apporté toutes les connaissances nécessaires pour mon métier de Directeur Artistique."'},
+                                    {type:'text',tagName:'p',classes:['mct-quote'],components:'"La formation m\'a apporté toutes les connaissances nécessaires pour mon métier de Directeur Artistique."'},
                                     {tagName:'div',classes:['mct-profile'],components:[
                                         {type:'image',attributes:{src:'https://placehold.co/80x40/f0f0f0/333?text=Logo',alt:''},style:{height:'40px','object-fit':'contain'}},
                                         {tagName:'div',classes:['mct-profile-info'],components:'<strong>Cédric</strong><span>Art Director – Diplômé 1997</span>'}

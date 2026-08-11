@@ -13,7 +13,19 @@ export default function(editor, categories) {
                     classes: ['spe-image'],
                     droppable: true,
                     selectable: true,
-                    components: 'Image'
+                    // Le libellé est enveloppé dans un <span> type:'text' au lieu
+                    // d'être un texte nu : posé directement dans la zone de dépôt,
+                    // il devenait un textnode inéditable et non supprimable. La
+                    // div reste droppable, on peut donc toujours y glisser une
+                    // image — et retirer ou renommer le libellé.
+                    components: [{
+                        type: 'text',
+                        tagName: 'span',
+                        classes: ['spe-image-label'],
+                        editable: true,
+                        selectable: true,
+                        components: 'Image'
+                    }]
                 },
                 /* Contenu */
                 {

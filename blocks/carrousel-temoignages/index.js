@@ -463,22 +463,40 @@ export default function (editor, categories) {
                     const track   = el.querySelector('.ctm-track');
                     const prevBtn = el.querySelector('.ctm-prev');
                     const nextBtn = el.querySelector('.ctm-next');
-                    const slides  = track.querySelectorAll('.ctm-slide');
-                    const total   = slides.length;
-                    let index     = 0;
+                    // Garde : une flèche supprimée dans l'éditeur faisait planter
+                    // le script et figeait le carrousel sans message.
+                    if (!track || !prevBtn || !nextBtn) return;
+                    let index = 0;
+
+                    // On lit track.children à CHAQUE fois, et non un NodeList
+                    // capturé une seule fois : un témoignage ajouté ou supprimé
+                    // après l'initialisation est ainsi pris en compte.
+                    function total() { return track.children.length; }
 
                     function update() {
-                        const slideWidth = slides[0].offsetWidth;
-                        track.style.transform = `translateX(-${index * slideWidth}px)`;
+                        const first = track.firstElementChild;
+                        if (!first) return;
+                        const n = total();
+                        index = n ? ((index % n) + n) % n : 0;
+                        track.style.transform = `translateX(-${index * first.offsetWidth}px)`;
+                        // Un seul témoignage → flèches grisées plutôt que
+                        // cliquables sans effet.
+                        const idle = n <= 1;
+                        [prevBtn, nextBtn].forEach(b => {
+                            b.setAttribute('aria-disabled', idle ? 'true' : 'false');
+                            b.style.opacity = idle ? '0.35' : '';
+                        });
                     }
 
                     nextBtn.addEventListener('click', () => {
-                        index = (index + 1) % total;
+                        if (total() <= 1) return;
+                        index = (index + 1) % total();
                         update();
                     });
 
                     prevBtn.addEventListener('click', () => {
-                        index = (index - 1 + total) % total;
+                        if (total() <= 1) return;
+                        index = (index - 1 + total()) % total();
                         update();
                     });
 
