@@ -36,7 +36,7 @@ export default function (editor, categories) {
           <div class="bloc-video">
             <div class="placeholder-video">
               <div class="play-btn"></div>
-              EFAP | Stages Connect
+              <div class="placeholder-titre" data-gjs-type="text" data-gjs-name="Titre vidéo">EFAP | Stages Connect</div>
               <span class="placeholder-hint">Cliquez ici, puis collez l'URL de la vidéo dans le panneau de droite.</span>
             </div>
           </div>
@@ -62,6 +62,7 @@ export default function (editor, categories) {
         .bloc-video .placeholder-video{text-align:center;font-size:13px;letter-spacing:1px;text-transform:uppercase;opacity:.85;padding:20px;}
         .play-btn{width:70px;height:48px;background:#ff0000;border-radius:12px;display:flex;align-items:center;justify-content:center;margin:0 auto 14px;}
         .play-btn::before{content:"";border-left:18px solid #fff;border-top:11px solid transparent;border-bottom:11px solid transparent;}
+        .bloc-video .placeholder-titre{font-weight:inherit;line-height:1.4;}
         .placeholder-hint{display:block;font-size:11px;text-transform:none;letter-spacing:.3px;margin-top:10px;opacity:.8;}
         .bloc-video iframe,.bloc-video video{position:absolute;inset:0;width:100%;height:100%;border:0;object-fit:cover;background:#000;}
         .bloc-video.a-video .placeholder-video{display:none;}

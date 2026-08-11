@@ -408,10 +408,12 @@ export default function (editor, categories) {
 .wbc-submit-wrap { display: block; width: 100%; }
 
 .wbc-submit {
+    /* display:block et NON inline-flex : le flex supprime les blancs entre deux
+       éléments, donc l'espace tapé dans le libellé disparaissait dès que
+       l'éditeur scindait le texte en plusieurs nœuds. */
     width: 100%;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
+    display: block;
+    text-align: center;
     padding: 14px;
     background: #000;
     color: var(--brand-button-text, #ffffff);
@@ -584,7 +586,9 @@ export default function (editor, categories) {
         </div>
 
         <div class="wbc-submit-wrap">
-            <button type="submit" class="wbc-submit">${submitLabel}</button>
+            <!-- Libellé dans un <span> éditable : sur un <button> focalisé, la
+                 touche Espace active le bouton au lieu d'insérer un caractère. -->
+            <button type="submit" class="wbc-submit"><span class="wbc-submit-label" data-gjs-type="text">${submitLabel}</span></button>
         </div>
     </form>
     </div>

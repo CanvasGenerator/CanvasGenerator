@@ -98,13 +98,18 @@ export default function(editor, categories) {
   </div>
 </section>
 <style>
-  .ma-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
+  /* Couleur du texte par défaut de l'école (--brand-text, réglable par école dans
+     l'admin « Couleurs »). Posée sur la section : le titre et les questions sont
+     en color:inherit, donc sélectionner la section dans le canvas et changer
+     Typographie → Couleur dans la sidebar les repeint tous d'un coup (la règle
+     #id du Style Manager prime sur celle-ci). Les réponses gardent --brand-muted. */
+  .ma-section { padding: 48px 24px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); color: var(--brand-text, #1a1a1a); }
   .ma-inner { max-width: 900px; margin: 0 auto; }
   .ma-header-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
-  .ma-title { font-size: 20px; font-weight: 900; color: var(--text-main, #111); letter-spacing: 1px; margin: 0; width: 100%; }
+  .ma-title { font-size: 20px; font-weight: 900; color: inherit; letter-spacing: 1px; margin: 0; width: 100%; }
   .ma-item { border-bottom: 1px solid #e0e0e0; }
   .ma-q { display: flex; justify-content: space-between; align-items: center; padding: 16px 4px; cursor: pointer; gap: 16px; }
-  .ma-q span { font-size: 14px; color: var(--text-main, #222); line-height: 1.4; flex: 1; }
+  .ma-q span { font-size: 14px; color: inherit; line-height: 1.4; flex: 1; }
   .ma-toggle {
     width: 32px; height: 32px; border-radius: 50%; border: 2px solid #bbb;
     background: var(--brand-background, #ffffff); font-size: 20px; line-height: 1; color: var(--brand-muted, #6b7280);

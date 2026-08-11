@@ -295,32 +295,61 @@ export default function (editor, categories) {
                     const track   = el.querySelector('.carrous-track');
                     const nextBtn = el.querySelector('.carrous-next');
                     const prevBtn = el.querySelector('.carrous-prev');
-                    let index     = 0;
+                    // Sans cette garde, supprimer une flèche dans l'éditeur faisait
+                    // planter le script (TypeError sur addEventListener) et le
+                    // carrousel entier devenait inerte, sans message.
+                    if (!track || !nextBtn || !prevBtn) return;
+                    let index = 0;
 
+                    // Nombre de cartes visibles déduit des largeurs RÉELLES, et non
+                    // de window.innerWidth : dans l'aperçu (iframe) ou le canvas de
+                    // l'éditeur, la largeur de la fenêtre ne correspond pas à celle
+                    // du carrousel, donc le JS et les media queries CSS pouvaient
+                    // être en désaccord sur le nombre de cartes affichées.
                     function getVisible() {
-                        if (window.innerWidth <= 580)  return 1;
-                        if (window.innerWidth <= 1024) return 2;
-                        return 3;
+                        const first = track.firstElementChild;
+                        const wrap  = track.parentElement;
+                        if (!first || !first.offsetWidth || !wrap) return 1;
+                        return Math.max(1, Math.round(wrap.offsetWidth / first.offsetWidth));
+                    }
+
+                    function maxIndex() {
+                        // Jamais négatif : avec moins de cartes que de places
+                        // visibles, l'ancien calcul donnait -1 puis
+                        // `translateX(--367px)`, une valeur CSS invalide
+                        // silencieusement ignorée par le navigateur.
+                        return Math.max(0, track.children.length - getVisible());
                     }
 
                     function update() {
-                        const visible   = getVisible();
-                        const cardWidth = track.firstElementChild.offsetWidth;
-                        const maxIndex  = track.children.length - visible;
+                        const first = track.firstElementChild;
+                        if (!first) return;
+                        const max = maxIndex();
+                        index = Math.min(Math.max(index, 0), max);
+                        track.style.transform = `translateX(-${index * first.offsetWidth}px)`;
 
-                        index = Math.min(Math.max(index, 0), maxIndex);
-                        track.style.transform = `translateX(-${index * cardWidth}px)`;
+                        // Rien à faire défiler (toutes les cartes tiennent à
+                        // l'écran) → on grise les flèches. Avant, elles restaient
+                        // cliquables sans effet : d'où le symptôme « je clique et
+                        // il ne se passe rien ».
+                        const idle = max === 0;
+                        [prevBtn, nextBtn].forEach(b => {
+                            b.setAttribute('aria-disabled', idle ? 'true' : 'false');
+                            b.style.opacity = idle ? '0.35' : '';
+                        });
                     }
 
                     nextBtn.addEventListener('click', () => {
-                        const visible = getVisible();
-                        index = (index < track.children.length - visible) ? index + 1 : 0;
+                        const max = maxIndex();
+                        if (!max) return;
+                        index = index < max ? index + 1 : 0;
                         update();
                     });
 
                     prevBtn.addEventListener('click', () => {
-                        const visible = getVisible();
-                        index = (index > 0) ? index - 1 : track.children.length - visible;
+                        const max = maxIndex();
+                        if (!max) return;
+                        index = index > 0 ? index - 1 : max;
                         update();
                     });
 

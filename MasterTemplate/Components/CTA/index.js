@@ -65,6 +65,11 @@ export default function(editor, categories) {
     display: flex;
     align-items: center;
     justify-content: center;
+    /* Le flex reste nécessaire pour aligner l'icône et le libellé, mais il
+       supprime les blancs entre éléments : l'espace tapé dans le libellé
+       disparaissait dès que l'éditeur scindait le texte. pre-wrap rend cette
+       espace non-réductible, donc conservée. Aucun effet visuel par ailleurs. */
+    white-space: pre-wrap;
     padding: 14px 8px;
     font-size: 12px;
     font-weight: 700;

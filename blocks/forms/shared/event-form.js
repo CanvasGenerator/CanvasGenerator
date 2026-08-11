@@ -114,12 +114,21 @@ import { isProgrammeSchool, getProgrammes } from './programme-config.js';
     };
 
     /* ── Générateur HTML (sans <script>) ────────────────────────────── */
-export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTitle, formSubtitle, lang = 'fr', showVousEtes = true, showChild = false }) {
+/**
+ * @param formVariant  '' (JPO / Atelier) ou 'stage'. Marque la section d'un
+ *   `data-form-variant`, qui sert à REVENIR au comportement historique pour le
+ *   formulaire Stage : champs suivant --brand-background et pas de trait
+ *   d'alignement du titre. Les correctifs demandés (fond des champs blanc,
+ *   alignement du titre) ne concernent que JPO et Atelier.
+ */
+export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTitle, formSubtitle, lang = 'fr', showVousEtes = true, showChild = false, formVariant = '' }) {
+        const isStage = formVariant === 'stage';
         const t = TRANS[lang] || TRANS.fr;
         const rgpd = resolveRgpdConfig(lang);
         const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang });
         return `
 <section class="jpo-section"
+  ${isStage ? 'data-form-variant="stage"' : 'data-header-align="center"'}
   data-gjs-droppable="false">
 
 <!-- ═══════════ STYLES ═══════════ -->
@@ -147,12 +156,35 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     background: #F4EFEA;
     padding: 24px 24px 28px;
     overflow: visible;
+    /* Fond des champs de saisie. Blanc sur la carte beige, comme la maquette.
+       Un seul jeton pour TOUS les champs (selects, inputs, indicatif tél.,
+       case RGPD) : ils ne peuvent plus diverger les uns des autres. Avant, ils
+       tiraient sur --brand-background, donc une école au fond non-blanc faisait
+       disparaître certains champs dans le beige de la carte. */
+    --jpo-field-bg: #ffffff;
+}
+
+/* Stage : comportement d'origine conservé (correctifs limités à JPO + Atelier).
+   Le jeton est simplement recâblé sur --brand-background et l'indicatif
+   redevient transparent. Règles présentes à l'identique dans chaque copie du
+   style, donc deux formulaires différents sur une même page ne s'écrasent pas. */
+.jpo-section[data-form-variant="stage"] .jpo-card {
+    --jpo-field-bg: var(--brand-background, #ffffff);
+}
+.jpo-section[data-form-variant="stage"] .jpo-phone-prefix {
+    background: transparent;
 }
 
 .jpo-header {
     text-align: center;
     margin-bottom: 22px;
 }
+
+/* Alignement du bloc titre + sous-titre, piloté par le trait « Alignement du
+   titre » (panneau Réglages de la section). Posé sur .jpo-header : le h2 et le
+   p héritent, donc un seul réglage déplace les deux. */
+.jpo-section[data-header-align="left"]  .jpo-header { text-align: left; }
+.jpo-section[data-header-align="right"] .jpo-header { text-align: right; }
 .jpo-title {
     margin: 0 0 6px;
     font-size: 20px;
@@ -206,7 +238,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-family: inherit;
     font-weight: 600;
     color: #000;
-    background: var(--brand-background, #ffffff);
+    background: var(--jpo-field-bg, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -331,7 +363,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-size: 13px;
     font-family: inherit;
     color: #000;
-    background: var(--brand-background, #ffffff);
+    background: var(--jpo-field-bg, #ffffff);
     outline: none;
     appearance: none;
     -webkit-appearance: none;
@@ -391,7 +423,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     height: 46px;
     padding: 0;
     border: 1px solid #000;
-    background: var(--brand-background, #ffffff);
+    background: var(--jpo-field-bg, #ffffff);
     box-sizing: border-box;
 }
 
@@ -419,7 +451,10 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     font-size: 11px;
     font-family: inherit;
     color: #000;
-    background: transparent;
+    /* Explicitement blanc, et non transparent : un select transparent laissait
+       remonter le beige de la carte et l'indicatif ressortait plus foncé que
+       les autres champs. */
+    background: var(--jpo-field-bg, #ffffff);
     appearance: none;
     -webkit-appearance: none;
     outline: none;
@@ -438,7 +473,7 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     height: 18px;
     border: 1px solid #000;
     border-radius: 0;
-    background: var(--brand-background, #ffffff);
+    background: var(--jpo-field-bg, #ffffff);
     cursor: pointer;
     appearance: none;
     -webkit-appearance: none;
@@ -476,10 +511,15 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-submit {
+    /* display:block et NON inline-flex. Dans un conteneur flex, CSS supprime les
+       blancs situés ENTRE deux éléments. Quand l'éditeur de texte scinde le
+       libellé en plusieurs nœuds, l'espace tapé disparaissait donc :
+       « JE CANDIDATE » + « TEST » s'affichait « JE CANDIDATETEST ».
+       Un bouton centre déjà son texte, le flex n'apportait rien. Le spinner
+       (.jpo-spinner, inline-block + vertical-align) reste aligné correctement. */
     width: 100%;
-    display: inline-flex;
-    justify-content: center;
-    align-items: center;
+    display: block;
+    text-align: center;
     padding: 14px;
     background: #000;
     color: var(--brand-button-text, #ffffff);
@@ -718,7 +758,13 @@ ${showChild ? `
         </div>
 
         <div class="jpo-submit-wrap">
-            <button type="submit" class="jpo-submit">${submitLabel}</button>
+            <!-- Le libellé vit dans un <span> éditable, PAS directement dans le
+                 <button>. Sur un <button> qui a le focus, la touche Espace
+                 déclenche l'activation du bouton au lieu d'insérer un caractère :
+                 on pouvait taper des lettres mais jamais d'espace (« JE
+                 CANDIDATETEST »). En déplaçant la zone éditable dans un span,
+                 le focus n'est plus sur le bouton et l'espace s'insère. -->
+            <button type="submit" class="jpo-submit"><span class="jpo-submit-label" data-gjs-type="text">${submitLabel}</span></button>
         </div>
     </form>
     </div>
@@ -812,6 +858,39 @@ ${showChild ? `
 export function attachEventFormLogic(editor) {
     if (editor.__eventFormLogicAttached) return;
     editor.__eventFormLogicAttached = true;
+
+    /* ── Type de la section : expose le trait « Alignement du titre » ─────
+     * Le titre et le sous-titre héritent du text-align de .jpo-header. Plutôt
+     * que d'obliger à sélectionner le <h2> PUIS le <p> et à régler chacun dans
+     * Typographie, on pose un attribut sur la section : une seule liste
+     * déroulante dans Réglages déplace les deux d'un coup.
+     * isComponent sur .jpo-section → s'applique aussi aux formulaires déjà
+     * posés dans une page (leur CSS gravé n'a en revanche pas les règles
+     * [data-header-align], il faut reposer le bloc pour en profiter). */
+    editor.DomComponents.addType('jpo-event-section', {
+        isComponent: el => el.classList
+            && el.classList.contains('jpo-section')
+            && el.getAttribute('data-form-variant') !== 'stage',
+        model: {
+            defaults: {
+                name: 'Formulaire événement',
+                droppable: false,
+                traits: [
+                    {
+                        type: 'select',
+                        name: 'data-header-align',
+                        label: 'Alignement du titre',
+                        default: 'center',
+                        options: [
+                            { value: 'center', name: 'Centré' },
+                            { value: 'left',   name: 'Gauche' },
+                            { value: 'right',  name: 'Droite' }
+                        ]
+                    }
+                ]
+            }
+        }
+    });
 
     /* ── Initialise un campus-select (scopé à sa .jpo-card) ─────── */
     function initOneCampusSelect(campusSelect) {

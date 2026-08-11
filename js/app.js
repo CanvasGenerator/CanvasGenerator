@@ -897,76 +897,88 @@ function initEditor(schoolId) {
     //      (`t.trigger(resizeUpdate, L), !M && D()`). Enrichir `data.style` suffit
     //      donc : marge et hauteur partent dans le MÊME addStyle, avec les bons
     //      drapeaux (partiel pendant le glissement, enregistré au relâchement).
-    const LP_RESIZE_TOP_HANDLES = ['tl', 'tc', 'tr'];
-    const LP_RESIZE_LEFT_HANDLES = ['tl', 'cl', 'bl'];
-    let lpResizeStart = null;
-
+    // On active le redimensionnement sur tous les composants (voir `component:add`
+    // plus bas). La config ne contient QUE les poignées et les bornes : la
+    // compensation « bord opposé fixe » est gérée par les écouteurs ci-dessous,
+    // PAS par les callbacks `onStart`/`updateTarget` du resizer.
+    //
+    // ── Pourquoi ne PAS passer par `selectedHandler` ────────────────────
+    // L'implémentation précédente mémorisait la poignée saisie via
+    // `opts.selectedHandler` (callback `updateTarget`). À l'exécution cette valeur
+    // n'était jamais exploitable ici : `start.handler` ne correspondait à aucune
+    // poignée du haut, donc `margin-top` n'était JAMAIS écrit et le bloc rétrécissait
+    // toujours par le bas (le bug).
+    //
+    // ── Détection fiable par le RECT ────────────────────────────────────
+    // GrapesJS ne décale `rect.t` (top) que pour les poignées HAUT (tl/tc/tr) et
+    // `rect.l` (left) que pour les poignées GAUCHE (tl/cl/bl) ; les poignées BAS et
+    // DROITE laissent `rect.t` / `rect.l` FIXES pendant tout le glissement. On s'en
+    // sert pour savoir quel bord est tiré, sans dépendre d'un état capturé dans les
+    // callbacks : `rect` est toujours présent dans l'événement `component:resize:*`.
     const LP_RESIZE = {
         tl: 1, tc: 1, tr: 1, cl: 1, cr: 1, bl: 1, bc: 1, br: 1,
         minDim: 20,
-        keyWidth: 'width', keyHeight: 'height',
-
-        // État de départ du glissement. Renseigné uniquement pour les composants
-        // qui utilisent CETTE config : les images (resizable natif) n'y touchent pas.
-        onStart(ev, opts = {}) {
-            lpResizeStart = null;
-            try {
-                const el = opts.el;
-                const startDim = opts.resizer && opts.resizer.startDim;
-                if (!el || !startDim) return;
-                const cs = getComputedStyle(el);
-                lpResizeStart = {
-                    h: startDim.h,
-                    w: startDim.w,
-                    marginTop: parseFloat(cs.marginTop) || 0,
-                    marginLeft: parseFloat(cs.marginLeft) || 0,
-                    handler: null
-                };
-            } catch (e) { lpResizeStart = null; }
-        },
-
-        // Appelé juste avant que GrapesJS ne construise l'objet de styles : c'est
-        // le seul endroit où la poignée saisie est exposée. On la mémorise pour
-        // l'écouteur ci-dessous.
-        updateTarget(el, rect, opts = {}) {
-            if (lpResizeStart) lpResizeStart.handler = opts.selectedHandler;
-        }
+        keyWidth: 'width', keyHeight: 'height'
     };
 
-    // Compensation proprement dite : on enrichit le style que GrapesJS s'apprête
-    // à appliquer, il se charge du reste.
+    let lpStart = null;      // taille + marges au DÉBUT du glissement
+    let lpBaseRect = null;   // 1er rect reçu → référence pour détecter le décalage
+
+    editor.on('component:resize:start', (data = {}) => {
+        lpStart = null;
+        lpBaseRect = null;
+        try {
+            const sel = editor.getSelected();
+            const el = data.el || (sel && sel.getEl && sel.getEl());
+            const r = data.rect; // { t, l, w, h } = dimensions de départ
+            if (!el || !r) return;
+            const win = (el.ownerDocument && el.ownerDocument.defaultView) || window;
+            const cs = win.getComputedStyle(el);
+            lpStart = {
+                h: r.h,
+                w: r.w,
+                marginTop: parseFloat(cs.marginTop) || 0,
+                marginLeft: parseFloat(cs.marginLeft) || 0
+            };
+        } catch (e) { lpStart = null; }
+    });
+
+    // Compensation : la marge absorbe TOUTE la variation de taille (Δ = départ −
+    // courant) pour que le bord OPPOSÉ à la poignée reste fixe et que le bord tiré
+    // suive le curseur.
+    //   • réduire (poignée haut) → Δ > 0 → margin-top grandit → le bloc descend, le
+    //     bord bas reste fixe et le bord haut suit le curseur ;
+    //   • agrandir → Δ < 0 → margin-top diminue (peut devenir NÉGATIVE) → le bloc
+    //     remonte, le bord bas reste fixe, le bord haut suit le curseur vers le haut.
+    // On n'écrête PAS à 0 : la marge négative fait volontairement remonter le bloc.
+    // Idem à gauche pour la largeur.
     editor.on('component:resize:update', (data = {}) => {
         try {
-            const start = lpResizeStart;
+            const s = lpStart;
             const rect = data.rect;
             const style = data.style;
-            if (!start || !rect || !style) return;
+            if (!s || !rect || !style) return;
 
-            // La marge absorbe TOUTE la variation de taille (Δ = start − courant) :
-            //   • réduire → Δ > 0 → la marge grandit → le bloc descend, le bord bas
-            //     reste fixe et le bord haut tiré suit le curseur ;
-            //   • agrandir → Δ < 0 → la marge diminue (et peut devenir NÉGATIVE) →
-            //     le bloc remonte, le bord bas reste fixe et le bord haut tiré suit
-            //     le curseur vers le haut.
-            // On n'écrête PAS à 0 : sinon, une fois la marge d'origine épuisée, le
-            // bord haut se bloquait et le bloc grandissait par le BAS (le bug). La
-            // marge négative fait volontairement remonter le bloc — c'est le sens
-            // attendu de « le bord tiré suit le curseur » quand on agrandit ; le
-            // chevauchement éventuel du bloc précédent est le choix de l'utilisateur
-            // (réversible en re-tirant vers le bas). Idem à gauche pour la largeur.
-            if (LP_RESIZE_TOP_HANDLES.indexOf(start.handler) >= 0 && typeof rect.h === 'number') {
-                style['margin-top'] = (start.marginTop + (start.h - rect.h)) + 'px';
+            // Référence prise au 1er rect : on compare les suivants pour savoir si le
+            // bord haut / gauche bouge (⇒ poignée haut / gauche) ou reste fixe.
+            if (!lpBaseRect) lpBaseRect = { t: rect.t, l: rect.l };
+
+            const topPulled = typeof rect.t === 'number' && typeof lpBaseRect.t === 'number'
+                && Math.abs(rect.t - lpBaseRect.t) > 0.5;
+            const leftPulled = typeof rect.l === 'number' && typeof lpBaseRect.l === 'number'
+                && Math.abs(rect.l - lpBaseRect.l) > 0.5;
+
+            if (topPulled && typeof rect.h === 'number') {
+                style['margin-top'] = (s.marginTop + (s.h - rect.h)) + 'px';
             }
-            if (LP_RESIZE_LEFT_HANDLES.indexOf(start.handler) >= 0 && typeof rect.w === 'number') {
-                style['margin-left'] = (start.marginLeft + (start.w - rect.w)) + 'px';
+            if (leftPulled && typeof rect.w === 'number') {
+                style['margin-left'] = (s.marginLeft + (s.w - rect.w)) + 'px';
             }
         } catch (e) { /* silencieux : ne jamais casser le redimensionnement */ }
     });
 
-    // Fin du glissement : on oublie l'état pour qu'un resize d'image (qui n'utilise
-    // pas LP_RESIZE et ne renseigne donc pas lpResizeStart) ne réutilise pas
-    // les valeurs du glissement précédent.
-    editor.on('component:resize:end', () => { lpResizeStart = null; });
+    // Fin du glissement : on oublie l'état de départ.
+    editor.on('component:resize:end', () => { lpStart = null; lpBaseRect = null; });
     editor.on('component:add', (component) => {
         try {
             if (!component || typeof component.get !== 'function') return;
@@ -1163,6 +1175,18 @@ function initEditor(schoolId) {
                 updateSelCount();
             };
 
+            // Les réponses sont saisies dans un <textarea> (retours à la ligne réels).
+            // Injectées telles quelles dans un <p>, les \n sont avalés par le HTML et
+            // les puces "- ..." se retrouvent collées sur une seule ligne. On convertit
+            // donc chaque retour à la ligne en <br> (une ligne vide → deux <br>).
+            function faqAnswerToHtml(answer) {
+                return String(answer == null ? '' : answer)
+                    .replace(/\r\n?/g, '\n')
+                    .split('\n')
+                    .map(line => escapeHtml(line.trim()))
+                    .join('<br>');
+            }
+
             function confirmSelection() {
                 // Ordre = ordre des lignes dans le picker (modifiable via ▲/▼).
                 const orderedIds = [...body.querySelectorAll('.faq-row')].map(r => r.getAttribute('data-id'));
@@ -1186,7 +1210,7 @@ function initEditor(schoolId) {
                                     <button class="ma-toggle" aria-label="Toggle">${first ? '&#8722;' : '&#43;'}</button>
                                 </div>
                                 <div class="ma-a"${first ? '' : ' style="display:none"'}>
-                                    <p>${escapeHtml(faq.answer)}</p>
+                                    <p>${faqAnswerToHtml(faq.answer)}</p>
                                 </div>
                             </div>`;
                         }).join('');

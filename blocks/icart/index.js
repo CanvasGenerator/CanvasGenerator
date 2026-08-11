@@ -281,7 +281,10 @@ export default function(editor, categories) {
                 .keyfig-stats-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 18px 34px; flex: 1; }
                 .keyfig-number { color: ${icartColor}; font-size: 34px; font-weight: 700; }
                 .keyfig-label { display: inline-block; background-color: ${icartColor}; color: #fff; font-size: 11px; font-weight: 600; padding: 5px 8px; }
-                .keyfig-cta { display: inline-flex; align-items: center; justify-content: center; min-width: 220px; padding: 14px 24px; background-color: ${icartColor}; color: #fff; text-decoration: none; font-weight: 700; transition: background 0.2s; }
+                /* white-space:pre-wrap — le flex supprime les blancs entre éléments,
+                   donc l'espace tapé dans le libellé disparaissait dès que l'éditeur
+                   scindait le texte. pre-wrap la rend non-réductible. */
+                .keyfig-cta { display: inline-flex; align-items: center; justify-content: center; white-space: pre-wrap; min-width: 220px; padding: 14px 24px; background-color: ${icartColor}; color: #fff; text-decoration: none; font-weight: 700; transition: background 0.2s; }
                 .keyfig-cta:hover { background-color: #c5460e; }
                 @media (max-width: 768px) { .keyfig-card { flex-direction: column; } }
             </style>

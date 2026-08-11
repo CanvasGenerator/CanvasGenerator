@@ -21,7 +21,7 @@ export default function (editor, categories) {
             submitLabel: "Je m'inscris au stage",
             formTitle: 'Inscription au Stage',
             formSubtitle: 'Candidatez pour un stage au sein de notre école.',
-            lang: 'fr', showVousEtes: false, showChild: false
+            lang: 'fr', showVousEtes: false, showChild: false, formVariant: 'stage'
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
@@ -34,7 +34,7 @@ export default function (editor, categories) {
             submitLabel: 'Apply for the internship',
             formTitle: 'Internship Application',
             formSubtitle: 'Apply for an internship at our school.',
-            lang: 'en', showVousEtes: false, showChild: false
+            lang: 'en', showVousEtes: false, showChild: false, formVariant: 'stage'
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
