@@ -1,4 +1,4 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('../lib/sfmc');
+const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch, listCampuses, upsertCampus, deleteCampus } = require('../lib/sfmc');
 const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { normalizeBranding, fontStackById } = require('../js/fonts');
@@ -22,6 +22,7 @@ const {
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 const { getSchoolLogo } = require('../lib/school-logos');
+const { handleAuthRoute, enforceAuth } = require('../lib/auth');
 
 /**
  * Rend les URLs d'assets ABSOLUES depuis la racine ("/assets/…"). Le HTML stocké
@@ -222,6 +223,12 @@ module.exports = async function handler(req, res) {
     const pathname = req.query.path || req.url.split('?')[0];
 
     try {
+        // ── Authentification SFMC (SSO JWT Marketing Cloud) ───────────
+        // Routes /auth/* (dont le POST du JWT sur /auth/sfmc/login) + guard sur
+        // les API d'admin et les pages passant par le routeur. No-op si non configuré.
+        if (await handleAuthRoute(req, res, pathname, req.query || {}, req.body || {})) return;
+        if (enforceAuth(req, res, pathname, pathname)) return;
+
         if (await handleSchoolsRoute(req, res, pathname)) return;
         if (await handleContentRoute(req, res, pathname)) return;
 
@@ -553,38 +560,49 @@ module.exports = async function handler(req, res) {
         // 7. Campus API
         // ==========================================
 
-        // GET /api/campuses — list all campuses
-        if (req.method === 'GET' && pathname === '/api/campuses') {
-            const result = await supabaseRequest('GET', '/campuses?order=name.asc');
-            return res.status(200).json(result || []);
-        }
+        // ── Campus ────────────────────────────────────────────────────────
+        // MÊME implémentation que server.js : la Data Extension SFMC via
+        // lib/sfmc.js. Cette route utilisait auparavant la table Supabase
+        // `campuses`, qui ne possède QUE (id, name, slug) — ni image_url, ni
+        // address, ni link, ni country, ni school. Résultat côté Vercel :
+        // l'enregistrement d'un campus renvoyait 200 mais perdait silencieusement
+        // tous ces champs, et la sélection n'était pas cloisonnée par école.
+        // Deux back-ends pour une même fonctionnalité, c'est ce qui produisait
+        // « je sauvegarde, je reviens, ma modif a disparu ».
+        if (pathname === '/api/campuses' || pathname.startsWith('/api/campuses/')) {
+            if (!isSfmcConfigured()) {
+                return res.status(500).json({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' });
+            }
+            const school = String(req.query.school || '').toLowerCase();
 
-        // POST /api/campuses — create a campus
-        if (req.method === 'POST' && pathname === '/api/campuses') {
-            const { id, name, slug } = req.body || {};
-            if (!id || !name) return res.status(400).json({ error: 'id et name requis' });
-            const result = await supabaseRequest('POST', '/campuses', {
-                id, name, slug: slug || id
-            }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
-            return res.status(200).json(Array.isArray(result) ? result[0] : result);
-        }
+            if (req.method === 'GET' && pathname === '/api/campuses') {
+                return res.status(200).json((await listCampuses(school)) || []);
+            }
 
-        // PUT /api/campuses/:id — update a campus
-        if (req.method === 'PUT' && pathname.startsWith('/api/campuses/')) {
-            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-            const { name, slug } = req.body || {};
-            if (!name) return res.status(400).json({ error: 'name requis' });
-            const result = await supabaseRequest('PATCH', `/campuses?id=eq.${encodeURIComponent(campusId)}`, {
-                name, slug: slug || campusId
-            }, { 'Prefer': 'return=representation' });
-            return res.status(200).json(Array.isArray(result) ? result[0] : result);
-        }
+            if (req.method === 'POST' && pathname === '/api/campuses') {
+                const { id, name, slug, image_url, address, link, country, school: bSchool } = req.body || {};
+                const sch = (school || String(bSchool || '')).toLowerCase();
+                if (!sch) return res.status(400).json({ error: 'école (school) requise' });
+                if (!id || !name) return res.status(400).json({ error: 'id et name requis' });
+                const result = await upsertCampus({ school: sch, id, name, slug: slug || id, image_url, address, link, country });
+                return res.status(200).json(result);
+            }
 
-        // DELETE /api/campuses/:id — delete a campus
-        if (req.method === 'DELETE' && pathname.startsWith('/api/campuses/')) {
-            const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
-            await supabaseRequest('DELETE', `/campuses?id=eq.${encodeURIComponent(campusId)}`);
-            return res.status(200).json({ message: 'Campus supprimé' });
+            if (req.method === 'PUT' && pathname.startsWith('/api/campuses/')) {
+                const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+                const { name, slug, image_url, address, link, country, school: bSchool } = req.body || {};
+                const sch = (school || String(bSchool || '')).toLowerCase();
+                if (!sch) return res.status(400).json({ error: 'école (school) requise' });
+                if (!name) return res.status(400).json({ error: 'name requis' });
+                const result = await upsertCampus({ school: sch, id: campusId, name, slug: slug || campusId, image_url, address, link, country });
+                return res.status(200).json(result);
+            }
+
+            if (req.method === 'DELETE' && pathname.startsWith('/api/campuses/')) {
+                const campusId = decodeURIComponent(pathname.replace('/api/campuses/', ''));
+                if (!school) return res.status(400).json({ error: 'école (school) requise' });
+                return res.status(200).json(await deleteCampus(school, campusId));
+            }
         }
 
         // ==========================================
@@ -849,7 +867,20 @@ module.exports = async function handler(req, res) {
         if (req.method === 'POST' && pathname === '/api/publish-sfmc') {
             const { projectName } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
-            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+            if (!isSfmcConfigured()) {
+                // SFMC désactivé (SFMC_SYNC_ENABLED != true) : on marque publié
+                // côté app sans pousser vers SFMC, pour ne pas bloquer.
+                const pubRes = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
+                );
+                const pubProj = pubRes && pubRes[0];
+                if (pubProj) {
+                    const pubProps = { ...(pubProj.properties || {}), status: 'published' };
+                    await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, { properties: pubProps });
+                }
+                return res.status(200).json({ message: 'Published (SFMC désactivé — non poussé)', projectName, status: 'published', sfmc: { skipped: true, reason: 'SFMC_SYNC_ENABLED=false' } });
+            }
 
             const projectRes = await supabaseRequest(
                 'GET',
@@ -888,7 +919,19 @@ module.exports = async function handler(req, res) {
         if (req.method === 'POST' && pathname === '/api/unpublish-sfmc') {
             const { projectName } = req.body || {};
             if (!projectName) return res.status(400).json({ error: 'projectName required' });
-            if (!isSfmcConfigured()) return res.status(400).json({ error: 'SFMC non configuré sur ce serveur.' });
+            if (!isSfmcConfigured()) {
+                // SFMC désactivé : on repasse en brouillon côté app sans SFMC.
+                const dftRes = await supabaseRequest(
+                    'GET',
+                    `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
+                );
+                const dftProj = dftRes && dftRes[0];
+                if (dftProj) {
+                    const dftProps = { ...(dftProj.properties || {}), status: 'draft' };
+                    await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, { properties: dftProps });
+                }
+                return res.status(200).json({ message: 'Unpublished (SFMC désactivé)', projectName, status: 'draft', sfmc: { skipped: true } });
+            }
 
             const projectRes = await supabaseRequest(
                 'GET',
