@@ -4,7 +4,7 @@ const http = require('http');
 const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
-const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
+const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -28,7 +28,7 @@ const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
-const { ensureFormAnchors, extractFormIds, slugify } = require('./lib/api-shared');
+const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights } = require('./lib/api-shared');
 const { handleAuthRoute, enforceAuth, isAuthEnabled } = require('./lib/auth');
 
 const port = process.env.PORT || 8000;
@@ -371,7 +371,9 @@ function buildCampusRuntimeTag(properties = {}, school = '') {
     const apiBase = process.env.PUBLIC_APP_URL || process.env.VERCEL_URL
         ? (process.env.PUBLIC_APP_URL || `https://${process.env.VERCEL_URL}`)
         : '';
-    return `<script>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};window.__LP_SCHOOL=${JSON.stringify(school || '')};</script>`;
+    // L'attribut data-lp-campus-config sert de repère anti-doublon d'un
+    // enregistrement à l'autre (cf. suppression avant réinjection plus bas).
+    return `<script data-lp-campus-config>window.__LP_CAMPUS_IDS=${JSON.stringify(ids)};window.__LP_API_BASE=${JSON.stringify(apiBase)};window.__LP_SCHOOL=${JSON.stringify(school || '')};</script>`;
 }
 
 function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) {
@@ -388,6 +390,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     const bodyCode = wrapCustomCode(properties.customBodyCode, 'body');
     // anti-doublon : retirer un éventuel code déjà injecté
     html = stripCustomCode(stripCustomCode(html, 'head'), 'body');
+    html = html.replace(/<script data-lp-campus-config>[\s\S]*?<\/script>/gi, '');
 
     if (isFullHtmlDocument(html)) {
         // Parse with Cheerio to update the head without losing the body
@@ -419,13 +422,13 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
 
         // Config campus (sélection de la page) pour le runtime des composants
         $('script[data-lp-campus-config]').remove();
-        $('head').append(`\n    ${campusTag.replace('<script>', '<script data-lp-campus-config>')}`);
+        $('head').append(`\n    ${campusTag}`);
 
         // Code marketing personnalisé (GTM, Analytics…)
         if (headCode) $('head').append(`\n    ${headCode}`);
         if (bodyCode) $('body').append(`\n    ${bodyCode}`);
 
-        return $.html();
+        return relaxFaqSectionHeights($.html());
     }
 
     const seoTags = properties ? `
@@ -435,7 +438,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     ${schemaLd ? `<script type="application/ld+json">${schemaLd}</script>` : ''}
 ` : '';
 
-    return `<!DOCTYPE html>
+    return relaxFaqSectionHeights(`<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -448,7 +451,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     <style>${css}</style>
 </head>
 <body>${html}${bodyCode}</body>
-</html>`;
+</html>`);
 }
 
 async function applyCustomMarketingCode(projectName, properties) {
@@ -2281,7 +2284,10 @@ Règles importantes :
     // ── API: Campus CRUD (source = Data Extension SFMC) ───────────────
     if (pathname.startsWith('/api/campuses')) {
         try {
-            if (!isSfmcConfigured()) {
+            // Identifiants seulement : le store campus est une simple DE, il ne
+            // dépend PAS de l'interrupteur de synchro sortante SFMC_SYNC_ENABLED
+            // (sinon la modale affiche « 0 campus en base » alors que la DE est pleine).
+            if (!isSfmcCredentialsConfigured()) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' }));
             }
@@ -2705,6 +2711,10 @@ Règles importantes :
             // Ancres stables des formulaires (liens #form_id) — feature/PFE
             finalHtml = ensureFormAnchors(finalHtml).html;
 
+            // Répare à la volée les pages DÉJÀ en base dont la section FAQ porte une
+            // hauteur figée (les réponses dépliées débordaient sur le bloc suivant).
+            finalHtml = relaxFaqSectionHeights(finalHtml);
+
             // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
             finalHtml = injectPreviewViewport(finalHtml);
 
@@ -2762,6 +2772,9 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
 
                 // Ancres stables des formulaires (liens #form_id) — feature/PFE
                 finalPublicHtml = ensureFormAnchors(finalPublicHtml).html;
+
+                // Hauteur figée sur une section FAQ → contenu déplié qui déborde.
+                finalPublicHtml = relaxFaqSectionHeights(finalPublicHtml);
 
                 // Les ancres (#id) restent sur la page publiée, pas à la racine (<base href="/">).
                 finalPublicHtml = anchorLinksToPagePath(finalPublicHtml, pathname);

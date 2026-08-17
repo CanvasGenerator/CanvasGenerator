@@ -385,6 +385,10 @@ function parseProjectData(value) {
 
 function propertiesFromStructuredPage(page = {}) {
     const seo = page.seo || {};
+    // campusIds vit dans pages.metadata (propriété de la PAGE, commune à toutes
+    // ses langues). Sans cette ligne, rouvrir une page depuis le dashboard
+    // repartait d'une sélection vide → TOUS les campus s'affichaient de nouveau.
+    const campusIds = Array.isArray(page.metadata?.campusIds) ? page.metadata.campusIds : [];
     return {
         title: page.title || '',
         description: page.description || '',
@@ -392,7 +396,8 @@ function propertiesFromStructuredPage(page = {}) {
         seoDescription: seo.description || '',
         keywords: seo.keywords || '',
         canonical: seo.canonical || '',
-        schemaLd: seo.schemaLd || ''
+        schemaLd: seo.schemaLd || '',
+        campusIds
     };
 }
 
@@ -979,14 +984,31 @@ function initEditor(schoolId) {
 
     // Fin du glissement : on oublie l'état de départ.
     editor.on('component:resize:end', () => { lpStart = null; lpBaseRect = null; });
+    // Blocs dont la HAUTEUR dépend du contenu déplié à l'exécution : figer leur
+    // hauteur produit une page cassée EN LIGNE alors que l'éditeur paraît correct.
+    // Cas vécu : l'accordéon FAQ n'affiche qu'une réponse ouverte dans le canvas ;
+    // une hauteur tirée à la poignée du bas (#id{height:392px}) suffisait donc à
+    // l'éditeur, puis les réponses dépliées débordaient sur le footer une fois en
+    // ligne. On ne garde que les poignées LATÉRALES : la largeur reste réglable,
+    // la hauteur suit le contenu.
+    const LP_RESIZE_WIDTH_ONLY = {
+        tl: 0, tc: 0, tr: 0, cl: 1, cr: 1, bl: 0, bc: 0, br: 0,
+        minDim: 20,
+        keyWidth: 'width', keyHeight: 'height'
+    };
+    const CONTENT_DRIVEN_HEIGHT_TYPES = ['ma-faq-section'];
+
     editor.on('component:add', (component) => {
         try {
             if (!component || typeof component.get !== 'function') return;
             if (component.get('type') === 'image') return; // déjà resizable nativement
             if (component.get('resizable')) return;         // ne pas écraser un réglage existant
+            const conf = CONTENT_DRIVEN_HEIGHT_TYPES.includes(component.get('type'))
+                ? LP_RESIZE_WIDTH_ONLY
+                : LP_RESIZE;
             // Mutation de config (cosmétique) → hors pile d'undo pour ne pas
             // polluer les Ctrl+Z (même logique que le verrouillage FAQ / swap logo).
-            const setRes = () => component.set('resizable', LP_RESIZE);
+            const setRes = () => component.set('resizable', conf);
             try { editor.UndoManager.skip(setRes); } catch (e) { setRes(); }
         } catch (e) { /* silencieux */ }
     });
@@ -1652,6 +1674,36 @@ function toRootRelativeAssets(str) {
 // (cf. ReetainFonts.GOOGLE_FONTS / export.js). Constante unique = source de vérité.
 const GOOGLE_FONTS_HREF = 'https://fonts.googleapis.com/css2?family=Lato:wght@400;700;900&family=Montserrat:wght@400;600;800&family=Open+Sans:wght@400;600;800&family=Oswald:wght@400;700&family=Poppins:wght@400;600;800&family=Raleway:wght@400;700&family=Roboto:wght@400;700;900&display=swap';
 
+/**
+ * Retire les hauteurs FIGÉES posées sur une section FAQ (accordéon).
+ * Miroir exact de relaxFaqSectionHeights (lib/api-shared.js) : la purge serveur
+ * ne couvre que /api/save ; celle-ci couvre TOUTES les routes d'enregistrement
+ * (version structurée, variante de langue) et l'aperçu SFMC.
+ * `(^|;)` avant `height` → « line-height » n'est jamais touché.
+ */
+function relaxFaqSectionHeights(html) {
+    const source = String(html || '');
+    if (!/ma-faq-section|ma-section/i.test(source)) return source;
+
+    const ids = [];
+    (source.match(/<section\b[^>]*>/gi) || []).forEach(tag => {
+        if (!/ma-faq-section|\bma-section\b/i.test(tag)) return;
+        const id = (tag.match(/\sid=["']([^"']+)["']/i) || [])[1];
+        if (id && !ids.includes(id)) ids.push(id);
+    });
+    if (!ids.length) return source;
+
+    let out = source;
+    ids.forEach(id => {
+        const blockRe = new RegExp(`(#${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*\\{)([^}]*)(\\})`, 'gi');
+        out = out.replace(blockRe, (full, open, decls, close) => open + decls
+            .replace(/(^|;)\s*(?:max-)?height\s*:[^;}]*/gi, '$1')
+            .replace(/;{2,}/g, ';')
+            .replace(/^\s*;+/, '') + close);
+    });
+    return out;
+}
+
 function buildFinalHtml(bodyHtml, css, properties = {}) {
     // Le bloc de scripts renvoyé APRÈS </body> par getHtml() porte le comportement
     // des blocs (onglets, +/- FAQ, carrousels…) → il doit être réinjecté dans le body.
@@ -1712,6 +1764,17 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
         ? `\n    <script type="application/ld+json">\n    ${schemaLd}\n    </script>`
         : '';
 
+    // ── Config campus de la page (sélection + école) ─────────────────────────
+    // Lue par le runtime des blocs campus sur la page servie hors éditeur.
+    // Nécessaire pour les enregistrements qui ne passent pas par /api/save
+    // (sauvegarde structurée, variantes de langue) : sans elle, ces pages
+    // n'avaient aucune sélection et le carrousel réaffichait tous les campus.
+    // /api/save reconstruit ce <head> côté serveur → jamais de doublon.
+    const campusTag = `\n    <script data-lp-campus-config>window.__LP_CAMPUS_IDS=`
+        + `${JSON.stringify(Array.isArray(properties.campusIds) ? properties.campusIds : [])};`
+        + `window.__LP_API_BASE=${JSON.stringify(window.location.origin || '')};`
+        + `window.__LP_SCHOOL=${JSON.stringify(CURRENT_SCHOOL?.id || '')};</script>`;
+
     // Polices : @font-face auto-hébergés (Gotham, Space Grotesk, Garamond, Inter) via /css/fonts.css
     // (URL root-relative → fonctionne en preview et sur les URLs publiques ; ses url()
     // internes '../assets/fonts/…' résolvent alors vers /assets/fonts/…), + Google Fonts
@@ -1744,20 +1807,20 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
         brandCss = `:root { ${brandVars} }\nbody { font-family: var(--brand-font); }\n`;
     }
 
-    return `<!DOCTYPE html>
+    return relaxFaqSectionHeights(`<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>${title}</title>
     <meta name="description" content="${metaDesc}">
-    <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${fontLinks}
+    <meta name="keywords" content="${keywords}">${canonicalTag}${schemaTag}${campusTag}${fontLinks}
     <style>html { scroll-behavior: smooth; scroll-padding-top: 90px; }\n${brandCss}${css}</style>
 </head>
 <body>
 ${bodyHtml}${runtimeScripts}
 </body>
-</html>`;
+</html>`);
 }
 
 // Marqueurs du bloc de scripts de comportement des blocs (onglets, FAQ, carrousels…).
@@ -3386,6 +3449,11 @@ function initUI(editor) {
                     page: {
                         title: propsToSave.title || tabStore.get(`reetain-builder__${CURRENT_SCHOOL?.id || 'unknown'}__currentProject`) || 'Page',
                         language: selectedLanguage || 'FR',
+                        // Sélection de campus : propriété de la page (toutes langues).
+                        // Le serveur fusionne ce metadata avec l'existant.
+                        metadata: {
+                            campusIds: Array.isArray(propsToSave.campusIds) ? propsToSave.campusIds : []
+                        },
                         seo: {
                             title: propsToSave.seoTitle || '',
                             description: propsToSave.seoDescription || '',

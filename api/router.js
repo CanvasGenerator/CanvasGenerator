@@ -1,5 +1,5 @@
-const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch, listCampuses, upsertCampus, deleteCampus } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
+const { syncComponentToSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch, listCampuses, upsertCampus, deleteCampus } = require('../lib/sfmc');
+const { supabaseRequest, buildStoredHtml, relaxFaqSectionHeights, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { normalizeBranding, fontStackById } = require('../js/fonts');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -570,7 +570,10 @@ module.exports = async function handler(req, res) {
         // Deux back-ends pour une même fonctionnalité, c'est ce qui produisait
         // « je sauvegarde, je reviens, ma modif a disparu ».
         if (pathname === '/api/campuses' || pathname.startsWith('/api/campuses/')) {
-            if (!isSfmcConfigured()) {
+            // Identifiants seulement : le store campus est une simple DE, il ne
+            // dépend PAS de l'interrupteur de synchro sortante SFMC_SYNC_ENABLED
+            // (sinon la modale affiche « 0 campus en base » alors que la DE est pleine).
+            if (!isSfmcCredentialsConfigured()) {
                 return res.status(500).json({ error: 'SFMC non configuré (SFMC_SUBDOMAIN / CLIENT_ID / CLIENT_SECRET)' });
             }
             const school = String(req.query.school || '').toLowerCase();
@@ -1024,7 +1027,9 @@ module.exports = async function handler(req, res) {
 
             res.setHeader('Content-Type', 'text/html');
             // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
-            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(html).html))));
+            // relaxFaqSectionHeights : répare à la volée les pages DÉJÀ en base dont
+            // la section FAQ porte une hauteur figée (contenu déplié qui déborde).
+            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(relaxFaqSectionHeights(ensureFormAnchors(html).html)))));
 
         }
 
@@ -1052,7 +1057,7 @@ module.exports = async function handler(req, res) {
                 }
 
                 res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(ensureFormAnchors(resolved.version.html).html)));
+                return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(relaxFaqSectionHeights(ensureFormAnchors(resolved.version.html).html))));
 
             }
         }

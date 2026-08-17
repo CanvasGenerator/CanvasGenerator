@@ -6,7 +6,10 @@
  *
  *   window.__LP_CAMPUSES    → liste complète chargée depuis /api/campuses
  *   window.__LP_CAMPUS_IDS  → IDs sélectionnés au niveau de la PAGE
- *                             (stockés dans Projects.properties.campusIds)
+ *                             (persistés dans pages.metadata.campusIds, et
+ *                              relus par propertiesFromStructuredPage / app.js —
+ *                              Projects.properties.campusIds n'est qu'un miroir
+ *                              hérité, jamais relu par l'éditeur)
  *
  * getResolvedCampuses() renvoie la liste effective de la page (filtrée).
  * Un event `lp:campuses-changed` est émis sur `document` à chaque
@@ -54,16 +57,34 @@ export function notifyCampusChange() {
     }));
 }
 
+/* Dernière erreur de chargement (vide si tout va bien). Un échec API renvoyait
+   une liste vide traitée comme « base vide » : la modale annonçait « Aucun campus
+   en base » alors que l'API répondait 500 (ex. intégration SFMC désactivée). */
+let _lastLoadError = '';
+
+/** Message d'erreur du dernier chargement ('' si le dernier appel a réussi). */
+export function getCampusLoadError() { return _lastLoadError; }
+
 /** Charge la liste des campus de l'école courante depuis l'API (met en cache). */
 export async function loadCampuses() {
     const school = _ctx.getSchoolId ? _ctx.getSchoolId() : '';
+    _lastLoadError = '';
     try {
         const url = '/api/campuses' + (school ? `?school=${encodeURIComponent(school)}` : '');
         const r = await fetch(url);
-        const data = await r.json();
-        window.__LP_CAMPUSES = Array.isArray(data) ? data : [];
+        const txt = await r.text();
+        let data = null;
+        try { data = txt ? JSON.parse(txt) : null; } catch { data = null; }
+        if (!r.ok) {
+            _lastLoadError = (data && data.error) || `HTTP ${r.status}`;
+            console.error('Campus: API en erreur —', _lastLoadError);
+            window.__LP_CAMPUSES = window.__LP_CAMPUSES || [];
+        } else {
+            window.__LP_CAMPUSES = Array.isArray(data) ? data : [];
+        }
     } catch (e) {
         console.error('Campus: chargement impossible', e);
+        _lastLoadError = e.message || 'serveur injoignable';
         window.__LP_CAMPUSES = window.__LP_CAMPUSES || [];
     }
     notifyCampusChange();
@@ -169,10 +190,20 @@ export function openCampusSettings() {
 
     function render(campuses) {
         window.__LP_CAMPUSES = campuses;
-        countEl.textContent = `${campuses.length} campus en base`;
+        const loadError = getCampusLoadError();
+        countEl.textContent = loadError ? 'liste indisponible' : `${campuses.length} campus en base`;
 
         if (!campuses.length) {
-            body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus en base. Ajoutez-en un ci-dessus !</div>';
+            // Distinguer « base vide » (normal, on peut ajouter) de « API en erreur »
+            // (ajouter ne marchera pas non plus tant que la panne n'est pas levée).
+            body.innerHTML = loadError
+                ? `<div style="padding:28px 24px;text-align:center;font-size:13px;color:#b91c1c;">
+                       <i class="fas fa-triangle-exclamation" style="font-size:18px;display:block;margin-bottom:8px;"></i>
+                       <b>Impossible de charger les campus.</b>
+                       <div style="margin-top:6px;color:#6b7280;font-size:12px;">${escapeHtml(loadError)}</div>
+                       <div style="margin-top:10px;color:#9ca3af;font-size:11px;">Les campus sont stockés dans SFMC : vérifiez que l'intégration SFMC est activée côté serveur.</div>
+                   </div>`
+                : '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucun campus en base. Ajoutez-en un ci-dessus !</div>';
             updateSelCount();
             return;
         }

@@ -363,6 +363,43 @@ function seoFromProperties(properties = {}) {
     };
 }
 
+/**
+ * Sélection de campus de la page (bouton « Campus » de l'éditeur).
+ * Stockée dans `pages.metadata.campusIds` : c'est une propriété de la PAGE,
+ * commune à toutes ses variantes de langue, et non du contenu d'une version.
+ * Sans ça, la sélection n'était écrite que dans `Projects.properties` — jamais
+ * relue, puisque l'éditeur recharge la page depuis le modèle structuré.
+ */
+function campusIdsFromPage(page = {}) {
+    const ids = page?.metadata?.campusIds;
+    return Array.isArray(ids) ? ids : [];
+}
+
+/**
+ * Sélection de campus avec REPRISE de l'ancien emplacement.
+ * Les pages enregistrées avant ce correctif n'ont la sélection que dans
+ * `Projects.properties.campusIds` : on la relit une fois (au chargement) pour
+ * qu'elles ne repartent pas de zéro. Le prochain enregistrement l'écrit dans
+ * `pages.metadata` et cette requête de repli n'est plus déclenchée.
+ */
+async function resolveCampusIdsForPage(page = {}) {
+    const ids = campusIdsFromPage(page);
+    if (ids.length) return ids;
+    const legacyName = page?.metadata?.legacyProjectName;
+    if (Array.isArray(page?.metadata?.campusIds) || !legacyName) return ids;
+    try {
+        const rows = await supabaseRequest(
+            'GET',
+            `/Projects?project_name=eq.${encodeURIComponent(legacyName)}&select=properties&limit=1`
+        );
+        const legacyIds = rows?.[0]?.properties?.campusIds;
+        return Array.isArray(legacyIds) ? legacyIds : [];
+    } catch (e) {
+        console.warn('Campus legacy fallback failed:', e.message);
+        return [];
+    }
+}
+
 async function migrateLegacyProject(legacyProject, options = {}) {
     const parsed = parseLegacyProjectName(legacyProject.project_name);
     if (!parsed) return { skipped: true, reason: 'unsupported_project_name', projectName: legacyProject.project_name };
@@ -398,11 +435,19 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             metadata: {
                 source: 'legacy-projects',
                 legacyProjectName: legacyProject.project_name,
-                migratedAt: new Date().toISOString()
+                migratedAt: new Date().toISOString(),
+                campusIds: Array.isArray(legacyProject.properties?.campusIds)
+                    ? legacyProject.properties.campusIds : []
             }
         });
         createdPage = true;
     } else if (options.updatePageMetadata) {
+        // La sélection de campus suit la page (pas la version) : on la met à jour
+        // ici, sinon rouvrir la page depuis le dashboard réaffichait TOUS les campus.
+        const metadata = { ...(page.metadata || {}) };
+        if (Array.isArray(legacyProject.properties?.campusIds)) {
+            metadata.campusIds = legacyProject.properties.campusIds;
+        }
         await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
             title: legacyProject.properties?.title || page.title,
             seo: {
@@ -410,8 +455,10 @@ async function migrateLegacyProject(legacyProject, options = {}) {
                 title: legacyProject.properties?.seoTitle || page.seo?.title || '',
                 description: legacyProject.properties?.seoDescription || page.seo?.description || ''
             },
+            metadata,
             updated_at: new Date().toISOString()
         });
+        page = { ...page, metadata };
     }
 
     // syncLegacyProjectToContent gère toujours la variante de la langue D'ORIGINE.
@@ -675,7 +722,8 @@ function projectResponseFromStructuredPage(projectName, page, version) {
             seoDescription: seo.description || '',
             keywords: seo.keywords || '',
             canonical: seo.canonical || '',
-            schemaLd: seo.schemaLd || ''
+            schemaLd: seo.schemaLd || '',
+            campusIds: campusIdsFromPage(page)
         },
         page_id: page.id,
         current_version_id: page.current_version_id,
@@ -688,6 +736,7 @@ async function getStructuredProjectForLegacyProject(projectName) {
     const structured = await getCurrentVersionForLegacyProject(projectName);
     if (!structured) return null;
     const response = projectResponseFromStructuredPage(projectName, structured.page, structured.version);
+    response.properties.campusIds = await resolveCampusIdsForPage(structured.page);
     try {
         response.variants = await getVariantsSummary(structured.page);
         response.ready_languages = READY_LANGUAGES;
@@ -1156,8 +1205,11 @@ async function getPage(req, res, pageId) {
     let variants = [];
     try { variants = await getVariantsSummary(page); }
     catch (e) { if (!isMissingContentSchemaError(e)) console.warn('getVariantsSummary failed:', e.message); }
+    // Sélection de campus : complétée depuis l'ancien emplacement si la page n'a
+    // pas encore été réenregistrée (l'éditeur lit page.metadata.campusIds).
+    const campusIds = await resolveCampusIdsForPage(page);
     return res.status(200).json({
-        page,
+        page: { ...page, metadata: { ...(page.metadata || {}), campusIds } },
         versions: versions || [],
         drafts: drafts || [],
         variants,

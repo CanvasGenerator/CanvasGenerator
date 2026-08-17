@@ -8,19 +8,23 @@ export default function(editor, categories) {
             .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
     }
 
-    /* HTML d'une slide à partir d'un campus (contenu "bake" côté éditeur). */
+    /* HTML d'une slide à partir d'un campus (contenu "bake" côté éditeur).
+       Un campus sans image ne produit PAS de bloc média : `<img src="">` affichait
+       un rectangle gris de 280 px (l'éditeur, lui, montre un visuel de substitution),
+       ce qui donnait des slides « vides » en aperçu et sur la page publiée. */
     function slideHtml(c) {
         const name = escapeHtml(c.name || '');
         const address = escapeHtml(c.address || '');
         const img = escapeHtml(c.image_url || '');
         const link = (c.link || '').trim();
         const imgTag = `<img src="${img}" alt="${name}" class="mc3c-img">`;
-        const media = link
-            ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener" class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></a>`
-            : `<div class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></div>`;
+        const media = !img ? ''
+            : link
+                ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener" class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></a>`
+                : `<div class="mc3c-media">${imgTag}<span class="mc3c-overlay-label">${name}</span></div>`;
         return `<div class="mc3c-slide"><div class="mc3c-card">`
             + `<div class="mc3c-card-header"><span class="mc3c-badge">${name}</span><hr class="mc3c-line"></div>`
-            + `<div class="mc3c-address">${address}</div>${media}</div></div>`;
+            + (address ? `<div class="mc3c-address">${address}</div>` : '') + media + `</div></div>`;
     }
 
     function buildTrackHtml(campuses) {
@@ -124,14 +128,20 @@ export default function(editor, categories) {
                         .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
                         .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
                 }
+                // Même règle que le rendu éditeur : pas d'image ⇒ pas de bloc média
+                // (sinon rectangle gris vide), pas d'adresse ⇒ pas de ligne vide.
                 function slide(c) {
                     var name = esc(c.name || ''), address = esc(c.address || ''), img = esc(c.image_url || '');
                     var link = (c.link || '').trim();
                     var imgTag = '<img src="' + img + '" alt="' + name + '" class="mc3c-img">';
-                    var media = link
-                        ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></a>'
-                        : '<div class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></div>';
-                    return '<div class="mc3c-slide"><div class="mc3c-card"><div class="mc3c-card-header"><span class="mc3c-badge">' + name + '</span><hr class="mc3c-line"></div><div class="mc3c-address">' + address + '</div>' + media + '</div></div>';
+                    var media = '';
+                    if (img) {
+                        media = link
+                            ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></a>'
+                            : '<div class="mc3c-media">' + imgTag + '<span class="mc3c-overlay-label">' + name + '</span></div>';
+                    }
+                    return '<div class="mc3c-slide"><div class="mc3c-card"><div class="mc3c-card-header"><span class="mc3c-badge">' + name + '</span><hr class="mc3c-line"></div>'
+                        + (address ? '<div class="mc3c-address">' + address + '</div>' : '') + media + '</div></div>';
                 }
 
                 function initNav() {
