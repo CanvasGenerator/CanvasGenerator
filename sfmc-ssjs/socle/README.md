@@ -131,11 +131,23 @@ donc **autonome** : elle embarque tout le SSJS dont elle a besoin.
 npm start → créer la page → ajouter le formulaire → PUBLIER → c'est tout
 ```
 
+> ⚠ **Depuis le 2026-08-17, les deux handlers inlinés sont en AMPSCRIPT**
+> (`handler-form.ampscript`, `picklist-handler.ampscript`). Motif : sur cette org
+> le SSJS n'atteint Salesforce ni depuis une CloudPage ni depuis une Automation.
+> Voir `../diagnostic/README.md`.
+>
+> `lib/socle-inliner.js` connaît le langage de chaque brique et **refuse**
+> d'injecter de l'AMPscript à l'intérieur d'un bloc `<script runat="server">` :
+> le mélange produirait du JavaScript invalide, donc une page morte. En cas
+> d'appel incohérent, l'inclusion est laissée intacte et un avertissement est
+> émis — la publication n'est jamais cassée.
+>
+> Les fichiers `.ssjs` du socle restent dans le dépôt comme **spécification de
+> référence** (mieux factorisée et testée), mais ne sont plus émis.
+
 - Le HTML stocké en base garde la forme courte : le builder reste lisible.
-- Les briques partagées par les deux handlers (Config, Helpers, Resolvers) ne
-  sont émises **qu'une fois** — tous les blocs d'une page partagent le même
-  scope SSJS.
-- Coût : **~87 Ko** de SSJS ajoutés à la page publiée.
+- Coût : **~47 Ko** ajoutés à la page publiée (contre ~87 Ko en SSJS — les deux
+  handlers AMPscript sont autonomes, sans briques partagées à dédoublonner).
 - Contrepartie : une modification du socle exige de **republier les pages**.
 - Une clé hors socle (`MonBloc_AG`) n'est jamais touchée.
 
@@ -184,11 +196,13 @@ CloudPage. Une erreur de syntaxe dans un `.ssjs` fait donc échouer les tests.
 
 ## 9. Diagnostic
 
-Deux pages autonomes, **lecture seule**, à coller dans une CloudPage :
+Tout est dans `sfmc-ssjs/diagnostic/` (**lecture seule**, aucune écriture Salesforce).
+Voir le README du dossier pour le mode d'emploi.
 
-- `test-connexion-minimal.ssjs` — teste Contact / Account / Campaign pour isoler
-  l'erreur OAuth `invalid_request` (problème de connexion MC Connect vs noms d'objets).
-- `test-read-diagnostic.ssjs` — sonde objets et champs candidats, sort un tableau
-  OK/KO avec échantillon de valeur. À enrichir de `PicklistValueInfo` /
-  `EntityParticle` pour savoir si le value set des picklists est lisible
-  directement depuis Salesforce (sinon : DE de référence + synchro).
+- `A-COLLER-cloudpage-diagnostic.ssjs` — fichier généré, **prêt à coller** dans une
+  CloudPage. Sonde en 4 étages : connexion MC Connect → objets de métadonnées
+  → les 4 value sets → les référentiels métier. Sort un tableau OK/VIDE/ERREUR
+  avec échantillon, et un **verdict** en clair.
+- `test-read-automation.ssjs` — même sonde, exécutée dans Automation Studio et
+  déversée dans une DE. Sert d'arbitre : si l'Automation répond et pas la
+  CloudPage, la panne est dans la page, pas dans Marketing Cloud Connect.

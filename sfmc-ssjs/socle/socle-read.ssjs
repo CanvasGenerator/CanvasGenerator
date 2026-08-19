@@ -30,50 +30,121 @@ var SocleRead = (function () {
     /* -- Mapping objets/champs de LECTURE (aligne sur le mapping v4 GET) ---
        Regroupe ici pour n'avoir qu'un endroit a corriger apres validation org. */
     var R = {
+        /* ⚠ Noms RELEVES SUR L'ORG le 2026-08-16 (sonde AMPscript, ?champs=).
+           Ce ne sont plus des hypotheses : chaque champ ci-dessous a ete lu
+           dans EntityParticle. Ne pas "corriger" au jugé. */
         PTAT: {
             object:        "ProgramTermApplnTimeline",
             id:            "Id",
             programId:     "LearningProgramId",
             termId:        "AcademicTermId",
-            schoolField:   "SchoolId"              // filtre ecole — A CONFIRMER
+            schoolField:   "SchoolId__c",          // et NON "SchoolId" (champ custom, type texte)
+
+            /* Deux champs que le socle ignorait et qui portent des regles metier :
+               - visibleOnWeb : un PTAT non publie ne doit PAS alimenter le formulaire ;
+               - midYearIntake : c'est la "rentree decalee" de la matrice par ecole
+                 (EFAP, ICART), jusqu'ici sans equivalent technique identifie. */
+            visibleOnWeb:  "VisibleOnWebsite__c",  // boolean
+            midYearIntake: "MidYearIntake__c",     // boolean
+            academicYear:  "AcademicYear__c",
+            displayName:   "DisplayName__c",
+            displayOrder:  "DisplayOrder__c"
         },
         PROGRAM: {
             object:        "LearningProgram",
             id:            "Id",
             name:          "Name",
-            campus:        "Campus__c",            // A CONFIRMER (v4 : Campus via Account.City__c)
-            level:         "Academic_Level__c",    // A CONFIRMER
-            speciality:    "Speciality__c",        // v4 : Speciality_c
-            rhythm:        "Rhythm__c",            // v4 : Rhythm_c
-            language:      "Instructionlanguage__c"// v4 : Instructionlanguage_c
+
+            /* Il n'existe NI Campus__c NI Academic_Level__c sur LearningProgram.
+               - campus : seul `campusNameFor__c` porte le campus, sous forme de
+                 LIBELLE (formule texte), pas d'Id. Le filtrage se fait donc par
+                 nom — cohérent avec la cascade, qui compare des chaines.
+               - level  : deux candidats. `AcademicLevel` est le picklist standard
+                 (une valeur). `Academic_Level_List__c` est un MULTIpicklist : un
+                 programme peut viser plusieurs niveaux, et c'est lui qui doit
+                 servir au filtrage, sans quoi un programme "bac+3;bac+4" ne
+                 remonterait sur aucun des deux. */
+            /* VALEURS RELEVEES le 2026-08-16 (?rows=) :
+                 campus                 -> "EFAP PARIS"  (ecole + ville accolees)
+                 Academic_Level_List__c -> "Bac+3" ou "Terminale;Bac obtenu"
+                 AcademicLevel          -> 1, 2, 3, 4, 5  (ORDINAL, pas un libelle)
+               Le niveau affichable est donc `Academic_Level_List__c`, et lui seul.
+               `AcademicLevel` ne sert qu'au tri. */
+            campus:        "campusNameFor__c",
+            level:         "Academic_Level_List__c",   // multipicklist ';' — cf. matchMulti
+            levelOrdinal:  "AcademicLevel",            // 1..5, pour trier uniquement
+            speciality:    "Speciality__c",
+            rhythm:        "Rhythm__c",
+            language:      "InstructionLanguage__c",   // L MAJUSCULE — SFMC est sensible a la casse
+            isActive:      "IsActive",
+            school:        "parentSchoolNameFor__c"
         },
         TERM: {
             object:        "AcademicTerm",
             id:            "Id",
             name:          "Name"
         },
-        /* Instance evenement Summit (JPO / AD / Stage) — A CONFIRMER cote org. */
+        /* Instance evenement Summit (JPO / AD / Stage).
+           ⚠ Nom d'objet RELEVE dans l'Object Manager de l'org le 2026-08-16 :
+           le package prefixe ses objets `summit__Summit_Events_*__c`, et non
+           `summit__*__c`. L'ancien `summit__Instance__c` renvoyait
+           INVALID_TYPE. Les CHAMPS ci-dessous restent a confirmer. */
         INSTANCE: {
-            object:        "summit__Instance__c",
+            object:        "summit__Summit_Events_Instance__c",
             id:            "Id",
             name:          "Name",
-            campusField:   "summit__Campus__c",
-            typeField:     "summit__Event_Type__c",     // JPO | AD | Stage
-            dateField:     "summit__Start_Date__c",
-            addressField:  "summit__Address__c"
+
+            /* Campus__c est SANS prefixe summit__ (champ ajoute par EDH), et
+               c'est un lookup : il porte un Id, pas un libelle. Pour filtrer ou
+               afficher par NOM, utiliser campusNameFor__c (formule texte). */
+            campusField:   "Campus__c",
+            campusName:    "campusNameFor__c",
+
+            typeField:     "summit__Event_Type__c",              // JPO | AD | Stage
+            dateField:     "summit__Instance_Start_Date__c",     // et NON summit__Start_Date__c
+            timeField:     "summit__Instance_Start_Time__c",
+            endDateField:  "summit__Instance_End_Date__c",
+            endTimeField:  "summit__Instance_End_Time__c",
+            titleField:    "summit__Instance_Title__c",
+            addressField:  "summit__Location_Address_Override__c", // et NON summit__Address__c
+            locationField: "summit__Location_Title_Override__c",
+
+            /* Lien vers l'Evenement parent : c'est LUI qui porte le catalogue
+               des ateliers proposes (cf. APPOINTMENT_TYPE ci-dessous). */
+            eventField:    "summit__Event__c",
+
+            /* Garde-fous d'affichage : ne proposer que des dates ouvertes. */
+            openField:     "summit__Open_Registration__c",       // boolean
+            closeDate:     "summit__Registration_Close_Date__c",
+            capacityLeft:  "summit__Current_Available_Capacity__c"
         },
-        /* Sous-evenements / ateliers d'une instance — A CONFIRMER.
-           ⚠ instanceField : le diagramme 3 montre summit__Event_Instance__c sur
-           la Registration. Si l'Appointment porte le meme nom, corriger ici ET
-           dans SocleConfig.SUMMIT_APPOINTMENT.instanceField — sinon le filtre
-           ne remonte AUCUN atelier (echec silencieux, tableau vide). */
-        APPOINTMENT: {
-            object:        "summit__Appointment__c",
+
+        /* CATALOGUE des ateliers proposes — objet distinct des ateliers CHOISIS.
+           ⚠ Correction de modele, pas seulement de nommage. Le socle lisait
+           `summit__Appointment__c` filtre sur une Instance, avec un drapeau
+           `summit__Is_Required__c`. Or sur l'org :
+             - `summit__Summit_Events_Appointments__c` est l'atelier CHOISI par
+               un inscrit : il est rattache a une REGISTRATION, jamais a une
+               Instance, et n'a aucun drapeau "obligatoire". C'est une donnee
+               d'ecriture, pas un referentiel de lecture.
+             - le catalogue est `summit__Summit_Events_Appointment_Type__c`,
+               rattache a l'EVENEMENT, et c'est lui qui porte
+               `summit__Required_Appointment__c`.
+           Lire le premier pour alimenter le formulaire ne remontait donc rien,
+           et n'aurait jamais pu remonter quoi que ce soit. */
+        APPOINTMENT_TYPE: {
+            object:        "summit__Summit_Events_Appointment_Type__c",
             id:            "Id",
             name:          "Name",
-            instanceField: "summit__Instance__c",
+            title:         "summit__Title__c",                    // libelle affiche
+            eventField:    "summit__Summit_Events__c",            // lookup Evenement
+            instanceField: "summit__Restrict_To_Instance_Title__c",// restriction a UNE instance
             typeField:     "summit__Appointment_Type__c",
-            requiredField: "summit__Is_Required__c"      // sous-evenement a inscription obligatoire
+            categoryField: "summit__Appointment_Category__c",
+            requiredField: "summit__Required_Appointment__c",     // le vrai drapeau "obligatoire"
+            statusField:   "summit__Appointment_Type_Status__c",
+            sortField:     "summit__Sort_Order__c",
+            descField:     "summit__Description__c"
         },
         /* Association Marque x Ville/Campus — A CONFIRMER. */
         SCHOOL_CAMPUS: {
@@ -186,6 +257,26 @@ var SocleRead = (function () {
         return out;
     }
 
+    /**
+     * matchMulti — egalite tolerante aux MULTIPICKLISTS.
+     *
+     * Salesforce serialise un multipicklist en "a;b;c". `Academic_Level_List__c`
+     * vaut par exemple "Terminale;Bac obtenu" : un programme ouvert a deux
+     * niveaux. Une comparaison stricte ne le ferait remonter sous AUCUN des
+     * deux, et le candidat en Terminale ne verrait jamais ce programme.
+     * On compare donc valeur a valeur, apres decoupage.
+     */
+    function matchMulti(cellule, attendu) {
+        if (String(cellule) === String(attendu)) return true;      // cas simple
+        var parts = String(cellule).split(";");
+        for (var i = 0; i < parts.length; i++) {
+            // trim manuel : ES3 n'a pas String.prototype.trim
+            var p = parts[i].replace(/^\s+|\s+$/g, "");
+            if (p === String(attendu)) return true;
+        }
+        return false;
+    }
+
     /** Applique des filtres { champ: valeur } sur une liste de lignes (AND). */
     function localFilter(rows, criteria) {
         var out = [];
@@ -194,9 +285,30 @@ var SocleRead = (function () {
             for (var f in criteria) {
                 if (!criteria.hasOwnProperty(f)) continue;
                 if (Socle.isBlank(criteria[f])) continue;      // critere non renseigne -> ignore
-                if (String(rows[i][f]) !== String(criteria[f])) { keep = false; break; }
+                if (!matchMulti(rows[i][f], criteria[f])) { keep = false; break; }
             }
             if (keep) out.push(rows[i]);
+        }
+        return out;
+    }
+
+    /**
+     * Eclate les valeurs d'une colonne MULTIPICKLIST en options distinctes.
+     * Sans cela, "Terminale;Bac obtenu" apparaitrait tel quel dans le menu
+     * deroulant — une option que personne ne peut choisir.
+     */
+    function distinctMulti(rows, field) {
+        var seen = {}, out = [];
+        for (var i = 0; i < rows.length; i++) {
+            var brut = rows[i][field];
+            if (Socle.isBlank(brut)) continue;
+            var parts = String(brut).split(";");
+            for (var j = 0; j < parts.length; j++) {
+                var v = parts[j].replace(/^\s+|\s+$/g, "");
+                if (v === "" || seen[v]) continue;
+                seen[v] = true;
+                out.push({ value: v, label: v });
+            }
         }
         return out;
     }
@@ -275,7 +387,9 @@ var SocleRead = (function () {
      *  ETAPE 3 — options Campus & Niveau depuis les Programs
      * =================================================================== */
     function getCampusOptions(programs) { return distinctValues(programs, R.PROGRAM.campus); }
-    function getLevelOptions(programs)  { return distinctValues(programs, R.PROGRAM.level); }
+    /* Multipicklist : on eclate, sinon "Terminale;Bac obtenu" deviendrait une
+       option unique et inchoisissable. */
+    function getLevelOptions(programs)  { return distinctMulti(programs, R.PROGRAM.level); }
 
     /* ===================================================================
      *  ETAPES 4-5-6 — options Specialite / Rythme / Langue
@@ -436,21 +550,43 @@ var SocleRead = (function () {
      * @returns [{ value:appointmentTypeId, label, required:Boolean }]
      */
     function getAppointmentOptions(instanceId) {
-        var A = R.APPOINTMENT;
+        var A = R.APPOINTMENT_TYPE, I = R.INSTANCE;
         if (Socle.isBlank(instanceId)) return [];
-        var cols = [A.id, A.name, A.typeField, A.requiredField].join(",");
-        var where = {}; where[A.instanceField] = instanceId;   // pas de filtre sur required
+
+        /* 1. L'instance donne l'EVENEMENT parent. Le catalogue d'ateliers est
+              porte par l'evenement, pas par l'instance : deux journees JPO du
+              meme evenement proposent le meme catalogue. */
+        var wInst = {}; wInst[I.id] = instanceId;
+        var inst = Socle.retrieveOne(I.object, [I.id, I.eventField].join(","), wInst);
+        if (!inst || Socle.isBlank(inst[I.eventField])) {
+            Socle.log("getAppointmentOptions: instance ou evenement introuvable -> " + instanceId);
+            return [];
+        }
+
+        /* 2. Ateliers proposes pour cet evenement. */
+        var cols = [A.id, A.name, A.title, A.typeField, A.requiredField,
+                    A.instanceField, A.statusField, A.sortField].join(",");
+        var where = {}; where[A.eventField] = inst[I.eventField];
         var rows = Socle.retrieve(A.object, cols, where);
+
         var out = [];
         for (var i = 0; i < rows.length; i++) {
+            /* 3. Un type d'atelier peut etre RESTREINT a une instance precise.
+                  Restriction vide = propose sur toutes les instances. */
+            var restrict = rows[i][A.instanceField];
+            if (!Socle.isBlank(restrict) && String(restrict) !== String(instanceId)) continue;
+
             var raw = rows[i][A.requiredField];
             out.push({
-                value:    rows[i][A.typeField] || rows[i][A.id],
-                label:    rows[i][A.name],
+                value:    rows[i][A.id],
+                label:    rows[i][A.title] || rows[i][A.name],
                 // SF peut renvoyer true / "true" / 1 selon le type remonte
-                required: (raw === true || String(raw).toLowerCase() === "true" || String(raw) === "1")
+                required: (raw === true || String(raw).toLowerCase() === "true" || String(raw) === "1"),
+                ordre:    rows[i][A.sortField]
             });
         }
+        // Ordre d'affichage voulu par l'admin CRM, pas celui du retour SF.
+        out.sort(function (a, b) { return (Number(a.ordre) || 0) - (Number(b.ordre) || 0); });
         return out;
     }
 

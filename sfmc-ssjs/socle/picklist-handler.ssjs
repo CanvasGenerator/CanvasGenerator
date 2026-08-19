@@ -199,7 +199,8 @@ try {
             Write('<div style="margin-top:12px;padding:10px 14px;background:#7f1d1d;border-radius:6px">'
                 + '<b>Tout est vide.</b> Le socle s\'execute mais Salesforce ne repond pas &mdash; '
                 + 'typiquement l\'erreur OAuth de Marketing Cloud Connect. '
-                + 'Publier <code>test-connexion-minimal.ssjs</code> pour confirmer.</div>');
+                + 'Publier <code>sfmc-ssjs/diagnostic/A-COLLER-cloudpage-diagnostic.ssjs</code> '
+                + 'pour savoir lequel des deux.</div>');
         }
 
         var journal = Socle.getLog();
@@ -255,16 +256,37 @@ try {
         return el;
     }
 
-    /** Valeurs distinctes d'une propriete, sur des programmes deja filtres. */
+    /**
+     * Valeurs distinctes d'une propriete, sur des programmes deja filtres.
+     * Les MULTIPICKLISTS Salesforce arrivent serialises "a;b;c" : on les eclate,
+     * sinon "Terminale;Bac obtenu" deviendrait une option unique que personne
+     * ne peut choisir, et les deux niveaux reels disparaitraient du menu.
+     */
     function distinct(rows, prop) {
         var vus = {}, out = [];
         for (var i = 0; i < rows.length; i++) {
-            var v = rows[i][prop];
-            if (!v || vus[v]) continue;
-            vus[v] = true;
-            out.push({ value: v, label: v });
+            var brut = rows[i][prop];
+            if (!brut) continue;
+            var parts = String(brut).split(';');
+            for (var j = 0; j < parts.length; j++) {
+                var v = parts[j].replace(/^\s+|\s+$/g, '');
+                if (!v || vus[v]) continue;
+                vus[v] = true;
+                out.push({ value: v, label: v });
+            }
         }
         return out;
+    }
+
+    /** Une cellule multipicklist "a;b;c" contient-elle la valeur attendue ? */
+    function contient(cellule, attendu) {
+        if (cellule === attendu) return true;
+        if (!cellule) return false;
+        var parts = String(cellule).split(';');
+        for (var i = 0; i < parts.length; i++) {
+            if (parts[i].replace(/^\s+|\s+$/g, '') === attendu) return true;
+        }
+        return false;
     }
 
     /** Filtre les programmes sur les criteres renseignes (un vide = ignore). */
@@ -272,13 +294,156 @@ try {
         return D.programs.filter(function (p) {
             for (var k in criteres) {
                 if (!criteres[k]) continue;          // critere non renseigne -> ignore
-                if (p[k] !== criteres[k]) return false;
+                // egalite tolerante : un programme "Bac+2;Bac+3" doit remonter
+                // pour Bac+2 ET pour Bac+3.
+                if (!contient(p[k], criteres[k])) return false;
             }
             return true;
         });
     }
 
     function valeur(name) { var e = champ(name); return e ? e.value : ''; }
+
+    /* -- Matrice des champs conditionnels par ecole -------------------- */
+    var CFG = D.config || null;
+
+    /** Ordinal du niveau choisi. 0 si inconnu : aucune regle ne se declenche. */
+    function ordreNiveauChoisi() {
+        var v = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
+        if (!v || !D.picklists || !D.picklists.StudyLevel) return 0;
+        for (var i = 0; i < D.picklists.StudyLevel.length; i++) {
+            if (D.picklists.StudyLevel[i].value === v) {
+                return Number(D.picklists.StudyLevel[i].ordre) || 0;
+            }
+        }
+        return 0;
+    }
+
+    /**
+     * Affiche ou masque le porteur visuel d'un champ.
+     *
+     * On remonte au conteneur plutot que de masquer le <select> seul : masquer
+     * l'input laisserait son libelle orphelin a l'ecran. La liste de selecteurs
+     * couvre les enveloppes des blocs du builder ; a defaut on retombe sur le
+     * parent direct.
+     *
+     * ⚠ Le champ est masque, PAS vide : le contrat impose qu'une valeur unique
+     * soit transmise au CRM meme lorsqu'elle n'est pas proposee au candidat.
+     */
+    function afficher(name, visible) {
+        var el = champ(name);
+        if (!el) return;
+        var porteur = el.closest
+            ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
+               el.closest('.field') || el.closest('label') || el.parentNode)
+            : el.parentNode;
+        (porteur || el).style.display = visible ? '' : 'none';
+    }
+
+    /**
+     * Un champ conditionnel doit-il etre propose ?
+     *   jamais   -> non, quelle que soit la saisie
+     *   toujours -> oui
+     *   niveau   -> seulement si le niveau choisi atteint le seuil
+     * Un ordinal a 0 (niveau non choisi, ou libelle absent du mapping) ne
+     * declenche donc PAS l'affichage : on prefere masquer que proposer a tort.
+     */
+    function autorise(name) {
+        if (!CFG || !CFG.champs || !CFG.champs[name]) return true;   // pas de config = ancien comportement
+        var regle = CFG.champs[name];
+        if (regle.visible === 'jamais') return false;
+        if (regle.visible === 'niveau') return ordreNiveauChoisi() >= Number(regle.niveauMin || 0);
+        return true;
+    }
+
+    /* -- Ordre d'affichage propre a l'ecole ----------------------------------
+       `CFG.ordre` vaut par exemple, pour IFA Paris :
+           campus,niveau,language,speciality,rhythm,rentree
+       soit la LANGUE avant la specialite, alors que l'ordre standard est
+       l'inverse. La matrice ne dit donc pas seulement QUELS champs afficher,
+       mais dans quel ORDRE — et l'ordre est une regle metier : on ne demande
+       pas la specialite avant d'avoir fixe la langue d'enseignement, sinon on
+       propose des specialites qui n'existent pas dans la langue choisie.
+
+       On reordonne le DOM une seule fois, pas a chaque rafraichissement de la
+       cascade : deplacer des noeuds a chaque `change` ferait perdre le focus du
+       champ que l'utilisateur vient de quitter.
+
+       Les noms de la config sont ceux du contrat (`speciality`, `rhythm`...) ;
+       les attributs name[] du formulaire sont capitalises. D'ou la table. */
+    var NOM_DOM = {
+        campus: 'Campus', niveau: 'Niveau', level: 'Niveau',
+        speciality: 'Speciality', rhythm: 'Rhythm', language: 'Language',
+        rentree: 'Rentree', programme: 'Programme'
+    };
+
+    function appliquerOrdre() {
+        if (!CFG || !CFG.ordre) return;
+
+        var demande = String(CFG.ordre).split(',');
+        var porteurs = [], parent = null;
+
+        for (var i = 0; i < demande.length; i++) {
+            var cle = demande[i].replace(/^\s+|\s+$/g, '');
+            var el = champ(NOM_DOM[cle] || cle);
+            if (!el) continue;
+
+            /* On deplace le PORTEUR visuel, pas le <select> seul : sinon le
+               libelle resterait a son ancienne place, dissocie de son champ. */
+            var porteur = el.closest
+                ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
+                   el.closest('.field') || el.parentNode)
+                : el.parentNode;
+            if (!porteur || !porteur.parentNode) continue;
+
+            /* Tous les champs de la cascade doivent partager le meme parent,
+               sinon reordonner reviendrait a les deplacer d'une section a une
+               autre. On s'aligne sur le parent du premier trouve et on ignore
+               les autres — mieux vaut un ordre partiel qu'un formulaire
+               demonte. */
+            if (!parent) parent = porteur.parentNode;
+            if (porteur.parentNode !== parent) continue;
+
+            porteurs.push(porteur);
+        }
+
+        if (!parent || porteurs.length < 2) return;
+
+        /* Les champs de la cascade ABSENTS de `ordre` — typiquement Programme,
+           qui n'y figure jamais — doivent garder leur place. Les oublier les
+           renverrait en tete : tous les champs listes seraient deplaces apres
+           eux. C'est ce que faisait la premiere version, et le formulaire
+           s'ouvrait sur le champ Programme. */
+        var deja = {};
+        for (var k = 0; k < porteurs.length; k++) deja[k] = true;
+        var restants = [];
+        for (var n2 in NOM_DOM) {
+            if (!NOM_DOM.hasOwnProperty(n2)) continue;
+            var e2 = champ(NOM_DOM[n2]);
+            if (!e2) continue;
+            var p2 = e2.closest ? (e2.closest('[data-socle-champ]') ||
+                     e2.closest('.form-group') || e2.closest('.field') ||
+                     e2.parentNode) : e2.parentNode;
+            if (!p2 || p2.parentNode !== parent) continue;
+            if (porteurs.indexOf(p2) === -1 && restants.indexOf(p2) === -1) restants.push(p2);
+        }
+        var sequence = porteurs.concat(restants);
+
+        /* On reinsere DANS le bloc d'origine, pas a la fin du parent : celui-ci
+           contient aussi le nom, l'email, les consentements. Un appendChild
+           renverrait toute la cascade apres eux. On prend donc comme repere
+           l'element qui suivait le dernier champ de la cascade. */
+        var dernier = sequence[0], idx = -1;
+        for (var m = 0; m < parent.childNodes.length; m++) {
+            if (sequence.indexOf(parent.childNodes[m]) !== -1) { idx = m; dernier = parent.childNodes[m]; }
+        }
+        var repere = dernier ? dernier.nextSibling : null;
+
+        for (var j = 0; j < sequence.length; j++) {
+            if (repere) parent.insertBefore(sequence[j], repere);
+            else parent.appendChild(sequence[j]);
+        }
+    }
 
     /* -- 1. Listes independantes ------------------------------------- */
     for (var nom in D.picklists) {
@@ -308,6 +473,42 @@ try {
         remplir('Speciality', distinct(filtrer({ campus: sel.campus, level: sel.level }), 'speciality'), sel.speciality);
         remplir('Rhythm',     distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality }), 'rhythm'), sel.rhythm);
         remplir('Language',   distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm }), 'language'), sel.language);
+
+        /* -- Application de la matrice ------------------------------------
+           Trois raisons de masquer, dans cet ordre de priorite :
+             1. la matrice de l'ecole l'interdit (jamais, ou seuil de niveau) ;
+             2. le mode PROGRESSIF et le champ precedent n'est pas renseigne ;
+             3. une seule valeur possible — le contrat demande de masquer le
+                champ tout en transmettant la valeur au CRM, ce que fait deja
+                `remplir` en pre-selectionnant.
+           Le champ EFAP est le contre-exemple du point 2 : sa configuration
+           porte progressif=false, tous les champs sont donc proposes d'emblee. */
+        var progressif = !CFG || CFG.progressif !== false;
+        var conditionnels = ['Speciality', 'Rhythm', 'Language'];
+
+        for (var c = 0; c < conditionnels.length; c++) {
+            var nom = conditionnels[c];
+            var el  = champ(nom);
+            if (!el) continue;
+
+            var nbOptions = el.options ? el.options.length : 0;
+            var visible = autorise(nom);
+
+            if (visible && progressif) {
+                // en mode progressif, le champ n'apparait qu'une fois le niveau pose
+                if (!sel.level) visible = false;
+            }
+            // une seule option reelle (hors placeholder) : valeur transmise, champ masque
+            if (visible && nbOptions <= 1) visible = false;
+
+            afficher(nom, visible);
+        }
+
+        // Langue par defaut (IFA Paris : francais) si rien n'est encore choisi
+        if (CFG && CFG.langueDefaut) {
+            var elLang = champ('Language');
+            if (elLang && !elLang.value) elLang.value = CFG.langueDefaut;
+        }
 
         // programmes encore valides -> rentrees possibles
         var valides = filtrer(sel);
@@ -355,6 +556,7 @@ try {
             var el = champ(n);
             if (el) el.addEventListener('change', rafraichirCascade);
         });
+    appliquerOrdre();                 // une seule fois : voir le commentaire
     if (D.programs.length) rafraichirCascade();
 
     /* -- 3. Famille evenement : dates + ateliers ---------------------- */
