@@ -29,10 +29,6 @@
             "destination": "/api/cron"
         },
         {
-            "source": "/auth/(.*)",
-            "destination": "/api/router?path=/auth/$1"
-        },
-        {
             "source": "/preview/:name",
             "destination": "/api/router?path=/preview/:name"
         },

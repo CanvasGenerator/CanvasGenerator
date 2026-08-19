@@ -19,7 +19,6 @@ import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
-import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
 
 export default function (editor, categories) {
 
@@ -333,7 +332,6 @@ ${hidden}
     </form>
 
 </div><!-- /.imf-card -->
-${SOCLE_READ_SNIPPET}
 </section>`;
     }
 
