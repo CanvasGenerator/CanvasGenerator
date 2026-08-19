@@ -1,12 +1,2 @@
 .env
 node_modules/
-
-# ── Fichiers de travail SSJS : utiles en local, inutiles au fonctionnement ──
-# Pages de diagnostic SFMC (lecture seule, à coller dans une CloudPage de test)
-sfmc-ssjs/socle/test-*.ssjs
-# Tests unitaires du socle et de l'inliner
-sfmc-ssjs/test/
-scripts/auth-test.js
-# Récapitulatifs de présentation (PDF + HTML générés)
-sfmc-ssjs/socle/*.pdf
-sfmc-ssjs/socle/recap-*.html

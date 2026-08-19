@@ -29,7 +29,6 @@ const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
 const { ensureFormAnchors, extractFormIds, slugify } = require('./lib/api-shared');
-const { handleAuthRoute, enforceAuth, isAuthEnabled } = require('./lib/auth');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -733,17 +732,6 @@ function readJsonBody(req) {
     });
 }
 
-// Corps BRUT (string) — utilisé pour le POST du JWT SFMC (form-urlencoded).
-// La normalisation (form/JSON) est faite dans lib/auth.js (normalizeBody).
-function readRawBody(req) {
-    return new Promise((resolve) => {
-        let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
-        req.on('end', () => resolve(body));
-        req.on('error', () => resolve(''));
-    });
-}
-
 function createApiResponse(res) {
     let statusCode = 200;
     return {
@@ -770,16 +758,6 @@ http.createServer(async (req, res) => {
     }
 
     const { pathname, params } = parseUrl(req.url);
-
-    // ── Authentification SFMC (SSO JWT Marketing Cloud) ───────────────
-    // 1. Routes /auth/* (login SSO, logout, me). SFMC POSTe un JWT signé sur
-    // /auth/sfmc/login → on lit le corps. 2. Guard : protège l'app (éditeur,
-    // dashboard, API d'admin). Pages publiées + /preview restent publiques.
-    if (pathname.startsWith('/auth/')) {
-        const authBody = req.method === 'POST' ? await readRawBody(req) : {};
-        if (await handleAuthRoute(req, res, pathname, Object.fromEntries(params), authBody)) return;
-    }
-    if (enforceAuth(req, res, pathname, req.url)) return;
 
     if (pathname === '/api/schools' || pathname.startsWith('/api/schools/') || pathname.startsWith('/api/school/')) {
         try {
@@ -1820,22 +1798,8 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     return res.end(JSON.stringify({ error: 'projectName required' }));
                 }
                 if (!isSfmcConfigured()) {
-                    // SFMC désactivé (SFMC_SYNC_ENABLED != true) : on marque la
-                    // page publiée côté app SANS pousser vers SFMC, pour ne pas
-                    // bloquer la publication tant que la lecture n'est pas prête.
-                    const pubRes = await supabaseRequest(
-                        'GET',
-                        `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
-                    );
-                    const pubProj = pubRes && pubRes[0];
-                    if (pubProj) {
-                        const pubProps = { ...(pubProj.properties || {}), status: 'published' };
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            properties: pubProps
-                        });
-                    }
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify({ message: 'Published (SFMC désactivé — non poussé)', projectName, status: 'published', sfmc: { skipped: true, reason: 'SFMC_SYNC_ENABLED=false' } }));
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'SFMC non configuré sur ce serveur.' }));
                 }
 
                 const projectRes = await supabaseRequest(
@@ -1893,21 +1857,8 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     return res.end(JSON.stringify({ error: 'projectName required' }));
                 }
                 if (!isSfmcConfigured()) {
-                    // SFMC désactivé : on repasse la page en brouillon côté app
-                    // sans appeler SFMC, pour ne pas bloquer.
-                    const dftRes = await supabaseRequest(
-                        'GET',
-                        `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
-                    );
-                    const dftProj = dftRes && dftRes[0];
-                    if (dftProj) {
-                        const dftProps = { ...(dftProj.properties || {}), status: 'draft' };
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            properties: dftProps
-                        });
-                    }
-                    res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify({ message: 'Unpublished (SFMC désactivé)', projectName, status: 'draft', sfmc: { skipped: true } }));
+                    res.writeHead(400, { 'Content-Type': 'application/json' });
+                    return res.end(JSON.stringify({ error: 'SFMC non configuré sur ce serveur.' }));
                 }
 
                 const projectRes = await supabaseRequest(

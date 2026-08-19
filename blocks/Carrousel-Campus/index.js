@@ -299,38 +299,22 @@ export default function (editor, categories) {
                     const track   = el.querySelector('.ccp-track');
                     const prevBtn = el.querySelector('.ccp-prev');
                     const nextBtn = el.querySelector('.ccp-next');
-                    // Garde : une flèche supprimée dans l'éditeur faisait planter
-                    // le script et figeait le carrousel sans message.
-                    if (!track || !prevBtn || !nextBtn) return;
-                    let index = 0;
-
-                    // Slides relues à chaque appel : une slide ajoutée ou retirée
-                    // après l'initialisation était ignorée, et avec un total figé
-                    // sur l'ancien contenu on défilait dans le vide.
-                    function total() { return track.children.length; }
+                    const slides  = track.querySelectorAll('.ccp-slide');
+                    const total   = slides.length;
+                    let index     = 0;
 
                     function update() {
-                        const first = track.firstElementChild;
-                        const n = total();
-                        if (!first || !n) return;
-                        index = ((index % n) + n) % n;
-                        track.style.transform = `translateX(-${index * first.offsetWidth}px)`;
-                        const idle = n <= 1;
-                        [prevBtn, nextBtn].forEach(b => {
-                            b.setAttribute('aria-disabled', idle ? 'true' : 'false');
-                            b.style.opacity = idle ? '0.35' : '';
-                        });
+                        const slideWidth = slides[0].offsetWidth;
+                        track.style.transform = `translateX(-${index * slideWidth}px)`;
                     }
 
                     nextBtn.addEventListener('click', () => {
-                        if (total() <= 1) return;
-                        index = (index + 1) % total();
+                        index = (index + 1) % total;
                         update();
                     });
 
                     prevBtn.addEventListener('click', () => {
-                        if (total() <= 1) return;
-                        index = (index - 1 + total()) % total();
+                        index = (index - 1 + total) % total;
                         update();
                     });
 
