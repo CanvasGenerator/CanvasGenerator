@@ -101,9 +101,6 @@ export default function (editor, categories) {
                                 <option value="efap">EFAP</option>
                                 <option value="brassart">BRASSART</option>
                                 <option value="icart">ICART</option>
-                                <!-- INJECTION DU SNIPPET POUR LA PICKLIST DYNAMIQUE SFMC -->
-
-                                %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
                             </select></div>
                         <div class="form-row">
                             <div class="form-group-core"><label>Nom</label><input type="text" name="LastName" required
@@ -112,14 +109,76 @@ export default function (editor, categories) {
                                     required placeholder="Jean" /></div>
                         </div>
                         <div class="form-group-core"><label>Email</label><input type="email" name="EmailAddress"
-                                required placeholder="jean@exemple.com" /></div><button type="submit"
+                                required placeholder="jean@exemple.com" /></div>
+
+                        <!-- LISTES ALIMENTÉES PAR LE CRM (LPB_Picklist_Handler_AG).
+                             Chaque option vide sert de placeholder : le handler la conserve
+                             et ajoute les valeurs Salesforce derrière. Un name[] retiré ici
+                             est simplement ignoré côté handler. -->
+                        <div class="form-row">
+                            <div class="form-group-core"><label>Pays de résidence</label><select name="Country"
+                                    class="form-select-core">
+                                    <option value="">Chargement…</option>
+                                </select></div>
+                            <div class="form-group-core"><label>Niveau d'études</label><select name="StudyLevel"
+                                    class="form-select-core">
+                                    <option value="">Chargement…</option>
+                                </select></div>
+                        </div>
+                        <div class="form-group-core"><label>Campus</label><select name="Campus"
+                                class="form-select-core">
+                                <option value="">Choisir un campus…</option>
+                            </select></div>
+                        <div class="form-row">
+                            <div class="form-group-core"><label>Niveau visé</label><select name="Niveau"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                            <div class="form-group-core"><label>Spécialité</label><select name="Speciality"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-core"><label>Rythme</label><select name="Rhythm"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                            <div class="form-group-core"><label>Langue</label><select name="Language"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group-core"><label>Rentrée</label><select name="Rentree"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                            <div class="form-group-core"><label>Programme</label><select name="Programme"
+                                    class="form-select-core">
+                                    <option value="">Choisir…</option>
+                                </select></div>
+                        </div>
+
+                        <!-- Résolu par la cascade, transmis à l'écriture -->
+                        <input type="hidden" name="PTAT_Id" value="" />
+
+                        <button type="submit"
                             class="form-core-submit"><span>Envoyer au CRM</span><i class="fas fa-database"></i></button>
                     </form>
+
+                    <!-- INJECTION DU HANDLER DE PICKLISTS — APRÈS le formulaire :
+                         il émet un <script> et a besoin que les <select> existent
+                         déjà dans le DOM. Ne jamais le remettre dans un <select>. -->
+                    <div class="sfmc-snippet-picklists">
+                        %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
+                    </div>
                 </div>
             </section>
 
             <style>
-                .sfmc-snippet-logic, .sfmc-snippet-messages { display: none !important; }
+                .sfmc-snippet-logic, .sfmc-snippet-messages, .sfmc-snippet-picklists { display: none !important; }
+                .form-select-core:disabled { opacity: .55; cursor: not-allowed; }
                 .form-core-section { padding: 60px 20px; background: var(--brand-surface, #f5f5f5); font-family: var(--brand-font, 'Inter', sans-serif); }
                 .form-core-container { max-width: 480px; margin: 0 auto; background: var(--brand-background, #ffffff); padding: 40px; border-radius: 20px; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
                 .sf-logo-badge { width: 40px; height: 40px; background: #00A1E0; border-radius: 8px; display: flex; align-items: center; justify-content: center; margin: 0 auto 15px; color: white; font-size: 18px; }
