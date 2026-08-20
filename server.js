@@ -1723,20 +1723,35 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                         });
 
                         // Synchroniser dans le système structuré (donne un page_id → active
-                        // les boutons historique, statut, dossier dans le dashboard)
+                        // les boutons historique, statut, dossier dans le dashboard).
+                        // reviveDeleted : une déclinaison qui retombe sur une page mise à la
+                        // corbeille doit la ressortir, sinon elle reste invisible au dashboard
+                        // alors que l'API répond « succès ».
+                        let syncWarning = null;
                         try {
-                            await syncLegacyProjectToContent({
-                                projectName: newProjectName,
-                                html:        fullHtml,
-                                css:         schoolCss,
-                                projectData: newProjectData,
-                                properties:  newProps
+                            const sync = await syncLegacyProjectToContent({
+                                projectName:   newProjectName,
+                                html:          fullHtml,
+                                css:           schoolCss,
+                                projectData:   newProjectData,
+                                properties:    newProps,
+                                reviveDeleted: true
                             });
+                            // syncLegacyProjectToContent avale ses erreurs et renvoie
+                            // { skipped:true, reason } : sans ce test, un échec de synchro
+                            //  passait pour un succès complet.
+                            if (sync && sync.skipped) {
+                                syncWarning = sync.error || sync.reason || 'content_sync_skipped';
+                                console.warn(`⚠️ [decline] sync content skipped for ${schoolId}:`, syncWarning);
+                            } else if (sync && sync.pageRevived) {
+                                console.log(`♻️ [decline] ${schoolId} : page sortie de la corbeille`);
+                            }
                         } catch (syncErr) {
+                            syncWarning = syncErr.message;
                             console.warn(`⚠️ [decline] sync content failed for ${schoolId}:`, syncErr.message);
                         }
 
-                        results.success.push({ schoolId, projectName: newProjectName });
+                        results.success.push({ schoolId, projectName: newProjectName, warning: syncWarning || undefined });
                         console.log(`✅ [decline] ${schoolId} → ${newProjectName}`);
                     } catch (e) {
                         results.errors.push({ schoolId, message: e.message });

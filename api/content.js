@@ -413,6 +413,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
     const folder = await ensureLegacyFolder(entity);
     let page = await findPageByLegacyProjectName(legacyProject.project_name);
     let createdPage = false;
+    let pageRevived = false;
 
     if (!page) {
         const title = legacyProject.properties?.title || parsed.title;
@@ -448,7 +449,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         if (Array.isArray(legacyProject.properties?.campusIds)) {
             metadata.campusIds = legacyProject.properties.campusIds;
         }
-        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+        const pagePatch = {
             title: legacyProject.properties?.title || page.title,
             seo: {
                 ...(page.seo || {}),
@@ -457,8 +458,27 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             },
             metadata,
             updated_at: new Date().toISOString()
-        });
-        page = { ...page, metadata };
+        };
+
+        // Réécrire une page mise à la corbeille la laissait en status 'deleted' :
+        // /api/decline répondait « succès » et la page repartait droit à la Corbeille,
+        // donc invisible au dashboard (constaté sur ICART / MoPA / EFJ ×
+        // MASTER_CANDIDATURE — 5 déclinaisons successives sans effet visible).
+        // Sur un acte EXPLICITE de (re)création — la déclinaison — on la ressort de la
+        // corbeille, exactement comme le fait l'action 'restore'.
+        // ⚠ Réservé à reviveDeleted : un simple save du builder ne doit PAS ressusciter
+        // une page volontairement jetée.
+        if (options.reviveDeleted && page.status === 'deleted') {
+            pagePatch.status = metadata.previousStatusBeforeDelete || 'draft';
+            delete metadata.deletedAt;
+            delete metadata.deletedReason;
+            delete metadata.deletedFrom;
+            delete metadata.previousStatusBeforeDelete;
+            pageRevived = true;
+        }
+
+        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, pagePatch);
+        page = { ...page, metadata, status: pagePatch.status || page.status };
     }
 
     // syncLegacyProjectToContent gère toujours la variante de la langue D'ORIGINE.
@@ -489,6 +509,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
     return {
         skipped: false,
         projectName: legacyProject.project_name,
+        pageRevived,
         organizationId: organization.id,
         entityId: entity.id,
         folderId: folder.id,
@@ -546,7 +567,7 @@ async function saveTranslationVariant(pageId, language, body = {}) {
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties }) {
+async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, reviveDeleted }) {
     try {
         return await migrateLegacyProject({
             project_name: projectName,
@@ -557,7 +578,7 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
             project_data: projectData,
             properties: properties || {},
             change_summary: 'Saved from legacy builder'
-        }, { updatePageMetadata: true });
+        }, { updatePageMetadata: true, reviveDeleted: reviveDeleted === true });
     } catch (e) {
         return {
             skipped: true,
