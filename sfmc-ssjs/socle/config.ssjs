@@ -153,7 +153,9 @@ var SocleConfig = {
        summit__Status__c (presence pointee le jour J). Noms d'API A CONFIRMER
        cote org (package summit__). */
     SUMMIT_REGISTRATION: {
-        object:          "summit__Registration__c",       // A CONFIRMER (API du package)
+        /* Nom RELEVE sur l'org le 2026-08-16 : le package prefixe ses objets
+           `summit__Summit_Events_*__c`. `summit__Registration__c` n'existe pas. */
+        object:          "summit__Summit_Events_Registration__c",
 
         /* externalId__c est la VRAIE cle d'upsert (unique). actionIdOscar__c ne
            l'est PAS — cf. note du diagramme 3. Unicite = (personne x instance) :
@@ -186,17 +188,19 @@ var SocleConfig = {
              l'echo MC (le scoring ne repart que si ce champ change). */
         neverUpdate:     ["summit__Status__c", "actionNameStatus__c"],
 
-        /* Tracking porte sur la Registration (identique au CampaignMember). */
+        /* Tracking porte sur la Registration.
+           ⚠ PAS le meme nommage que le CampaignMember, contrairement a ce que
+           supposait le socle : ici les champs UTM viennent du PACKAGE summit,
+           en minuscules et prefixes. `UTM_Source__c` & Cie n'existent pas sur
+           cet objet — les ecrire echouait en silence.
+           `Client_ID__c` n'existe pas non plus : pas de cible pour le ClientID. */
         tracking: {
-            utm_source:   "UTM_Source__c",
-            utm_medium:   "UTM_Medium__c",
-            utm_campaign: "UTM_Campaign__c",
-            utm_content:  "UTM_Content__c",
-            utm_term:     "UTM_Term__c",
-            utm_id:       "UTM_Id__c",
-            gclid:        "gclid__c",
-            fbclid:       "fbclid__c",
-            clientId:     "Client_ID__c",
+            utm_source:   "summit__utm_source__c",
+            utm_medium:   "summit__utm_medium__c",
+            utm_campaign: "summit__utm_campaign__c",
+            utm_content:  "summit__utm_content__c",
+            utm_term:     "summit__utm_term__c",
+            utm_id:       "summit__utm_id__c",
             canal:        "AcquisitionChannel__c",
             sousCanal:    "AcquisitionSubChannel__c"
         }
@@ -206,12 +210,22 @@ var SocleConfig = {
        1 record par atelier/date coche, en master-detail SOUS la Registration
        (a creer APRES la Registration). Cle d'idempotence : Reg + type. */
     SUMMIT_APPOINTMENT: {
-        object:          "summit__Appointment__c",          // A CONFIRMER (API du package)
-        regField:        "summit__Registration__c",          // master-detail vers la Registration
-        typeField:       "summit__Appointment_Type__c",       // type d'atelier / sous-evenement
-        instanceField:   "summit__Instance__c",              // instance du sous-evenement (si applicable)
+        /* Noms RELEVES sur l'org le 2026-08-16.
+           ⚠ Ne pas confondre avec le CATALOGUE des ateliers proposes
+           (`summit__Summit_Events_Appointment_Type__c`, cote lecture dans
+           SocleRead.APPOINTMENT_TYPE). Ici on ECRIT l'atelier CHOISI par
+           l'inscrit, rattache a sa Registration. */
+        object:          "summit__Summit_Events_Appointments__c",
+        regField:        "summit__Event_Registration__c",     // et NON summit__Registration__c
+        typeField:       "summit__Appointment_Type__c",       // picklist
+        typeRefField:    "summit__Event_Appointment_Type__c", // lookup vers le catalogue
+        titleField:      "summit__Appointment_Title__c",
         appointmentsParam: "Appointments",                    // name[] front : ids separes par des virgules
-        upsertKeyFields: ["summit__Registration__c", "summit__Appointment_Type__c"]
+        upsertKeyFields: ["summit__Event_Registration__c", "summit__Appointment_Type__c"]
+
+        /* `summit__Instance__c` n'existe PAS sur cet objet : un Appointment est
+           rattache a une Registration, jamais directement a une Instance.
+           L'ancienne cle instanceField est donc supprimee, pas corrigee. */
 
         /* PAS de suppression : le diagramme 4 prevoit d'ajuster les enfants
            (ajout + suppression) a la re-soumission, mais le retrait est HORS
@@ -229,10 +243,28 @@ var SocleConfig = {
         campaignKeys:   { form: "FormType", ecole: "Ecole", zone: "Zone" },
         campaignValue:  "CampaignId",
 
-        /* DE de mapping ecole -> marque (BusinessBrandId + Brand__c). */
-        brandDE:        "Mapping_Ecoles_x_Marques",          // A RENSEIGNER
+        /* DE de mapping ecole -> referentiel Salesforce. CREEE le 2026-08-16
+           dans RECETTE EDH, amorcee avec les 10 ecoles de schools.json.
+
+           Elle porte AUSSI le prefixe campus, et c'est la raison d'etre du
+           champ : `LearningProgram.campusNameFor__c` vaut "EFAP PARIS" — ecole
+           et ville accolees — et RetrieveSalesforceObjects NE SUPPORTE PAS
+           l'operateur `like` (il rend 0 ligne au lieu d'une erreur, verifie).
+           Impossible donc de filtrer les programmes par ecole cote Salesforce :
+           on lit tout, puis on filtre sur ce prefixe. La comparaison doit etre
+           INSENSIBLE A LA CASSE — l'org melange "EFAP PARIS" et "Campus
+           Brassart Lyon".
+
+           ⚠ `Actif` vaut false partout sauf EFAP et BRASSART : ce sont les
+           deux seuls prefixes OBSERVES dans les donnees. Les huit autres sont
+           des extrapolations. Basculer une ecole a true seulement apres avoir
+           verifie que son prefixe remonte bien des programmes — sinon le
+           formulaire s'affiche vide, sans erreur, et personne ne le voit. */
+        brandDE:        "LPB_Mapping_Ecoles",
         brandKey:       "Ecole",
-        brandValues:    { brandId: "BusinessBrandId", brandCode: "Brand__c" },
+        brandValues:    { brandId: "BusinessBrandId", brandCode: "BrandCode",
+                          campusPrefix: "CampusPrefix", schoolAccountId: "SchoolAccountId",
+                          actif: "Actif" },
 
         /* Zone (FR / Intl) deduite du pays de residence. */
         zoneDomesticCountry: "France",
