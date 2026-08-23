@@ -261,8 +261,10 @@ Les noms viennent des journaux Apex, pas d'une supposition.
 : des que `FormType__c` est rempli, `SourceCreation__c` DOIT valoir `Web Form`.
 
 `FormType__c` : `Demande de doc`, `Forum`, `Guide métier` passent.
-**`Formulaire de Candidature` est REFUSE** — une regle supplementaire, non
-identifiee, s'applique aux candidatures.
+`Formulaire de Candidature` est refuse par l'org — sans consequence : le tableau
+des formulaires ne prevoit ce champ cache QUE pour le telechargement de
+brochure. Le socle ne l'envoie donc que dans ce cas, avec `Demande de doc`,
+la valeur de l'org correspondant au libelle « telechargement » du cadrage.
 
 Jeu minimal verifie (crees : `001AW00001yrOtxYAE`, `001AW00001yrOIrYAM`) :
 
@@ -360,6 +362,43 @@ Account 001AW00001ysfnyYAA
 
 Les evenements sans atelier au catalogue passent aussi : l'etape est ignoree
 proprement au lieu de casser la sequence.
+
+### Ecole__c : un mapping par CAMPUS, pas par ecole
+
+`Account.Ecole__c` est un lookup vers un Account de RecordType `schoolEntity`.
+La granularite reelle est le **campus** : sur les 24 comptes deja renseignes,
+`Ecole__c` pointe vers « BRASSART PARIS », pas « BRASSART ». Un champ
+`Campus__c` existe aussi, mais il est vide partout — non utilise.
+
+Les comptes `schoolEntity` (81) melangent deux natures dans `EntityType__c` :
+`Legal Entity` (GROUPE EDH SAS, EFAP LILLE) et `EDH School` (EFAP PARIS,
+BRASSART Rennes). Ce sont les `EDH School` qu'il faut viser.
+
+**Pourquoi une DE et pas une resolution par nom.** Le libelle envoye par la
+cascade (« EFAP PARIS ») EST le `Name` du compte, et filtrer sur
+`Name` + `EntityType__c` fonctionne pour les 10 campus EFAP — y compris
+« EFAP LILLE », ou un homonyme `Legal Entity` existe. Mais **trois** comptes
+portent le nom « BRASSART PARIS », dont **deux** marques `EDH School` : aucun
+filtre ne peut trancher, et ecrire au hasard est pire que ne rien ecrire.
+
+D'ou `LPB_Mapping_Campus`, cle = le libelle COMPLET du campus :
+
+| Colonne | Role |
+|---|---|
+| `Campus` | cle, le libelle tel que la cascade l'envoie |
+| `Ecole` | pour s'y retrouver, non utilise par le code |
+| `SchoolAccountId` | l'Id ecrit dans `Ecole__c` |
+| `Actif` | `false` = on n'ecrit rien, meme si un Id est present |
+| `Commentaire` | tracage des arbitrages |
+
+Comportement verifie le 2026-08-23 : campus mappe -> `Ecole__c` ecrit et relu
+correct ; campus marque inactif ou absent de la DE -> compte cree SANS ecole,
+degrade mais pas bloquant.
+
+Les 10 campus EFAP sont renseignes. « BRASSART PARIS » est en attente
+d'arbitrage (`001AW00001hxKshYAE` ou `001AW00001r8WLqYAM`). Les autres ecoles
+se rempliront a mesure de leur activation, en meme temps que leur
+`CampusPrefix`.
 
 ### Idempotence : chercher sur les liaisons, pas sur externalId__c
 
