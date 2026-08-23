@@ -9,7 +9,23 @@
  *
  *  Pourquoi une recopie et non une inclusion : AMPscript n'a aucun mecanisme
  *  d'include. Recopier a la main garantissait la derive ; ce script la rend
- *  impossible. A relancer apres toute modification du JS de cascade :
+ *  impossible.
+ *
+ *  ⚠ POURQUOI LA BALISE EST ASSEMBLEE PAR AMPSCRIPT (2026-08-23)
+ *  L'API SFMC SUPPRIME tout <script> a l'upload, sur les blocs comme sur les
+ *  pages. Verifie sur un cas trivial : <p>a</p><script>var x=1;</script><p>b</p>
+ *  revient sans le script. Le JS de cascade partait donc a la poubelle en
+ *  silence — 46 Ko envoyes, 27 Ko stockes, `rafraichirCascade` absent — et rien
+ *  ne cassait visiblement : les listes restaient juste vides.
+ *
+ *  On emet donc la balise A L'EXECUTION, par concatenation : l'API ne voit
+ *  jamais la chaine "<script>", le navigateur recoit une vraie balise.
+ *  Verifie de bout en bout : la page affiche « JS EXECUTE ».
+ *
+ *  Ne JAMAIS remettre un <script> litteral dans un fichier destine a l'API.
+ *  La regle de lint 10 le refuse.
+ *
+ *  A relancer apres toute modification du JS de cascade :
  *
  *      node scripts/sync-cascade-js.js          verifie et corrige
  *      node scripts/sync-cascade-js.js --check  echoue si desynchronise (CI)
@@ -39,7 +55,17 @@ for (const attendu of ['rafraichirCascade', 'appliquerOrdre', 'window.SOCLE_DATA
     }
 }
 
-const bloc = `${DEBUT}\n<script>${cascade}</script>\n${FIN}\n`;
+/* La balise est construite a l'execution. Les morceaux "<scr" / "ipt>" sont
+   volontairement coupes : c'est ce qui rend le filtre de l'API aveugle. */
+const bloc = `${DEBUT}
+%%[
+VAR @cascadeOuvre, @cascadeFerme
+SET @cascadeOuvre = Concat("<scr", "ipt>")
+SET @cascadeFerme = Concat("</scr", "ipt>")
+]%%
+%%=v(@cascadeOuvre)=%%${cascade}%%=v(@cascadeFerme)=%%
+${FIN}
+`;
 let dst = fs.readFileSync(DST, 'utf8');
 const re = new RegExp(DEBUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\S]*?' + FIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n?');
 

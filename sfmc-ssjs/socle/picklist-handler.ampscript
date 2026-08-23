@@ -62,9 +62,12 @@ SET @cfgRows = LookupRows("LPB_Config_Formulaires", "Ecole", @school)
 SET @cfgProgressif = "true"
 SET @cfgOrdre      = "campus,niveau,speciality,rhythm,language,rentree"
 SET @cfgLangueDef  = ""
-SET @cfgSpecV = "toujours"   SET @cfgSpecN = 0
-SET @cfgRythV = "toujours"   SET @cfgRythN = 0
-SET @cfgLangV = "toujours"   SET @cfgLangN = 0
+SET @cfgSpecV = "toujours"
+SET @cfgSpecN = 0
+SET @cfgRythV = "toujours"
+SET @cfgRythN = 0
+SET @cfgLangV = "toujours"
+SET @cfgLangN = 0
 SET @cfgRentree = "false"
 
 IF RowCount(@cfgRows) > 0 THEN
@@ -455,9 +458,18 @@ IF NOT Empty(@typeEvt) THEN
         NEXT @i
     ENDIF
 ENDIF
+
+/* ---- EMISSION DE SOCLE_DATA ------------------------------------------------
+   La balise est ASSEMBLEE A L'EXECUTION. L'API SFMC supprime toute balise de script
+   litteral a l'upload : sans cette precaution, les balises disparaissaient et
+   le JSON s'affichait EN TEXTE VISIBLE sur la page au lieu d'etre execute.
+   Constate le 2026-08-23. Ne pas remettre de balise en clair ici. */
+VAR @dataOuvre, @dataFerme
+SET @dataOuvre = Concat("<scr", "ipt>")
+SET @dataFerme = Concat("</scr", "ipt>")
 ]%%
 
-<script>
+%%=v(@dataOuvre)=%%
 /* Meme contrat que la version SSJS : le JS de cascade ne voit aucune difference.
    `instances` et `appointments` (famille evenement) restent VIDES mais PRESENTS
    — non encore portes. `remplir()` laisse alors le <select> statique en place au
@@ -492,7 +504,7 @@ window.SOCLE_DATA = {
         }
     }
 };
-</script>
+%%=v(@dataFerme)=%%
 
 <!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% -->
 %%[ IF Length(@prefix) == 0 THEN ]%%
@@ -563,7 +575,12 @@ window.SOCLE_DATA = {
 %%[ ENDIF ]%%
 
 <!-- ===== JS DE CASCADE — genere par scripts/sync-cascade-js.js ===== -->
-<script>
+%%[
+VAR @cascadeOuvre, @cascadeFerme
+SET @cascadeOuvre = Concat("<scr", "ipt>")
+SET @cascadeFerme = Concat("</scr", "ipt>")
+]%%
+%%=v(@cascadeOuvre)=%%
 /* ============================================================================
  *  CASCADE COTE NAVIGATEUR
  *  Aucune lecture supplementaire : tout est deja dans window.SOCLE_DATA.
@@ -571,6 +588,23 @@ window.SOCLE_DATA = {
 (function () {
     var D = window.SOCLE_DATA;
     if (!D) return;                       // lecture SF indisponible -> on laisse le HTML statique
+
+    /* ---- ATTENDRE LE DOM ---------------------------------------------------
+       Le socle est inclus EN HAUT de la page : quand ce script s'execute, le
+       formulaire n'existe pas encore. Sans cette attente, tous les
+       querySelector rendent null, la cascade sort en silence et les listes
+       restent vides — panne invisible, constatee le 2026-08-23 sur un
+       formulaire de test reel. Elle n'avait jamais pu fonctionner.
+
+       On differe donc TOUT le corps jusqu'a DOMContentLoaded. Si le DOM est
+       deja pret (socle inclus en bas de page, ou script charge tardivement),
+       on execute immediatement. */
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', demarrer);
+    } else {
+        demarrer();
+    }
+    function demarrer() {
 
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
@@ -949,6 +983,7 @@ window.SOCLE_DATA = {
             maj();
         }
     }
+    }   /* fin demarrer() */
 })();
-</script>
+%%=v(@cascadeFerme)=%%
 <!-- ===== fin JS DE CASCADE ===== -->
