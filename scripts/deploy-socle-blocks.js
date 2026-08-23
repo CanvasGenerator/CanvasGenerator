@@ -12,7 +12,10 @@
  *
  *  Usage :
  *      npm run deploy:socle              # simulation (n'ecrit rien)
- *      npm run deploy:socle -- --push    # deploiement reel
+ *      npm run deploy:socle -- --push --mid=536010339   # deploiement reel
+ *
+ *  --mid est OBLIGATOIRE avec --push : il confirme la Business Unit visee.
+ *  536010339 = RECETTE EDH · 536009308 = entreprise parente (a eviter).
  *      npm run deploy:socle -- --push --only=LPB_Socle_Read_AG
  *
  *  Par securite, le mode SIMULATION est le defaut : rien n'est envoye a SFMC
@@ -35,14 +38,16 @@ const SOCLE_DIR = path.join(__dirname, '..', 'sfmc-ssjs', 'socle');
  * un bloc ne peut dependre que de ceux qui le precedent.
  */
 const BLOCS = [
-    { fichier: 'config.ssjs',           key: 'LPB_Socle_Config_AG',      nom: 'Socle — Configuration' },
-    { fichier: 'sf-helpers.ssjs',       key: 'LPB_Socle_Helpers_AG',     nom: 'Socle — Helpers Salesforce' },
-    { fichier: 'socle-resolvers.ssjs',  key: 'LPB_Socle_Resolvers_AG',   nom: 'Socle — Résolveurs' },
-    { fichier: 'socle-read.ssjs',       key: 'LPB_Socle_Read_AG',        nom: 'Socle — Lecture Salesforce' },
-    { fichier: 'socle-upsert.ssjs',     key: 'LPB_Socle_Upsert_AG',      nom: 'Socle — Séquence upsert' },
-    { fichier: 'socle-summit.ssjs',     key: 'LPB_Socle_Summit_AG',      nom: 'Socle — Summit (événement)' },
-    { fichier: 'handler-form.ssjs',     key: 'LPB_Form_Handler_AG',      nom: 'Handler — Écriture formulaire' },
-    { fichier: 'picklist-handler.ssjs', key: 'LPB_Picklist_Handler_AG',  nom: 'Handler — Listes déroulantes' },
+    /* ⚠ AMPSCRIPT, PAS SSJS. Sur cette org, ni une CloudPage ni une Automation
+       ne peuvent atteindre Salesforce en SSJS. Les fichiers .ssjs du socle sont
+       conserves pour reference (et picklist-handler.ssjs reste la SOURCE du JS
+       de cascade, cf. scripts/sync-cascade-js.js), mais ce ne sont PAS eux qui
+       tournent en production.
+
+       Cette liste doit rester alignee sur FICHIERS_META dans
+       lib/socle-inliner.js : meme cles, memes fichiers. */
+    { fichier: 'picklist-handler.ampscript', key: 'LPB_Picklist_Handler_AG', nom: 'Handler — Listes deroulantes', langage: 'ampscript' },
+    { fichier: 'handler-form.ampscript',     key: 'LPB_Form_Handler_AG',     nom: 'Handler — Ecriture formulaire', langage: 'ampscript' },
 ];
 
 /* -- arguments ----------------------------------------------------------- */
@@ -54,8 +59,37 @@ function log(s) { console.log(s); }
 
 async function main() {
     log('');
-    log('  Déploiement des blocs du socle SSJS → SFMC Content Builder');
+    log('  Déploiement des blocs du socle → SFMC Content Builder');
     log('  ' + '─'.repeat(58));
+
+    /* ---- GARDE-FOU BUSINESS UNIT ------------------------------------------
+       Incident du 2026-08-23 : `.env` porte SFMC_ACCOUNT_ID=536009308, qui est
+       l'ENTREPRISE, pas la BU de recette (536010339). Le deploiement est donc
+       parti dans la mauvaise BU, et comme un CustomerKey est unique pour toute
+       l'entreprise, il a rendu les cles du socle inutilisables ailleurs. Il a
+       fallu supprimer les assets a la main.
+
+       Desormais le MID cible est AFFICHE, et il faut le confirmer par
+       --mid=<id>. Sans ca, --push est refuse. */
+    const MID = String(process.env.SFMC_ACCOUNT_ID || '');
+    const midAttendu = (args.find((a) => a.startsWith('--mid=')) || '').split('=')[1];
+
+    log(`\n  Business Unit cible (SFMC_ACCOUNT_ID) : ${MID || '(non defini)'}`);
+    if (PUSH) {
+        if (!midAttendu) {
+            console.error('\n  ❌ --push exige --mid=<MID> pour confirmer la Business Unit.');
+            console.error(`     Ici SFMC_ACCOUNT_ID vaut ${MID || '(non defini)'}.`);
+            console.error('     Rappel : 536010339 = RECETTE EDH, 536009308 = entreprise parente.');
+            console.error('     Un CustomerKey est unique pour TOUTE l\'entreprise : se tromper');
+            console.error('     de BU bloque la cle partout ailleurs.\n');
+            process.exit(1);
+        }
+        if (midAttendu !== MID) {
+            console.error(`\n  ❌ Le MID confirme (${midAttendu}) ne correspond pas a`);
+            console.error(`     SFMC_ACCOUNT_ID (${MID}). Rien n'a ete envoye.\n`);
+            process.exit(1);
+        }
+    }
 
     if (!isSfmcConfigured()) {
         console.error('\n  ❌ SFMC non configuré. Vérifie SFMC_SUBDOMAIN, SFMC_CLIENT_ID,');
@@ -75,9 +109,21 @@ async function main() {
         }
         const contenu = fs.readFileSync(chemin, 'utf8');
 
-        // Un bloc SSJS doit porter son enveloppe : sans elle, SFMC le traite
-        // comme du HTML et le code s'afficherait en clair sur la page.
-        if (!/<script[^>]*runat=["']server["']/i.test(contenu)) {
+        if (b.langage === 'ampscript') {
+            // L'AMPscript vit dans des %%[ ]%% et NE DOIT PAS etre enferme dans
+            // un <script runat="server"> : SFMC y attendrait du SSJS et le code
+            // s'afficherait en clair. Meme garde-fou que dans socle-inliner.js.
+            if (/<script[^>]*runat=["']server["']/i.test(contenu)) {
+                console.error(`  ✖ ${b.fichier} : AMPscript enferme dans <script runat="server"> — bloc invalide`);
+                process.exit(1);
+            }
+            if (!/%%\[/.test(contenu)) {
+                console.error(`  ✖ ${b.fichier} : aucun bloc %%[ ]%% — ce n'est pas de l'AMPscript`);
+                process.exit(1);
+            }
+        } else if (!/<script[^>]*runat=["']server["']/i.test(contenu)) {
+            // Un bloc SSJS doit porter son enveloppe : sans elle, SFMC le traite
+            // comme du HTML et le code s'afficherait en clair sur la page.
             console.error(`  ✖ ${b.fichier} : pas de <script runat="server"> — bloc invalide`);
             process.exit(1);
         }
@@ -105,7 +151,12 @@ async function main() {
         racineId = await resolveCategoryIdByName(process.env.SFMC_CATEGORY_NAME, null)
                 || await ensureFolder(process.env.SFMC_CATEGORY_NAME, 0);
     }
-    const dossierId = await ensureFolder('socle', racineId);
+    /* SFMC_SOCLE_CATEGORY_ID permet de viser un dossier EXISTANT sans passer
+       par ensureFolder, qui echoue en 400 quand le dossier est deja la (constat
+       du 2026-08-23 : dossier « socle » id 46200 deja present dans RECETTE). */
+    const dossierId = process.env.SFMC_SOCLE_CATEGORY_ID
+        ? Number(process.env.SFMC_SOCLE_CATEGORY_ID)
+        : await ensureFolder('socle', racineId);
     log(`\n  Dossier de destination : socle (id ${dossierId})\n`);
 
     // 3. Upsert bloc par bloc
