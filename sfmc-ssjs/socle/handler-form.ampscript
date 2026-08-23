@@ -97,7 +97,7 @@ VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
-VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId
+VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId, @campusSel
 VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve, @cpEmail, @cpPhone, @cpId
 VAR @isEvent, @instanceId, @extId, @regId, @appts, @apptRows, @nA, @apptType
 VAR @zone, @cleCampagne, @campActif, @typeEvt, @mode, @langue, @typeForm
@@ -162,7 +162,35 @@ IF @submitted == "true" THEN
     IF Empty(@brandId) AND NOT Empty(@ecole) THEN
         SET @brandId = Lookup("LPB_Mapping_Ecoles", "BusinessBrandId", "Ecole", @ecole)
     ENDIF
-    SET @schoolAccId = Lookup("LPB_Mapping_Ecoles", "SchoolAccountId", "Ecole", @ecole)
+    /* ---- COMPTE ECOLE : DEPUIS LA DE, INDEXEE PAR CAMPUS -----------------
+       `Ecole__c` est un lookup vers un Account de RecordType `schoolEntity`.
+       La granularite reelle est le CAMPUS, pas l'ecole : sur les comptes deja
+       renseignes, `Ecole__c` pointe vers « BRASSART PARIS », pas « BRASSART ».
+       Le champ `Campus__c` existe aussi mais reste vide sur les 24 comptes
+       concernes — il n'est pas utilise.
+
+       Pourquoi une DE et pas une resolution par nom. Le nom du campus envoye
+       par la cascade (« EFAP PARIS ») est bien le `Name` du compte ecole, et
+       filtrer dessus fonctionne pour les 10 campus EFAP. Mais TROIS comptes
+       portent le nom « BRASSART PARIS », dont DEUX marques `EDH School` :
+       aucun filtre ne peut trancher, et ecrire au hasard serait pire que ne
+       rien ecrire. Le mapping est donc explicite.
+
+       `LPB_Mapping_Campus` : cle = le libelle COMPLET du campus, tel que la
+       cascade l'envoie. Une ligne par campus. Les cas ambigus y sont marques
+       `Actif = false` avec les Ids concernes en commentaire, en attente
+       d'arbitrage — plutot que resolus silencieusement.
+
+       Si le campus est absent de la DE, `Ecole__c` reste vide : le prospect est
+       cree sans ecole rattachee. Degrade, pas bloquant. */
+    SET @campusSel   = RequestParameter("Campus")
+    SET @schoolAccId = ""
+
+    IF NOT Empty(@campusSel) THEN
+        IF Lowercase(Lookup("LPB_Mapping_Campus", "Actif", "Campus", @campusSel)) == "true" THEN
+            SET @schoolAccId = Lookup("LPB_Mapping_Campus", "SchoolAccountId", "Campus", @campusSel)
+        ENDIF
+    ENDIF
 
     /* ---- Resolution de la campagne, depuis la DE de mapping --------------
        40 combinaisons : brochure/candidature x FR/Intl x 10 ecoles. Les Ids
@@ -190,7 +218,7 @@ IF @submitted == "true" THEN
                 "Statut", "OK",
                 "Objet", "-",
                 "RecordId", "",
-                "Detail", Concat("zone=", @zone, " marque=", @brandId, " ecoleAcc=", @schoolAccId),
+                "Detail", Concat("zone=", @zone, " marque=", @brandId, " campus=", @campusSel, " ecoleAcc=", @schoolAccId),
                 "Email", @email,
                 "Ecole", @ecole,
                 "FormType", @formType)
@@ -757,14 +785,23 @@ IF @submitted == "true" THEN
                 SET @langue = "French"
             ENDIF
 
-            /* FormType__c : "Formulaire de Candidature" est refuse (cf. plus
-               haut), on le laisse vide pour les candidatures. */
-            IF @formType == "candidature" THEN
-                SET @typeForm = ""
-            ELSEIF @formType == "brochure" THEN
+            /* ---- FormType__c : BROCHURE UNIQUEMENT ---------------------
+               Le tableau des formulaires ne prevoit ce champ cache que pour le
+               telechargement de brochure. Les autres formulaires ne le
+               renseignent pas — leur origine est tracee par la campagne pour
+               la candidature, par l'inscription pour l'evenementiel.
+
+               Ce n'est donc pas un contournement : "Formulaire de Candidature"
+               est refuse par l'org, et de toute facon la candidature n'est pas
+               censee alimenter ce champ. Les deux se rejoignent.
+
+               "Demande de doc" est la valeur relevee sur l'org qui correspond
+               au libelle « telechargement » du cadrage, et elle passe a
+               l'ecriture (verifie le 2026-08-23). */
+            IF @formType == "brochure" THEN
                 SET @typeForm = "Demande de doc"
             ELSE
-                SET @typeForm = "Forum"
+                SET @typeForm = ""
             ENDIF
 
             IF Empty(@firstName) THEN
