@@ -146,6 +146,25 @@ VAR @sfStatus, @sfErrorMsg, @journal
 
    Coup : une ecriture de DE par etape, ~10 par soumission. Acceptable en
    recette, a passer a "false" avant la Prod. */
+/* ---- HISTORISATION DES INTERACTIONS REPETEES ----------------------------
+   ⚠ DESACTIVE. L'objet CampaignMemberInteraction__c refuse TOUTE creation par
+   l'utilisateur d'integration : verifie le 2026-08-24, six jeux de champs
+   differents puis un seul champ texte, un seul picklist, une seule date — tout
+   echoue. La LECTURE fonctionne (3 interactions existantes), donc c'est un
+   droit de creation ou un trigger propre a l'insert.
+
+   Pourquoi un drapeau et pas simplement du code laisse en place : AMPscript
+   n'a pas de try/catch, une creation refusee REMPLACE la page. Tant que le
+   droit n'est pas accorde, tenter l'ecriture ferait mourir la page a chaque
+   soumission d'un prospect DEJA membre de la campagne — donc a chaque retour
+   d'un prospect connu. C'etait deja le cas avant, aggrave par un nom de champ
+   inexistant : la panne etait totale, pas silencieuse.
+
+   Repasser a "true" des que Create est accorde sur l'objet. Le jeu de champs
+   ci-dessous est deja corrige et complet. */
+VAR @INTERACTION_ACTIVE
+SET @INTERACTION_ACTIVE = "false"
+
 VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
 SET @runId     = Substring(Replace(GUID(), "-", ""), 1, 12)
@@ -1285,12 +1304,48 @@ IF @submitted == "true" THEN
                         "Ecole", @ecole,
                         "FormType", @formType)
                 ENDIF
-                /* Interaction repetee : historisee dans un objet dedie plutot
-                   que par un second CampaignMember. */
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 3,
-                    "CampaignMember__c", @cmId,
-                    "SourceSystem__c",   "SFMC",
-                    "Information__c",    RequestParameter("NomFormulaire"))
+                /* ---- INTERACTION REPETEE ---------------------------------
+                   L'unicite Campagne x Person Account interdit un second
+                   CampaignMember : la soumission suivante est historisee ici.
+
+                   ⚠ CORRIGE le 2026-08-24. Le socle ecrivait "CampaignMember__c",
+                   qui N'EXISTE PAS sur l'objet : toutes les interactions
+                   echouaient en silence, exactement comme ParentId sur le
+                   consentement. Les vrais champs sont CampaignMemberId__c
+                   (texte) et CampaignMemberLink__c (lookup).
+
+                   Les 9 champs de tracking existent deja sur l'objet et
+                   n'etaient pas alimentes. Le layout « Formulaire » de l'US
+                   « Interaction » les attend tous.
+
+                   ⚠ A ANTICIPER : l'US de generalisation renomme l'objet en
+                   `Interaction__c`, ajoute 4 record types par canal (il faudra
+                   envoyer celui du Formulaire), un Status__c restreint a
+                   « Soumis » pour les formulaires, et deux champs Preview__c /
+                   Context__c. Le document precise que le renommage doit
+                   intervenir AVANT le branchement des connecteurs — or nous
+                   sommes deja branches. */
+                IF @INTERACTION_ACTIVE != "true" THEN
+                    SET @journal = Concat(@journal, " INTERACTION:desactivee")
+                ELSE
+                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 16,
+                    "CampaignMemberLink__c", @cmId,
+                    "CampaignMemberId__c",   @cmId,
+                    "PersonAccount__c",      @paId,
+                    "Campaign__c",           @campaignId,
+                    "InteractionDate__c",    Now(),
+                    "SourceSystem__c",       "SFMC",
+                    "Information__c",        RequestParameter("NomFormulaire"),
+                    "UTM_Source__c",         @utmS,
+                    "UTM_Medium__c",         @utmM,
+                    "UTM_Campaign__c",       @utmC,
+                    "UTM_Content__c",        @utmCo,
+                    "UTM_Term__c",           @utmT,
+                    "UTM_Id__c",             @utmI,
+                    "gclid__c",              @gclid,
+                    "fbclid__c",             @fbclid,
+                    "Client_ID__c",          @clientId)
+                ENDIF
             ELSE
                 /* Les 4 derniers champs etaient COLLECTES par le formulaire
                    mais jamais ecrits : ecart releve le 2026-08-24 contre le
