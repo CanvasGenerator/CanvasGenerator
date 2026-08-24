@@ -475,10 +475,34 @@ Comportement verifie le 2026-08-23 : campus mappe -> `Ecole__c` ecrit et relu
 correct ; campus marque inactif ou absent de la DE -> compte cree SANS ecole,
 degrade mais pas bloquant.
 
-Les 10 campus EFAP sont renseignes. « BRASSART PARIS » est en attente
-d'arbitrage (`001AW00001hxKshYAE` ou `001AW00001r8WLqYAM`). Les autres ecoles
-se rempliront a mesure de leur activation, en meme temps que leur
-`CampusPrefix`.
+**Les 47 lignes sont renseignees** (releve du 2026-08-24, 10 ecoles actives).
+« BRASSART PARIS » a ete arbitre sur `001AW00001r8WLqYAM`, retenu parce qu'il
+porte les cursus lies ; l'homonyme `001AW00001hxKshYAE` est ecarte.
+
+| Ecole | Prefixe | Campus | Programmes |
+|---|---|---|---|
+| BRASSART | `BRASSART` | 15 | 222 |
+| EFAP | `EFAP` | 10 | 123 |
+| CREAD | `CREAD` | 10 | 53 |
+| ICART | `ICART` | 4 | 33 |
+| IFA Paris | `IFA` | 1 | 13 |
+| ESEC | `ESEC` | 2 | 8 |
+| EFJ | `EFJ` | 2 | 6 |
+| 3W Academy | `3W` | 1 | 5 |
+| Ecole Bleue | `ECOLE BLEUE` | 1 | 5 |
+| MOPA | `MOPA` | 1 | 4 |
+
+Un seul prefixe etait faux : l'Ecole Bleue attendait `ECOLE BLEUE`, pas
+`BLEUE`. Le socle l'avait signale lui-meme, par son commentaire HTML
+« prefixe ne correspond a aucun campusNameFor__c ». C'est la methode a
+reappliquer en Prod : activer l'ecole, charger la cascade, lire l'avertissement.
+
+La comparaison se faisant en majuscules, la casse des noms est sans incidence :
+`MoPA ARLES`, `3W Academy PARIS` et `BRASSART Rennes` sont correctement
+resolus. Verifie a l'ecriture sur ces trois-la.
+
+Sur les 48 campus distincts de l'org, 46 sont couverts. Les deux restants sont
+`TESTS` et un doublon de casse — aucune ecole reelle.
 
 ### Idempotence : chercher sur les liaisons, pas sur externalId__c
 
