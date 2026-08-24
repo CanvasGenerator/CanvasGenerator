@@ -15,3 +15,7 @@ sfmc-ssjs/socle/recap-*.html
 
 # Brouillons de diagnostic a coller dans une CloudPage, hors perimetre du depot
 codex/
+
+# Bruit macOS et verrous Office
+.DS_Store
+~$*
