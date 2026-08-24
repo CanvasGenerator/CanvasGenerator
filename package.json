@@ -4,7 +4,8 @@
     "start": "node server.js",
     "build": "npm run check",
     "deploy:socle": "node scripts/deploy-socle-blocks.js",
-    "check": "node --check api/router.js && node --check api/schools.js && node --check api/content.js && node --check lib/api-shared.js && node --check blocks/registry.js && node --check server.js && node --check js/app.js"
+    "check": "node --check api/router.js && node --check api/schools.js && node --check api/content.js && node --check lib/api-shared.js && node --check lib/auth.js && node --check lib/sfmc-auth.js && node --check blocks/registry.js && node --check server.js && node --check js/app.js",
+    "test:auth": "node scripts/test-sfmc-auth.js"
   },
   "dependencies": {
     "cheerio": "^1.2.0",
