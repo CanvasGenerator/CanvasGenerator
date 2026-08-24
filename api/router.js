@@ -6,6 +6,7 @@ const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
 const cheerio = require('cheerio');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
+const sfmcAuth = require('../lib/sfmc-auth');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -222,12 +223,28 @@ module.exports = async function handler(req, res) {
     // Vercel rewrites: /api/(.*) -> /api/router?path=/api/$1
     const pathname = req.query.path || req.url.split('?')[0];
 
+    // ── Auth SFMC (OAuth2 + verrouillage d'instance) ─────────────────────
+    // Les routes OAuth restent accessibles sans session ; le gate ne couvre
+    // que le builder. Le rendu des pages publiées et /preview/ restent
+    // PUBLICS — les verrouiller mettrait les landing pages hors service.
+    // cf. lib/sfmc-auth.js
+    if (await sfmcAuth.handleSfmcAuthRoutes(req, res, pathname)) return;
+    if (!sfmcAuth.requireSfmcAuth(req, res, pathname)) return;
+
     try {
-        // ── Authentification SFMC (SSO JWT Marketing Cloud) ───────────
-        // Routes /auth/* (dont le POST du JWT sur /auth/sfmc/login) + guard sur
-        // les API d'admin et les pages passant par le routeur. No-op si non configuré.
-        if (await handleAuthRoute(req, res, pathname, req.query || {}, req.body || {})) return;
-        if (enforceAuth(req, res, pathname, pathname)) return;
+        // ── Authentification SFMC (SSO JWT Marketing Cloud) — DÉBRANCHÉE ──
+        // UN SEUL gate peut être actif : les deux protègent les mêmes chemins,
+        // donc une session valide pour l'un est rejetée par l'autre (boucle de
+        // login côté navigateur, 401 systématique sur les API).
+        // Le gate actif est celui du dessus (lib/sfmc-auth.js, OAuth2), parce
+        // qu'il correspond au composant SFMC réellement créé : « API
+        // Integration / Web App ». Celui-ci exige l'App Signature d'un
+        // composant « Marketing Cloud App », qui n'existe pas côté SFMC.
+        // Pour revenir dessus : rétablir les 2 lignes ci-dessous ET retirer les
+        // 2 appels à sfmcAuth plus haut, ici comme dans server.js.
+        //
+        //   if (await handleAuthRoute(req, res, pathname, req.query || {}, req.body || {})) return;
+        //   if (enforceAuth(req, res, pathname, pathname)) return;
 
         if (await handleSchoolsRoute(req, res, pathname)) return;
         if (await handleContentRoute(req, res, pathname)) return;

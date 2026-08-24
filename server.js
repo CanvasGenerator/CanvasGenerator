@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
 const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
+const sfmcAuth = require('./lib/sfmc-auth');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -774,15 +775,25 @@ http.createServer(async (req, res) => {
 
     const { pathname, params } = parseUrl(req.url);
 
-    // ── Authentification SFMC (SSO JWT Marketing Cloud) ───────────────
-    // 1. Routes /auth/* (login SSO, logout, me). SFMC POSTe un JWT signé sur
-    // /auth/sfmc/login → on lit le corps. 2. Guard : protège l'app (éditeur,
-    // dashboard, API d'admin). Pages publiées + /preview restent publiques.
-    if (pathname.startsWith('/auth/')) {
-        const authBody = req.method === 'POST' ? await readRawBody(req) : {};
-        if (await handleAuthRoute(req, res, pathname, Object.fromEntries(params), authBody)) return;
-    }
-    if (enforceAuth(req, res, pathname, req.url)) return;
+    // ── Auth SFMC (OAuth2 Authorization Code + verrouillage d'instance) ──
+    // UN SEUL gate peut etre actif : deux portes qui protegent les memes
+    // chemins se contredisent (une session valide pour l'une est invalide pour
+    // l'autre). C'est celle-ci qui est branchee, parce qu'elle correspond au
+    // composant SFMC reellement cree : « API Integration / Web App », avec
+    // client_id + client_secret + redirect URIs.
+    //
+    // L'autre implementation, lib/auth.js (SSO par JWT), reste dans le depot
+    // mais N'EST PLUS BRANCHEE : elle exige l'App Signature d'un composant
+    // « Marketing Cloud App », qui n'existe pas cote SFMC. Pour revenir a
+    // celle-la, retablir les 2 appels ci-dessous et retirer les 2 miens.
+    //
+    //   if (pathname.startsWith('/auth/')) {
+    //       const authBody = req.method === 'POST' ? await readRawBody(req) : {};
+    //       if (await handleAuthRoute(req, res, pathname, Object.fromEntries(params), authBody)) return;
+    //   }
+    //   if (enforceAuth(req, res, pathname, req.url)) return;
+    if (await sfmcAuth.handleSfmcAuthRoutes(req, res, pathname)) return;
+    if (!sfmcAuth.requireSfmcAuth(req, res, pathname)) return;
 
     if (pathname === '/api/schools' || pathname.startsWith('/api/schools/') || pathname.startsWith('/api/school/')) {
         try {
@@ -2868,6 +2879,7 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
     console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
     console.log(`📚 Dashboard: http://localhost:${port}/`);
     console.log(`🔨 Builder direct: http://localhost:${port}/?school=efap`);
+    sfmcAuth.logAuthStatus();
 });
 
 // ── Scheduler local : équivalent du Vercel Cron ──────────────────────
