@@ -1632,7 +1632,12 @@
         async function openDeclineModal(projectName, displayName) {
             _declineProjectName = projectName;
             document.getElementById('decline-project-label').textContent = displayName;
-            document.getElementById('decline-name-input').value = displayName;
+            // Le nom proposé est le titre DU MASTER : on retire son marqueur, sinon
+            // la page école s'appelait « ICART – MASTER TEMPLATE - CANDIDATURE ».
+            // Même nettoyage que normalizeDeclinedTitle() côté serveur (lib/api-shared.js) :
+            // le serveur renormalise de toute façon, ceci n'est qu'un confort d'affichage.
+            document.getElementById('decline-name-input').value =
+                String(displayName || '').replace(/^master(?:\s+template)?\b\s*(?:[-–—:]\s*)?/i, '').trim() || displayName;
             document.getElementById('decline-results').style.display = 'none';
             document.getElementById('decline-results').innerHTML = '';
             document.getElementById('decline-selected-count').textContent = '0';
@@ -1701,7 +1706,7 @@
                 const resultsEl = document.getElementById('decline-results');
                 resultsEl.style.display = 'flex';
                 resultsEl.innerHTML = [
-                    ...(result.success || []).map(r => `<div class="decline-result-item ok"><i class="fas fa-check-circle"></i> <strong>${escHtml(r.schoolId)}</strong> → ${escHtml(r.projectName)}</div>`),
+                    ...(result.success || []).map(r => `<div class="decline-result-item ok"><i class="fas fa-check-circle"></i> <strong>${escHtml(r.schoolId)}</strong> → ${escHtml(r.projectName)}${r.restoredFromTrash ? ' <em style="color:#b45309;">(page restaurée depuis la corbeille)</em>' : ''}</div>`),
                     ...(result.errors  || []).map(r => `<div class="decline-result-item err"><i class="fas fa-times-circle"></i> <strong>${escHtml(r.schoolId)}</strong> : ${escHtml(r.message)}</div>`)
                 ].join('');
 

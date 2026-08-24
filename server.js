@@ -28,7 +28,7 @@ const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
-const { ensureFormAnchors, extractFormIds, slugify } = require('./lib/api-shared');
+const { ensureFormAnchors, extractFormIds, slugify, normalizeDeclinedTitle } = require('./lib/api-shared');
 
 const port = process.env.PORT || 8000;
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -1377,6 +1377,12 @@ http.createServer(async (req, res) => {
                 const displayName = projectDisplayName ||
                     masterProjectName.replace(/^school-master__/, '').replace(/__[A-Z]{2}$/, '');
 
+                // Langue du master : elle était codée en dur à « FR », donc décliner un
+                // master EN produisait une page étiquetée FR (et un nom différent de
+                // celui calculé par api/router.js).
+                const declineLangMatch = masterProjectName.match(/__([A-Z]{2})$/i);
+                const declineLang = declineLangMatch ? declineLangMatch[1].toUpperCase() : 'FR';
+
                 // Extraire le corps HTML du document complet stocké
                 const masterBodyHtml = extractBodyContent(master.html || '');
                 const masterCss = master.css || '';
@@ -1448,13 +1454,24 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
 `;
                         const schoolCss = schoolVars + patchCssString(masterCss, colorVarsForHtml) + brandOverrides;
 
-                        // Construire les propriétés du projet décliné
-                        const newProjectName = `school-${schoolId}__${displayName}__FR`;
+                        // Construire les propriétés du projet décliné.
+                        // Nom NORMALISÉ et langue reprise du master : ce handler local et
+                        // celui de api/router.js doivent produire exactement le même nom,
+                        // sinon décliner une fois en local et une fois en déployé crée
+                        // deux pages sœurs pour la même école.
+                        const cleanTitle     = normalizeDeclinedTitle(displayName);
+                        const newProjectName = `school-${schoolId.toLowerCase()}__${cleanTitle}__${declineLang}`;
                         const newProps = {
                             ...masterProps,
-                            seoTitle: `${schoolName} – ${displayName}`,
-                            title:    `${schoolName} – ${displayName}`
+                            school: String(schoolId).toLowerCase(),
+                            seoTitle: `${schoolName} – ${cleanTitle}`,
+                            title:    `${schoolName} – ${cleanTitle}`,
+                            // Une déclinaison est toujours un nouveau brouillon : elle ne
+                            // doit hériter ni du statut ni du cycle de vie du master (un
+                            // master archivé/supprimé produirait une page née supprimée).
+                            status: 'draft'
                         };
+                        delete newProps.lifecycle;
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
@@ -1698,21 +1715,30 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                         });
 
                         // Synchroniser dans le système structuré (donne un page_id → active
-                        // les boutons historique, statut, dossier dans le dashboard)
+                        // les boutons historique, statut, dossier dans le dashboard).
+                        // `restoreFromTrash` : une page du même nom déjà en corbeille
+                        // garde status='deleted' et rendrait la déclinaison invisible.
+                        let sync = null;
                         try {
-                            await syncLegacyProjectToContent({
+                            sync = await syncLegacyProjectToContent({
                                 projectName: newProjectName,
                                 html:        fullHtml,
                                 css:         schoolCss,
                                 projectData: newProjectData,
-                                properties:  newProps
+                                properties:  newProps,
+                                restoreFromTrash: true,
+                                restoredBy:       'decline'
                             });
                         } catch (syncErr) {
                             console.warn(`⚠️ [decline] sync content failed for ${schoolId}:`, syncErr.message);
                         }
 
-                        results.success.push({ schoolId, projectName: newProjectName });
-                        console.log(`✅ [decline] ${schoolId} → ${newProjectName}`);
+                        results.success.push({
+                            schoolId,
+                            projectName: newProjectName,
+                            restoredFromTrash: Boolean(sync?.restoredFromTrash)
+                        });
+                        console.log(`✅ [decline] ${schoolId} → ${newProjectName}${sync?.restoredFromTrash ? ' (restaurée depuis la corbeille)' : ''}`);
                     } catch (e) {
                         results.errors.push({ schoolId, message: e.message });
                         console.error(`❌ [decline] ${schoolId}:`, e.message);

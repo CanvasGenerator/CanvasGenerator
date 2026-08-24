@@ -138,14 +138,28 @@ export default function(editor, categories) {
                     var next = el.querySelector('.mc3c-next');
                     var prev = el.querySelector('.mc3c-prev');
                     var idx = 0;
-                    var total = track.children.length;
+                    // Le nombre de slides est relu à CHAQUE clic, et non figé à
+                    // l'initialisation. La piste est reconstruite après coup (liste
+                    // de campus rechargée depuis l'API, ou sélection modifiée dans
+                    // l'éditeur) : avec un total figé sur l'ancien contenu, on
+                    // défilait au-delà de la dernière slide réelle et on tombait
+                    // sur du vide.
+                    function total() { return track.children.length; }
                     function go(i) {
-                        if (!total) return;
-                        idx = (i + total) % total;
+                        var n = total();
+                        if (!n) return;
+                        idx = ((i % n) + n) % n;
                         track.style.transform = 'translateX(-' + (idx * 100) + '%)';
+                    }
+                    // Repositionne si la piste a rétréci depuis le dernier rendu.
+                    function clamp() {
+                        var n = total();
+                        if (!n) return;
+                        if (idx > n - 1) go(0);
                     }
                     if (next) next.onclick = function() { go(idx + 1); };
                     if (prev) prev.onclick = function() { go(idx - 1); };
+                    el.__mc3cClamp = clamp;
                 }
 
                 var ids = window.__LP_CAMPUS_IDS || [];
@@ -189,6 +203,14 @@ export default function(editor, categories) {
                     lock(child);
                 });
                 lock(track);
+                // La piste vient d'être remplacée : si le carrousel était déjà
+                // positionné sur une slide qui n'existe plus, on revient au début
+                // plutôt que de laisser une zone vide affichée.
+                try {
+                    const trackEl = this.el && this.el.querySelector('.mc3c-track');
+                    if (trackEl) trackEl.style.transform = 'translateX(0%)';
+                    if (this.el && typeof this.el.__mc3cClamp === 'function') this.el.__mc3cClamp();
+                } catch (e) { /* pas encore monté */ }
             }
         }
     });

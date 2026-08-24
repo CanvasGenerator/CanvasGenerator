@@ -1,3 +1,5 @@
+import { logoDefaultSize } from '../../../blocks/logo-defaults.js';
+
 export default function(editor, categories) {
     const cat = categories && categories.MASTER ? categories.MASTER : 'Master Template';
 
@@ -47,7 +49,9 @@ export default function(editor, categories) {
     letter-spacing: 1px;
     flex-shrink: 0;
   }
-  .mh-logo svg, .mh-logo img { height: 56px; width: auto; display: block; }
+  /* Dimensions par défaut CENTRALISÉES (blocks/logo-defaults.js) → modifiables
+     via le Style Manager ; le garde-fou mobile (@media plus bas) reste prioritaire. */
+  ${logoDefaultSize('.mh-logo svg, .mh-logo img')}
   .mh-baseline {
     color: var(--brand-header-text, #ffffff);
     font-size: 13px;

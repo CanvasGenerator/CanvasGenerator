@@ -21,6 +21,24 @@ export default function(editor, categories) {
                 droppable: false,
                 removable: true,
                 copyable: true,
+                // Poignées LATÉRALES uniquement — PAS de redimensionnement vertical.
+                //
+                // app.js rend TOUT composant resizable avec les 8 poignées et
+                // `keyHeight: 'height'` (LP_RESIZE). Sur une section dont le contenu
+                // se déplie, un seul glissement de la poignée basse — même de 2 px,
+                // même par accident — écrit `height: NNNpx` dans la règle #id du
+                // Style Manager. Cette règle part en prod (getCss() est stocké et
+                // publié) : la boîte est alors figée à sa hauteur REPLIÉE et dérouler
+                // les réponses fait déborder le contenu par-dessus le footer.
+                // Le garde-fou `if (component.get('resizable')) return;` de app.js
+                // respecte ce réglage : rien à modifier côté app.
+                resizable: {
+                    tl: 0, tc: 0, tr: 0,
+                    cl: 1,        cr: 1,
+                    bl: 0, bc: 0, br: 0,
+                    minDim: 20,
+                    keyWidth: 'width'
+                },
                 toolbar: [
                     {
                         // Bouton principal : choisir les FAQs
@@ -120,6 +138,19 @@ export default function(editor, categories) {
   .ma-a { padding: 0 4px 16px; }
   .ma-a p { margin: 0; font-size: 13.5px; color: var(--brand-muted, #6b7280); line-height: 1.65; }
   @media(max-width:768px) { .ma-section { padding: 32px 16px; } }
+
+  /* LPB-FIX-FAQ-HEIGHT — garde-fou : une FAQ se déplie, sa hauteur ne peut PAS être figée.
+     Neutralise toute hauteur fixe héritée du Style Manager (règle #id écrite par le
+     resizer) : sans ça, dérouler les réponses en ligne fait déborder le contenu hors
+     du fond de section et par-dessus le footer. Le !important bat la règle #id même
+     si elle est plus spécifique. Les réponses (.ma-a) sont couvertes aussi : une
+     hauteur posée dessus tronquerait le texte au lieu de déborder. */
+  .ma-section, .ma-inner, .ma-list, .ma-item, .ma-a {
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
 </style>`,
         attributes: { class: 'fa fa-list-ul' }
     });

@@ -12,6 +12,7 @@
  * header-mopa, header-ecole-bleue, header-esec) sont conservés (schools.json).
  */
 import { logoLinkAttrs } from '../school-links.js';
+import { logoDefaultSize } from '../logo-defaults.js';
 
 export default function(editor, categories) {
     const LOGO_H = 54;
@@ -98,9 +99,11 @@ export default function(editor, categories) {
                         /* Logo affiché EN ENTIER (pas de recadrage) → la baseline n'est jamais
                            coupée, que ce soit le logo FR ou EN (proportions différentes). */
                         .${v.id} .hdr-logo { display: inline-block; height: auto; overflow: visible; flex-shrink: 0; max-width: 100%; }
-                        /* Taille libre via Style Manager : classe simple + hauteur concrete sans
-                           max-height. Garde-fou responsive sur la regle mobile scopee plus bas. */
-                        .hdr-logo-img { height: 56px; width: auto; max-width: 100%; display: block; }
+                        /* Dimensions par défaut CENTRALISÉES (blocks/logo-defaults.js) :
+                           classe simple, SANS max-height ni !important → librement
+                           modifiable via le Style Manager. Garde-fou responsive sur la
+                           regle mobile scopee plus bas. */
+                        ${logoDefaultSize('.hdr-logo-img')}
                         .${v.id} .hdr-lang {
                             font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                             letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;
