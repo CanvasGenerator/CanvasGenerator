@@ -72,22 +72,44 @@ SET @IDENTITE_SUR_CONTACT = "true"
    partage propre a ce record, non diagnostique). */
 VAR @ECRIRE_IDENTITE
 SET @ECRIRE_IDENTITE = "true"
-/* ⚠ REGLES DE BLOCAGE CANDIDATURE — noms NON VERIFIES sur l'org.
-   Ils viennent du document de cadrage. Tant que @REGLES_ACTIVES vaut "false",
-   aucune lecture n'est tentee : publier ce handler est donc sans risque.
-   Passer a "true" UNIQUEMENT apres avoir confirme les 5 noms ci-dessous avec
-   la sonde (?champs=IndividualApplication). Un nom faux tue la page a chaque
-   soumission de candidature. */
+/* ---- REGLES DE BLOCAGE CANDIDATURE ---------------------------------------
+   Noms CONFRONTES A L'ORG le 2026-08-23, sur les 123 champs de
+   IndividualApplication (285 candidatures en base) :
+
+     IndividualApplication        existe
+     ContactId                    existe
+     ProgramTermApplnTimelineId   existe
+     Status                       existe
+     AcademicYear__c              ⛔ N'EXISTE PAS sur cet objet
+
+   L'annee scolaire vit sur le PTAT, pas sur la candidature
+   (`PTAT-0000013 - ... - 2026`, champ AcademicYear__c). Le critere « meme
+   annee » etait donc REDONDANT : un PTAT est deja propre a une annee, donc
+   filtrer sur le PTAT suffit. Le champ est supprime, pas remplace.
+
+   La regle est desormais ACTIVE : les trois noms restants existent, donc la
+   lecture ne peut plus tuer la page. */
 VAR @REGLES_ACTIVES, @OBJ_APPLICATION, @F_APP_PERSON, @F_APP_PTAT, @F_APP_STATUS
-VAR @F_APP_YEAR, @VAL_REFUSE
-SET @REGLES_ACTIVES  = "false"
+VAR @VAL_REFUSE
+SET @REGLES_ACTIVES  = "true"
 SET @OBJ_APPLICATION = "IndividualApplication"
 SET @F_APP_PERSON    = "ContactId"
 SET @F_APP_PTAT      = "ProgramTermApplnTimelineId"
 SET @F_APP_STATUS    = "Status"
-SET @F_APP_YEAR      = "AcademicYear__c"
-/* Compare en minuscules et en SOUS-CHAINE : les libelles de statut varient
-   ("Refused", "Decision defavorable", "Rejected"). A ajuster au value set. */
+
+/* ⚠ VALEUR TEMPORAIRE, a confirmer par le CRM.
+   Comparaison en minuscules et en SOUS-CHAINE. Les valeurs de Status relevees
+   sur l'org sont "Processing", "Application Submitted",
+   "Interview & Jury Scheduled", "Initial Application Review" : AUCUNE ne
+   designe un refus, et les 285 candidatures de la recette sont toutes en
+   cours. Impossible d'en deduire le libelle.
+
+   Consequence de ce provisoire : R2 (refus) ne se declenche jamais, R1
+   (candidature en cours) fonctionne. Un candidat refuse est donc bloque par
+   R1 avec le message « candidature en cours » — moins juste, mais bloque
+   quand meme. C'est le bon sens du defaut : on ne laisse pas passer.
+
+   Le champ FinalDecision__c existe aussi mais est vide partout. */
 SET @VAL_REFUSE      = "refus"
 
 VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut
@@ -284,9 +306,10 @@ IF @submitted == "true" THEN
        page a CHAQUE soumission de candidature — panne totale, pas degradation.
        Il n'existe aucun moyen de coder defensivement autour de ca.
 
-       Les noms ci-dessous viennent du document de cadrage, pas de l'org : ils
-       n'ont pas encore ete confrontes a EntityDefinition. @REGLES_ACTIVES
-       reste donc a "false" jusqu'a verification, et le bloc ne lit rien.
+       Les trois noms utilises ici ont ete confrontes a l'org le 2026-08-23 et
+       existent tous. C'est ce qui autorise @REGLES_ACTIVES a "true" : la
+       lecture ne peut plus tuer la page. Cf. le bloc de configuration en tete
+       de fichier pour le detail, dont le champ d'annee qui n'existait pas.
 
        --- Sens du defaut : on laisse passer -------------------------------
        Regle desactivee ou indeterminee = on N'EMPECHE PAS la soumission.
@@ -306,7 +329,7 @@ IF @submitted == "true" THEN
             SET @candContactId = Field(Row(@rows,1), "PersonContactId")
 
             SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
-                Concat("Id,", @F_APP_STATUS, ",", @F_APP_YEAR),
+                Concat("Id,", @F_APP_STATUS),
                 @F_APP_PERSON, "=", @candContactId,
                 @F_APP_PTAT,   "=", @ptatId)
             SET @nCand = RowCount(@candRows)

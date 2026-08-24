@@ -33,6 +33,7 @@ VAR @jsCountry, @jsIndicatif, @jsLevel, @jsQui, @sep
 VAR @jsProgs, @jsCampus, @jsPtats, @jsTerms
 VAR @sepP, @sepC, @sepT, @sepR
 VAR @idIndex, @campusSeen, @termSeen, @cName, @cLabel, @pid, @tid, @nbProgs
+VAR @ptatRows, @ptatProgIndex, @nPtat, @j, @prow, @candidature
 VAR @jsInstances, @jsAppts, @nbInst, @typeEvt, @instSel, @evtParent
 VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
@@ -235,6 +236,40 @@ SET @nbProgs   = 0
 
 IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
 
+    /* --- 0. PTAT : LUS EN PREMIER --------------------------------------
+       Ordre voulu par le cadrage de la candidature : on part des sessions de
+       candidature (PTAT), puis on en deduit les programmes — pas l'inverse.
+
+       Pourquoi ca change quelque chose. Le filtrage progressif de la cascade
+       (Specialite restreint Rythme, qui restreint Langue) elimine les
+       COMBINAISONS impossibles entre champs. Il ne peut PAS ecarter un
+       programme qui n'a AUCUNE session ouverte : ce n'est pas une condition
+       entre champs, c'est une propriete du programme. Mesure sur EFAP le
+       2026-08-23 : 172 programmes remontes, dont 49 SANS PTAT. Un candidat
+       pouvait donc choisir une combinaison, puis trouver Rentree vide et
+       Programme vide — une impasse, sans explication.
+
+       Restriction appliquee A LA CANDIDATURE SEULEMENT. La brochure doit
+       continuer a montrer tout le catalogue : on y demande une documentation,
+       pas une session ouverte.
+
+       Les PTAT sont aussi lus UNE SEULE FOIS ici, au lieu d'une seconde
+       lecture apres les programmes. */
+    SET @candidature = "false"
+    IF @formTypePage == "candidature" THEN SET @candidature = "true" ENDIF
+
+    SET @ptatProgIndex = ";"
+    SET @ptatRows = RetrieveSalesforceObjects("ProgramTermApplnTimeline",
+        "Id,LearningProgramId,AcademicTermId", "Id", "!=", "")
+    SET @nPtat = RowCount(@ptatRows)
+
+    FOR @j = 1 TO @nPtat DO
+        SET @pid = Field(Row(@ptatRows, @j), "LearningProgramId")
+        IF NOT Empty(@pid) AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
+            SET @ptatProgIndex = Concat(@ptatProgIndex, @pid, ";")
+        ENDIF
+    NEXT @j
+
     /* --- 1. Programmes de l'ecole ------------------------------------- */
     SET @rows = RetrieveSalesforceObjects("LearningProgram",
         "Id,Name,campusNameFor__c,Academic_Level_List__c,Speciality__c,Rhythm__c,InstructionLanguage__c",
@@ -248,8 +283,15 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
         SET @cName = Field(@row, "campusNameFor__c")
 
         /* IndexOf rend une position 1-based : 1 = commence par le prefixe. */
-        IF IndexOf(Uppercase(@cName), @prefixUp) == 1 THEN
-            SET @pid = Field(@row, "Id")
+        SET @pid = Field(@row, "Id")
+
+        /* En candidature, un programme sans session ouverte n'a rien a faire
+           dans les listes : il menerait a une impasse. */
+        IF @candidature == "true" AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
+            SET @cName = ""
+        ENDIF
+
+        IF Length(@cName) > 0 AND IndexOf(Uppercase(@cName), @prefixUp) == 1 THEN
             SET @idIndex = Concat(@idIndex, @pid, ";")
             SET @nbProgs = Add(@nbProgs, 1)
 
@@ -288,15 +330,14 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
     /* --- 2. PTAT des programmes retenus --------------------------------
        On NE filtre PAS sur SchoolId__c : il porte l'Id d'un Account CAMPUS
        ("BRASSART AIX-EN-PROVENCE"), pas de l'ecole, et on ne dispose pas de
-       ces Ids. On repart donc des programmes deja filtres. */
+       ces Ids. On repart donc des programmes deja filtres.
+
+       Les lignes ont deja ete lues en etape 0 : on les reutilise. */
     IF @nbProgs > 0 THEN
-        SET @rows = RetrieveSalesforceObjects("ProgramTermApplnTimeline",
-            "Id,LearningProgramId,AcademicTermId", "Id", "!=", "")
-        SET @n = RowCount(@rows)
         SET @sepR = ""
 
-        FOR @i = 1 TO @n DO
-            SET @row = Row(@rows, @i)
+        FOR @i = 1 TO @nPtat DO
+            SET @row = Row(@ptatRows, @i)
             SET @pid = Field(@row, "LearningProgramId")
 
             IF IndexOf(@idIndex, Concat(";", @pid, ";")) > 0 THEN

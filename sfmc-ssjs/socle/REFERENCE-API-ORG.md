@@ -363,6 +363,60 @@ Account 001AW00001ysfnyYAA
 Les evenements sans atelier au catalogue passent aussi : l'etape est ignoree
 proprement au lieu de casser la sequence.
 
+### Candidature : partir des PTAT, pas des programmes
+
+Le cadrage de la candidature part des **sessions de candidature** (PTAT) et en
+deduit les programmes. Le socle faisait l'inverse.
+
+Le filtrage progressif de la cascade (Specialite restreint Rythme, qui restreint
+Langue) elimine les COMBINAISONS impossibles entre champs. Il ne peut PAS
+ecarter un programme qui n'a AUCUNE session ouverte : ce n'est pas une condition
+entre champs, c'est une propriete du programme.
+
+Mesure sur EFAP, avant / apres :
+
+| Formulaire | Programmes exposes | Dont sans session |
+|---|---|---|
+| brochure | 172 | 49 |
+| **candidature** | **123** | **0** |
+
+Un candidat pouvait donc choisir une combinaison valide en apparence, puis
+trouver Rentree vide et Programme vide — une impasse sans explication.
+
+La restriction ne s'applique qu'a la candidature : la brochure doit montrer tout
+le catalogue, on y demande une documentation, pas une session ouverte. Les 10
+campus restent presents dans les deux cas.
+
+Effet de bord positif : les PTAT sont lus UNE fois au lieu de deux.
+
+### Regles de blocage candidature : actives
+
+`IndividualApplication` existe (123 champs, 285 candidatures). Trois des quatre
+noms venus du cadrage sont bons :
+
+| Nom du cadrage | Realite |
+|---|---|
+| `ContactId` | ✅ |
+| `ProgramTermApplnTimelineId` | ✅ |
+| `Status` | ✅ |
+| `AcademicYear__c` | ⛔ **n'existe pas sur cet objet** |
+
+L'annee vit sur le **PTAT** (`PTAT-0000013 - ... - 2026`). Le critere « meme
+annee » etait donc redondant : un PTAT est deja propre a une annee. Champ
+supprime, pas remplace.
+
+Verifie sur l'org : un contact ayant une candidature sur un PTAT est bloque
+(R1), un e-mail inconnu passe. La lecture ne tue pas la page, ce qui autorise
+`@REGLES_ACTIVES = "true"`.
+
+> ⚠ `@VAL_REFUSE = "refus"` est **provisoire**. Les valeurs de `Status` relevees
+> sont `Processing`, `Application Submitted`, `Interview & Jury Scheduled`,
+> `Initial Application Review` : aucune ne designe un refus, et les 285
+> candidatures de la recette sont toutes en cours. `FinalDecision__c` existe
+> mais est vide partout. Consequence : R2 (refus) ne se declenche jamais, R1
+> bloque quand meme le candidat — moins juste, mais dans le bon sens.
+> Une seule information manque : la valeur qui signifie « refuse ».
+
 ### Ecole__c : un mapping par CAMPUS, pas par ecole
 
 `Account.Ecole__c` est un lookup vers un Account de RecordType `schoolEntity`.

@@ -164,6 +164,22 @@ for (const rel of CIBLES) {
     }
 }
 
+/* 12. La candidature doit restreindre les programmes a ceux ayant un PTAT.
+       Sans ca, un candidat peut choisir une combinaison qui mene a une impasse
+       (Rentree et Programme vides) : mesure du 2026-08-23, 49 des 172
+       programmes EFAP n'ont aucune session ouverte. Le filtrage progressif de
+       la cascade ne peut pas rattraper ca — ce n'est pas une condition entre
+       champs. */
+{
+    const ph = fs.readFileSync(path.join(DIR, 'socle/picklist-handler.ampscript'), 'utf8');
+    verifie('picklist-handler.ampscript', /@ptatProgIndex/.test(ph),
+        'la restriction des programmes aux sessions ouvertes a disparu ' +
+        '(@ptatProgIndex absent) — la candidature reexpose des impasses');
+    verifie('picklist-handler.ampscript', /@candidature\s*==\s*"true"/.test(ph),
+        'la restriction n\'est plus conditionnee a la candidature — la brochure ' +
+        'doit continuer a montrer tout le catalogue');
+}
+
 /* 11. Le lien vers l'Event ne porte PAS le meme nom sur tous les objets summit.
        Sur `Appointment_Type` c'est `summit__Summit_Events__c`, pas
        `summit__Event__c`. Un nom inexistant tue la page sans message — erreur
