@@ -443,6 +443,50 @@ sur les donnees reelles.
 > existantes) : value set remanie sans reprise. Et l'exception « abandon ne
 > bloque pas » est une decision METIER prise faute d'arbitrage — a confirmer.
 
+### Interaction : creation refusee, historisation desactivee
+
+`CampaignMemberInteraction__c` historise une soumission repetee, quand l'unicite
+Campagne x Person Account interdit un second CampaignMember. Deux problemes.
+
+**Le socle ecrivait un champ inexistant.** Il posait `CampaignMember__c` ; les
+vrais champs sont `CampaignMemberId__c` (texte) et `CampaignMemberLink__c`
+(lookup). Corrige, et le jeu de champs complete : compte, campagne, date, et les
+9 champs de tracking qui existaient deja sur l'objet sans etre alimentes.
+
+**Mais l'objet refuse toute creation.** Verifie le 2026-08-24 : six jeux de
+champs, puis un seul champ texte, un seul picklist, une seule date — tout
+echoue. La lecture fonctionne (3 interactions existantes). C'est donc un droit
+de creation ou un trigger propre a l'insert, pas une valeur.
+
+> ⚠ **Consequence, avant correction : la page mourait a chaque retour d'un
+> prospect connu.** Une creation refusee remplace la page entiere. Le chemin
+> etait atteint des qu'un CampaignMember existait deja, donc a la deuxieme
+> soumission de la meme personne sur la meme campagne. Panne totale, pas
+> degradation. `@INTERACTION_ACTIVE = "false"` neutralise l'ecriture jusqu'a
+> l'octroi du droit.
+
+A verifier cote CRM : `Setup → Profiles → Object Settings → Interactions`,
+puis les permission sets. La US de generalisation cite trois permission sets
+qui referencent l'objet : `Education_Cloud_Marketing_Access`,
+`Summit_Events_EDH_Fields`, `EDH_Event_Campaign_Management`.
+
+#### Ce que la US « Interaction » change pour nous
+
+| Evolution | Impact sur le socle |
+|---|---|
+| renommage en `Interaction__c` | notre appel casse au renommage |
+| 4 record types par canal | il faudra envoyer celui du **Formulaire** |
+| `Status__c` restreint | pour un formulaire, seule valeur `Soumis` |
+| `Preview__c` (255) et `Context__c` (texte long) | a alimenter |
+
+La US precise que le renommage doit intervenir AVANT le branchement des
+connecteurs. Or nous ecrivons deja cet objet : a signaler.
+
+Question de conception non tranchee : la US veut « l'historique complet des
+interactions quel que soit le canal », ce qui suggere une interaction A CHAQUE
+soumission. Le contrat v4 ne la prevoit que « si interaction repetee ». Sans
+arbitrage, la premiere soumission n'apparaitra pas dans l'historique.
+
 ### Ecole__c : un mapping par CAMPUS, pas par ecole
 
 `Account.Ecole__c` est un lookup vers un Account de RecordType `schoolEntity`.
