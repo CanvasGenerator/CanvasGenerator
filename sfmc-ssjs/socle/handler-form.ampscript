@@ -90,29 +90,37 @@ SET @ECRIRE_IDENTITE = "true"
    La regle est desormais ACTIVE : les trois noms restants existent, donc la
    lecture ne peut plus tuer la page. */
 VAR @REGLES_ACTIVES, @OBJ_APPLICATION, @F_APP_PERSON, @F_APP_PTAT, @F_APP_STATUS
-VAR @VAL_REFUSE
+VAR @F_APP_DECISION, @VAL_REFUSE, @VAL_ABANDON
 SET @REGLES_ACTIVES  = "true"
 SET @OBJ_APPLICATION = "IndividualApplication"
 SET @F_APP_PERSON    = "ContactId"
 SET @F_APP_PTAT      = "ProgramTermApplnTimelineId"
 SET @F_APP_STATUS    = "Status"
+SET @F_APP_DECISION  = "FinalDecision__c"
 
-/* ⚠ VALEUR TEMPORAIRE, a confirmer par le CRM.
-   Comparaison en minuscules et en SOUS-CHAINE. Les valeurs de Status relevees
-   sur l'org sont "Processing", "Application Submitted",
-   "Interview & Jury Scheduled", "Initial Application Review" : AUCUNE ne
-   designe un refus, et les 285 candidatures de la recette sont toutes en
-   cours. Impossible d'en deduire le libelle.
+/* ---- OU VIT LE REFUS ------------------------------------------------------
+   PAS dans `Status`. Son value set, releve le 2026-08-24, ne contient QUE des
+   etapes d'avancement : Application in Progress, Application Submitted,
+   Application Fee Paid, Initial Application Review, Interview & Jury
+   Scheduling / Scheduled, Secondary Application Review, Application Complete,
+   Withdrawn / Abandoned. Aucune valeur de refus, ni active ni inactive.
 
-   Consequence de ce provisoire : R2 (refus) ne se declenche jamais, R1
-   (candidature en cours) fonctionne. Un candidat refuse est donc bloque par
-   R1 avec le message « candidature en cours » — moins juste, mais bloque
-   quand meme. C'est le bon sens du defaut : on ne laisse pas passer.
+   Le refus vit dans `FinalDecision__c`, value set « Jury Recommendation » :
+       Admitted · Rejected · Absent_Interview · Pending · Enrolled
 
-   Le champ FinalDecision__c existe aussi mais est vide partout. */
-SET @VAL_REFUSE      = "refus"
+   Comparaison EXACTE en minuscules, pas en sous-chaine : le value set est
+   ferme et court, une sous-chaine n'apporterait que des faux positifs.
 
-VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut
+   `Absent_Interview` n'est PAS traite comme un refus : c'est un constat
+   d'absence, qui peut preceder une decision mais n'en est pas une. */
+SET @VAL_REFUSE      = "rejected"
+
+/* Un dossier ABANDONNE ne doit pas bloquer une nouvelle candidature : le
+   candidat a renonce, il a le droit de revenir. Sans cette exception, R1
+   bloquait sur n'importe quelle candidature existante, abandon compris. */
+SET @VAL_ABANDON     = "withdrawn / abandoned"
+
+VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut, @candDecision
 SET @sfBlockMsg = ""
 
 VAR @submitted, @email, @ecole, @formType
@@ -329,26 +337,33 @@ IF @submitted == "true" THEN
             SET @candContactId = Field(Row(@rows,1), "PersonContactId")
 
             SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
-                Concat("Id,", @F_APP_STATUS),
+                Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
                 @F_APP_PERSON, "=", @candContactId,
                 @F_APP_PTAT,   "=", @ptatId)
             SET @nCand = RowCount(@candRows)
 
             IF @nCand > 0 THEN
                 FOR @i = 1 TO @nCand DO
-                    SET @candStatut = Lowercase(Field(Row(@candRows,@i), @F_APP_STATUS))
+                    SET @candStatut   = Lowercase(Field(Row(@candRows,@i), @F_APP_STATUS))
+                    SET @candDecision = Lowercase(Field(Row(@candRows,@i), @F_APP_DECISION))
 
-                    /* R2 d'abord : un refus est plus contraignant qu'un dossier
-                       en cours, et son message est different. */
-                    IF IndexOf(@candStatut, @VAL_REFUSE) > 0 THEN
+                    IF @candDecision == @VAL_REFUSE THEN
+                        /* R2 en premier : un refus est plus contraignant qu'un
+                           dossier en cours, et son message differe. */
                         SET @sfStatus = "blocked"
                         SET @sfBlockMsg = "Votre precedente candidature a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine."
+                    ELSEIF @candStatut == @VAL_ABANDON THEN
+                        /* Abandon : on ne bloque pas, et on ne remplace pas un
+                           blocage deja pose par une autre candidature. */
+                        SET @journal = Concat(@journal, " CAND:abandon-ignore")
                     ELSEIF Empty(@sfBlockMsg) THEN
                         SET @sfStatus = "blocked"
                         SET @sfBlockMsg = "Vous avez deja une candidature en cours pour ce programme. Nous vous invitons a contacter le service des admissions du campus auquel vous souhaitez candidater."
                     ENDIF
                 NEXT @i
-                SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                IF @sfStatus == "blocked" THEN
+                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                ENDIF
             ENDIF
         ENDIF
     ENDIF

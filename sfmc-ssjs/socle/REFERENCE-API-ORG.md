@@ -409,13 +409,39 @@ Verifie sur l'org : un contact ayant une candidature sur un PTAT est bloque
 (R1), un e-mail inconnu passe. La lecture ne tue pas la page, ce qui autorise
 `@REGLES_ACTIVES = "true"`.
 
-> ⚠ `@VAL_REFUSE = "refus"` est **provisoire**. Les valeurs de `Status` relevees
-> sont `Processing`, `Application Submitted`, `Interview & Jury Scheduled`,
-> `Initial Application Review` : aucune ne designe un refus, et les 285
-> candidatures de la recette sont toutes en cours. `FinalDecision__c` existe
-> mais est vide partout. Consequence : R2 (refus) ne se declenche jamais, R1
-> bloque quand meme le candidat — moins juste, mais dans le bon sens.
-> Une seule information manque : la valeur qui signifie « refuse ».
+#### Ou vit le refus : PAS dans Status
+
+Le value set de `Status`, releve le 2026-08-24, ne contient QUE des etapes
+d'avancement, et aucune valeur de refus — ni active ni inactive :
+
+> Application in Progress · Application Submitted · Application Fee Paid ·
+> Initial Application Review · Interview & Jury Scheduling · Interview & Jury
+> Scheduled · Secondary Application Review · Application Complete ·
+> Withdrawn / Abandoned
+
+Le refus vit dans **`FinalDecision__c`**, value set « Jury Recommendation » :
+
+> Admitted · **Rejected** · Absent_Interview · Pending · Enrolled
+
+Comparaison **exacte** en minuscules, pas en sous-chaine : le value set est
+ferme et court.
+
+| Cas | Verdict | Regle |
+|---|---|---|
+| `FinalDecision__c = Rejected` | bloque | R2, decision defavorable |
+| `Status = Withdrawn / Abandoned` | **autorise** | le candidat a renonce, il peut revenir |
+| candidature en cours | bloque | R1 |
+| `Admitted` | bloque | R1 — message imparfait, decision correcte |
+| `Absent_Interview` | bloque | R1 — un constat d'absence n'est pas une decision |
+
+`FinalDecision__c` est vide sur les 285 candidatures de la recette : les
+branches ont donc ete verifiees en simulation, la lecture du champ l'ayant ete
+sur les donnees reelles.
+
+> ⚠ Deux remarques a remonter au CRM. Les donnees portent des valeurs de
+> `Status` DESACTIVEES dans le value set (`Processing`, vu sur des candidatures
+> existantes) : value set remanie sans reprise. Et l'exception « abandon ne
+> bloque pas » est une decision METIER prise faute d'arbitrage — a confirmer.
 
 ### Ecole__c : un mapping par CAMPUS, pas par ecole
 
