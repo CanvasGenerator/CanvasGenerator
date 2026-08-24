@@ -46,14 +46,15 @@ SET @RT_PERSON_ACCOUNT = "012Wx000000KF9NIAW"
      Account.FirstName sur 001AW00001igoPyYAI -> OK
      Contact.FirstName sur 003AW00000zuDx7YAE -> OK
 
-   On garde le Contact par defaut : sur un Person Account, FirstName y est un
-   champ autonome, alors que sur Account c'est un composant du champ compose
-   `Name` (visible dans l'Object Manager, indente sous « Account Name »). Ecrire
-   la ou le champ existe vraiment est plus sur, meme si l'org tolere les deux.
+   ⚠ On ecrit sur l'ACCOUNT, pas sur le Contact. Le contrat v4 est explicite :
+   « Contact — ⛔ Reserve a Livestorm (LeadSource = Webinar) ». Les formulaires
+   Marketing Cloud ecrivent DIRECTEMENT le Person Account. Ecrire sur le Contact
+   marcherait techniquement, mais empieterait sur un objet dont un autre flux est
+   proprietaire.
 
-   "false" pour ecrire directement sur l'Account. */
+   "true" pour rebasculer sur le Contact si le contrat change. */
 VAR @IDENTITE_SUR_CONTACT
-SET @IDENTITE_SUR_CONTACT = "true"
+SET @IDENTITE_SUR_CONTACT = "false"
 
 /* ---- ECRITURE DE L'IDENTITE : ACTIVE ------------------------------------
    ⚠ CORRECTION du 2026-08-23. Les runs dd774885111d et b8b0b6d5ea58 avaient
@@ -127,6 +128,7 @@ VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
+VAR @utmCampus, @consent, @dateCookies
 VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId, @campusSel
 VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve, @cpEmail, @cpPhone, @cpId
 VAR @isEvent, @instanceId, @extId, @regId, @appts, @apptRows, @nA, @apptType
@@ -187,6 +189,21 @@ IF @submitted == "true" THEN
     SET @clientId = RequestParameter("clientId")
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
+
+    /* ---- FOURNIS PAR LA CLOUDPAGE, PAS PAR LE VISITEUR -------------------
+       content-block-viewer.html lit l'URL, deduit le canal d'acquisition depuis
+       une table d'attribution (utm_source x utm_medium), lit le consentement
+       cookies depuis Axeptio, puis expose le tout en variables AMPscript. La
+       landing page n'a qu'a poser les champs caches correspondants.
+
+       `campus` sert deux fois : resolution de Ecole__c (via LPB_Mapping_Campus)
+       et tracage dans Account.UTMCampus__c. Ce ne sont pas les memes donnees
+       — l'un est un rattachement CRM, l'autre une origine de trafic — mais la
+       CloudPage ne fournit qu'une valeur. */
+    SET @utmCampus = RequestParameter("utm_campus")
+    IF Empty(@utmCampus) THEN SET @utmCampus = @campusSel ENDIF
+    SET @consent   = RequestParameter("consent")
+    SET @dateCookies = RequestParameter("date_consentement_cookies")
 
     /* Marque et Account ecole depuis la DE de correspondance, jamais en dur. */
     IF Empty(@brandId) AND NOT Empty(@ecole) THEN
@@ -414,7 +431,7 @@ IF @submitted == "true" THEN
                 "FormType", @formType)
         ENDIF
         SET @rows = RetrieveSalesforceObjects("Account",
-            "Id,PersonContactId,LastName,FirstName,LivingCountry__c,IndicatifPick__c,MobileNumber__c,Academic_Level_List__c,PersonAccountType__c,Ecole__c,UTMSource__c,UTMMedium__c,UTMCampaign__c,ClientID__c",
+            "Id,PersonContactId,LastName,FirstName,LivingCountry__c,IndicatifPick__c,MobileNumber__c,Academic_Level_List__c,PersonAccountType__c,Ecole__c,UTMSource__c,UTMMedium__c,UTMCampaign__c,UTMContent__c,UTMTerm__c,UTMId__c,UTMCampus__c,gclid__c,fbclid__c,ClientID__c,Consent__c,DateConsentementCookies__c,AcquisitionChannel__c,AcquisitionSubChannel__c,CreationSourceDate__c,CreationSourceDetail__c,DateOfLastMarketingContactPoint__c,LastMarketingContactPointType__c",
             "PersonEmail", "=", @email)
         SET @n = RowCount(@rows)
         IF @LOG_ACTIF == "true" THEN
@@ -726,6 +743,82 @@ IF @submitted == "true" THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "ClientID__c", @clientId)
                 ENDIF
+
+            /* ---- TRACKING : LE RESTE DU CONTRAT v4 -----------------------
+               Ces champs etaient attendus par le mapping v4 (colonne « ✅
+               Reetain — etape 1 ») et n'etaient pas ecrits. Ecart releve le
+               2026-08-24 : mon premier rapprochement ne lisait que les lignes
+               dont la colonne « Champ formulaire » est remplie, or ces cibles
+               vivent sur des lignes de CONTINUATION (« ↳ ») qui la laissent
+               vide. Une dizaine de champs etaient donc invisibles a l'analyse.
+
+               Toutes les valeurs viennent de la CloudPage
+               (content-block-viewer.html), qui lit l'URL, deduit le canal
+               d'acquisition et le consentement cookies, puis les expose en
+               variables AMPscript. Rien a demander au visiteur.
+
+               Meme regle first-touch que ci-dessus : on ne reecrit jamais
+               l'origine d'un contact deja attribue. Pas de journalisation par
+               champ ici — l'echafaudage de diagnostic est de toute facon a
+               retirer avant la Prod. */
+            IF Empty(Field(@row,"UTMContent__c")) AND NOT Empty(@utmCo) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMContent__c", @utmCo)
+            ENDIF
+            IF Empty(Field(@row,"UTMTerm__c")) AND NOT Empty(@utmT) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMTerm__c", @utmT)
+            ENDIF
+            IF Empty(Field(@row,"UTMId__c")) AND NOT Empty(@utmI) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMId__c", @utmI)
+            ENDIF
+            IF Empty(Field(@row,"UTMCampus__c")) AND NOT Empty(@utmCampus) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampus__c", @utmCampus)
+            ENDIF
+            IF Empty(Field(@row,"gclid__c")) AND NOT Empty(@gclid) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "gclid__c", @gclid)
+            ENDIF
+            IF Empty(Field(@row,"fbclid__c")) AND NOT Empty(@fbclid) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "fbclid__c", @fbclid)
+            ENDIF
+
+            /* Canal d'acquisition : la table d'attribution vit dans la
+               CloudPage (utm_source x utm_medium -> canal / sous-canal), pas
+               ici. Le mapping v4 renvoie a un document Confluence de Pascal :
+               c'est cette table-la qu'implemente le viewer. */
+            IF Empty(Field(@row,"AcquisitionChannel__c")) AND NOT Empty(@canal) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionChannel__c", @canal)
+            ENDIF
+            IF Empty(Field(@row,"AcquisitionSubChannel__c")) AND NOT Empty(@sousCanal) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionSubChannel__c", @sousCanal)
+            ENDIF
+
+            /* Consentement cookies : Axeptio, lu par la CloudPage. Le viewer
+               rend "1" ou "0" ; Consent__c est une case a cocher. */
+            IF Empty(Field(@row,"Consent__c")) AND NOT Empty(@consent) THEN
+                IF @consent == "1" OR Lowercase(@consent) == "true" THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "true")
+                ELSE
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "false")
+                ENDIF
+            ENDIF
+            IF Empty(Field(@row,"DateConsentementCookies__c")) AND NOT Empty(@dateCookies) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
+            ENDIF
+
+            /* Origine de creation : first-touch, donc jamais reecrite. */
+            IF Empty(Field(@row,"CreationSourceDate__c")) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDate__c", Now())
+            ENDIF
+            IF Empty(Field(@row,"CreationSourceDetail__c")) AND NOT Empty(RequestParameter("NomFormulaire")) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDetail__c", RequestParameter("NomFormulaire"))
+            ENDIF
+
+            /* Dernier point de contact marketing : LAST-touch, a l'inverse de
+               tout le reste. Chaque soumission le rafraichit — c'est sa raison
+               d'etre. Pas de garde Empty() donc, et c'est voulu. */
+            SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateOfLastMarketingContactPoint__c", Now())
+            IF NOT Empty(@formType) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastMarketingContactPointType__c", @formType)
+            ENDIF
             IF @LOG_ACTIF == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
@@ -1096,11 +1189,19 @@ IF @submitted == "true" THEN
                         SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                             "Legal_Texte_Accepted__c", @preuve)
                     ELSE
-                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 7,
+                        /* GDPR_Status__c est demande par les 6 onglets du
+                           mapping v4 et n'etait pas ecrit.
+                           ⚠ Opt_In_Date__c est marque ✅ dans les onglets mais
+                           ⛔ dans l'en-tete du contrat (« poses par flow, VR
+                           SANS bypass — ne pas les ecrire »). Contradiction
+                           interne au document : on suit l'en-tete, qui est plus
+                           recent et plus explicite. A faire trancher. */
+                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
                             "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
                             "PrivacyConsentStatus",    "OptIn",
                             "Status__c",               "Opt-in",
+                            "GDPR_Status__c",          "OptIn",
                             "CaptureSource",           "SFMC CloudPage",
                             "Legal_Texte_Accepted__c", @preuve,
                             "BusinessBrandId",         @brandId)
@@ -1191,7 +1292,10 @@ IF @submitted == "true" THEN
                     "SourceSystem__c",   "SFMC",
                     "Information__c",    RequestParameter("NomFormulaire"))
             ELSE
-                SET @cmId = CreateSalesforceObject("CampaignMember", 9,
+                /* Les 4 derniers champs etaient COLLECTES par le formulaire
+                   mais jamais ecrits : ecart releve le 2026-08-24 contre le
+                   mapping v4. Tous verifies presents sur CampaignMember. */
+                SET @cmId = CreateSalesforceObject("CampaignMember", 13,
                     "CampaignId",             @campaignId,
                     "ContactId",              @paContactId,
                     "UTM_Source__c",          @utmS,
@@ -1199,6 +1303,10 @@ IF @submitted == "true" THEN
                     "UTM_Campaign__c",        @utmC,
                     "UTM_Content__c",         @utmCo,
                     "UTM_Term__c",            @utmT,
+                    "UTM_Id__c",              @utmI,
+                    "gclid__c",               @gclid,
+                    "fbclid__c",              @fbclid,
+                    "Client_ID__c",           @clientId,
                     "AcquisitionChannel__c",  @canal,
                     "AcquisitionSubChannel__c", @sousCanal)
                 SET @journal = Concat(@journal, " CM:cree")
@@ -1291,7 +1399,12 @@ IF @submitted == "true" THEN
                     ENDIF
                 ELSE
                     /* A la CREATION seulement, les deux statuts sont poses. */
-                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 10,
+                    /* Les 4 derniers champs etaient demandes par les 6
+                       onglets du mapping v4 et n'etaient pas ecrits. Tous
+                       verifies presents sur l'objet.
+                       Pas de fbclid ici : le package Summit ne fournit que
+                       summit__gclid__c, et le mapping le note explicitement. */
+                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 14,
                         "externalId__c",             @extId,
                         "summit__Event_Instance__c", @instanceId,
                         "summit__Contact__c",        @paContactId,
@@ -1300,6 +1413,10 @@ IF @submitted == "true" THEN
                         "summit__utm_source__c",     @utmS,
                         "summit__utm_medium__c",     @utmM,
                         "summit__utm_campaign__c",   @utmC,
+                        "summit__utm_content__c",    @utmCo,
+                        "summit__utm_term__c",       @utmT,
+                        "summit__utm_id__c",         @utmI,
+                        "summit__gclid__c",          @gclid,
                         "AcquisitionChannel__c",     @canal,
                         "AcquisitionSubChannel__c",  @sousCanal)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
