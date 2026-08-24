@@ -392,7 +392,11 @@ function propertiesFromStructuredPage(page = {}) {
         seoDescription: seo.description || '',
         keywords: seo.keywords || '',
         canonical: seo.canonical || '',
-        schemaLd: seo.schemaLd || ''
+        schemaLd: seo.schemaLd || '',
+        // La sélection de campus de la page est portée par page.metadata
+        // (cf. createVersionForPage côté serveur). Sans elle, populateProperties
+        // la remettait à [] et tous les campus réapparaissaient à la réouverture.
+        campusIds: Array.isArray(page.metadata?.campusIds) ? page.metadata.campusIds : []
     };
 }
 
@@ -1601,7 +1605,16 @@ function collectProperties() {
     return { ...currentProjectProperties };
 }
 
-function populateProperties(props = {}) {
+/**
+ * @param {Object} props
+ * @param {Object} [opts]
+ * @param {boolean} [opts.preserveCampusSelection] - mise à jour PARTIELLE de la même
+ *   page (sauvegarde SEO, bascule de langue) : `props` ne porte alors pas `campusIds`
+ *   et l'écraser à [] réafficherait tous les campus. À laisser à false au chargement
+ *   d'une AUTRE page ou d'un nouveau projet, pour ne pas hériter de la sélection
+ *   précédente.
+ */
+function populateProperties(props = {}, opts = {}) {
     const schoolId = CURRENT_SCHOOL?.id || 'unknown';
     const currentProjectSimpleName = tabStore.get(`reetain-builder__${schoolId}__currentProject`) || 'Nouveau Projet';
 
@@ -1614,7 +1627,11 @@ function populateProperties(props = {}) {
     // On spread props en dernier MAIS on s'assure que les champs SEO critiques
     // ne sont jamais écrasés par une valeur vide provenant des props brutes.
     // Exemple : props.keywords = '' → on garde defaultKeywords, pas ''
-    const campusIds = Array.isArray(props.campusIds) ? props.campusIds : [];
+    const campusIds = Array.isArray(props.campusIds)
+        ? props.campusIds
+        : (opts.preserveCampusSelection && Array.isArray(currentProjectProperties?.campusIds)
+            ? currentProjectProperties.campusIds
+            : []);
     currentProjectProperties = {
         ...props,
         title:          pageTitle,
@@ -2321,7 +2338,7 @@ async function loadVariantIntoEditor(pageId, lang) {
     }
     applyLogoLanguage(window.editor, lang);
     attachHdrLangSwitch(window.editor);
-    if (data.seo) populateProperties(seoToProps(data.seo));
+    if (data.seo) populateProperties(seoToProps(data.seo), { preserveCampusSelection: true });
     setActiveLangUI(lang);
     // Le canvas vient d'être rechargé : si on est en aperçu, restaurer la largeur
     // fixe 1280px (sinon la nouvelle langue s'étale sur toute la largeur).
@@ -2372,7 +2389,7 @@ async function createOrUpdateTranslationVariant(pageId, targetLang) {
         if (!saveRes.ok) throw new Error(await saveRes.text());
 
         // 5) Refléter dans l'UI (SEO panel + switch) + pousser la page bilingue vers SFMC.
-        populateProperties(seoProps);
+        populateProperties(seoProps, { preserveCampusSelection: true });
         setActiveLangUI(targetLang);
         await refreshVariants(pageId);
         triggerSfmcResync();

@@ -1,5 +1,5 @@
 const { syncComponentToSfmc, isSfmcConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
+const { supabaseRequest, buildStoredHtml, buildProjectNameFromSource, normalizeDeclinedTitle, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { normalizeBranding, fontStackById } = require('../js/fonts');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -1088,13 +1088,19 @@ module.exports = async function handler(req, res) {
                         const schoolCss  = schoolVars + patchCssString(masterCss, colorVarsForHtml) + headerOverrides;
 
                         // Construire les propriétés du projet décliné
-                        const newProjectName = `school-${schoolId.toLowerCase()}__${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}__${lang}`;
+                        const cleanTitle     = normalizeDeclinedTitle(displayName);
+                        const newProjectName = `school-${schoolId.toLowerCase()}__${cleanTitle}__${lang}`;
                         const newProps = {
                             ...masterProps,
                             school: schoolId.toLowerCase(),
-                            seoTitle: `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`,
-                            title:    `${schoolName} – ${displayName.replace(/^school-[a-z0-9-]+_+/i, '').trim()}`
+                            seoTitle: `${schoolName} – ${cleanTitle}`,
+                            title:    `${schoolName} – ${cleanTitle}`,
+                            // Une déclinaison est toujours un nouveau brouillon : elle ne
+                            // doit hériter ni du statut ni du cycle de vie du master (un
+                            // master archivé/supprimé produirait une page née supprimée).
+                            status: 'draft'
                         };
+                        delete newProps.lifecycle;
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
@@ -1281,20 +1287,29 @@ module.exports = async function handler(req, res) {
                             is_original_language: true
                         });
 
-                        // Synchroniser dans le système structuré
+                        // Synchroniser dans le système structuré.
+                        // `restoreFromTrash` : une page du même nom déjà en corbeille
+                        // garde status='deleted' et rendrait la déclinaison invisible.
+                        let sync = null;
                         try {
-                            await syncLegacyProjectToContent({
+                            sync = await syncLegacyProjectToContent({
                                 projectName: newProjectName,
                                 html:        fullHtml,
                                 css:         schoolCss,
                                 projectData: newProjectData,
-                                properties:  newProps
+                                properties:  newProps,
+                                restoreFromTrash: true,
+                                restoredBy:       'decline'
                             });
                         } catch (syncErr) {
                             console.warn(`⚠️ [decline] sync content failed for ${schoolId}:`, syncErr.message);
                         }
 
-                        results.success.push({ schoolId, projectName: newProjectName });
+                        results.success.push({
+                            schoolId,
+                            projectName: newProjectName,
+                            restoredFromTrash: Boolean(sync?.restoredFromTrash)
+                        });
                     } catch (e) {
                         results.errors.push({ schoolId, message: e.message });
                         console.error(`❌ [decline] ${schoolId}:`, e.message);

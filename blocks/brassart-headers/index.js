@@ -13,6 +13,7 @@
  * Le bloc principal garde l'id `header-brassart` (référencé dans schools.json).
  */
 import { logoLinkAttrs } from '../school-links.js';
+import { logoDefaultSize } from '../logo-defaults.js';
 
 export default function(editor, categories) {
     const cat = (categories && categories.BRASSART) ? categories.BRASSART : 'BRASSART Components';
@@ -47,15 +48,12 @@ export default function(editor, categories) {
                         display: flex; align-items: center; justify-content: space-between;
                         padding: 22px 90px; gap: 24px;
                     }
-                    /* Taille du logo librement modifiable via le Style Manager : on cible
-                       la CLASSE simple (.hdr-logo-img) — celle que GrapesJS édite — avec une
-                       hauteur concrète et SANS max-height (sinon l'agrandissement serait
-                       plafonne). Le garde-fou responsive reste sur la regle mobile scopee
-                       (plus specifique) ci-dessous. */
-                    .hdr-logo-img {
-                        height: ${LOGO_H}px; width: auto; max-width: calc(100% - 60px);
-                        display: block; object-fit: contain;
-                    }
+                    /* Dimensions par défaut CENTRALISÉES (blocks/logo-defaults.js) : on cible
+                       la CLASSE simple (.hdr-logo-img) — celle que GrapesJS édite — SANS
+                       max-height ni !important → librement modifiable via le Style Manager.
+                       Le garde-fou responsive reste sur la regle mobile scopee (plus
+                       specifique) ci-dessous. */
+                    ${logoDefaultSize('.hdr-logo-img')}
                     .${v.id} .hdr-lang {
                         font-family: var(--brand-font, 'Inter', sans-serif); font-size: 15px; font-weight: 700;
                         letter-spacing: 1px; color: ${v.fr}; cursor: pointer; flex-shrink: 0;

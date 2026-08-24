@@ -341,7 +341,15 @@ async function createVersionForPage(page, legacyProject, versionNumber = null, v
             updated_at: new Date().toISOString(),
             metadata: {
                 ...(page.metadata || {}),
-                formIds: extractFormIds(legacyProject.html || '')
+                formIds: extractFormIds(legacyProject.html || ''),
+                // Sélection de campus au niveau PAGE. Elle vit dans
+                // Projects.properties.campusIds côté legacy, mais l'éditeur recharge
+                // une page via le modèle structuré : sans la porter ici, la sélection
+                // était perdue à la réouverture et tous les campus réapparaissaient.
+                // Spread conditionnel : un appel sans properties ne doit rien effacer.
+                ...(Array.isArray(legacyProject.properties?.campusIds)
+                    ? { campusIds: legacyProject.properties.campusIds }
+                    : {})
             }
         });
     } else {
@@ -376,6 +384,13 @@ async function migrateLegacyProject(legacyProject, options = {}) {
     const folder = await ensureLegacyFolder(entity);
     let page = await findPageByLegacyProjectName(legacyProject.project_name);
     let createdPage = false;
+    // La suppression d'une page est un SOFT DELETE : la ligne reste en base avec
+    // status='deleted' et continue donc d'occuper son nom. Sans traitement, recréer
+    // le même nom (re-déclinaison d'un master, par ex.) écrit bien une nouvelle
+    // version mais la page reste invisible, car le statut structuré fait AUTORITÉ
+    // dans le dashboard (cf. getStructuredStatusByLegacyName).
+    let pageWasInTrash = false;
+    let restoredFromTrash = false;
 
     if (!page) {
         const title = legacyProject.properties?.title || parsed.title;
@@ -403,7 +418,9 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         });
         createdPage = true;
     } else if (options.updatePageMetadata) {
-        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+        pageWasInTrash = page.status === 'deleted' || page.status === 'archived';
+
+        const patch = {
             title: legacyProject.properties?.title || page.title,
             seo: {
                 ...(page.seo || {}),
@@ -411,7 +428,29 @@ async function migrateLegacyProject(legacyProject, options = {}) {
                 description: legacyProject.properties?.seoDescription || page.seo?.description || ''
             },
             updated_at: new Date().toISOString()
-        });
+        };
+
+        // On ne ressuscite une page qu'à la demande explicite de l'appelant
+        // (`restoreFromTrash`), jamais en effet de bord d'une simple sauvegarde :
+        // une suppression volontaire ne doit pas être annulée sans le dire.
+        if (pageWasInTrash && options.restoreFromTrash) {
+            const metadata = { ...(page.metadata || {}) };
+            patch.status = metadata.previousStatusBeforeDelete || 'draft';
+            delete metadata.previousStatusBeforeDelete;
+            delete metadata.deletedAt;
+            delete metadata.deletedReason;
+            delete metadata.deletedFrom;
+            delete metadata.archivedAt;
+            delete metadata.archivedReason;
+            delete metadata.archivedFrom;
+            metadata.restoredAt = new Date().toISOString();
+            metadata.restoredBy = options.restoredBy || 'legacy-sync';
+            patch.metadata = metadata;
+            restoredFromTrash = true;
+        }
+
+        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, patch);
+        if (restoredFromTrash) page = { ...page, status: patch.status, metadata: patch.metadata };
     }
 
     // syncLegacyProjectToContent gère toujours la variante de la langue D'ORIGINE.
@@ -449,7 +488,12 @@ async function migrateLegacyProject(legacyProject, options = {}) {
         variantId: variant?.id || null,
         language: originalLang,
         versionId: version?.id || page.current_version_id || null,
-        versionSkipped: !version
+        versionSkipped: !version,
+        // `pageWasInTrash` sans `restoredFromTrash` = la page existe mais reste
+        // masquée : l'appelant DOIT le signaler à l'utilisateur, sinon l'opération
+        // paraît réussie alors que rien n'apparaît à l'écran.
+        pageWasInTrash,
+        restoredFromTrash
     };
 }
 
@@ -499,7 +543,7 @@ async function saveTranslationVariant(pageId, language, body = {}) {
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties }) {
+async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, restoreFromTrash = false, restoredBy }) {
     try {
         return await migrateLegacyProject({
             project_name: projectName,
@@ -510,7 +554,7 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
             project_data: projectData,
             properties: properties || {},
             change_summary: 'Saved from legacy builder'
-        }, { updatePageMetadata: true });
+        }, { updatePageMetadata: true, restoreFromTrash, restoredBy });
     } catch (e) {
         return {
             skipped: true,
