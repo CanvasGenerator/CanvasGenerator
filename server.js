@@ -5,6 +5,7 @@ const path = require('path');
 const fs = require('fs');
 const cheerio = require('cheerio');
 const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
+const sfmcAuth = require('./lib/sfmc-auth');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -758,6 +759,13 @@ http.createServer(async (req, res) => {
     }
 
     const { pathname, params } = parseUrl(req.url);
+
+    // ── Auth SFMC (OAuth2 + verrouillage d'instance) ─────────────────
+    // Les routes OAuth d'abord (elles doivent rester accessibles sans session),
+    // puis le gate sur le périmètre protégé. Le rendu public des pages
+    // publiées et les previews restent ouverts — cf. lib/sfmc-auth.js.
+    if (await sfmcAuth.handleSfmcAuthRoutes(req, res, pathname)) return;
+    if (!sfmcAuth.requireSfmcAuth(req, res, pathname)) return;
 
     if (pathname === '/api/schools' || pathname.startsWith('/api/schools/') || pathname.startsWith('/api/school/')) {
         try {
@@ -2817,6 +2825,7 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
     console.log(`🔗 Supabase URL: ${SUPABASE_URL}`);
     console.log(`📚 Dashboard: http://localhost:${port}/`);
     console.log(`🔨 Builder direct: http://localhost:${port}/?school=efap`);
+    sfmcAuth.logAuthStatus();
 });
 
 // ── Scheduler local : équivalent du Vercel Cron ──────────────────────

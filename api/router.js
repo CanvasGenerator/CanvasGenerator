@@ -6,6 +6,7 @@ const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
 const cheerio = require('cheerio');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
+const sfmcAuth = require('../lib/sfmc-auth');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -220,6 +221,14 @@ module.exports = async function handler(req, res) {
 
     // Vercel rewrites: /api/(.*) -> /api/router?path=/api/$1
     const pathname = req.query.path || req.url.split('?')[0];
+
+    // ── Auth SFMC (OAuth2 + verrouillage d'instance) ─────────────────────
+    // Les routes OAuth restent accessibles sans session ; le gate ne couvre
+    // que le builder. Le rendu des pages publiées et /preview/ restent
+    // PUBLICS — les verrouiller mettrait les landing pages hors service.
+    // cf. lib/sfmc-auth.js
+    if (await sfmcAuth.handleSfmcAuthRoutes(req, res, pathname)) return;
+    if (!sfmcAuth.requireSfmcAuth(req, res, pathname)) return;
 
     try {
         if (await handleSchoolsRoute(req, res, pathname)) return;
