@@ -2612,8 +2612,51 @@ body {
     background: #fff;
     border: 1px solid #eaecf0;
     border-radius: 12px;
-    overflow: hidden;
+    /* `overflow: hidden` ROGNAIT le tableau depuis l'ajout de la colonne
+       « Modifiée par » : en-tête tronqué, derniers boutons d'action coupés et
+       inaccessibles. En autorisant le défilement horizontal, plus rien n'est
+       perdu quelle que soit la largeur de l'écran. Le rognage vertical est
+       conservé pour l'arrondi des coins. */
+    overflow-x: auto;
+    overflow-y: hidden;
     box-shadow: 0 1px 4px rgba(0,0,0,.04);
+}
+
+/* La pagination est injectée DANS .cms-table-wrap par renderPagination() :
+   sans `sticky`, elle dériverait horizontalement avec le tableau. */
+.cms-table-wrap > .cms-pagination {
+    position: sticky;
+    left: 0;
+}
+
+/* ── Largeurs de colonnes — 8 colonnes tiennent mal en 18px de gouttière ────
+   On resserre les colonnes courtes et on empêche les cellules de méta de
+   passer à la ligne : une cellule qui wrappe fait grandir toute la rangée
+   (« Zahira Elmelsse » doublait la hauteur des lignes). */
+.cms-table thead th:nth-child(n+2):nth-child(-n+6),
+.cms-table tbody td:nth-child(n+2):nth-child(-n+6) {
+    padding-left: 10px;
+    padding-right: 10px;
+    white-space: nowrap;
+}
+
+/* Modifiée par (7e) : tronqué proprement, l'email reste en infobulle. */
+.cms-table thead th:nth-child(7),
+.cms-table tbody td:nth-child(7) {
+    padding-left: 10px;
+    padding-right: 10px;
+    max-width: 150px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* Actions (8e) : la grille 4×2 fixe sa propre largeur, la cellule se réduit
+   au minimum au lieu de réserver la place de 8 boutons en ligne. */
+.cms-table thead th:last-child,
+.cms-table tbody td:last-child {
+    padding-left: 10px;
+    width: 1%;
 }
 
 .cms-table {
@@ -2762,10 +2805,32 @@ body {
     border: 1px solid #fecdd3;
 }
 
+/* Jusqu'à 8 boutons d'action par ligne (Éditer, Prévisualiser, Dupliquer, SEO,
+   Versions, Statut, Déplacer, Supprimer). Sur une seule ligne flex, la colonne
+   devenait plus large que le tableau et les derniers boutons étaient coupés.
+   Grille de 4 colonnes → 2 rangées de 4, colonne deux fois moins large. */
 .cms-actions {
-    display: flex;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
     gap: 6px;
     align-items: center;
+    justify-content: end;
+    /* Largeur bornée : 4 boutons de 32 px + 3 gouttières de 6 px. */
+    width: max-content;
+    margin-left: auto;
+}
+
+/* Boutons iconiques de largeur égale, sinon la grille est bancale. */
+.cms-actions .cms-btn {
+    justify-content: center;
+    padding: 5px 0;
+    min-width: 32px;
+}
+
+/* Un seul bouton (ligne à la corbeille : « Restaurer », avec libellé) ne doit
+   pas être écrasé dans une colonne de grille de 32 px. */
+.cms-actions:has(> :only-child) {
+    grid-template-columns: auto;
 }
 
 .cms-btn {
