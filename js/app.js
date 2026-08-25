@@ -4180,6 +4180,11 @@ async function showOpeningPopup() {
                 // Projects n'a que created_at, la vraie date vient de la page
                 // structurée (exposée par /api/projects).
                 const date = new Date(p.updated_at || p.created_at).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
+                // Auteur de la dernière modification (session SFMC, posé côté
+                // serveur). Absent sur les pages antérieures au suivi : on
+                // n'affiche alors rien de plus que la date.
+                const who = p.updated_by_name || p.updated_by_email || '';
+                const author = who ? ` par ${who}` : '';
 
                 return `
                     <div class="form-list-item" style="cursor: default;">
@@ -4189,7 +4194,7 @@ async function showOpeningPopup() {
                                 ${displayName}
                                 <span class="language-badge" style="background: #EAF6F1; color: #1A7A5E; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${lang}</span>
                             </div>
-                            <div class="form-list-item-meta" style="font-size: 12px;">Modifié le ${date}</div>
+                            <div class="form-list-item-meta" style="font-size: 12px;">Modifié le ${date}${author}</div>
                         </div>
                         <div style="display: flex; gap: 8px;">
                             <button class="btn-outline" title="Paramètres SEO" style="padding: 6px 10px; font-size: 12px; color: #374151; border-color: #D1D5DB;" onclick="window.openSeoSettings('${p.project_name}')">

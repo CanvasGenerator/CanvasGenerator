@@ -1,6 +1,7 @@
 const { supabaseRequest, getQueryParam, requireField, slugify, extractFormIds, extractBodyContent } = require('../lib/api-shared');
 const { readSchoolsForApi } = require('./schools');
 const { combineBilingualHtml } = require('../lib/bilingual');
+const sfmcAuth = require('../lib/sfmc-auth');
 
 const DEFAULT_ORGANIZATION = {
     name: 'Reetain Holding',
@@ -307,7 +308,64 @@ async function buildUniquePageSlug(entityId, folderId, language, title, projectN
     return candidate;
 }
 
-async function createVersionForPage(page, legacyProject, versionNumber = null, variant = null, updatePageCurrent = true) {
+/* ── Audit « dernière modification par » ────────────────────────────────────
+ * L'auteur vient de la session SFMC (lib/sfmc-auth.getActor), jamais du corps
+ * de la requête. Deux niveaux :
+ *   • pages.updated_by_name / updated_by_email → dénormalisé, lu tel quel par
+ *     le dashboard sans jointure ;
+ *   • page_versions.created_by (email) / created_by_name → historique par
+ *     version.
+ *
+ * ⚠️ Ces colonnes viennent d'une migration manuelle. Si elle n'a pas encore été
+ * appliquée, PostgREST rejette TOUTE la requête (« column does not exist ») et
+ * la sauvegarde échoue. On ne les ajoute donc au payload que si un auteur est
+ * connu, et `patchPageWithAudit` réessaie SANS les champs d'audit en cas
+ * d'échec : perdre l'auteur est acceptable, perdre la page ne l'est pas.
+ */
+function auditFieldsForPage(actor) {
+    if (!actor || (!actor.name && !actor.email)) return {};
+    return { updated_by_name: actor.name || null, updated_by_email: actor.email || null };
+}
+
+function auditFieldsForVersion(actor) {
+    if (!actor || (!actor.name && !actor.email)) return {};
+    return { created_by: actor.email || null, created_by_name: actor.name || null };
+}
+
+/** Retire les clés d'audit d'un payload (repli quand les colonnes manquent). */
+function withoutAudit(payload) {
+    const out = { ...payload };
+    delete out.updated_by_name; delete out.updated_by_email;
+    delete out.created_by;      delete out.created_by_name;
+    return out;
+}
+
+/**
+ * PATCH /pages tolérant : si la migration des colonnes d'audit n'a pas encore
+ * été appliquée, réessaie sans elles. Le repli n'est déclenché QUE par une
+ * erreur de colonne manquante (isMissingColumnError) — toute autre erreur est
+ * propagée telle quelle, sinon on masquerait un vrai bug d'écriture.
+ */
+async function patchPageWithAudit(pageId, patch, headers = null) {
+    const url = `/pages?id=eq.${encodeURIComponent(pageId)}`;
+    try {
+        return headers ? await supabaseRequest('PATCH', url, patch, headers)
+                       : await supabaseRequest('PATCH', url, patch);
+    } catch (e) {
+        const hasAudit = 'updated_by_name' in patch || 'updated_by_email' in patch;
+        const missing = isMissingColumnError(e, 'updated_by_name')
+                     || isMissingColumnError(e, 'updated_by_email');
+        if (!hasAudit || !missing) throw e;
+
+        console.warn('[audit] colonnes updated_by_* absentes (migration non appliquee) :',
+                     'sauvegarde effectuee SANS auteur.');
+        const stripped = withoutAudit(patch);
+        return headers ? await supabaseRequest('PATCH', url, stripped, headers)
+                       : await supabaseRequest('PATCH', url, stripped);
+    }
+}
+
+async function createVersionForPage(page, legacyProject, versionNumber = null, variant = null, updatePageCurrent = true, actor = null) {
     const language = normalizeLang(variant?.language || legacyProject.language || page.language);
     // version_number est UNIQUE par page (contrainte unique(page_id, version_number)).
     // On numérote donc globalement sur la page, toutes langues confondues. L'historique
@@ -329,24 +387,27 @@ async function createVersionForPage(page, legacyProject, versionNumber = null, v
         metadata: {
             source: 'legacy-projects',
             legacyProjectName: legacyProject.project_name
-        }
+        },
+        ...auditFieldsForVersion(actor)
     });
 
     // pages.current_version_id ne suit QUE la langue d'origine (rendu public par
     // défaut). Une variante de traduction ne doit PAS devenir la version courante
     // de la page — sinon l'URL d'origine servirait le texte traduit.
     if (updatePageCurrent) {
-        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+        await patchPageWithAudit(page.id, {
             current_version_id: version.id,
             updated_at: new Date().toISOString(),
             metadata: {
                 ...(page.metadata || {}),
                 formIds: extractFormIds(legacyProject.html || '')
-            }
+            },
+            ...auditFieldsForPage(actor)
         });
     } else {
-        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
-            updated_at: new Date().toISOString()
+        await patchPageWithAudit(page.id, {
+            updated_at: new Date().toISOString(),
+            ...auditFieldsForPage(actor)
         });
     }
 
@@ -401,6 +462,7 @@ async function resolveCampusIdsForPage(page = {}) {
 }
 
 async function migrateLegacyProject(legacyProject, options = {}) {
+    const actor = options.actor || null;
     const parsed = parseLegacyProjectName(legacyProject.project_name);
     if (!parsed) return { skipped: true, reason: 'unsupported_project_name', projectName: legacyProject.project_name };
 
@@ -457,7 +519,8 @@ async function migrateLegacyProject(legacyProject, options = {}) {
                 description: legacyProject.properties?.seoDescription || page.seo?.description || ''
             },
             metadata,
-            updated_at: new Date().toISOString()
+            updated_at: new Date().toISOString(),
+            ...auditFieldsForPage(actor)
         };
 
         // Réécrire une page mise à la corbeille la laissait en status 'deleted' :
@@ -477,7 +540,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             pageRevived = true;
         }
 
-        await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, pagePatch);
+        await patchPageWithAudit(page.id, pagePatch);
         page = { ...page, metadata, status: pagePatch.status || page.status };
     }
 
@@ -489,7 +552,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
     if (createdPage || !options.skipExistingVersions) {
         try {
             variant = await ensureVariant(page.id, originalLang, seoFromProperties(legacyProject.properties));
-            version = await createVersionForPage(page, { ...legacyProject, language: originalLang }, null, variant);
+            version = await createVersionForPage(page, { ...legacyProject, language: originalLang }, null, variant, true, actor);
             // La variante d'origine pointe vers sa nouvelle version courante.
             await supabaseRequest('PATCH', `/page_variants?id=eq.${encodeURIComponent(variant.id)}`, {
                 current_version_id: version.id,
@@ -567,7 +630,7 @@ async function saveTranslationVariant(pageId, language, body = {}) {
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, reviveDeleted }) {
+async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, reviveDeleted, actor }) {
     try {
         return await migrateLegacyProject({
             project_name: projectName,
@@ -578,7 +641,7 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
             project_data: projectData,
             properties: properties || {},
             change_summary: 'Saved from legacy builder'
-        }, { updatePageMetadata: true, reviveDeleted: reviveDeleted === true });
+        }, { updatePageMetadata: true, reviveDeleted: reviveDeleted === true, actor: actor || null });
     } catch (e) {
         return {
             skipped: true,
@@ -605,7 +668,14 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
 async function getStructuredStatusByLegacyName() {
     const map = new Map();
     try {
-        const pages = await supabaseRequest('GET', '/pages?select=status,updated_at,metadata');
+        // `select=*` volontairement, et NON une liste de colonnes : nommer
+        // updated_by_name / updated_by_email renverrait un 400 « column does not
+        // exist » tant que la migration d'audit n'est pas appliquée, ce qui
+        // priverait le dashboard de tout son overlay de statuts. Avec `*`, les
+        // colonnes remontent si elles existent et sont simplement absentes sinon.
+        // La table `pages` ne porte pas de HTML (il vit dans page_versions), la
+        // charge reste donc légère.
+        const pages = await supabaseRequest('GET', '/pages?select=*');
         (Array.isArray(pages) ? pages : []).forEach(page => {
             const name = page.metadata?.legacyProjectName;
             if (name) map.set(name.toLowerCase(), page);
@@ -630,7 +700,12 @@ async function listLegacyProjectsWithStatus() {
         return {
             ...project,
             status: page?.status || project.status || 'draft',
-            updated_at: page?.updated_at || project.created_at
+            updated_at: page?.updated_at || project.created_at,
+            // Auteur de la dernière modification : porté par la page structurée
+            // (la table Projects ne le connaît pas). Null sur les pages
+            // antérieures au suivi → le front affiche un tiret.
+            updated_by_name: page?.updated_by_name || null,
+            updated_by_email: page?.updated_by_email || null
         };
     });
 }
@@ -697,6 +772,8 @@ async function listMigratedDashboardPages() {
                 variantLanguages,
                 seoTitle: page.seo?.title || '',
                 updated_at: page.updated_at || page.created_at,
+                updated_by_name: page.updated_by_name || null,
+                updated_by_email: page.updated_by_email || null,
                 source: 'content',
                 page_id: page.id,
                 entity_id: page.entity_id,
@@ -975,7 +1052,8 @@ async function movePage(req, res, pageId) {
     if (!pageResult?.length) return res.status(404).json({ error: 'Page not found' });
 
     const page = pageResult[0];
-    const result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, {
+    const result = await patchPageWithAudit(pageId, {
+        ...auditFieldsForPage(sfmcAuth.getActor(req)),
         entity_id: folder.entity_id,
         folder_id: folder.id,
         metadata: {
@@ -1029,16 +1107,15 @@ async function updatePageStatus(req, res, pageId) {
             workflow,
             lastWorkflowTransitionAt: now
         },
-        updated_at: now
+        updated_at: now,
+        ...auditFieldsForPage(sfmcAuth.getActor(req))
     };
 
     if (status === 'published') patch.published_at = now;
 
     let result;
     try {
-        result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, patch, {
-            'Prefer': 'return=representation'
-        });
+        result = await patchPageWithAudit(pageId, patch, { 'Prefer': 'return=representation' });
     } catch (e) {
         if (!patch.published_at || !isMissingColumnError(e, 'published_at')) throw e;
 
@@ -1049,9 +1126,7 @@ async function updatePageStatus(req, res, pageId) {
             publishedAt: now
         };
 
-        result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, fallbackPatch, {
-            'Prefer': 'return=representation'
-        });
+        result = await patchPageWithAudit(pageId, fallbackPatch, { 'Prefer': 'return=representation' });
     }
 
     if (status === 'published') {
@@ -1117,13 +1192,14 @@ async function updatePageActivation(req, res, pageId) {
         source: 'dashboard'
     });
 
-    const result = await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, {
+    const result = await patchPageWithAudit(pageId, {
         metadata: {
             ...metadata,
             publication,
             publicationHistory
         },
-        updated_at: now
+        updated_at: now,
+        ...auditFieldsForPage(sfmcAuth.getActor(req))
     }, {
         'Prefer': 'return=representation'
     });
@@ -1339,15 +1415,17 @@ async function createPageVersion(req, res, pageId) {
         html: body.html || '',
         css: body.css || '',
         project_data: body.project_data || {},
-        created_by: body.created_by || null,
         change_summary: body.change_summary || '',
-        metadata: body.metadata || {}
+        metadata: body.metadata || {},
+        // `body.created_by` n'est PLUS lu : il etait falsifiable par l'appelant.
+        ...auditFieldsForVersion(sfmcAuth.getActor(req))
     });
 
     const pagePatch = {
         current_version_id: version.id,
         status: body.status || 'draft',
-        updated_at: new Date().toISOString()
+        updated_at: new Date().toISOString(),
+        ...auditFieldsForPage(sfmcAuth.getActor(req))
     };
     if (body.page?.title) pagePatch.title = body.page.title;
     if (body.page?.language) pagePatch.language = body.page.language;
@@ -1365,7 +1443,7 @@ async function createPageVersion(req, res, pageId) {
         formIds: extractFormIds(body.html || '')
     };
 
-    await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, pagePatch);
+    await patchPageWithAudit(pageId, pagePatch);
     res.status(200).json({ version });
 }
 
@@ -1388,7 +1466,8 @@ async function restorePageVersion(req, res, pageId) {
     const version = result[0];
     // Recalculer les ancres de formulaires depuis le HTML de la version restaurée
     const formIds = extractFormIds(version.html || '');
-    await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(pageId)}`, {
+    await patchPageWithAudit(pageId, {
+        ...auditFieldsForPage(sfmcAuth.getActor(req)),
         current_version_id: version.id,
         updated_at: new Date().toISOString(),
         metadata: {
@@ -1832,5 +1911,9 @@ contentApiModule.getPublicationSettings = getPublicationSettings;
 contentApiModule.buildPublicPageUrl = buildPublicPageUrl;
 contentApiModule.buildPublicPagePath = buildPublicPagePath;
 contentApiModule.resolvePublicPageByHostPath = resolvePublicPageByHostPath;
+// Exposés pour les tests du suivi « dernière modification par ».
+contentApiModule.auditFieldsForPage = auditFieldsForPage;
+contentApiModule.auditFieldsForVersion = auditFieldsForVersion;
+contentApiModule.withoutAudit = withoutAudit;
 
 module.exports = contentApiModule;

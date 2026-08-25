@@ -1053,7 +1053,9 @@ http.createServer(async (req, res) => {
                     html: fullHtml,
                     css,
                     projectData,
-                    properties
+                    properties,
+                    // Auteur de la modification : issu de la session SFMC.
+                    actor: sfmcAuth.getActor(req)
                 });
 
                 // 2. On libère l'utilisateur immédiatement (réponse 200)
@@ -1746,7 +1748,8 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                                 css:           schoolCss,
                                 projectData:   newProjectData,
                                 properties:    newProps,
-                                reviveDeleted: true
+                                reviveDeleted: true,
+                                actor:         sfmcAuth.getActor(req)
                             });
                             // syncLegacyProjectToContent avale ses erreurs et renvoie
                             // { skipped:true, reason } : sans ce test, un échec de synchro
