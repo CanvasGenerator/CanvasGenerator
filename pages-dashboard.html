@@ -230,12 +230,13 @@
                             <th>Type</th>
                             <th>Statut</th>
                             <th>Dernière mise à jour</th>
+                            <th>Modifiée par</th>
                             <th style="text-align:right;">Actions</th>
                         </tr>
                     </thead>
                     <tbody id="pages-tbody">
                         <tr>
-                            <td colspan="7" class="cms-empty">
+                            <td colspan="8" class="cms-empty">
                                 <i class="fas fa-circle-notch fa-spin"></i>
                                 Chargement des pages…
                             </td>
@@ -639,6 +640,19 @@
         }
 
         // ── Helpers ────────────────────────────────────────────────────────────
+
+        // Auteur de la dernière modification. Les pages enregistrées avant la mise
+        // en place du suivi n'en ont pas : on affiche un tiret plutôt qu'un vide,
+        // pour que la colonne reste lisible.
+        function formatAuthor(p) {
+            const name  = p && p.updated_by_name;
+            const email = p && p.updated_by_email;
+            if (!name && !email) return '<span style="color:#d1d5db;">—</span>';
+            const label = name || email;
+            return email
+                ? `<span title="${escAttr(email)}">${escHtml(label)}</span>`
+                : escHtml(label);
+        }
         function formatDate(iso) {
             if (!iso) return '—';
             return new Date(iso).toLocaleDateString('fr-FR', { day: '2-digit', month: 'short', year: 'numeric' });
@@ -1024,7 +1038,7 @@
             const tbody = document.getElementById('pages-tbody');
 
             if (!pages || pages.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-file-circle-xmark"></i> Aucune page trouvée.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="cms-empty"><i class="fas fa-file-circle-xmark"></i> Aucune page trouvée.</td></tr>`;
                 return;
             }
 
@@ -1044,6 +1058,7 @@
                     <td>${getTypeBadge(p)}</td>
                     <td><span class="cms-badge ${getStatusClass(p)}">${getStatusLabel(p)}</span></td>
                     <td style="color:#9ca3af;font-size:12px;">${formatDate(p.updated_at)}</td>
+                    <td style="color:#6b7280;font-size:12px;">${formatAuthor(p)}</td>
                     <td>
                         <div class="cms-actions" style="justify-content:flex-end;">
                             ${generateActionButtons(p, isDeleted)}
@@ -1067,7 +1082,7 @@
             const multilingual = activePages.filter(hasTranslations);
 
             if (!multilingual.length) {
-                tbody.innerHTML = `<tr><td colspan="7" class="cms-empty"><i class="fas fa-language"></i> Aucune page avec plusieurs versions de langue.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="8" class="cms-empty"><i class="fas fa-language"></i> Aucune page avec plusieurs versions de langue.</td></tr>`;
                 return;
             }
 
@@ -1096,6 +1111,7 @@
                     <td><span class="cms-badge-type-translated" title="${escAttr(translated.length + ' traduction(s)')}"><i class="fas fa-language"></i> ${translated.length} traduction${translated.length > 1 ? 's' : ''}</span></td>
                     <td><span class="cms-badge ${getStatusClass(page)}">${getStatusLabel(page)}</span></td>
                     <td style="color:#9ca3af;font-size:12px;">${formatDate(page.updated_at)}</td>
+                    <td style="color:#6b7280;font-size:12px;">${formatAuthor(page)}</td>
                     <td>
                         <div class="cms-actions" style="justify-content:flex-end;">
                             ${generateActionButtons(page, false)}
@@ -1249,7 +1265,7 @@
                         return matchView && hasTranslations(p);
                     }).length;
             } catch (e) {
-                document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="7" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
+                document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="8" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
             }
         }
 

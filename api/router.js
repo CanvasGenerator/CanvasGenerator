@@ -779,7 +779,9 @@ module.exports = async function handler(req, res) {
             let contentSync = null;
             try {
                 contentSync = await syncLegacyProjectToContent({
-                    projectName, language, html: fullHtml, css, projectData, properties
+                    projectName, language, html: fullHtml, css, projectData, properties,
+                    // Auteur de la modification : issu de la session SFMC.
+                    actor: sfmcAuth.getActor(req)
                 });
             } catch (syncErr) {
                 console.warn('⚠️  Sync structurée /api/save échouée:', syncErr.message);
@@ -1358,7 +1360,8 @@ module.exports = async function handler(req, res) {
                                 css:           schoolCss,
                                 projectData:   newProjectData,
                                 properties:    newProps,
-                                reviveDeleted: true
+                                reviveDeleted: true,
+                                actor:         sfmcAuth.getActor(req)
                             });
                             // syncLegacyProjectToContent avale ses erreurs et renvoie
                             // { skipped:true, reason } : sans ce test, un échec de synchro
