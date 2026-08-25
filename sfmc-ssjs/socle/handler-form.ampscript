@@ -1382,6 +1382,47 @@ IF @submitted == "true" THEN
                         "FormType", @formType)
                 ENDIF
             ENDIF
+
+            /* ---- UNE INTERACTION PAR SOUMISSION -------------------------
+               Arbitrage du 2026-08-24 : « chaque interaction compte ». On
+               historise DONC a chaque soumission, pas seulement aux
+               repetitions comme le prevoyait le contrat v4 (etape 3c, « si
+               interaction repetee »).
+
+               La raison : l'US de generalisation de l'objet veut
+               « l'historique complet des interactions quel que soit le
+               canal ». N'ecrire que les repetitions rendait la PREMIERE
+               soumission invisible dans l'historique du prospect — le
+               CampaignMember la porte, mais il ne vit pas dans la meme
+               chronologie et ne porte pas de canal.
+
+               Pose ici, apres la resolution du CampaignMember, donc valable
+               pour les deux branches : membre trouve comme membre cree.
+
+               ⚠ Toujours neutralise par @INTERACTION_ACTIVE : l'objet refuse
+               la creation a l'utilisateur d'integration. Cf. l'en-tete. */
+            IF @INTERACTION_ACTIVE != "true" THEN
+                SET @journal = Concat(@journal, " INTERACTION:desactivee")
+            ELSEIF NOT Empty(@cmId) THEN
+                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 16,
+                    "CampaignMemberLink__c", @cmId,
+                    "CampaignMemberId__c",   @cmId,
+                    "PersonAccount__c",      @paId,
+                    "Campaign__c",           @campaignId,
+                    "InteractionDate__c",    Now(),
+                    "SourceSystem__c",       "SFMC",
+                    "Information__c",        RequestParameter("NomFormulaire"),
+                    "UTM_Source__c",         @utmS,
+                    "UTM_Medium__c",         @utmM,
+                    "UTM_Campaign__c",       @utmC,
+                    "UTM_Content__c",        @utmCo,
+                    "UTM_Term__c",           @utmT,
+                    "UTM_Id__c",             @utmI,
+                    "gclid__c",              @gclid,
+                    "fbclid__c",             @fbclid,
+                    "Client_ID__c",          @clientId)
+                SET @journal = Concat(@journal, " INTERACTION:creee")
+            ENDIF
         ENDIF
 
         /* ====================================================================

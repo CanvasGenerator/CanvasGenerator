@@ -482,10 +482,25 @@ qui referencent l'objet : `Education_Cloud_Marketing_Access`,
 La US precise que le renommage doit intervenir AVANT le branchement des
 connecteurs. Or nous ecrivons deja cet objet : a signaler.
 
-Question de conception non tranchee : la US veut « l'historique complet des
-interactions quel que soit le canal », ce qui suggere une interaction A CHAQUE
-soumission. Le contrat v4 ne la prevoit que « si interaction repetee ». Sans
-arbitrage, la premiere soumission n'apparaitra pas dans l'historique.
+#### Une interaction par soumission — arbitre
+
+Decision du 2026-08-24 : **chaque interaction compte**. Le socle historise donc a
+chaque soumission, et non seulement aux repetitions comme le prevoyait le
+contrat v4 (etape 3c, « si interaction repetee »).
+
+L'US de generalisation veut « l'historique complet des interactions quel que
+soit le canal ». N'ecrire que les repetitions rendait la PREMIERE soumission
+invisible : le CampaignMember la porte, mais il ne vit pas dans la meme
+chronologie et ne porte pas de canal.
+
+L'ecriture est posee APRES la resolution du CampaignMember, donc valable pour
+les deux branches — membre trouve comme membre cree.
+
+Bloc de test : `LPB_TST_Interaction`. Il porte le meme jeu de 16 champs que le
+socle, plus deux creations minimales (un champ texte, un picklist) pour
+distinguer un refus d'objet d'une valeur refusee. Des que le droit sera accorde,
+la variante « jeu complet » doit rendre un Id : il n'y aura plus qu'a basculer
+`@INTERACTION_ACTIVE` a `"true"`.
 
 ### Ecole__c : un mapping par CAMPUS, pas par ecole
 
