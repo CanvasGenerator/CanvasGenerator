@@ -443,7 +443,7 @@ sur les donnees reelles.
 > existantes) : value set remanie sans reprise. Et l'exception « abandon ne
 > bloque pas » est une decision METIER prise faute d'arbitrage — a confirmer.
 
-### Interaction : creation refusee, historisation desactivee
+### Interaction : un seul champ bloquait tout
 
 `CampaignMemberInteraction__c` historise une soumission repetee, quand l'unicite
 Campagne x Person Account interdit un second CampaignMember. Deux problemes.
@@ -453,22 +453,33 @@ vrais champs sont `CampaignMemberId__c` (texte) et `CampaignMemberLink__c`
 (lookup). Corrige, et le jeu de champs complete : compte, campagne, date, et les
 9 champs de tracking qui existaient deja sur l'objet sans etre alimentes.
 
-**Mais l'objet refuse toute creation.** Verifie le 2026-08-24 : six jeux de
-champs, puis un seul champ texte, un seul picklist, une seule date — tout
-echoue. La lecture fonctionne (3 interactions existantes). C'est donc un droit
-de creation ou un trigger propre a l'insert, pas une valeur.
+> ⚠ **Consequence : la page mourait a chaque retour d'un prospect connu.**
+> Une creation refusee remplace la page entiere, et le chemin est atteint des
+> qu'un CampaignMember existe deja. Panne totale, pas degradation, et invisible
+> en test puisque chaque test creait un prospect neuf.
 
-> ⚠ **Consequence, avant correction : la page mourait a chaque retour d'un
-> prospect connu.** Une creation refusee remplace la page entiere. Le chemin
-> etait atteint des qu'un CampaignMember existait deja, donc a la deuxieme
-> soumission de la meme personne sur la meme campagne. Panne totale, pas
-> degradation. `@INTERACTION_ACTIVE = "false"` neutralise l'ecriture jusqu'a
-> l'octroi du droit.
+**Le champ fautif : `CampaignMemberLink__c`.** Apres correction des noms,
+l'insert echouait toujours, y compris avec un seul champ texte. J'ai failli
+conclure a un blocage d'objet — c'etait faux, et c'aurait ete la troisieme fois.
+La bissection le designe sans ambiguite : c'est le SEUL champ dont la presence
+fait echouer l'insert, quelles que soient les autres valeurs.
 
-A verifier cote CRM : `Setup → Profiles → Object Settings → Interactions`,
-puis les permission sets. La US de generalisation cite trois permission sets
-qui referencent l'objet : `Education_Cloud_Marketing_Access`,
-`Summit_Events_EDH_Fields`, `EDH_Event_Campaign_Management`.
+| Jeu de champs | Resultat |
+|---|---|
+| `Campaign__c` + `PersonAccount__c` | ✅ |
+| + `SourceSystem__c` + `Information__c` | ✅ |
+| + `CampaignMemberId__c` (texte) | ✅ |
+| **+ `CampaignMemberLink__c`** | ⛔ |
+
+Le lien vers le membre passe donc par `CampaignMemberId__c`, en TEXTE.
+
+La paire `Campaign__c` + `PersonAccount__c` suffit a creer, et c'est exactement
+ce que portent les 3 interactions preexistantes : aucun autre champ n'y est
+rempli.
+
+`@INTERACTION_ACTIVE` reste dans le code, a `"true"`. Il n'est plus un
+interrupteur d'attente mais un coupe-circuit : si l'objet se remet a refuser, le
+basculer evite de tuer la page a chaque soumission pendant le diagnostic.
 
 #### Ce que la US « Interaction » change pour nous
 

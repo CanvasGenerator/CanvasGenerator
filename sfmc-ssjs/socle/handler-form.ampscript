@@ -146,24 +146,30 @@ VAR @sfStatus, @sfErrorMsg, @journal
 
    Coup : une ecriture de DE par etape, ~10 par soumission. Acceptable en
    recette, a passer a "false" avant la Prod. */
-/* ---- HISTORISATION DES INTERACTIONS REPETEES ----------------------------
-   ⚠ DESACTIVE. L'objet CampaignMemberInteraction__c refuse TOUTE creation par
-   l'utilisateur d'integration : verifie le 2026-08-24, six jeux de champs
-   differents puis un seul champ texte, un seul picklist, une seule date — tout
-   echoue. La LECTURE fonctionne (3 interactions existantes), donc c'est un
-   droit de creation ou un trigger propre a l'insert.
+/* ---- HISTORISATION DES INTERACTIONS -------------------------------------
+   ACTIVE depuis le 2026-08-26.
 
-   Pourquoi un drapeau et pas simplement du code laisse en place : AMPscript
-   n'a pas de try/catch, une creation refusee REMPLACE la page. Tant que le
-   droit n'est pas accorde, tenter l'ecriture ferait mourir la page a chaque
-   soumission d'un prospect DEJA membre de la campagne — donc a chaque retour
-   d'un prospect connu. C'etait deja le cas avant, aggrave par un nom de champ
-   inexistant : la panne etait totale, pas silencieuse.
+   Histoire de la panne, parce qu'elle a failli faire conclure a un blocage
+   d'objet. Le socle ecrivait `CampaignMember__c`, un champ INEXISTANT. Comme
+   AMPscript n'a pas de try/catch, une creation refusee REMPLACE la page — et ce
+   chemin est atteint des qu'un CampaignMember existe deja. La page mourait donc
+   a chaque retour d'un prospect connu : panne totale, invisible en test puisque
+   chaque test creait un prospect neuf.
 
-   Repasser a "true" des que Create est accorde sur l'objet. Le jeu de champs
-   ci-dessous est deja corrige et complet. */
+   Apres correction des noms, l'insert echouait toujours, y compris avec un seul
+   champ texte. J'ai failli conclure que l'objet refusait la creation. C'etait
+   faux : la bissection designe `CampaignMemberLink__c`, le SEUL champ dont la
+   presence fait echouer l'insert. Le lien vers le membre passe donc par
+   `CampaignMemberId__c`, en texte.
+
+   Verifie sur l'org : la paire `Campaign__c` + `PersonAccount__c` suffit
+   (a1RAW000003uP5F2AU), et c'est exactement ce que portent les 3 interactions
+   preexistantes — aucun autre champ n'y est rempli.
+
+   Le drapeau reste : il evite de tuer la page a chaque soumission si l'objet se
+   remet a refuser, pendant qu'on diagnostique. */
 VAR @INTERACTION_ACTIVE
-SET @INTERACTION_ACTIVE = "false"
+SET @INTERACTION_ACTIVE = "true"
 
 VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -1325,27 +1331,6 @@ IF @submitted == "true" THEN
                    Context__c. Le document precise que le renommage doit
                    intervenir AVANT le branchement des connecteurs — or nous
                    sommes deja branches. */
-                IF @INTERACTION_ACTIVE != "true" THEN
-                    SET @journal = Concat(@journal, " INTERACTION:desactivee")
-                ELSE
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 16,
-                    "CampaignMemberLink__c", @cmId,
-                    "CampaignMemberId__c",   @cmId,
-                    "PersonAccount__c",      @paId,
-                    "Campaign__c",           @campaignId,
-                    "InteractionDate__c",    Now(),
-                    "SourceSystem__c",       "SFMC",
-                    "Information__c",        RequestParameter("NomFormulaire"),
-                    "UTM_Source__c",         @utmS,
-                    "UTM_Medium__c",         @utmM,
-                    "UTM_Campaign__c",       @utmC,
-                    "UTM_Content__c",        @utmCo,
-                    "UTM_Term__c",           @utmT,
-                    "UTM_Id__c",             @utmI,
-                    "gclid__c",              @gclid,
-                    "fbclid__c",             @fbclid,
-                    "Client_ID__c",          @clientId)
-                ENDIF
             ELSE
                 /* Les 4 derniers champs etaient COLLECTES par le formulaire
                    mais jamais ecrits : ecart releve le 2026-08-24 contre le
@@ -1404,11 +1389,14 @@ IF @submitted == "true" THEN
             IF @INTERACTION_ACTIVE != "true" THEN
                 SET @journal = Concat(@journal, " INTERACTION:desactivee")
             ELSEIF NOT Empty(@cmId) THEN
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 16,
-                    "CampaignMemberLink__c", @cmId,
-                    "CampaignMemberId__c",   @cmId,
-                    "PersonAccount__c",      @paId,
+                /* ⚠ PAS de CampaignMemberLink__c : ce champ fait echouer
+                   l'insert a lui seul, quelles que soient les autres valeurs.
+                   Le lien vers le membre passe par CampaignMemberId__c, en
+                   TEXTE, qui lui est accepte. */
+                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 15,
                     "Campaign__c",           @campaignId,
+                    "PersonAccount__c",      @paId,
+                    "CampaignMemberId__c",   @cmId,
                     "InteractionDate__c",    Now(),
                     "SourceSystem__c",       "SFMC",
                     "Information__c",        RequestParameter("NomFormulaire"),
