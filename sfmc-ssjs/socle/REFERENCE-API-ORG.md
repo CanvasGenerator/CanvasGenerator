@@ -698,3 +698,86 @@ non testable.
 Campagnes actives : 10 sur les 40 mappees.
 Candidatures abandonnees : 0, donc la regle d'abandon reste non eprouvee
 (les refusees, elles, sont passees a 5).
+
+## Bascule sur Interaction__c et trois tueurs de la branche « prospect connu »
+
+Le socle ecrit desormais dans `Interaction__c` (record type Form,
+`Status__c` = `Submitted`, plus `Preview__c` et `Context__c`), et pose
+`GDPR_Status__c` = `Marketing active` a la creation du consentement.
+`@OBJET_INTERACTION` ramene a l'ancien objet en un mot.
+
+Jouer une soumission complete sans formulaire :
+
+    ?contentkey=LPB_TST_Socle_Runner&submitted=true&EmailAddress=...
+
+⚠ `submitted` doit valoir `true`, pas `1`.
+
+Le bilan du socle sort en commentaire HTML : le lire dans le source, pas dans
+le texte de la page.
+
+### Trois refus qui ne se voyaient jamais sur un prospect neuf
+
+La branche « compte deja connu » n'avait jamais ete parcourue jusqu'au bout.
+Elle contenait trois refus en file, chacun masquant le suivant. Un prospect
+neuf ne les rencontre pas : c'est pour cela qu'ils ont survecu si longtemps.
+
+1. `Account.LastMarketingContactPointType__c` attend un CANAL. Les seules
+   valeurs sur l'org sont `Form` et `SMS` — la nomenclature des record types
+   de `Interaction__c`. Le socle y ecrivait `@formType` (`brochure`,
+   `candidature`...). Corrige en `Form` ; le type de formulaire reste porte par
+   `CreationSourceDetail__c` et par l'interaction.
+
+2. `Now()` BRUT est refuse sur un champ date. AMPscript rend une date
+   localisee (`8/26/2026 6:04:17 AM`) ; le connecteur veut
+   `yyyy-MM-dd HH:mm:ss`. Mesure avec `LPB_TST_Sonde_Date` : brut refuse,
+   `yyyy-MM-dd` accepte, `yyyy-MM-dd HH:mm:ss` accepte. Concernait
+   `DateOfLastMarketingContactPoint__c` et `CreationSourceDate__c`.
+
+3. `ContactPointConsent` est CREATE-ONLY pour le connecteur. Aucun update ne
+   passe : ni `PrivacyConsentStatus`, ni `Status__c`, ni
+   `Legal_Texte_Accepted__c`, ni `CaptureSource`, ni `GDPR_Status__c` — et pas
+   seulement sur nos enregistrements, egalement sur un consentement cree par le
+   CRM. Le meme bloc accepte un update d'Account : ce n'est ni la sonde ni les
+   droits generaux. Coherent avec la nature de l'objet, un consentement etant
+   une trace datee et non un etat rectifiable.
+
+   ⚠ Trou fonctionnel a arbitrer : une personne desabonnee qui re-consent via
+   un formulaire ne voit pas son consentement remis a jour. Le socle journalise
+   `CPC:<canal>-existant-non-modifiable` pour que ce soit visible. Deux issues
+   cote CRM : ouvrir l'update, ou publier la regle de deduplication qui
+   autorise un second enregistrement.
+
+### Valeurs de picklist relevees ce jour
+
+| Champ | Valeurs presentes |
+|---|---|
+| `Account.PersonAccountType__c` | Parent, Student, EDH Student, Career Change |
+| `Account.Academic_Level_List__c` | Collège, Seconde, Première, Terminale, BAC obtenu ou Prépa, BAC+1 a BAC+5 et +, Autres |
+| `Account.IndicatifPick__c` | **`33`**, pas `+33` |
+| `Account.LivingCountry__c` | France, Spain, Italy, Morocco... en anglais |
+| `Account.LastMarketingContactPointType__c` | Form, SMS |
+| `ContactPointConsent.GDPR_Status__c` | Marketing active, To delete, To reactivate |
+
+`IndicatifPick__c` = `33` est une contrainte pour les formulaires du builder :
+un `+33` envoye par le champ indicatif tue la page a la creation du compte.
+
+### Deux sondes de plus
+
+`LPB_TST_Sonde_Valeurs` releve les valeurs distinctes reellement presentes
+dans un champ (`&o=Objet&f=Champ&max=N`). Filtre sur `champ != ""`, donc
+inutilisable sur un champ date — passer par `Sonde_Etat&v=libre` dans ce cas.
+
+`LPB_TST_Sonde_Ecriture` tente UN update sur UN enregistrement
+(`&o=&id=&f=&val=`). C'est ce bloc qui a montre que le refus venait de l'objet
+et non du champ ni de l'enregistrement.
+
+### Bilan des deux chemins
+
+    prospect neuf   : CP:email-cree CP:phone-cree CPC:Email CPC:SMS CM:cree
+                      INTERACTION:creee-Interaction__c
+    prospect connu  : CPC:Email-existant-non-modifiable CPC:Email
+                      CPC:SMS-existant-non-modifiable CPC:SMS CM:existant
+                      INTERACTION:creee-Interaction__c
+
+Le membre de campagne n'est pas duplique, l'interaction l'est a chaque
+soumission — c'est l'arbitrage « chaque interaction compte ».
