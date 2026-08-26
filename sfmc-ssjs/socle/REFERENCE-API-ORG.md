@@ -641,3 +641,60 @@ suffisait a compter deux inscrits.
 
 `externalId__c` reste ecrit a la creation, pour tracer ce qui vient de nous.
 Il n'est plus la cle.
+
+## Sonde d'etat du CRM - 26 aout 2026
+
+Deux blocs pour relever ce qui bouge dans le CRM sans relire le socle :
+`LPB_TST_Sonde_Etat` (lectures groupees + sonde libre objet/champ) et
+`LPB_TST_Sonde_Inter_Neuf` (essais d'ecriture sur le nouvel objet).
+
+    ?contentkey=LPB_TST_Sonde_Etat&v=libre&o=<Objet>&f=<Champ1,Champ2>
+
+Si la page survit, l'objet et les champs demandes existent et sont lisibles.
+Si elle meurt, au moins un element est absent - retester champ par champ.
+
+### Interaction__c est livre
+
+Le renommage annonce par la US n'est pas un renommage : les DEUX objets
+coexistent. `CampaignMemberInteraction__c` garde les donnees, `Interaction__c`
+est neuf et vide, et c'est lui qui porte le modele complet.
+
+Ses quatre record types sont actifs :
+
+| DeveloperName | Id                 |
+|---------------|--------------------|
+| Chatbot       | 012AW00000AxdXRYAZ |
+| Form          | 012AW00000AxdXSYAZ |
+| SMS           | 012AW00000AxdXTYAZ |
+| WhatsApp      | 012AW00000AxdXUYAZ |
+
+Ecriture verifiee sur `Interaction__c`, 8 champs acceptes d'un coup :
+`RecordTypeId`, `Campaign__c`, `PersonAccount__c`, `SourceSystem__c`,
+`Status__c` = `Submitted`, `Information__c`, `Preview__c`, `Context__c`.
+Enregistrements temoins : `a1UAW000005JamT2AS` (minimum, 4 champs) et
+`a1UAW000005Japh2AC` (complet, 8 champs).
+
+`Preview__c` et `Context__c` n'existent QUE sur le nouvel objet : les demander
+sur l'ancien tue la page. C'est le meilleur marqueur pour distinguer les deux.
+
+`CampaignMemberLink__c` existe sur les deux objets mais reste refuse a
+l'ecriture sur les deux. Le socle continue de tracer le membre en texte via
+`CampaignMemberId__c`.
+
+### GDPR_Status__c a enfin des valeurs
+
+Relevees dans les donnees : `Marketing active`, `To delete`, `To reactivate`.
+Le champ etait ecarte faute de reference - une valeur inexistante est rejetee
+en silence. `Marketing active` est desormais utilisable.
+
+`Account.AccountSource` = `Advertisement` (seule valeur presente).
+`Account.Nature__c` = `Private` / `Public` : concerne les etablissements,
+pas les personnes. Ne pas l'ecrire depuis un formulaire.
+
+### Ce qui n'a pas bouge
+
+Instances d'immersion a venir : toujours 0. Le formulaire immersion reste
+non testable.
+Campagnes actives : 10 sur les 40 mappees.
+Candidatures abandonnees : 0, donc la regle d'abandon reste non eprouvee
+(les refusees, elles, sont passees a 5).
