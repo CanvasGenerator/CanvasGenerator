@@ -738,14 +738,18 @@ neuf ne les rencontre pas : c'est pour cela qu'ils ont survecu si longtemps.
    `Legal_Texte_Accepted__c`, ni `CaptureSource`, ni `GDPR_Status__c` — et pas
    seulement sur nos enregistrements, egalement sur un consentement cree par le
    CRM. Le meme bloc accepte un update d'Account : ce n'est ni la sonde ni les
-   droits generaux. Coherent avec la nature de l'objet, un consentement etant
-   une trace datee et non un etat rectifiable.
+   droits generaux.
 
-   ⚠ Trou fonctionnel a arbitrer : une personne desabonnee qui re-consent via
-   un formulaire ne voit pas son consentement remis a jour. Le socle journalise
-   `CPC:<canal>-existant-non-modifiable` pour que ce soit visible. Deux issues
-   cote CRM : ouvrir l'update, ou publier la regle de deduplication qui
-   autorise un second enregistrement.
+   Le socle CREE donc un enregistrement a chaque soumission, sans chercher s'il
+   en existe deja un pour ce couple point de contact x canal. La lecture
+   prealable a disparu : elle ne servait plus a rien et coutait un appel par
+   canal et par soumission.
+
+   Ce n'est pas un contournement mais le bon modele : un consentement est une
+   trace datee, pas un etat qu'on rectifie. Une personne desabonnee qui
+   re-consent produit une nouvelle trace, la plus recente faisant foi. Le
+   `Name` porte l'horodatage pour que les traces successives se distinguent.
+   Verifie : deux soumissions d'affilee donnent deux Ids differents par canal.
 
 ### Valeurs de picklist relevees ce jour
 
@@ -775,9 +779,9 @@ et non du champ ni de l'enregistrement.
 
     prospect neuf   : CP:email-cree CP:phone-cree CPC:Email CPC:SMS CM:cree
                       INTERACTION:creee-Interaction__c
-    prospect connu  : CPC:Email-existant-non-modifiable CPC:Email
-                      CPC:SMS-existant-non-modifiable CPC:SMS CM:existant
+    prospect connu  : CPC:Email CPC:SMS CM:existant
                       INTERACTION:creee-Interaction__c
 
-Le membre de campagne n'est pas duplique, l'interaction l'est a chaque
-soumission — c'est l'arbitrage « chaque interaction compte ».
+Le membre de campagne n'est pas duplique. Le consentement et l'interaction le
+sont a chaque soumission, et c'est voulu : « chaque interaction compte », et un
+consentement est une trace, pas un etat.
