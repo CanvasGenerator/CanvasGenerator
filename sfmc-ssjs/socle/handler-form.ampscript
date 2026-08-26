@@ -171,6 +171,31 @@ VAR @sfStatus, @sfErrorMsg, @journal
 VAR @INTERACTION_ACTIVE
 SET @INTERACTION_ACTIVE = "true"
 
+/* ---- OBJET CIBLE DE L'INTERACTION ---------------------------------------
+   Bascule du 2026-08-26 sur `Interaction__c`, le nouvel objet de la US de
+   generalisation. Ce n'etait PAS un renommage : les deux objets coexistent,
+   l'ancien garde ses donnees, le neuf est vide et porte le modele complet.
+   Releve par la sonde `LPB_TST_Sonde_Etat`.
+
+   Ce que le neuf apporte et que l'ancien n'a pas :
+     - 4 record types actifs, dont Form = 012AW00000AxdXSYAZ
+     - `Preview__c` et `Context__c` (absents de l'ancien : les demander
+       la-bas tue la page — c'est le marqueur qui distingue les deux)
+     - `Status__c`, accepte a "Submitted"
+
+   Ecriture verifiee sur l'org avant bascule, 8 champs d'un coup
+   (a1UAW000005Japh2AC), puis les champs de tracking un a un.
+
+   `CampaignMemberLink__c` existe sur les deux objets et reste refuse a
+   l'ecriture sur les DEUX. Le lien vers le membre passe toujours par
+   `CampaignMemberId__c`, en texte.
+
+   Repasser a "CampaignMemberInteraction__c" suffit a revenir en arriere. */
+VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
+SET @OBJET_INTERACTION   = "Interaction__c"
+SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
+VAR @itPreview, @itContext, @itHorodatage
+
 VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
 SET @runId     = Substring(Replace(GUID(), "-", ""), 1, 12)
@@ -834,21 +859,109 @@ IF @submitted == "true" THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
             ENDIF
 
+            /* ⚠ Now() BRUT est refuse par Salesforce sur un champ date, et
+               le refus tue la page. AMPscript rend une date localisee du genre
+               "8/26/2026 6:04:17 AM" ; le connecteur veut "yyyy-MM-dd HH:mm:ss".
+               Mesure faite champ par champ avec LPB_TST_Sonde_Date :
+               Now() brut refuse, "yyyy-MM-dd" accepte, "yyyy-MM-dd HH:mm:ss"
+               accepte — on garde l'heure.
+
+               C'etait le second tueur de la branche « prospect deja connu »,
+               apres LastMarketingContactPointType__c. Les deux ne se voient
+               jamais sur un prospect neuf. */
+            SET @itHorodatage = FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")
+
             /* Origine de creation : first-touch, donc jamais reecrite. */
             IF Empty(Field(@row,"CreationSourceDate__c")) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDate__c", Now())
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "37 - CreationSourceDate__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDate__c", @itHorodatage)
             ENDIF
             IF Empty(Field(@row,"CreationSourceDetail__c")) AND NOT Empty(RequestParameter("NomFormulaire")) THEN
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "37 - CreationSourceDetail__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDetail__c", RequestParameter("NomFormulaire"))
             ENDIF
 
             /* Dernier point de contact marketing : LAST-touch, a l'inverse de
                tout le reste. Chaque soumission le rafraichit — c'est sa raison
                d'etre. Pas de garde Empty() donc, et c'est voulu. */
-            SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateOfLastMarketingContactPoint__c", Now())
-            IF NOT Empty(@formType) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastMarketingContactPointType__c", @formType)
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "37 - DateOfLastMarketingContactPoint__c",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", "va tenter",
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
             ENDIF
+            SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateOfLastMarketingContactPoint__c", @itHorodatage)
+
+            /* ⚠ Ce champ attend un CANAL, pas un type de formulaire. Les
+               seules valeurs presentes sur l'org sont "Form" et "SMS" — la
+               meme nomenclature que les record types de Interaction__c.
+
+               Le socle y ecrivait @formType ("brochure", "candidature"...),
+               valeur hors picklist donc rejetee. Et comme ce bloc n'est
+               atteint que pour un compte DEJA connu, la page mourait a chaque
+               retour d'un prospect, sans jamais echouer sur un prospect neuf :
+               invisible en test tant qu'on testait avec un e-mail different a
+               chaque fois. Troisieme fois que ce piege se referme ici.
+
+               Le type de formulaire, lui, est deja porte par
+               CreationSourceDetail__c et par l'interaction. */
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "37 - LastMarketingContactPointType__c",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", "va tenter avec Form",
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+            SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastMarketingContactPointType__c", "Form")
             IF @LOG_ACTIF == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
@@ -1209,7 +1322,8 @@ IF @submitted == "true" THEN
                     IF Empty(@cpId) THEN
                         SET @rows = ""
                     ELSE
-                        SET @rows = RetrieveSalesforceObjects("ContactPointConsent", "Id",
+                        SET @rows = RetrieveSalesforceObjects("ContactPointConsent",
+                            "Id,GDPR_Status__c",
                             "ContactPointId", "=", @cpId,
                             "Channel__c",     "=", @canalValue)
                     ENDIF
@@ -1236,16 +1350,33 @@ IF @submitted == "true" THEN
                         SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-contactpoint")
                     ELSEIF RowCount(@rows) > 0 THEN
                         SET @cpcId = Field(Row(@rows,1), "Id")
-                        /* Opt_In_Date__c et GDPR_Status__c : JAMAIS ecrits ici
-                           (poses par flow, avec des VR sans bypass).
-                           Les deux champs de statut ont des graphies
-                           differentes sur l'org : "OptIn" et "Opt-in". */
-                        SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                            "PrivacyConsentStatus", "OptIn")
-                        SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                            "Status__c", "Opt-in")
-                        SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                            "Legal_Texte_Accepted__c", @preuve)
+                        /* ⚠ ContactPointConsent est CREATE-ONLY pour le
+                           connecteur. Mesure faite champ par champ avec
+                           LPB_TST_Sonde_Ecriture : PrivacyConsentStatus,
+                           Status__c, Legal_Texte_Accepted__c, CaptureSource et
+                           GDPR_Status__c sont TOUS refuses a l'update — et pas
+                           seulement sur nos enregistrements : refuses aussi sur
+                           un consentement cree par le CRM. La creation, elle,
+                           passe. Le meme bloc accepte un update d'Account, donc
+                           ce n'est ni la sonde ni les droits generaux.
+
+                           Coherent avec la nature de l'objet : un consentement
+                           est une trace datee, pas un etat qu'on rectifie.
+
+                           Le socle tentait ces updates. Comme ce chemin n'est
+                           atteint que si un consentement existe DEJA pour ce
+                           canal, la page mourait a la deuxieme soumission d'une
+                           meme personne, jamais a la premiere.
+
+                           ⚠ TROU FONCTIONNEL A ARBITRER : une personne qui
+                           s'etait desabonnee et qui re-consent via un
+                           formulaire ne voit pas son consentement remis a
+                           jour, puisqu'on ne peut ni le modifier ni savoir si
+                           creer un doublon est acceptable sur un objet RGPD.
+                           Deux issues possibles, cote CRM : ouvrir l'update au
+                           connecteur, ou publier la regle de deduplication qui
+                           autorise un second enregistrement. */
+                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-existant-non-modifiable")
                     ELSE
                         /* ⚠ `Name` est REQUIS sur cet objet, et son absence
                            etait un BUG : le socle ne l'envoyait pas, donc aucun
@@ -1255,26 +1386,27 @@ IF @submitted == "true" THEN
                            Salesforce et l'envoyer fait echouer l'insert. Deux
                            objets voisins, deux regles opposees.
 
-                           ⚠ GDPR_Status__c : demande par les 6 onglets du
-                           mapping v4, mais NON ECRIT. Le champ est vide sur
-                           tous les consentements de l'org : aucune valeur de
-                           reference. J'y avais mis "OptIn" par analogie — une
-                           valeur de picklist inventee, qui tuait la page.
-                           Meme prudence que pour Nature__c et AccountSource :
-                           on n'ecrit pas ce qu'on ne sait pas remplir.
-                           A demander au CRM.
+                           GDPR_Status__c : ECRIT depuis le 2026-08-26.
+                           Le champ etait laissé vide faute de reference — j'y
+                           avais mis "OptIn" par analogie, une valeur de
+                           picklist inventee qui tuait la page. La sonde d'etat
+                           a releve les vraies valeurs dans les donnees :
+                           "Marketing active", "To delete", "To reactivate".
+                           C'est la premiere qui correspond a un opt-in de
+                           formulaire, et l'ecriture est verifiee sur l'org.
 
                            ⚠ Opt_In_Date__c est marque ✅ dans les onglets mais
                            ⛔ dans l'en-tete du contrat (« poses par flow, VR
                            SANS bypass — ne pas les ecrire »). Contradiction
                            interne au document : on suit l'en-tete, plus recent
                            et plus explicite. A faire trancher. */
-                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
+                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                             "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
                             "Name",                    Concat("Consent ", @canalValue, " - ", @email),
                             "PrivacyConsentStatus",    "OptIn",
                             "Status__c",               "Opt-in",
+                            "GDPR_Status__c",          "Marketing active",
                             "CaptureSource",           "SFMC CloudPage",
                             "Legal_Texte_Accepted__c", @preuve,
                             "BusinessBrandId",         @brandId)
@@ -1437,30 +1569,65 @@ IF @submitted == "true" THEN
             IF @INTERACTION_ACTIVE != "true" THEN
                 SET @journal = Concat(@journal, " INTERACTION:desactivee")
             ELSEIF NOT Empty(@cmId) THEN
-                /* ⚠ PAS de CampaignMemberLink__c : ce champ fait echouer
-                   l'insert a lui seul, quelles que soient les autres valeurs.
-                   Le lien vers le membre passe par CampaignMemberId__c, en
-                   TEXTE, qui lui est accepte. */
                 /* ⚠ NI CampaignMemberLink__c NI InteractionDate__c : chacun
-                   fait echouer l'insert a lui seul. Le lien vers le membre
-                   passe par CampaignMemberId__c, en texte ; la date est posee
-                   par Salesforce. */
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 14,
-                    "Campaign__c",           @campaignId,
-                    "PersonAccount__c",      @paId,
-                    "CampaignMemberId__c",   @cmId,
-                    "SourceSystem__c",       "SFMC",
-                    "Information__c",        RequestParameter("NomFormulaire"),
-                    "UTM_Source__c",         @utmS,
-                    "UTM_Medium__c",         @utmM,
-                    "UTM_Campaign__c",       @utmC,
-                    "UTM_Content__c",        @utmCo,
-                    "UTM_Term__c",           @utmT,
-                    "UTM_Id__c",             @utmI,
-                    "gclid__c",              @gclid,
-                    "fbclid__c",             @fbclid,
-                    "Client_ID__c",          @clientId)
-                SET @journal = Concat(@journal, " INTERACTION:creee")
+                   fait echouer l'insert a lui seul, sur l'ancien objet comme
+                   sur le neuf. Le lien vers le membre passe par
+                   CampaignMemberId__c, en texte ; la date est posee par
+                   Salesforce. */
+
+                /* Preview__c — ce que la personne a demande, en clair.
+                   Context__c — d'ou vient la soumission.
+                   Information__c garde le nom du formulaire, comme avant :
+                   les trois champs ne se recouvrent pas. */
+                SET @itPreview = @formType
+                IF NOT Empty(@ecole) THEN
+                    SET @itPreview = Concat(@itPreview, " - ", @ecole)
+                ENDIF
+                IF NOT Empty(@campusSel) THEN
+                    SET @itPreview = Concat(@itPreview, " - ", @campusSel)
+                ENDIF
+                SET @itContext = Concat("LP Builder - CloudPage - zone ", @zone)
+
+                IF @OBJET_INTERACTION == "Interaction__c" THEN
+                    SET @n = CreateSalesforceObject("Interaction__c", 18,
+                        "RecordTypeId",          @RT_INTERACTION_FORM,
+                        "Campaign__c",           @campaignId,
+                        "PersonAccount__c",      @paId,
+                        "CampaignMemberId__c",   @cmId,
+                        "SourceSystem__c",       "SFMC",
+                        "Status__c",             "Submitted",
+                        "Information__c",        RequestParameter("NomFormulaire"),
+                        "Preview__c",            @itPreview,
+                        "Context__c",            @itContext,
+                        "UTM_Source__c",         @utmS,
+                        "UTM_Medium__c",         @utmM,
+                        "UTM_Campaign__c",       @utmC,
+                        "UTM_Content__c",        @utmCo,
+                        "UTM_Term__c",           @utmT,
+                        "UTM_Id__c",             @utmI,
+                        "gclid__c",              @gclid,
+                        "fbclid__c",             @fbclid,
+                        "Client_ID__c",          @clientId)
+                ELSE
+                    /* Retour en arriere : l'ancien objet n'a ni record type,
+                       ni Status__c, ni Preview__c, ni Context__c. */
+                    SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 14,
+                        "Campaign__c",           @campaignId,
+                        "PersonAccount__c",      @paId,
+                        "CampaignMemberId__c",   @cmId,
+                        "SourceSystem__c",       "SFMC",
+                        "Information__c",        RequestParameter("NomFormulaire"),
+                        "UTM_Source__c",         @utmS,
+                        "UTM_Medium__c",         @utmM,
+                        "UTM_Campaign__c",       @utmC,
+                        "UTM_Content__c",        @utmCo,
+                        "UTM_Term__c",           @utmT,
+                        "UTM_Id__c",             @utmI,
+                        "gclid__c",              @gclid,
+                        "fbclid__c",             @fbclid,
+                        "Client_ID__c",          @clientId)
+                ENDIF
+                SET @journal = Concat(@journal, " INTERACTION:creee-", @OBJET_INTERACTION)
             ENDIF
         ENDIF
 
