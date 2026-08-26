@@ -1111,13 +1111,10 @@ IF @submitted == "true" THEN
            Le consentement se rattache donc a un POINT DE CONTACT, pas au
            compte. Il faut le resoudre avant d'ecrire.
 
-           ⚠ LIMITE CONNUE : un Person Account fraichement cree n'a AUCUN
-           ContactPoint (verifie sur 001AW00001yrOIrYAM : zero email, zero
-           telephone), et `CreateSalesforceObject("ContactPointEmail", ...)`
-           echoue. On ne peut donc pas enregistrer de consentement pour un
-           nouveau prospect. Sur un compte existant qui en possede un, ca
-           fonctionne. A remonter au CRM : soit un flow cree le ContactPoint,
-           soit on nous ouvre la creation.
+           Un Person Account fraichement cree n'a AUCUN point de contact —
+           rien ne les fabrique cote CRM. Le socle les CREE donc au besoin,
+           juste avant la boucle. Le consentement d'un nouveau prospect est
+           ainsi enregistre comme celui d'un prospect connu.
 
            Boucle sur 5 canaux plutot que cinq blocs recopies.
            ==================================================================== */
@@ -1127,18 +1124,49 @@ IF @submitted == "true" THEN
             IF NOT Empty(@legalText)   THEN SET @preuve = Concat(@preuve, " — ", @legalText) ENDIF
             IF NOT Empty(@legalFooter) THEN SET @preuve = Concat(@preuve, " — ", @legalFooter) ENDIF
 
-            /* Points de contact du compte, resolus UNE FOIS pour les 5 canaux.
-               Email pour le canal Email et les cookies publicitaires,
-               telephone pour Phone / SMS / WhatsApp. */
+            /* ---- POINTS DE CONTACT : RESOLUS, SINON CREES -----------------
+               Resolus UNE FOIS pour les 5 canaux : l'e-mail sert au canal Email
+               et aux cookies publicitaires, le telephone a Phone / SMS /
+               WhatsApp.
+
+               ⚠ Un Person Account fraichement cree n'a AUCUN point de contact :
+               rien ne les fabrique automatiquement cote CRM. Verifie sur
+               001AW00001yrTQbYAM, cree le 23/08 — trois jours plus tard,
+               toujours zero. Sans creation de notre part, les cases opt-in d'un
+               nouveau prospect ne sont donc PAS enregistrees : le formulaire
+               aboutit et l'information RGPD est perdue.
+
+               J'avais d'abord conclu que la creation nous etait refusee. C'etait
+               faux, et c'est la quatrieme fois que je tire cette conclusion trop
+               vite. Le seul champ fautif est `Name` : Salesforce le renseigne
+               lui-meme a partir de l'adresse — d'ou sa valeur egale a l'e-mail
+               sur les enregistrements reels — et l'envoyer, MEME AVEC LA BONNE
+               VALEUR, fait echouer l'insert.
+
+               Ne jamais poser `Name` ici. */
             SET @cpEmail = ""
             SET @cpPhone = ""
+
             SET @rows = RetrieveSalesforceObjects("ContactPointEmail", "Id", "ParentId", "=", @paId)
             IF RowCount(@rows) > 0 THEN
                 SET @cpEmail = Field(Row(@rows,1), "Id")
+            ELSEIF NOT Empty(@email) THEN
+                SET @cpEmail = CreateSalesforceObject("ContactPointEmail", 3,
+                    "ParentId",     @paId,
+                    "EmailAddress", @email,
+                    "IsPrimary",    "true")
+                SET @journal = Concat(@journal, " CP:email-cree")
             ENDIF
+
             SET @rows = RetrieveSalesforceObjects("ContactPointPhone", "Id", "ParentId", "=", @paId)
             IF RowCount(@rows) > 0 THEN
                 SET @cpPhone = Field(Row(@rows,1), "Id")
+            ELSEIF NOT Empty(@mobile) THEN
+                SET @cpPhone = CreateSalesforceObject("ContactPointPhone", 3,
+                    "ParentId",        @paId,
+                    "TelephoneNumber", @mobile,
+                    "IsPrimary",       "true")
+                SET @journal = Concat(@journal, " CP:phone-cree")
             ENDIF
 
             FOR @i = 1 TO 5 DO
@@ -1214,19 +1242,34 @@ IF @submitted == "true" THEN
                         SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                             "Legal_Texte_Accepted__c", @preuve)
                     ELSE
-                        /* GDPR_Status__c est demande par les 6 onglets du
-                           mapping v4 et n'etait pas ecrit.
+                        /* ⚠ `Name` est REQUIS sur cet objet, et son absence
+                           etait un BUG : le socle ne l'envoyait pas, donc aucun
+                           consentement ne se creait. Piege d'autant plus vicieux
+                           que le meme champ se comporte a l'INVERSE sur le point
+                           de contact : `ContactPointEmail.Name` est calcule par
+                           Salesforce et l'envoyer fait echouer l'insert. Deux
+                           objets voisins, deux regles opposees.
+
+                           ⚠ GDPR_Status__c : demande par les 6 onglets du
+                           mapping v4, mais NON ECRIT. Le champ est vide sur
+                           tous les consentements de l'org : aucune valeur de
+                           reference. J'y avais mis "OptIn" par analogie — une
+                           valeur de picklist inventee, qui tuait la page.
+                           Meme prudence que pour Nature__c et AccountSource :
+                           on n'ecrit pas ce qu'on ne sait pas remplir.
+                           A demander au CRM.
+
                            ⚠ Opt_In_Date__c est marque ✅ dans les onglets mais
                            ⛔ dans l'en-tete du contrat (« poses par flow, VR
                            SANS bypass — ne pas les ecrire »). Contradiction
-                           interne au document : on suit l'en-tete, qui est plus
-                           recent et plus explicite. A faire trancher. */
+                           interne au document : on suit l'en-tete, plus recent
+                           et plus explicite. A faire trancher. */
                         SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
                             "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
+                            "Name",                    Concat("Consent ", @canalValue, " - ", @email),
                             "PrivacyConsentStatus",    "OptIn",
                             "Status__c",               "Opt-in",
-                            "GDPR_Status__c",          "OptIn",
                             "CaptureSource",           "SFMC CloudPage",
                             "Legal_Texte_Accepted__c", @preuve,
                             "BusinessBrandId",         @brandId)
@@ -1393,11 +1436,14 @@ IF @submitted == "true" THEN
                    l'insert a lui seul, quelles que soient les autres valeurs.
                    Le lien vers le membre passe par CampaignMemberId__c, en
                    TEXTE, qui lui est accepte. */
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 15,
+                /* ⚠ NI CampaignMemberLink__c NI InteractionDate__c : chacun
+                   fait echouer l'insert a lui seul. Le lien vers le membre
+                   passe par CampaignMemberId__c, en texte ; la date est posee
+                   par Salesforce. */
+                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 14,
                     "Campaign__c",           @campaignId,
                     "PersonAccount__c",      @paId,
                     "CampaignMemberId__c",   @cmId,
-                    "InteractionDate__c",    Now(),
                     "SourceSystem__c",       "SFMC",
                     "Information__c",        RequestParameter("NomFormulaire"),
                     "UTM_Source__c",         @utmS,
