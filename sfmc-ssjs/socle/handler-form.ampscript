@@ -1319,15 +1319,6 @@ IF @submitted == "true" THEN
                         SET @cpId = @cpEmail
                     ENDIF
 
-                    IF Empty(@cpId) THEN
-                        SET @rows = ""
-                    ELSE
-                        SET @rows = RetrieveSalesforceObjects("ContactPointConsent",
-                            "Id,GDPR_Status__c",
-                            "ContactPointId", "=", @cpId,
-                            "Channel__c",     "=", @canalValue)
-                    ENDIF
-
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
@@ -1339,7 +1330,7 @@ IF @submitted == "true" THEN
                             "Statut", "OK",
                             "Objet", "ContactPointConsent",
                             "RecordId", "",
-                            "Detail", Concat("canal=", @canalValue, " existant=", RowCount(@rows)),
+                            "Detail", Concat("canal=", @canalValue, " cp=", @cpId),
                             "Email", @email,
                             "Ecole", @ecole,
                             "FormType", @formType)
@@ -1348,37 +1339,35 @@ IF @submitted == "true" THEN
                         /* Aucun point de contact : on ne peut rien ecrire.
                            On le journalise au lieu de tuer la page. */
                         SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-contactpoint")
-                    ELSEIF RowCount(@rows) > 0 THEN
-                        SET @cpcId = Field(Row(@rows,1), "Id")
-                        /* ⚠ ContactPointConsent est CREATE-ONLY pour le
-                           connecteur. Mesure faite champ par champ avec
-                           LPB_TST_Sonde_Ecriture : PrivacyConsentStatus,
-                           Status__c, Legal_Texte_Accepted__c, CaptureSource et
-                           GDPR_Status__c sont TOUS refuses a l'update — et pas
-                           seulement sur nos enregistrements : refuses aussi sur
-                           un consentement cree par le CRM. La creation, elle,
-                           passe. Le meme bloc accepte un update d'Account, donc
-                           ce n'est ni la sonde ni les droits generaux.
+                    ELSE
+                        /* UN ENREGISTREMENT PAR SOUMISSION, decision du
+                           2026-08-26. On ne cherche plus s'il en existe deja un
+                           pour ce couple point de contact x canal : on en cree
+                           un a chaque fois.
 
-                           Coherent avec la nature de l'objet : un consentement
-                           est une trace datee, pas un etat qu'on rectifie.
+                           Pourquoi : l'objet est CREATE-ONLY pour le
+                           connecteur. Aucun update n'y passe — ni
+                           PrivacyConsentStatus, ni Status__c, ni
+                           Legal_Texte_Accepted__c, ni CaptureSource, ni
+                           GDPR_Status__c — et pas seulement sur nos
+                           enregistrements : refuses aussi sur un consentement
+                           cree par le CRM. Mesure champ par champ avec
+                           LPB_TST_Sonde_Ecriture, qui accepte par ailleurs un
+                           update d'Account : ce ne sont donc ni les droits
+                           generaux ni la sonde.
 
-                           Le socle tentait ces updates. Comme ce chemin n'est
-                           atteint que si un consentement existe DEJA pour ce
+                           Le socle tentait ces updates. Comme ce chemin n'etait
+                           atteint que si un consentement existait DEJA pour ce
                            canal, la page mourait a la deuxieme soumission d'une
                            meme personne, jamais a la premiere.
 
-                           ⚠ TROU FONCTIONNEL A ARBITRER : une personne qui
-                           s'etait desabonnee et qui re-consent via un
-                           formulaire ne voit pas son consentement remis a
-                           jour, puisqu'on ne peut ni le modifier ni savoir si
-                           creer un doublon est acceptable sur un objet RGPD.
-                           Deux issues possibles, cote CRM : ouvrir l'update au
-                           connecteur, ou publier la regle de deduplication qui
-                           autorise un second enregistrement. */
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-existant-non-modifiable")
-                    ELSE
-                        /* ⚠ `Name` est REQUIS sur cet objet, et son absence
+                           Creer plutot que modifier convient d'ailleurs mieux a
+                           l'objet : un consentement est une trace datee, pas un
+                           etat qu'on rectifie. Une personne desabonnee qui
+                           re-consent produit une nouvelle trace, et c'est le
+                           comportement attendu.
+
+                           ⚠ `Name` est REQUIS sur cet objet, et son absence
                            etait un BUG : le socle ne l'envoyait pas, donc aucun
                            consentement ne se creait. Piege d'autant plus vicieux
                            que le meme champ se comporte a l'INVERSE sur le point
@@ -1403,7 +1392,8 @@ IF @submitted == "true" THEN
                         SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                             "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
-                            "Name",                    Concat("Consent ", @canalValue, " - ", @email),
+                            "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                              " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
                             "PrivacyConsentStatus",    "OptIn",
                             "Status__c",               "Opt-in",
                             "GDPR_Status__c",          "Marketing active",
