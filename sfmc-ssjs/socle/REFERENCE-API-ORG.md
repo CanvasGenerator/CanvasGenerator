@@ -443,6 +443,49 @@ sur les donnees reelles.
 > existantes) : value set remanie sans reprise. Et l'exception « abandon ne
 > bloque pas » est une decision METIER prise faute d'arbitrage — a confirmer.
 
+### Le champ `Name` : requis ici, interdit la
+
+Deux objets voisins, deux regles OPPOSEES sur le meme nom de champ. Verifie le
+2026-08-26 :
+
+| Objet | `Name` | Consequence |
+|---|---|---|
+| `ContactPointEmail` / `ContactPointPhone` | calcule par Salesforce depuis l'adresse | **l'envoyer fait echouer l'insert**, meme avec la bonne valeur |
+| `ContactPointConsent` | requis | **l'omettre fait echouer l'insert** |
+
+Les deux etaient des bugs du socle : il posait `Name` sur le point de contact
+(d'ou ma conclusion erronee « la creation nous est refusee ») et l'omettait sur
+le consentement (d'ou l'echec de TOUS les consentements).
+
+### Points de contact : on peut les creer
+
+Un Person Account fraichement cree n'a AUCUN point de contact, et rien ne les
+fabrique cote CRM — verifie sur `001AW00001yrTQbYAM`, cree le 23/08 : trois jours
+plus tard, toujours zero. Sur un exemple ou ils existent, le point de contact a
+ete cree 55 minutes apres son compte : un traitement par lot, pas un flow.
+
+Le socle les cree donc lui-meme quand ils manquent :
+
+```
+ContactPointEmail : ParentId + EmailAddress + IsPrimary        (JAMAIS Name)
+ContactPointPhone : ParentId + TelephoneNumber + IsPrimary     (JAMAIS Name)
+```
+
+Le consentement d'un nouveau prospect est ainsi enregistre comme celui d'un
+prospect connu. **Le dernier point bloquant du projet est leve.**
+
+### Champs non inscriptibles, releves par bissection
+
+| Objet | Champ | Comportement |
+|---|---|---|
+| `ContactPointEmail` | `Name` | calcule — l'envoyer tue la page |
+| `CampaignMemberInteraction__c` | `CampaignMemberLink__c` | tue la page ; utiliser `CampaignMemberId__c` |
+| `CampaignMemberInteraction__c` | `InteractionDate__c` | tue la page ; la date est posee par Salesforce |
+| `ContactPointConsent` | `GDPR_Status__c` | vide sur toute l'org, valeur inconnue — non ecrit |
+
+> Aucun de ces refus ne donne de message. La page est simplement remplacee.
+> La seule methode qui fonctionne reste la bissection : un champ a la fois.
+
 ### Interaction : un seul champ bloquait tout
 
 `CampaignMemberInteraction__c` historise une soumission repetee, quand l'unicite
