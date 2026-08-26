@@ -211,7 +211,12 @@ IF @submitted == "true" THEN
     SET @utmI   = RequestParameter("utm_id")
     SET @gclid  = RequestParameter("gclid")
     SET @fbclid = RequestParameter("fbclid")
-    SET @clientId = RequestParameter("clientId")
+    /* ⚠ La CloudPage pose le champ cache `client_id`, en snake_case comme tous
+       les autres parametres de tracking. Le socle lisait `clientId` : les deux
+       champs CRM seraient restes vides. On accepte les deux graphies, la
+       nouvelle d'abord. */
+    SET @clientId = RequestParameter("client_id")
+    IF Empty(@clientId) THEN SET @clientId = RequestParameter("clientId") ENDIF
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
 
