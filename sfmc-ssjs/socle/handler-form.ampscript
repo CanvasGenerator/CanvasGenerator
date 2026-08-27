@@ -194,7 +194,7 @@ SET @INTERACTION_ACTIVE = "true"
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
-VAR @itPreview, @itContext, @itHorodatage
+VAR @itPreview, @itContext, @itHorodatage, @evtParent
 
 VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -1654,6 +1654,22 @@ IF @submitted == "true" THEN
                    de ce qui vient de nous. Il n'est simplement plus la cle. */
                 SET @extId = Concat(@paContactId, "-", @instanceId)
 
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "78 - avant lecture registration",
+                        "Statut", "OK",
+                        "Objet", "summit Registration",
+                        "RecordId", "",
+                        "Detail", Concat("contact=", @paContactId, " instance=", @instanceId),
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
                 SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Registration__c",
                     "Id",
                     "summit__Contact__c",        "=", @paContactId,
@@ -1690,17 +1706,69 @@ IF @submitted == "true" THEN
                             @regId, "summit__utm_source__c", @utmS)
                     ENDIF
                 ELSE
-                    /* A la CREATION seulement, les deux statuts sont poses. */
+                    /* A la CREATION seulement, les deux statuts sont poses.
+
+                       ⚠ `summit__Status__c` est en ANGLAIS sur cette org :
+                       Registered, Confirmed, Attended, No-Show, Started,
+                       Registered Present. Le socle y ecrivait "Inscrit", hors
+                       picklist, donc refuse — et le refus tuait la page a
+                       chaque inscription evenement. Releve le 2026-08-27 en
+                       lisant les 1210 inscriptions existantes.
+
+                       `actionNameStatus__c` est un champ libre en revanche :
+                       les donnees contiennent "inscrit", "checkin" et meme
+                       "Test2Ewen". "Origin" y passe, et un flow quotidien le
+                       fait basculer vers "checkin". */
                     /* Les 4 derniers champs etaient demandes par les 6
                        onglets du mapping v4 et n'etaient pas ecrits. Tous
                        verifies presents sur l'objet.
                        Pas de fbclid ici : le package Summit ne fournit que
                        summit__gclid__c, et le mapping le note explicitement. */
-                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 14,
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "79 - avant creation registration",
+                            "Statut", "OK",
+                            "Objet", "summit Registration",
+                            "RecordId", "",
+                            "Detail", @extId,
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
+                    /* ⚠ `summit__Event__c` DOIT etre pose, alors que le
+                       formulaire ne connait que l'instance. Le package le
+                       renseigne par trigger quand l'inscription vient de son
+                       propre ecran ; il ne le fait PAS pour un insert du
+                       connecteur. Une inscription sans evenement s'enregistre
+                       tres bien, mais refuse ensuite tout creneau d'atelier :
+                       le creneau valide le type contre l'evenement du parent,
+                       et la comparaison echoue sur un champ vide.
+
+                       Mesure du 2026-08-27 : la seule inscription de l'org
+                       portant un creneau (a0AAW00000CuXgk2AF) a
+                       summit__Event__c rempli ; toutes les notres l'avaient
+                       vide, et refusaient n'importe quel type, y compris ceux
+                       de leur propre evenement. A l'inverse cette inscription
+                       accepte n'importe quel type. Ce n'etait donc ni les 42
+                       types crees par le CRM, ni l'instance, ni le statut. */
+                    SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+                        "Id,summit__Event__c", "Id", "=", @instanceId)
+                    SET @evtParent = ""
+                    IF RowCount(@rows) > 0 THEN
+                        SET @evtParent = Field(Row(@rows,1), "summit__Event__c")
+                    ENDIF
+
+                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 15,
                         "externalId__c",             @extId,
                         "summit__Event_Instance__c", @instanceId,
+                        "summit__Event__c",          @evtParent,
                         "summit__Contact__c",        @paContactId,
-                        "summit__Status__c",         "Inscrit",
+                        "summit__Status__c",         "Registered",
                         "actionNameStatus__c",       "Origin",
                         "summit__utm_source__c",     @utmS,
                         "summit__utm_medium__c",     @utmM,
