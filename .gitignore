@@ -4,9 +4,18 @@ node_modules/
 # ── Fichiers de travail SSJS : utiles en local, inutiles au fonctionnement ──
 # Pages de diagnostic SFMC (lecture seule, à coller dans une CloudPage de test)
 sfmc-ssjs/socle/test-*.ssjs
-# Tests unitaires du socle et de l'inliner
-sfmc-ssjs/test/
+# Les tests du socle SONT versionnes : chacun protege contre une panne
+# silencieuse deja rencontree (balise de script supprimee par l'API, cascade
+# qui ne s'execute jamais, nom de champ inexistant, arite d'un Create).
+# Perdre le fichier, c'est perdre la protection.
 scripts/auth-test.js
 # Récapitulatifs de présentation (PDF + HTML générés)
 sfmc-ssjs/socle/*.pdf
 sfmc-ssjs/socle/recap-*.html
+
+# Brouillons de diagnostic a coller dans une CloudPage, hors perimetre du depot
+codex/
+
+# Bruit macOS et verrous Office
+.DS_Store
+~$*

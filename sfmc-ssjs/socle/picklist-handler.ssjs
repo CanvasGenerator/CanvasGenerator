@@ -228,6 +228,23 @@ try {
     var D = window.SOCLE_DATA;
     if (!D) return;                       // lecture SF indisponible -> on laisse le HTML statique
 
+    /* ---- ATTENDRE LE DOM ---------------------------------------------------
+       Le socle est inclus EN HAUT de la page : quand ce script s'execute, le
+       formulaire n'existe pas encore. Sans cette attente, tous les
+       querySelector rendent null, la cascade sort en silence et les listes
+       restent vides — panne invisible, constatee le 2026-08-23 sur un
+       formulaire de test reel. Elle n'avait jamais pu fonctionner.
+
+       On differe donc TOUT le corps jusqu'a DOMContentLoaded. Si le DOM est
+       deja pret (socle inclus en bas de page, ou script charge tardivement),
+       on execute immediatement. */
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', demarrer);
+    } else {
+        demarrer();
+    }
+    function demarrer() {
+
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
     /** Remplit un <select> en conservant sa 1re option (le placeholder). */
@@ -605,5 +622,6 @@ try {
             maj();
         }
     }
+    }   /* fin demarrer() */
 })();
 </script>

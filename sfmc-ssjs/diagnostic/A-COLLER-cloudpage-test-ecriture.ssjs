@@ -12,7 +12,7 @@
 
    Sequence, identique pour tous les formulaires de la famille campagne :
        1. Account (Person Account)  upsert sur PersonEmail, fill-if-blank
-       2. ContactPointConsent       upsert sur ParentId + Channel__c
+       2. ContactPointConsent       upsert sur ContactPointId + Channel__c
        3. CampaignMember            upsert sur CampaignId + PA
 
    --- Ce qu'AMPscript impose, et qui explique la forme du code --------------
@@ -40,36 +40,141 @@ VAR @RT_PERSON_ACCOUNT
    = "PersonAccount", libelle "Compte personnel". A REVERIFIER en Prod, les
    RecordTypeId ne sont pas portables d'une org a l'autre. */
 SET @RT_PERSON_ACCOUNT = "012Wx000000KF9NIAW"
-/* ⚠ REGLES DE BLOCAGE CANDIDATURE — noms NON VERIFIES sur l'org.
-   Ils viennent du document de cadrage. Tant que @REGLES_ACTIVES vaut "false",
-   aucune lecture n'est tentee : publier ce handler est donc sans risque.
-   Passer a "true" UNIQUEMENT apres avoir confirme les 5 noms ci-dessous avec
-   la sonde (?champs=IndividualApplication). Un nom faux tue la page a chaque
-   soumission de candidature. */
+
+/* ---- CIBLE DES CHAMPS D'IDENTITE -----------------------------------------
+   Account ou Contact ? Les DEUX fonctionnent, verifie le 2026-08-23 :
+     Account.FirstName sur 001AW00001igoPyYAI -> OK
+     Contact.FirstName sur 003AW00000zuDx7YAE -> OK
+
+   ⚠ On ecrit sur l'ACCOUNT, pas sur le Contact. Le contrat v4 est explicite :
+   « Contact — ⛔ Reserve a Livestorm (LeadSource = Webinar) ». Les formulaires
+   Marketing Cloud ecrivent DIRECTEMENT le Person Account. Ecrire sur le Contact
+   marcherait techniquement, mais empieterait sur un objet dont un autre flux est
+   proprietaire.
+
+   "true" pour rebasculer sur le Contact si le contrat change. */
+VAR @IDENTITE_SUR_CONTACT
+SET @IDENTITE_SUR_CONTACT = "false"
+
+/* ---- ECRITURE DE L'IDENTITE : ACTIVE ------------------------------------
+   ⚠ CORRECTION du 2026-08-23. Les runs dd774885111d et b8b0b6d5ea58 avaient
+   conclu que FirstName etait refuse sur Account ET sur Contact. C'ETAIT FAUX :
+   les deux essais visaient le meme enregistrement, `001AW00001ihDOvYAM`
+   (bob.martin.test@edh-test.com), qui refuse TOUTE ecriture — y compris sur un
+   simple champ custom.
+
+   Verifie par les blocs de diagnostic sur deux autres comptes :
+     Account.FirstName  sur 001AW00001igoPyYAI et 001AW00001xraQIYAY -> OK
+     Contact.FirstName  sur 003AW00000zuDx7YAE                       -> OK
+     Account.UTMSource__c sur les memes                              -> OK
+
+   Lecon : ne jamais conclure sur un champ a partir d'un seul enregistrement.
+   Le compte 001AW00001ihDOvYAM est a ecarter des jeux de test (verrou ou
+   partage propre a ce record, non diagnostique). */
+VAR @ECRIRE_IDENTITE
+SET @ECRIRE_IDENTITE = "true"
+/* ---- REGLES DE BLOCAGE CANDIDATURE ---------------------------------------
+   Noms CONFRONTES A L'ORG le 2026-08-23, sur les 123 champs de
+   IndividualApplication (285 candidatures en base) :
+
+     IndividualApplication        existe
+     ContactId                    existe
+     ProgramTermApplnTimelineId   existe
+     Status                       existe
+     AcademicYear__c              ⛔ N'EXISTE PAS sur cet objet
+
+   L'annee scolaire vit sur le PTAT, pas sur la candidature
+   (`PTAT-0000013 - ... - 2026`, champ AcademicYear__c). Le critere « meme
+   annee » etait donc REDONDANT : un PTAT est deja propre a une annee, donc
+   filtrer sur le PTAT suffit. Le champ est supprime, pas remplace.
+
+   La regle est desormais ACTIVE : les trois noms restants existent, donc la
+   lecture ne peut plus tuer la page. */
 VAR @REGLES_ACTIVES, @OBJ_APPLICATION, @F_APP_PERSON, @F_APP_PTAT, @F_APP_STATUS
-VAR @F_APP_YEAR, @VAL_REFUSE
-SET @REGLES_ACTIVES  = "false"
+VAR @F_APP_DECISION, @VAL_REFUSE, @VAL_ABANDON
+SET @REGLES_ACTIVES  = "true"
 SET @OBJ_APPLICATION = "IndividualApplication"
 SET @F_APP_PERSON    = "ContactId"
 SET @F_APP_PTAT      = "ProgramTermApplnTimelineId"
 SET @F_APP_STATUS    = "Status"
-SET @F_APP_YEAR      = "AcademicYear__c"
-/* Compare en minuscules et en SOUS-CHAINE : les libelles de statut varient
-   ("Refused", "Decision defavorable", "Rejected"). A ajuster au value set. */
-SET @VAL_REFUSE      = "refus"
+SET @F_APP_DECISION  = "FinalDecision__c"
 
-VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut
+/* ---- OU VIT LE REFUS ------------------------------------------------------
+   PAS dans `Status`. Son value set, releve le 2026-08-24, ne contient QUE des
+   etapes d'avancement : Application in Progress, Application Submitted,
+   Application Fee Paid, Initial Application Review, Interview & Jury
+   Scheduling / Scheduled, Secondary Application Review, Application Complete,
+   Withdrawn / Abandoned. Aucune valeur de refus, ni active ni inactive.
+
+   Le refus vit dans `FinalDecision__c`, value set « Jury Recommendation » :
+       Admitted · Rejected · Absent_Interview · Pending · Enrolled
+
+   Comparaison EXACTE en minuscules, pas en sous-chaine : le value set est
+   ferme et court, une sous-chaine n'apporterait que des faux positifs.
+
+   `Absent_Interview` n'est PAS traite comme un refus : c'est un constat
+   d'absence, qui peut preceder une decision mais n'en est pas une. */
+SET @VAL_REFUSE      = "rejected"
+
+/* Un dossier ABANDONNE ne doit pas bloquer une nouvelle candidature : le
+   candidat a renonce, il a le droit de revenir. Sans cette exception, R1
+   bloquait sur n'importe quelle candidature existante, abandon compris. */
+SET @VAL_ABANDON     = "withdrawn / abandoned"
+
+VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut, @candDecision
 SET @sfBlockMsg = ""
 
 VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
-VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId
-VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve
+VAR @utmCampus, @consent, @dateCookies
+VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId, @campusSel
+VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve, @cpEmail, @cpPhone, @cpId
 VAR @isEvent, @instanceId, @extId, @regId, @appts, @apptRows, @nA, @apptType
-VAR @zone, @cleCampagne, @campActif, @typeEvt
+VAR @zone, @cleCampagne, @campActif, @typeEvt, @mode, @langue, @typeForm
 VAR @sfStatus, @sfErrorMsg, @journal
+
+/* ---- JOURNAL DE SOUMISSION ------------------------------------------------
+   Une ligne par etape, ecrite AU FUR ET A MESURE dans LPB_Log_Soumissions.
+
+   Pourquoi au fur et a mesure et non a la fin : AMPscript n'a pas de try/catch.
+   Une erreur Salesforce remplace la page entiere et TOUT ce qui suit est perdu,
+   y compris un journal ecrit en bloc a la sortie. Ecrire etape par etape rend
+   donc la panne lisible : la DERNIERE ligne d'un RunId designe l'etape fautive.
+   C'est le seul moyen de savoir ou ca casse sur cette plateforme.
+
+   Coup : une ecriture de DE par etape, ~10 par soumission. Acceptable en
+   recette, a passer a "false" avant la Prod. */
+/* ---- HISTORISATION DES INTERACTIONS -------------------------------------
+   ACTIVE depuis le 2026-08-26.
+
+   Histoire de la panne, parce qu'elle a failli faire conclure a un blocage
+   d'objet. Le socle ecrivait `CampaignMember__c`, un champ INEXISTANT. Comme
+   AMPscript n'a pas de try/catch, une creation refusee REMPLACE la page — et ce
+   chemin est atteint des qu'un CampaignMember existe deja. La page mourait donc
+   a chaque retour d'un prospect connu : panne totale, invisible en test puisque
+   chaque test creait un prospect neuf.
+
+   Apres correction des noms, l'insert echouait toujours, y compris avec un seul
+   champ texte. J'ai failli conclure que l'objet refusait la creation. C'etait
+   faux : la bissection designe `CampaignMemberLink__c`, le SEUL champ dont la
+   presence fait echouer l'insert. Le lien vers le membre passe donc par
+   `CampaignMemberId__c`, en texte.
+
+   Verifie sur l'org : la paire `Campaign__c` + `PersonAccount__c` suffit
+   (a1RAW000003uP5F2AU), et c'est exactement ce que portent les 3 interactions
+   preexistantes — aucun autre champ n'y est rempli.
+
+   Le drapeau reste : il evite de tuer la page a chaque soumission si l'objet se
+   remet a refuser, pendant qu'on diagnostique. */
+VAR @INTERACTION_ACTIVE
+SET @INTERACTION_ACTIVE = "true"
+
+VAR @LOG_ACTIF, @runId, @logOrdre
+SET @LOG_ACTIF = "true"
+SET @runId     = Substring(Replace(GUID(), "-", ""), 1, 12)
+SET @logOrdre  = 0
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -106,15 +211,63 @@ IF @submitted == "true" THEN
     SET @utmI   = RequestParameter("utm_id")
     SET @gclid  = RequestParameter("gclid")
     SET @fbclid = RequestParameter("fbclid")
-    SET @clientId = RequestParameter("clientId")
+    /* ⚠ La CloudPage pose le champ cache `client_id`, en snake_case comme tous
+       les autres parametres de tracking. Le socle lisait `clientId` : les deux
+       champs CRM seraient restes vides. On accepte les deux graphies, la
+       nouvelle d'abord. */
+    SET @clientId = RequestParameter("client_id")
+    IF Empty(@clientId) THEN SET @clientId = RequestParameter("clientId") ENDIF
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
+
+    /* ---- FOURNIS PAR LA CLOUDPAGE, PAS PAR LE VISITEUR -------------------
+       content-block-viewer.html lit l'URL, deduit le canal d'acquisition depuis
+       une table d'attribution (utm_source x utm_medium), lit le consentement
+       cookies depuis Axeptio, puis expose le tout en variables AMPscript. La
+       landing page n'a qu'a poser les champs caches correspondants.
+
+       `campus` sert deux fois : resolution de Ecole__c (via LPB_Mapping_Campus)
+       et tracage dans Account.UTMCampus__c. Ce ne sont pas les memes donnees
+       — l'un est un rattachement CRM, l'autre une origine de trafic — mais la
+       CloudPage ne fournit qu'une valeur. */
+    SET @utmCampus = RequestParameter("utm_campus")
+    IF Empty(@utmCampus) THEN SET @utmCampus = @campusSel ENDIF
+    SET @consent   = RequestParameter("consent")
+    SET @dateCookies = RequestParameter("date_consentement_cookies")
 
     /* Marque et Account ecole depuis la DE de correspondance, jamais en dur. */
     IF Empty(@brandId) AND NOT Empty(@ecole) THEN
         SET @brandId = Lookup("LPB_Mapping_Ecoles", "BusinessBrandId", "Ecole", @ecole)
     ENDIF
-    SET @schoolAccId = Lookup("LPB_Mapping_Ecoles", "SchoolAccountId", "Ecole", @ecole)
+    /* ---- COMPTE ECOLE : DEPUIS LA DE, INDEXEE PAR CAMPUS -----------------
+       `Ecole__c` est un lookup vers un Account de RecordType `schoolEntity`.
+       La granularite reelle est le CAMPUS, pas l'ecole : sur les comptes deja
+       renseignes, `Ecole__c` pointe vers « BRASSART PARIS », pas « BRASSART ».
+       Le champ `Campus__c` existe aussi mais reste vide sur les 24 comptes
+       concernes — il n'est pas utilise.
+
+       Pourquoi une DE et pas une resolution par nom. Le nom du campus envoye
+       par la cascade (« EFAP PARIS ») est bien le `Name` du compte ecole, et
+       filtrer dessus fonctionne pour les 10 campus EFAP. Mais TROIS comptes
+       portent le nom « BRASSART PARIS », dont DEUX marques `EDH School` :
+       aucun filtre ne peut trancher, et ecrire au hasard serait pire que ne
+       rien ecrire. Le mapping est donc explicite.
+
+       `LPB_Mapping_Campus` : cle = le libelle COMPLET du campus, tel que la
+       cascade l'envoie. Une ligne par campus. Les cas ambigus y sont marques
+       `Actif = false` avec les Ids concernes en commentaire, en attente
+       d'arbitrage — plutot que resolus silencieusement.
+
+       Si le campus est absent de la DE, `Ecole__c` reste vide : le prospect est
+       cree sans ecole rattachee. Degrade, pas bloquant. */
+    SET @campusSel   = RequestParameter("Campus")
+    SET @schoolAccId = ""
+
+    IF NOT Empty(@campusSel) THEN
+        IF Lowercase(Lookup("LPB_Mapping_Campus", "Actif", "Campus", @campusSel)) == "true" THEN
+            SET @schoolAccId = Lookup("LPB_Mapping_Campus", "SchoolAccountId", "Campus", @campusSel)
+        ENDIF
+    ENDIF
 
     /* ---- Resolution de la campagne, depuis la DE de mapping --------------
        40 combinaisons : brochure/candidature x FR/Intl x 10 ecoles. Les Ids
@@ -131,6 +284,22 @@ IF @submitted == "true" THEN
         IF Lowercase(Trim(@country)) == "france" THEN SET @zone = "FR" ENDIF
 
         SET @cleCampagne = Concat(@formType, "|", @ecole, "|", @zone)
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "10 - contexte lu",
+                "Statut", "OK",
+                "Objet", "-",
+                "RecordId", "",
+                "Detail", Concat("zone=", @zone, " marque=", @brandId, " campus=", @campusSel, " ecoleAcc=", @schoolAccId),
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
         SET @campActif   = Lookup("LPB_Mapping_Campagnes", "Actif", "Cle", @cleCampagne)
 
         /* Actif=false = Id non renseigne ou non verifie. On n'ecrit alors AUCUN
@@ -139,8 +308,40 @@ IF @submitted == "true" THEN
         IF Lowercase(@campActif) == "true" THEN
             SET @campaignId = Lookup("LPB_Mapping_Campagnes", "CampaignId", "Cle", @cleCampagne)
             SET @journal = Concat(@journal, " CAMP:", @cleCampagne)
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "20 - campagne resolue",
+                    "Statut", "OK",
+                    "Objet", "Campaign",
+                    "RecordId", @campaignId,
+                    "Detail", @cleCampagne,
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
         ELSE
             SET @journal = Concat(@journal, " CAMP:inactive(", @cleCampagne, ")")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "20 - campagne inactive",
+                    "Statut", "IGNORE",
+                    "Objet", "Campaign",
+                    "RecordId", "",
+                    "Detail", @cleCampagne,
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
         ENDIF
     ENDIF
 
@@ -160,9 +361,10 @@ IF @submitted == "true" THEN
        page a CHAQUE soumission de candidature — panne totale, pas degradation.
        Il n'existe aucun moyen de coder defensivement autour de ca.
 
-       Les noms ci-dessous viennent du document de cadrage, pas de l'org : ils
-       n'ont pas encore ete confrontes a EntityDefinition. @REGLES_ACTIVES
-       reste donc a "false" jusqu'a verification, et le bloc ne lit rien.
+       Les trois noms utilises ici ont ete confrontes a l'org le 2026-08-23 et
+       existent tous. C'est ce qui autorise @REGLES_ACTIVES a "true" : la
+       lecture ne peut plus tuer la page. Cf. le bloc de configuration en tete
+       de fichier pour le detail, dont le champ d'annee qui n'existait pas.
 
        --- Sens du defaut : on laisse passer -------------------------------
        Regle desactivee ou indeterminee = on N'EMPECHE PAS la soumission.
@@ -182,26 +384,33 @@ IF @submitted == "true" THEN
             SET @candContactId = Field(Row(@rows,1), "PersonContactId")
 
             SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
-                Concat("Id,", @F_APP_STATUS, ",", @F_APP_YEAR),
+                Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
                 @F_APP_PERSON, "=", @candContactId,
                 @F_APP_PTAT,   "=", @ptatId)
             SET @nCand = RowCount(@candRows)
 
             IF @nCand > 0 THEN
                 FOR @i = 1 TO @nCand DO
-                    SET @candStatut = Lowercase(Field(Row(@candRows,@i), @F_APP_STATUS))
+                    SET @candStatut   = Lowercase(Field(Row(@candRows,@i), @F_APP_STATUS))
+                    SET @candDecision = Lowercase(Field(Row(@candRows,@i), @F_APP_DECISION))
 
-                    /* R2 d'abord : un refus est plus contraignant qu'un dossier
-                       en cours, et son message est different. */
-                    IF IndexOf(@candStatut, @VAL_REFUSE) > 0 THEN
+                    IF @candDecision == @VAL_REFUSE THEN
+                        /* R2 en premier : un refus est plus contraignant qu'un
+                           dossier en cours, et son message differe. */
                         SET @sfStatus = "blocked"
                         SET @sfBlockMsg = "Votre precedente candidature a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine."
+                    ELSEIF @candStatut == @VAL_ABANDON THEN
+                        /* Abandon : on ne bloque pas, et on ne remplace pas un
+                           blocage deja pose par une autre candidature. */
+                        SET @journal = Concat(@journal, " CAND:abandon-ignore")
                     ELSEIF Empty(@sfBlockMsg) THEN
                         SET @sfStatus = "blocked"
                         SET @sfBlockMsg = "Vous avez deja une candidature en cours pour ce programme. Nous vous invitons a contacter le service des admissions du campus auquel vous souhaitez candidater."
                     ENDIF
                 NEXT @i
-                SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                IF @sfStatus == "blocked" THEN
+                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                ENDIF
             ENDIF
         ENDIF
     ENDIF
@@ -217,81 +426,642 @@ IF @submitted == "true" THEN
     IF Empty(@email) THEN
         SET @sfStatus = "error"
         SET @sfErrorMsg = "Adresse e-mail absente : aucune ecriture possible (cle de dedoublonnage)."
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "05 - email absent",
+                "Statut", "KO",
+                "Objet", "-",
+                "RecordId", "",
+                "Detail", @sfErrorMsg,
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
     ELSE
 
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "25 - avant lecture Account",
+                "Statut", "OK",
+                "Objet", "Account",
+                "RecordId", "",
+                "Detail", "RetrieveSalesforceObjects va etre appele",
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
         SET @rows = RetrieveSalesforceObjects("Account",
-            "Id,PersonContactId,LastName,FirstName,LivingCountry__c,IndicatifPick__c,MobileNumber__c,Academic_Level_List__c,PersonAccountType__c,Ecole__c,UTMSource__c,UTMMedium__c,UTMCampaign__c,ClientID__c",
+            "Id,PersonContactId,LastName,FirstName,LivingCountry__c,IndicatifPick__c,MobileNumber__c,Academic_Level_List__c,PersonAccountType__c,Ecole__c,UTMSource__c,UTMMedium__c,UTMCampaign__c,UTMContent__c,UTMTerm__c,UTMId__c,UTMCampus__c,gclid__c,fbclid__c,ClientID__c,Consent__c,DateConsentementCookies__c,AcquisitionChannel__c,AcquisitionSubChannel__c,CreationSourceDate__c,CreationSourceDetail__c,DateOfLastMarketingContactPoint__c,LastMarketingContactPointType__c",
             "PersonEmail", "=", @email)
         SET @n = RowCount(@rows)
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "26 - lecture Account OK",
+                "Statut", "OK",
+                "Objet", "Account",
+                "RecordId", "",
+                "Detail", Concat("lignes trouvees=", @n),
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
 
         IF @n > 0 THEN
             SET @row = Row(@rows, 1)
             SET @paId = Field(@row, "Id")
             SET @paContactId = Field(@row, "PersonContactId")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "30 - account existant",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", Concat("contact=", @paContactId),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
 
             /* --- FILL-IF-BLANK -------------------------------------------
                On ne remplit QUE ce qui est vide cote CRM. Un appel par champ :
                AMPscript ne permet pas de construire dynamiquement la liste
                d'arguments. En pratique, un contact deja qualifie ne declenche
                aucun appel ici. */
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "35 - avant fill-if-blank",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", Concat("nom=", Field(@row,"LastName"), " prenom=", Field(@row,"FirstName")),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
             IF Empty(Field(@row,"LastName"))  AND NOT Empty(@lastName)  THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastName", @lastName) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update LastName",
+                        "Statut", "OK",
+                        "Objet", IIF(@IDENTITE_SUR_CONTACT == "true", "Contact", "Account"),
+                        "RecordId", IIF(@IDENTITE_SUR_CONTACT == "true", @paContactId, @paId),
+                        "Detail", Concat("cible=", IIF(@ECRIRE_IDENTITE != "true", "IGNORE", IIF(@IDENTITE_SUR_CONTACT == "true", "Contact", "Account"))),
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                IF @ECRIRE_IDENTITE != "true" THEN
+                    /* Ecriture volontairement sautee — voir le commentaire en tete. */
+                    SET @journal = Concat(@journal, " IDENT:LastName-ignore")
+                ELSEIF @IDENTITE_SUR_CONTACT == "true" AND NOT Empty(@paContactId) THEN
+                    SET @n = UpdateSingleSalesforceObject("Contact", @paContactId, "LastName", @lastName)
+                ELSE
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastName", @lastName)
+                ENDIF
+                ENDIF
             IF Empty(Field(@row,"FirstName")) AND NOT Empty(@firstName) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "FirstName", @firstName) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update FirstName",
+                        "Statut", "OK",
+                        "Objet", IIF(@IDENTITE_SUR_CONTACT == "true", "Contact", "Account"),
+                        "RecordId", IIF(@IDENTITE_SUR_CONTACT == "true", @paContactId, @paId),
+                        "Detail", Concat("cible=", IIF(@ECRIRE_IDENTITE != "true", "IGNORE", IIF(@IDENTITE_SUR_CONTACT == "true", "Contact", "Account"))),
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                IF @ECRIRE_IDENTITE != "true" THEN
+                    /* Ecriture volontairement sautee — voir le commentaire en tete. */
+                    SET @journal = Concat(@journal, " IDENT:FirstName-ignore")
+                ELSEIF @IDENTITE_SUR_CONTACT == "true" AND NOT Empty(@paContactId) THEN
+                    SET @n = UpdateSingleSalesforceObject("Contact", @paContactId, "FirstName", @firstName)
+                ELSE
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "FirstName", @firstName)
+                ENDIF
+                ENDIF
             IF Empty(Field(@row,"LivingCountry__c")) AND NOT Empty(@country) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LivingCountry__c", @country) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update LivingCountry__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LivingCountry__c", @country)
+                ENDIF
             IF Empty(Field(@row,"IndicatifPick__c")) AND NOT Empty(@indicatif) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "IndicatifPick__c", @indicatif) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update IndicatifPick__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "IndicatifPick__c", @indicatif)
+                ENDIF
             /* MobileNumber__c et JAMAIS PersonMobilePhone : l'E.164 est calcule
                par un flow, l'ecrire ici le ferait diverger. */
             IF Empty(Field(@row,"MobileNumber__c")) AND NOT Empty(@mobile) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "MobileNumber__c", @mobile) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update MobileNumber__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "MobileNumber__c", @mobile)
+                ENDIF
             IF Empty(Field(@row,"Academic_Level_List__c")) AND NOT Empty(@studyLevel) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "Academic_Level_List__c", @studyLevel) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update Academic_Level_List__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "Academic_Level_List__c", @studyLevel)
+                ENDIF
             IF Empty(Field(@row,"PersonAccountType__c")) AND NOT Empty(@vousEtes) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "PersonAccountType__c", @vousEtes) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update PersonAccountType__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "PersonAccountType__c", @vousEtes)
+                ENDIF
             /* Ecole__c est un LOOKUP : il exige l'Id de l'Account ecole, pas le
                code "efap". Sans lui, le trigger ne depose pas le tampon et le
                flow CRM aval ne verra jamais la soumission. */
             IF Empty(Field(@row,"Ecole__c")) AND NOT Empty(@schoolAccId) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update Ecole__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId)
+                ENDIF
 
             /* Tracking en first-touch : on ne reecrit pas l'origine d'un
                contact deja attribue. */
             IF Empty(Field(@row,"UTMSource__c"))   AND NOT Empty(@utmS)  THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMSource__c", @utmS) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update UTMSource__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMSource__c", @utmS)
+                ENDIF
             IF Empty(Field(@row,"UTMMedium__c"))   AND NOT Empty(@utmM)  THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMMedium__c", @utmM) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update UTMMedium__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMMedium__c", @utmM)
+                ENDIF
             IF Empty(Field(@row,"UTMCampaign__c")) AND NOT Empty(@utmC)  THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampaign__c", @utmC) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update UTMCampaign__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampaign__c", @utmC)
+                ENDIF
             IF Empty(Field(@row,"ClientID__c"))    AND NOT Empty(@clientId) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "ClientID__c", @clientId) ENDIF
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "36 - update ClientID__c",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "va tenter cet update",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "ClientID__c", @clientId)
+                ENDIF
+
+            /* ---- TRACKING : LE RESTE DU CONTRAT v4 -----------------------
+               Ces champs etaient attendus par le mapping v4 (colonne « ✅
+               Reetain — etape 1 ») et n'etaient pas ecrits. Ecart releve le
+               2026-08-24 : mon premier rapprochement ne lisait que les lignes
+               dont la colonne « Champ formulaire » est remplie, or ces cibles
+               vivent sur des lignes de CONTINUATION (« ↳ ») qui la laissent
+               vide. Une dizaine de champs etaient donc invisibles a l'analyse.
+
+               Toutes les valeurs viennent de la CloudPage
+               (content-block-viewer.html), qui lit l'URL, deduit le canal
+               d'acquisition et le consentement cookies, puis les expose en
+               variables AMPscript. Rien a demander au visiteur.
+
+               Meme regle first-touch que ci-dessus : on ne reecrit jamais
+               l'origine d'un contact deja attribue. Pas de journalisation par
+               champ ici — l'echafaudage de diagnostic est de toute facon a
+               retirer avant la Prod. */
+            IF Empty(Field(@row,"UTMContent__c")) AND NOT Empty(@utmCo) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMContent__c", @utmCo)
+            ENDIF
+            IF Empty(Field(@row,"UTMTerm__c")) AND NOT Empty(@utmT) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMTerm__c", @utmT)
+            ENDIF
+            IF Empty(Field(@row,"UTMId__c")) AND NOT Empty(@utmI) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMId__c", @utmI)
+            ENDIF
+            IF Empty(Field(@row,"UTMCampus__c")) AND NOT Empty(@utmCampus) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampus__c", @utmCampus)
+            ENDIF
+            IF Empty(Field(@row,"gclid__c")) AND NOT Empty(@gclid) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "gclid__c", @gclid)
+            ENDIF
+            IF Empty(Field(@row,"fbclid__c")) AND NOT Empty(@fbclid) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "fbclid__c", @fbclid)
+            ENDIF
+
+            /* Canal d'acquisition : la table d'attribution vit dans la
+               CloudPage (utm_source x utm_medium -> canal / sous-canal), pas
+               ici. Le mapping v4 renvoie a un document Confluence de Pascal :
+               c'est cette table-la qu'implemente le viewer. */
+            IF Empty(Field(@row,"AcquisitionChannel__c")) AND NOT Empty(@canal) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionChannel__c", @canal)
+            ENDIF
+            IF Empty(Field(@row,"AcquisitionSubChannel__c")) AND NOT Empty(@sousCanal) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionSubChannel__c", @sousCanal)
+            ENDIF
+
+            /* Consentement cookies : Axeptio, lu par la CloudPage. Le viewer
+               rend "1" ou "0" ; Consent__c est une case a cocher. */
+            IF Empty(Field(@row,"Consent__c")) AND NOT Empty(@consent) THEN
+                IF @consent == "1" OR Lowercase(@consent) == "true" THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "true")
+                ELSE
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "false")
+                ENDIF
+            ENDIF
+            IF Empty(Field(@row,"DateConsentementCookies__c")) AND NOT Empty(@dateCookies) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
+            ENDIF
+
+            /* Origine de creation : first-touch, donc jamais reecrite. */
+            IF Empty(Field(@row,"CreationSourceDate__c")) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDate__c", Now())
+            ENDIF
+            IF Empty(Field(@row,"CreationSourceDetail__c")) AND NOT Empty(RequestParameter("NomFormulaire")) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDetail__c", RequestParameter("NomFormulaire"))
+            ENDIF
+
+            /* Dernier point de contact marketing : LAST-touch, a l'inverse de
+               tout le reste. Chaque soumission le rafraichit — c'est sa raison
+               d'etre. Pas de garde Empty() donc, et c'est voulu. */
+            SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateOfLastMarketingContactPoint__c", Now())
+            IF NOT Empty(@formType) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastMarketingContactPointType__c", @formType)
+            ENDIF
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "40 - fill-if-blank termine",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", "tous les updates ont passe",
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
 
         ELSEIF Empty(@RT_PERSON_ACCOUNT) THEN
             /* Garde-fou : creer sans RecordType produirait un compte ENTREPRISE. */
             SET @sfStatus = "error"
             SET @sfErrorMsg = "RecordTypeId du Person Account non renseigne : creation bloquee. Renseigner @RT_PERSON_ACCOUNT."
-        ELSE
-            SET @paId = CreateSalesforceObject("Account", 12,
-                "RecordTypeId",           @RT_PERSON_ACCOUNT,
-                "PersonEmail",            @email,
-                "LastName",               @lastName,
-                "FirstName",              @firstName,
-                "LivingCountry__c",       @country,
-                "IndicatifPick__c",       @indicatif,
-                "MobileNumber__c",        @mobile,
-                "Academic_Level_List__c", @studyLevel,
-                "PersonAccountType__c",   @vousEtes,
-                "UTMSource__c",           @utmS,
-                "UTMMedium__c",           @utmM,
-                "ClientID__c",            @clientId)
-            SET @isNew = "true"
-
-            IF NOT Empty(@schoolAccId) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId)
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "30 - creation bloquee",
+                    "Statut", "KO",
+                    "Objet", "Account",
+                    "RecordId", "",
+                    "Detail", @sfErrorMsg,
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
             ENDIF
-            SET @rows = RetrieveSalesforceObjects("Account", "Id,PersonContactId", "Id", "=", @paId)
-            IF RowCount(@rows) > 0 THEN SET @paContactId = Field(Row(@rows,1), "PersonContactId") ENDIF
+        ELSE
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "28 - avant creation Account",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", "",
+                    "Detail", Concat("mode=", RequestParameter("TestCreateMode"), " RT=", @RT_PERSON_ACCOUNT, " nom=", @lastName, " niveau=", @studyLevel, " indicatif=", @indicatif, " type=", @vousEtes),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+            /* ---- CREATION DU PERSON ACCOUNT ----------------------------
+               Le jeu de champs ci-dessous n'est pas negociable : il est dicte
+               par les validation rules de l'org, relevees dans les journaux
+               Apex du 2026-08-23.
+
+                 VR_PersonAccount_NameMandatory
+                     exige FirstName ET LastName ET un moyen de contact
+                     (PersonEmail, Invalid_Email__c, PersonMobilePhone ou Phone).
+                     -> FirstName est OBLIGATOIRE. Sans lui la page meurt.
+
+                 VR_PersonAccount_PreferredLanguageRequir
+                     exige PreferredLangage__c des que LivingCountry__c
+                     n'est pas France. Exemptions : SourceCreation__c a
+                     "Import" ou "API".
+                     -> hors France, on renseigne la langue.
+
+                 VR_PersonAccount_FormTypeRestricted
+                     des que FormType__c est rempli, SourceCreation__c DOIT
+                     valoir "Web Form".
+                     -> SourceCreation__c est fixe a "Web Form".
+
+               Verifie sur l'org : creation OK en France (001AW00001yrOIrYAM)
+               et hors France avec langue (001AW00001yrM96YAE).
+
+               ⚠ FormType__c = "Formulaire de Candidature" est REFUSE, alors
+               que "Demande de doc" passe : une regle supplementaire, non
+               identifiee, s'applique aux candidatures. On n'envoie donc pas
+               FormType__c pour ce type de formulaire — le reste de la
+               sequence (Application_Requested__c, PTAT) n'est pas affecte.
+
+               UN SEUL APPEL, tous les champs ensemble. C'est structurel :
+               les validation rules reevaluent l'enregistrement ENTIER a chaque
+               ecriture, donc un compte cree incomplet puis complete champ par
+               champ echouerait a la premiere completion. */
+
+            /* Langue : requise hors France. "French" est la valeur relevee sur
+               l'org — pas "Francais", qui n'existe pas. */
+            IF Lowercase(@country) == "france" THEN
+                SET @langue = ""
+            ELSE
+                SET @langue = "French"
+            ENDIF
+
+            /* ---- FormType__c : BROCHURE UNIQUEMENT ---------------------
+               Le tableau des formulaires ne prevoit ce champ cache que pour le
+               telechargement de brochure. Les autres formulaires ne le
+               renseignent pas — leur origine est tracee par la campagne pour
+               la candidature, par l'inscription pour l'evenementiel.
+
+               Ce n'est donc pas un contournement : "Formulaire de Candidature"
+               est refuse par l'org, et de toute facon la candidature n'est pas
+               censee alimenter ce champ. Les deux se rejoignent.
+
+               "Demande de doc" est la valeur relevee sur l'org qui correspond
+               au libelle « telechargement » du cadrage, et elle passe a
+               l'ecriture (verifie le 2026-08-23). */
+            IF @formType == "brochure" THEN
+                SET @typeForm = "Demande de doc"
+            ELSE
+                SET @typeForm = ""
+            ENDIF
+
+            IF Empty(@firstName) THEN
+                /* Echec propre. Laisser passer tuerait la page sans message,
+                   symptome qu'on a mis plusieurs jours a diagnostiquer. */
+                SET @sfStatus = "error"
+                SET @sfErrorMsg = "Prenom obligatoire : l'org refuse la creation d'un Person Account sans FirstName (regle VR_PersonAccount_NameMandatory). Rendre le champ requis sur le formulaire."
+
+            ELSEIF Empty(@langue) AND Empty(@typeForm) THEN
+                SET @paId = CreateSalesforceObject("Account", 12,
+                    "RecordTypeId",           @RT_PERSON_ACCOUNT,
+                    "SourceCreation__c",      "Web Form",
+                    "PersonEmail",            @email,
+                    "LastName",               @lastName,
+                    "FirstName",              @firstName,
+                    "LivingCountry__c",       @country,
+                    "IndicatifPick__c",       @indicatif,
+                    "MobileNumber__c",        @mobile,
+                    "Academic_Level_List__c", @studyLevel,
+                    "PersonAccountType__c",   @vousEtes,
+                    "UTMSource__c",           @utmS,
+                    "ClientID__c",            @clientId)
+
+            ELSEIF Empty(@langue) THEN
+                SET @paId = CreateSalesforceObject("Account", 13,
+                    "RecordTypeId",           @RT_PERSON_ACCOUNT,
+                    "SourceCreation__c",      "Web Form",
+                    "FormType__c",            @typeForm,
+                    "PersonEmail",            @email,
+                    "LastName",               @lastName,
+                    "FirstName",              @firstName,
+                    "LivingCountry__c",       @country,
+                    "IndicatifPick__c",       @indicatif,
+                    "MobileNumber__c",        @mobile,
+                    "Academic_Level_List__c", @studyLevel,
+                    "PersonAccountType__c",   @vousEtes,
+                    "UTMSource__c",           @utmS,
+                    "ClientID__c",            @clientId)
+
+            ELSEIF Empty(@typeForm) THEN
+                SET @paId = CreateSalesforceObject("Account", 13,
+                    "RecordTypeId",           @RT_PERSON_ACCOUNT,
+                    "SourceCreation__c",      "Web Form",
+                    "PreferredLangage__c",    @langue,
+                    "PersonEmail",            @email,
+                    "LastName",               @lastName,
+                    "FirstName",              @firstName,
+                    "LivingCountry__c",       @country,
+                    "IndicatifPick__c",       @indicatif,
+                    "MobileNumber__c",        @mobile,
+                    "Academic_Level_List__c", @studyLevel,
+                    "PersonAccountType__c",   @vousEtes,
+                    "UTMSource__c",           @utmS,
+                    "ClientID__c",            @clientId)
+
+            ELSE
+                SET @paId = CreateSalesforceObject("Account", 14,
+                    "RecordTypeId",           @RT_PERSON_ACCOUNT,
+                    "SourceCreation__c",      "Web Form",
+                    "FormType__c",            @typeForm,
+                    "PreferredLangage__c",    @langue,
+                    "PersonEmail",            @email,
+                    "LastName",               @lastName,
+                    "FirstName",              @firstName,
+                    "LivingCountry__c",       @country,
+                    "IndicatifPick__c",       @indicatif,
+                    "MobileNumber__c",        @mobile,
+                    "Academic_Level_List__c", @studyLevel,
+                    "PersonAccountType__c",   @vousEtes,
+                    "UTMSource__c",           @utmS,
+                    "ClientID__c",            @clientId)
+            ENDIF
+            /* Le bookkeeping ne vaut que si la creation a REELLEMENT rendu un Id.
+               Sinon on journalisait « account cree » avec un RecordId vide. */
+            IF NOT Empty(@paId) THEN
+                SET @isNew = "true"
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "30 - account cree",
+                        "Statut", "OK",
+                        "Objet", "Account",
+                        "RecordId", @paId,
+                        "Detail", "creation avec RecordType person",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+
+                IF NOT Empty(@schoolAccId) THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId)
+                ENDIF
+                SET @rows = RetrieveSalesforceObjects("Account", "Id,PersonContactId", "Id", "=", @paId)
+                IF RowCount(@rows) > 0 THEN SET @paContactId = Field(Row(@rows,1), "PersonContactId") ENDIF
+            ENDIF
         ENDIF
 
         /* ---- Champs ECRITS A CHAQUE SOUMISSION (jamais fill-if-blank) ----
@@ -307,12 +1077,51 @@ IF @submitted == "true" THEN
             ELSE
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Application_Requested__c", "false")
             ENDIF
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "50 - drapeau candidature pose",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", Concat("formType=", @formType),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
         ENDIF
 
         /* ====================================================================
            ETAPE 2 — CONTACTPOINTCONSENT, un enregistrement par canal coche
-           Upsert sur (ParentId, Channel__c). Boucle sur 5 canaux plutot que
-           cinq blocs recopies.
+           ====================================================================
+           ⚠ MODELE CORRIGE le 2026-08-23. Le code precedent ecrivait
+           `ParentId`, qui N'EXISTE PAS sur cet objet : toutes les creations
+           echouaient en silence depuis le debut.
+
+           Modele reel, releve sur l'org :
+             ContactPointId        reference vers un ContactPointEmail
+                                   ou ContactPointPhone — PAS vers l'Account
+             Channel__c            REQUIS (sans lui la creation echoue,
+                                   quels que soient les autres champs)
+             PrivacyConsentStatus  "OptIn"
+             Status__c             "Opt-in" — les DEUX sont remplis sur les
+                                   2461 consentements existants, avec des
+                                   graphies differentes
+             DataUsePurposeId      vide partout, inutile
+
+           Le consentement se rattache donc a un POINT DE CONTACT, pas au
+           compte. Il faut le resoudre avant d'ecrire.
+
+           Un Person Account fraichement cree n'a AUCUN point de contact —
+           rien ne les fabrique cote CRM. Le socle les CREE donc au besoin,
+           juste avant la boucle. Le consentement d'un nouveau prospect est
+           ainsi enregistre comme celui d'un prospect connu.
+
+           Boucle sur 5 canaux plutot que cinq blocs recopies.
            ==================================================================== */
         IF NOT Empty(@paId) THEN
 
@@ -320,17 +1129,67 @@ IF @submitted == "true" THEN
             IF NOT Empty(@legalText)   THEN SET @preuve = Concat(@preuve, " — ", @legalText) ENDIF
             IF NOT Empty(@legalFooter) THEN SET @preuve = Concat(@preuve, " — ", @legalFooter) ENDIF
 
+            /* ---- POINTS DE CONTACT : RESOLUS, SINON CREES -----------------
+               Resolus UNE FOIS pour les 5 canaux : l'e-mail sert au canal Email
+               et aux cookies publicitaires, le telephone a Phone / SMS /
+               WhatsApp.
+
+               ⚠ Un Person Account fraichement cree n'a AUCUN point de contact :
+               rien ne les fabrique automatiquement cote CRM. Verifie sur
+               001AW00001yrTQbYAM, cree le 23/08 — trois jours plus tard,
+               toujours zero. Sans creation de notre part, les cases opt-in d'un
+               nouveau prospect ne sont donc PAS enregistrees : le formulaire
+               aboutit et l'information RGPD est perdue.
+
+               J'avais d'abord conclu que la creation nous etait refusee. C'etait
+               faux, et c'est la quatrieme fois que je tire cette conclusion trop
+               vite. Le seul champ fautif est `Name` : Salesforce le renseigne
+               lui-meme a partir de l'adresse — d'ou sa valeur egale a l'e-mail
+               sur les enregistrements reels — et l'envoyer, MEME AVEC LA BONNE
+               VALEUR, fait echouer l'insert.
+
+               Ne jamais poser `Name` ici. */
+            SET @cpEmail = ""
+            SET @cpPhone = ""
+
+            SET @rows = RetrieveSalesforceObjects("ContactPointEmail", "Id", "ParentId", "=", @paId)
+            IF RowCount(@rows) > 0 THEN
+                SET @cpEmail = Field(Row(@rows,1), "Id")
+            ELSEIF NOT Empty(@email) THEN
+                SET @cpEmail = CreateSalesforceObject("ContactPointEmail", 3,
+                    "ParentId",     @paId,
+                    "EmailAddress", @email,
+                    "IsPrimary",    "true")
+                SET @journal = Concat(@journal, " CP:email-cree")
+            ENDIF
+
+            SET @rows = RetrieveSalesforceObjects("ContactPointPhone", "Id", "ParentId", "=", @paId)
+            IF RowCount(@rows) > 0 THEN
+                SET @cpPhone = Field(Row(@rows,1), "Id")
+            ELSEIF NOT Empty(@mobile) THEN
+                SET @cpPhone = CreateSalesforceObject("ContactPointPhone", 3,
+                    "ParentId",        @paId,
+                    "TelephoneNumber", @mobile,
+                    "IsPrimary",       "true")
+                SET @journal = Concat(@journal, " CP:phone-cree")
+            ENDIF
+
             FOR @i = 1 TO 5 DO
                 IF @i == 1 THEN
-                    SET @canalParam = "HasOptedInEmail"       SET @canalValue = "Email"
+                    SET @canalParam = "HasOptedInEmail"
+                    SET @canalValue = "Email"
                 ELSEIF @i == 2 THEN
-                    SET @canalParam = "HasOptedInPhone"       SET @canalValue = "Phone"
+                    SET @canalParam = "HasOptedInPhone"
+                    SET @canalValue = "Phone"
                 ELSEIF @i == 3 THEN
-                    SET @canalParam = "HasOptedInSMS"         SET @canalValue = "SMS"
+                    SET @canalParam = "HasOptedInSMS"
+                    SET @canalValue = "SMS"
                 ELSEIF @i == 4 THEN
-                    SET @canalParam = "HasOptedInWhatsApp"    SET @canalValue = "WhatsApp"
+                    SET @canalParam = "HasOptedInWhatsApp"
+                    SET @canalValue = "WhatsApp"
                 ELSE
-                    SET @canalParam = "HasOptedInAdvertising" SET @canalValue = "Advertising Cookies"
+                    SET @canalParam = "HasOptedInAdvertising"
+                    SET @canalValue = "Advertising Cookies"
                 ENDIF
 
                 SET @coche = RequestParameter(@canalParam)
@@ -340,28 +1199,103 @@ IF @submitted == "true" THEN
                    n'est pas une preuve de refus. */
                 IF @coche == "1" OR Lowercase(@coche) == "true" OR Lowercase(@coche) == "on" THEN
 
-                    SET @rows = RetrieveSalesforceObjects("ContactPointConsent", "Id",
-                        "ParentId",   "=", @paId,
-                        "Channel__c", "=", @canalValue)
+                    /* Le point de contact a viser depend du canal. */
+                    IF @canalValue == "Phone" OR @canalValue == "SMS" OR @canalValue == "WhatsApp" THEN
+                        SET @cpId = @cpPhone
+                    ELSE
+                        SET @cpId = @cpEmail
+                    ENDIF
 
-                    IF RowCount(@rows) > 0 THEN
+                    IF Empty(@cpId) THEN
+                        SET @rows = ""
+                    ELSE
+                        SET @rows = RetrieveSalesforceObjects("ContactPointConsent", "Id",
+                            "ContactPointId", "=", @cpId,
+                            "Channel__c",     "=", @canalValue)
+                    ENDIF
+
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "58 - avant consentement",
+                            "Statut", "OK",
+                            "Objet", "ContactPointConsent",
+                            "RecordId", "",
+                            "Detail", Concat("canal=", @canalValue, " existant=", RowCount(@rows)),
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
+                    IF Empty(@cpId) THEN
+                        /* Aucun point de contact : on ne peut rien ecrire.
+                           On le journalise au lieu de tuer la page. */
+                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-contactpoint")
+                    ELSEIF RowCount(@rows) > 0 THEN
                         SET @cpcId = Field(Row(@rows,1), "Id")
                         /* Opt_In_Date__c et GDPR_Status__c : JAMAIS ecrits ici
-                           (poses par flow, avec des VR sans bypass). */
+                           (poses par flow, avec des VR sans bypass).
+                           Les deux champs de statut ont des graphies
+                           differentes sur l'org : "OptIn" et "Opt-in". */
                         SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                            "Status__c", "OptIn")
+                            "PrivacyConsentStatus", "OptIn")
+                        SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                            "Status__c", "Opt-in")
                         SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                             "Legal_Texte_Accepted__c", @preuve)
                     ELSE
-                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 6,
-                            "ParentId",                @paId,
+                        /* ⚠ `Name` est REQUIS sur cet objet, et son absence
+                           etait un BUG : le socle ne l'envoyait pas, donc aucun
+                           consentement ne se creait. Piege d'autant plus vicieux
+                           que le meme champ se comporte a l'INVERSE sur le point
+                           de contact : `ContactPointEmail.Name` est calcule par
+                           Salesforce et l'envoyer fait echouer l'insert. Deux
+                           objets voisins, deux regles opposees.
+
+                           ⚠ GDPR_Status__c : demande par les 6 onglets du
+                           mapping v4, mais NON ECRIT. Le champ est vide sur
+                           tous les consentements de l'org : aucune valeur de
+                           reference. J'y avais mis "OptIn" par analogie — une
+                           valeur de picklist inventee, qui tuait la page.
+                           Meme prudence que pour Nature__c et AccountSource :
+                           on n'ecrit pas ce qu'on ne sait pas remplir.
+                           A demander au CRM.
+
+                           ⚠ Opt_In_Date__c est marque ✅ dans les onglets mais
+                           ⛔ dans l'en-tete du contrat (« poses par flow, VR
+                           SANS bypass — ne pas les ecrire »). Contradiction
+                           interne au document : on suit l'en-tete, plus recent
+                           et plus explicite. A faire trancher. */
+                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
+                            "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
-                            "Status__c",               "OptIn",
+                            "Name",                    Concat("Consent ", @canalValue, " - ", @email),
+                            "PrivacyConsentStatus",    "OptIn",
+                            "Status__c",               "Opt-in",
                             "CaptureSource",           "SFMC CloudPage",
                             "Legal_Texte_Accepted__c", @preuve,
                             "BusinessBrandId",         @brandId)
                     ENDIF
                     SET @journal = Concat(@journal, " CPC:", @canalValue)
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "60 - consentement",
+                            "Statut", "OK",
+                            "Objet", "ContactPointConsent",
+                            "RecordId", @cpcId,
+                            "Detail", Concat("canal=", @canalValue),
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
                 ENDIF
             NEXT @i
         ENDIF
@@ -408,14 +1342,48 @@ IF @submitted == "true" THEN
             IF RowCount(@rows) > 0 THEN
                 SET @cmId = Field(Row(@rows,1), "Id")
                 SET @journal = Concat(@journal, " CM:existant")
-                /* Interaction repetee : historisee dans un objet dedie plutot
-                   que par un second CampaignMember. */
-                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 3,
-                    "CampaignMember__c", @cmId,
-                    "SourceSystem__c",   "SFMC",
-                    "Information__c",    RequestParameter("NomFormulaire"))
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "70 - campaignmember existant",
+                        "Statut", "IGNORE",
+                        "Objet", "CampaignMember",
+                        "RecordId", @cmId,
+                        "Detail", "interaction historisee",
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+                /* ---- INTERACTION REPETEE ---------------------------------
+                   L'unicite Campagne x Person Account interdit un second
+                   CampaignMember : la soumission suivante est historisee ici.
+
+                   ⚠ CORRIGE le 2026-08-24. Le socle ecrivait "CampaignMember__c",
+                   qui N'EXISTE PAS sur l'objet : toutes les interactions
+                   echouaient en silence, exactement comme ParentId sur le
+                   consentement. Les vrais champs sont CampaignMemberId__c
+                   (texte) et CampaignMemberLink__c (lookup).
+
+                   Les 9 champs de tracking existent deja sur l'objet et
+                   n'etaient pas alimentes. Le layout « Formulaire » de l'US
+                   « Interaction » les attend tous.
+
+                   ⚠ A ANTICIPER : l'US de generalisation renomme l'objet en
+                   `Interaction__c`, ajoute 4 record types par canal (il faudra
+                   envoyer celui du Formulaire), un Status__c restreint a
+                   « Soumis » pour les formulaires, et deux champs Preview__c /
+                   Context__c. Le document precise que le renommage doit
+                   intervenir AVANT le branchement des connecteurs — or nous
+                   sommes deja branches. */
             ELSE
-                SET @cmId = CreateSalesforceObject("CampaignMember", 9,
+                /* Les 4 derniers champs etaient COLLECTES par le formulaire
+                   mais jamais ecrits : ecart releve le 2026-08-24 contre le
+                   mapping v4. Tous verifies presents sur CampaignMember. */
+                SET @cmId = CreateSalesforceObject("CampaignMember", 13,
                     "CampaignId",             @campaignId,
                     "ContactId",              @paContactId,
                     "UTM_Source__c",          @utmS,
@@ -423,9 +1391,76 @@ IF @submitted == "true" THEN
                     "UTM_Campaign__c",        @utmC,
                     "UTM_Content__c",         @utmCo,
                     "UTM_Term__c",            @utmT,
+                    "UTM_Id__c",              @utmI,
+                    "gclid__c",               @gclid,
+                    "fbclid__c",              @fbclid,
+                    "Client_ID__c",           @clientId,
                     "AcquisitionChannel__c",  @canal,
                     "AcquisitionSubChannel__c", @sousCanal)
                 SET @journal = Concat(@journal, " CM:cree")
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "70 - campaignmember cree",
+                        "Statut", "OK",
+                        "Objet", "CampaignMember",
+                        "RecordId", @cmId,
+                        "Detail", @campaignId,
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+            ENDIF
+
+            /* ---- UNE INTERACTION PAR SOUMISSION -------------------------
+               Arbitrage du 2026-08-24 : « chaque interaction compte ». On
+               historise DONC a chaque soumission, pas seulement aux
+               repetitions comme le prevoyait le contrat v4 (etape 3c, « si
+               interaction repetee »).
+
+               La raison : l'US de generalisation de l'objet veut
+               « l'historique complet des interactions quel que soit le
+               canal ». N'ecrire que les repetitions rendait la PREMIERE
+               soumission invisible dans l'historique du prospect — le
+               CampaignMember la porte, mais il ne vit pas dans la meme
+               chronologie et ne porte pas de canal.
+
+               Pose ici, apres la resolution du CampaignMember, donc valable
+               pour les deux branches : membre trouve comme membre cree.
+
+               ⚠ Toujours neutralise par @INTERACTION_ACTIVE : l'objet refuse
+               la creation a l'utilisateur d'integration. Cf. l'en-tete. */
+            IF @INTERACTION_ACTIVE != "true" THEN
+                SET @journal = Concat(@journal, " INTERACTION:desactivee")
+            ELSEIF NOT Empty(@cmId) THEN
+                /* ⚠ PAS de CampaignMemberLink__c : ce champ fait echouer
+                   l'insert a lui seul, quelles que soient les autres valeurs.
+                   Le lien vers le membre passe par CampaignMemberId__c, en
+                   TEXTE, qui lui est accepte. */
+                /* ⚠ NI CampaignMemberLink__c NI InteractionDate__c : chacun
+                   fait echouer l'insert a lui seul. Le lien vers le membre
+                   passe par CampaignMemberId__c, en texte ; la date est posee
+                   par Salesforce. */
+                SET @n = CreateSalesforceObject("CampaignMemberInteraction__c", 14,
+                    "Campaign__c",           @campaignId,
+                    "PersonAccount__c",      @paId,
+                    "CampaignMemberId__c",   @cmId,
+                    "SourceSystem__c",       "SFMC",
+                    "Information__c",        RequestParameter("NomFormulaire"),
+                    "UTM_Source__c",         @utmS,
+                    "UTM_Medium__c",         @utmM,
+                    "UTM_Campaign__c",       @utmC,
+                    "UTM_Content__c",        @utmCo,
+                    "UTM_Term__c",           @utmT,
+                    "UTM_Id__c",             @utmI,
+                    "gclid__c",              @gclid,
+                    "fbclid__c",             @fbclid,
+                    "Client_ID__c",          @clientId)
+                SET @journal = Concat(@journal, " INTERACTION:creee")
             ENDIF
         ENDIF
 
@@ -444,14 +1479,48 @@ IF @submitted == "true" THEN
                 SET @sfStatus = "error"
                 SET @sfErrorMsg = "Inscription evenement sans InstanceId : aucune date choisie."
             ELSE
+                /* ---- IDEMPOTENCE DE L'INSCRIPTION --------------------------
+                   La cle metier est la paire PERSONNE + DATE : l'e-mail seul ne
+                   suffit pas, la meme personne peut legitimement s'inscrire a
+                   plusieurs dates du meme evenement.
+
+                   ⚠ On interroge les DEUX CHAMPS DE LIAISON, pas `externalId__c`.
+                   Ce dernier est vide sur les 1212 inscriptions de l'org
+                   (releve le 2026-08-23) : le package ne l'alimente pas. Chercher
+                   dessus ne voyait que NOS propres inscriptions, donc une
+                   personne deja inscrite par le CRM ou par le site Summit etait
+                   reinscrite en double. Et l'org ACCEPTE les doublons — verifie :
+                   le meme contact s'est inscrit deux fois de suite sans erreur.
+                   Un double-clic suffisait donc a compter deux inscrits.
+
+                   `externalId__c` reste ecrit a la creation, pour la tracabilite
+                   de ce qui vient de nous. Il n'est simplement plus la cle. */
                 SET @extId = Concat(@paContactId, "-", @instanceId)
 
                 SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Registration__c",
-                    "Id", "externalId__c", "=", @extId)
+                    "Id",
+                    "summit__Contact__c",        "=", @paContactId,
+                    "summit__Event_Instance__c", "=", @instanceId)
 
                 IF RowCount(@rows) > 0 THEN
                     SET @regId = Field(Row(@rows,1), "Id")
                     SET @journal = Concat(@journal, " REG:existante(", @typeEvt, ")")
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "80 - registration existante",
+                            "Statut", "IGNORE",
+                            "Objet", "summit Registration",
+                            "RecordId", @regId,
+                            "Detail", @extId,
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
 
                     /* ANTI-ECHO — en update on ne renvoie NI summit__Status__c
                        (il porte la presence pointee le jour J, l'ecraser la
@@ -465,7 +1534,12 @@ IF @submitted == "true" THEN
                     ENDIF
                 ELSE
                     /* A la CREATION seulement, les deux statuts sont poses. */
-                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 10,
+                    /* Les 4 derniers champs etaient demandes par les 6
+                       onglets du mapping v4 et n'etaient pas ecrits. Tous
+                       verifies presents sur l'objet.
+                       Pas de fbclid ici : le package Summit ne fournit que
+                       summit__gclid__c, et le mapping le note explicitement. */
+                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 14,
                         "externalId__c",             @extId,
                         "summit__Event_Instance__c", @instanceId,
                         "summit__Contact__c",        @paContactId,
@@ -474,9 +1548,29 @@ IF @submitted == "true" THEN
                         "summit__utm_source__c",     @utmS,
                         "summit__utm_medium__c",     @utmM,
                         "summit__utm_campaign__c",   @utmC,
+                        "summit__utm_content__c",    @utmCo,
+                        "summit__utm_term__c",       @utmT,
+                        "summit__utm_id__c",         @utmI,
+                        "summit__gclid__c",          @gclid,
                         "AcquisitionChannel__c",     @canal,
                         "AcquisitionSubChannel__c",  @sousCanal)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "80 - registration creee",
+                            "Statut", "OK",
+                            "Objet", "summit Registration",
+                            "RecordId", @regId,
+                            "Detail", @extId,
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
                 ENDIF
 
                 /* ---- Ateliers coches -------------------------------------
@@ -506,6 +1600,22 @@ IF @submitted == "true" THEN
                                     "summit__Event_Registration__c",     @regId,
                                     "summit__Event_Appointment_Type__c", @apptType)
                                 SET @journal = Concat(@journal, " APPT:+")
+                                IF @LOG_ACTIF == "true" THEN
+                                    SET @logOrdre = Add(@logOrdre, 1)
+                                    InsertData("LPB_Log_Soumissions",
+                                        "RowId", Concat(@runId, "-", @logOrdre),
+                                        "RunId", @runId,
+                                        "Ordre", @logOrdre,
+                                        "Horodatage", Now(),
+                                        "Etape", "90 - atelier ajoute",
+                                        "Statut", "OK",
+                                        "Objet", "summit Appointments",
+                                        "RecordId", @apptType,
+                                        "Detail", "1 atelier",
+                                        "Email", @email,
+                                        "Ecole", @ecole,
+                                        "FormType", @formType)
+                                ENDIF
                             ENDIF
                         ENDIF
                     NEXT @i
@@ -514,6 +1624,22 @@ IF @submitted == "true" THEN
         ENDIF
 
         IF Empty(@sfStatus) THEN SET @sfStatus = "success" ENDIF
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "99 - fin",
+                "Statut", @sfStatus,
+                "Objet", "-",
+                "RecordId", @paId,
+                "Detail", Concat("journal=", @journal),
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
     ENDIF
     ENDIF   /* fin du garde-fou : rien n'est ecrit si @sfStatus == "blocked" */
 ENDIF
@@ -548,11 +1674,14 @@ ENDIF
       <b>Succ&egrave;s.</b><br>
       Person Account : <code>%%=v(@paId)=%%</code> %%[IF @isNew == "true" THEN]%%(cr&eacute;&eacute;)%%[ELSE]%%(existant, compl&eacute;t&eacute;)%%[ENDIF]%%<br>
       PersonContactId : <code>%%=v(@paContactId)=%%</code><br>
-      Journal : <code>%%=v(@journal)=%%</code>
+      Journal : <code>%%=v(@journal)=%%</code><br>
+      RunId : <code>%%=v(@runId)=%%</code>
+      <span style="opacity:.8;font-size:12px">&mdash; a reporter dans la requete de lecture du log</span>
     </div>
   %%[ ELSE ]%%
     <div style="background:#7f1d1d;color:#fff;padding:14px 18px;border-radius:8px;margin-bottom:18px">
-      <b>&Eacute;chec.</b> %%=v(@sfErrorMsg)=%%
+      <b>&Eacute;chec.</b> %%=v(@sfErrorMsg)=%%<br>
+      RunId : <code>%%=v(@runId)=%%</code>
     </div>
   %%[ ENDIF ]%%
 %%[ ENDIF ]%%
@@ -623,19 +1752,34 @@ NEXT @tI
   <fieldset style="border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px">
     <legend style="font-weight:700">Identit&eacute;</legend>
     <p>E-mail (cl&eacute; de d&eacute;doublonnage)<br>
-       <input name="EmailAddress" value="test.socle+01@example.com" size="42" required></p>
-    <p>Nom <input name="LastName" value="TEST-SOCLE">
-       &nbsp; Pr&eacute;nom <input name="FirstName" value="Anouar"></p>
+       <input name="EmailAddress" value="phase1.a@example.invalid" size="42" required></p>
+    <p>Nom <input name="LastName" value="PHASE1" required>
+       &nbsp; Pr&eacute;nom <input name="FirstName" value="Alpha" required></p>
+    <p style="color:#b91c1c;font-size:13px">Le pr&eacute;nom est OBLIGATOIRE :
+       la r&egrave;gle <code>VR_PersonAccount_NameMandatory</code> refuse la
+       cr&eacute;ation d'un Person Account sans <code>FirstName</code>.</p>
     <p>Pays <input name="Country" value="France">
-       &nbsp; Indicatif <input name="Indicatif" value="+33" size="6">
+       &nbsp; Indicatif <input name="Indicatif" value="33" size="6">
        &nbsp; Mobile <input name="MobilePhone" value="612345678" size="12"></p>
-    <p>Niveau <input name="StudyLevel" value="Bac+3">
+    <p>Niveau <input name="StudyLevel" value="BAC+3">
        &nbsp; Vous &ecirc;tes <input name="VousEtes" value="Student"></p>
+    <p style="color:#777;font-size:13px">Valeurs relev&eacute;es sur l'org &mdash; toute autre
+       valeur est ignor&eacute;e en silence par Salesforce :<br>
+       <code>Indicatif</code> : <b>33</b> (et non +33) &middot;
+       <code>Niveau</code> : <b>BAC+3</b>, BAC+1, BAC+2, Terminale, Coll&egrave;ge
+       (majuscules ; <i>Bac obtenu</i> n'existe PAS sur Account) &middot;
+       <code>Vous &ecirc;tes</code> : Student, Parent, EDH Student, Career Change &middot;
+       <code>Pays</code> : France, Afghanistan (<i>Maroc</i> n'existe pas)</p>
   </fieldset>
 
   <fieldset style="border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px">
     <legend style="font-weight:700">Contexte</legend>
     <p>&Eacute;cole (<code>Marque</code>) <input name="Marque" value="efap" size="14"></p>
+    <p>Campus <input name="Campus" value="EFAP PARIS" size="24">
+       <span style="color:#777;font-size:13px">&mdash; le LIBELLE COMPLET, tel que
+       la cascade l'envoie. Il sert a resoudre <code>Ecole__c</code> : le socle
+       cherche le compte <code>EDH School</code> portant exactement ce nom.
+       Vide = <code>Ecole__c</code> non renseigne.</span></p>
     <p>Type de formulaire
       <select name="TypeFormulaire">
         <option value="brochure">brochure &mdash; CampaignMember</option>
@@ -643,7 +1787,20 @@ NEXT @tI
         <option value="evenement">evenement &mdash; Summit Registration (JPO / Atelier / Stage)</option>
         <option value="immersion">immersion &mdash; Summit Registration (decision v4 du 02/07)</option>
       </select></p>
-    <p>Nom du formulaire <input name="NomFormulaire" value="TEST socle ecriture" size="30"></p>
+    <p>Nom du formulaire <input name="NomFormulaire" value="T1 creation" size="30"></p>
+
+    <p style="background:#fef3c7;padding:10px 14px;border-radius:6px">
+      <b>Bissection de la cr&eacute;ation</b> &mdash; outil de diagnostic temporaire.<br>
+      <select name="TestCreateMode">
+        <option value="">normal &mdash; 12 champs (celui qui &eacute;choue)</option>
+        <option value="min">min &mdash; RecordTypeId + LastName + PersonEmail</option>
+        <option value="identite">identite &mdash; min + pr&eacute;nom, pays, indicatif, mobile</option>
+        <option value="qualif">qualif &mdash; identite + niveau, vous &ecirc;tes</option>
+        <option value="sansrt">sansRT &mdash; LastName + PersonEmail, SANS RecordTypeId</option>
+      </select><br>
+      <span style="font-size:13px;color:#78350f">Changer d'e-mail &agrave; chaque essai : un compte
+      cr&eacute;&eacute; ferait passer l'essai suivant en mise &agrave; jour.<br>
+      <b>sansRT</b> cr&eacute;e un compte ENTREPRISE &mdash; &agrave; supprimer apr&egrave;s.</span></p>
     <p style="color:#777;font-size:13px">Laisser vide ce qui ne s'applique pas :
        sans <code>CampaignId</code> aucun CampaignMember n'est &eacute;crit,
        sans <code>InstanceId</code> aucune Registration.</p>
