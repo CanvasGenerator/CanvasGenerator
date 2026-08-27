@@ -855,3 +855,30 @@ anglais. Et `summit__Event__c` vide, comme `CampaignMember__c` inexistant :
 un champ que le socle ne posait pas et dont l'absence ne se voyait qu'au
 maillon suivant. La sonde de lecture avant ecriture n'est pas une precaution,
 c'est la methode.
+
+## Les 40 campagnes du mapping restent inactives - et ce n'est PAS bloquant
+
+Releve du 27 aout : 10 campagnes actives sur l'org, 4702 inactives. AUCUNE des
+10 actives n'appartient a la plage `701AW00001wNcs*` du mapping ; les deux
+extremites du mapping, `701AW00001wNcsIYAS` et `701AW00001wNcsxYAC`, sont
+lues a `IsActive = false`. Les 40 sont donc toujours desactivees.
+
+⚠ Correction d'une affirmation precedente : je les avais qualifiees de
+bloquantes. Elles ne le sont pas. `IsActive` n'interdit PAS la creation d'un
+CampaignMember par le connecteur, et le socle ne consulte pas ce champ. Tous
+les tests d'ecriture de ces deux jours se sont faits sur des campagnes
+inactives, y compris la resolution automatique depuis la DE :
+
+    Marque=efap TypeFormulaire=brochure Country=France sans CampaignId
+      -> CAMP:brochure|efap|FR ... CM:cree
+
+    Marque=icart TypeFormulaire=candidature Country=Spain sans CampaignId
+      -> CAMP:candidature|icart|Intl ... CM:cree
+
+La colonne `Actif` de `LPB_Mapping_Campagnes` est NOTRE interrupteur, sans
+rapport avec `Campaign.IsActive` cote Salesforce. Les 40 lignes y sont a True,
+donc le socle resout et rattache normalement.
+
+Ce qui reste vrai : une campagne inactive ne remonte pas dans le reporting
+Marketing et n'alimente pas les parcours. L'activation est un sujet
+fonctionnel, pas une dependance technique de l'integration.
