@@ -785,3 +785,100 @@ et non du champ ni de l'enregistrement.
 Le membre de campagne n'est pas duplique. Le consentement et l'interaction le
 sont a chaque soumission, et c'est voulu : « chaque interaction compte », et un
 consentement est une trace, pas un etat.
+
+## 27 aout 2026 - la donnee du CRM est arrivee, deux refus de plus leves
+
+Le responsable data a livre 5 instances Immersion, 3 candidatures temoins
+(2 Rejected, 1 Withdrawn / Abandoned) et 42 types d'atelier sur 14 evenements.
+Tout est LISIBLE par le connecteur : verifie un par un avec
+`LPB_TST_Sonde_Valeurs`, les 5 instances repondent aux Ids du fichier, les 2
+nouvelles candidatures refusees apparaissent parmi 7, et l'evenement Atelier
+EFAP 26-27 porte bien ses 3 types.
+
+Cette donnee a permis d'atteindre pour la premiere fois le bout des chemins
+evenement, ou deux refus attendaient.
+
+### summit__Status__c est en anglais
+
+Valeurs presentes sur les 1210 inscriptions : `Registered`, `Confirmed`,
+`Attended`, `No-Show`, `Started`, `Registered Present`. Le socle ecrivait
+`Inscrit`, hors picklist, donc refuse — et le refus tuait la page a chaque
+inscription evenement. Corrige en `Registered`.
+
+`actionNameStatus__c` est libre en revanche : les donnees contiennent
+`inscrit`, `checkin`, et meme `Test2Ewen`. `Origin` y passe.
+
+### summit__Event__c doit etre pose a la main sur l'inscription
+
+C'est le refus le plus couteux a trouver. Une inscription creee par le
+connecteur avec seulement `summit__Event_Instance__c` s'enregistre tres bien,
+mais refuse ENSUITE tout creneau d'atelier : le creneau valide le type contre
+l'evenement du parent, et la comparaison echoue sur un champ vide. Le package
+Summit renseigne `summit__Event__c` par trigger depuis son propre ecran ; il ne
+le fait pas pour un insert du connecteur.
+
+La bissection, parce qu'elle a ecarte trois fausses pistes :
+
+| Essai | Resultat |
+|---|---|
+| notre inscription + type de son propre evenement | refuse |
+| notre inscription + type d'un autre evenement | refuse |
+| notre inscription sans `summit__Status__c` | refuse |
+| ancienne inscription + son type | OK |
+| ancienne inscription + un des 42 nouveaux types du CRM | **OK** |
+
+Ce n'etaient donc ni les types crees par le CRM, ni l'instance, ni le statut.
+La seule inscription de l'org portant un creneau (`a0AAW00000CuXgk2AF`) avait
+`summit__Event__c` rempli ; toutes les notres l'avaient vide.
+
+Le socle resout maintenant l'evenement depuis l'instance avant de creer
+l'inscription. Un appel de lecture de plus, mais aucune dependance au
+formulaire.
+
+### Etat des 6 formulaires apres ces corrections
+
+    brochure    : CP:email-cree CPC:Email CM:cree INTERACTION:creee-Interaction__c
+    candidature : idem, et les 3 scenarios de regle se comportent comme prevu
+                  refusee   -> statut=blocked BLOQUE:1candidature(s)
+                  abandonnee-> CAND:abandon-ignore puis passage normal
+                  sans passe-> creation normale
+    JPO         : REG:creee(JPO) APPT:+
+    atelier     : REG:creee(Atelier) APPT:+ APPT:+
+    immersion   : REG:creee(Immersion)
+    stage       : meme chemin que JPO
+
+### Encore une fois le meme piege
+
+`Inscrit` au lieu de `Registered`, comme `brochure` au lieu de `Form` la
+veille : une valeur francaise ecrite dans un champ dont la picklist est en
+anglais. Et `summit__Event__c` vide, comme `CampaignMember__c` inexistant :
+un champ que le socle ne posait pas et dont l'absence ne se voyait qu'au
+maillon suivant. La sonde de lecture avant ecriture n'est pas une precaution,
+c'est la methode.
+
+## Les 40 campagnes du mapping restent inactives - et ce n'est PAS bloquant
+
+Releve du 27 aout : 10 campagnes actives sur l'org, 4702 inactives. AUCUNE des
+10 actives n'appartient a la plage `701AW00001wNcs*` du mapping ; les deux
+extremites du mapping, `701AW00001wNcsIYAS` et `701AW00001wNcsxYAC`, sont
+lues a `IsActive = false`. Les 40 sont donc toujours desactivees.
+
+⚠ Correction d'une affirmation precedente : je les avais qualifiees de
+bloquantes. Elles ne le sont pas. `IsActive` n'interdit PAS la creation d'un
+CampaignMember par le connecteur, et le socle ne consulte pas ce champ. Tous
+les tests d'ecriture de ces deux jours se sont faits sur des campagnes
+inactives, y compris la resolution automatique depuis la DE :
+
+    Marque=efap TypeFormulaire=brochure Country=France sans CampaignId
+      -> CAMP:brochure|efap|FR ... CM:cree
+
+    Marque=icart TypeFormulaire=candidature Country=Spain sans CampaignId
+      -> CAMP:candidature|icart|Intl ... CM:cree
+
+La colonne `Actif` de `LPB_Mapping_Campagnes` est NOTRE interrupteur, sans
+rapport avec `Campaign.IsActive` cote Salesforce. Les 40 lignes y sont a True,
+donc le socle resout et rattache normalement.
+
+Ce qui reste vrai : une campagne inactive ne remonte pas dans le reporting
+Marketing et n'alimente pas les parcours. L'activation est un sujet
+fonctionnel, pas une dependance technique de l'integration.
