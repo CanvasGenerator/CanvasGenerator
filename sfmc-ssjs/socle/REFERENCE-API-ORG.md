@@ -882,3 +882,64 @@ donc le socle resout et rattache normalement.
 Ce qui reste vrai : une campagne inactive ne remonte pas dans le reporting
 Marketing et n'alimente pas les parcours. L'activation est un sujet
 fonctionnel, pas une dependance technique de l'integration.
+
+## 27 aout, fin de journee - tri des listes, et deux refus nouveaux
+
+### Ordre d'affichage
+
+Salesforce rend les valeurs de picklist dans l'ordre du value set, qui n'est ni
+alphabetique ni numerique : les 201 indicatifs arrivaient en 509, 256, 379,
+240... Le JS de cascade trie desormais avant de remplir le <select> :
+
+  - `Indicatif` : tri NUMERIQUE. Un tri texte mettrait 1 avant 212 mais aussi
+    33 apres 212. Resultat : 1, 7, 20, 27, 30, 31, 32, 33, 34, 36...
+  - `Country` et `Campus` : tri ALPHABETIQUE avec `localeCompare(..., 'fr')`,
+    pour qu'Egypte passe avant Emirats. Resultat : Afghanistan, Afrique du Sud,
+    Albanie, Algerie, Allemagne, Andorre, Angleterre...
+  - `StudyLevel` : PAS trie, volontairement. Son ordre est pedagogique
+    (College, Seconde, Premiere, Terminale...) et l'alphabet le detruirait.
+
+196 pays et 201 indicatifs, valeur en anglais et libelle en francais :
+`Spain -> Espagne`, `Morocco -> Maroc`, `33 -> +33 (France)`. C'est la valeur
+qui part au CRM, donc `LivingCountry__c` reste bien en anglais.
+
+### BusinessBrandId est devenu refuse sur le consentement
+
+Le champ etait envoye et accepte le matin meme ; l'apres-midi il fait echouer
+l'insert, et ce refus tuait la page a CHAQUE soumission des 6 formulaires.
+
+Bissection avec `LPB_TST_Sonde_CPC` : les 8 autres champs passent, l'ajout du
+seul `BusinessBrandId` fait echouer, avec EFAP (`1BUAW0000000QNX4A2`) comme
+avec BRASSART (`1BUAW0000000QNY4A2`) — deux Ids valides, lus sur l'org — et que
+`GDPR_Status__c` soit present ou non. Ce n'est donc ni la valeur ni une
+combinaison : c'est le champ. Retire du socle.
+
+### `Legal_Texte_Accepted__c` est REQUIS
+
+Meme bissection : sans lui l'insert echoue, avec lui il passe. `@preuve` vaut au
+minimum `[v1]`, donc le socle ne risque rien. A savoir si un jour on est tente
+de ne l'ecrire que quand le formulaire fournit un texte.
+
+### ⚠ NON RESOLU : consentement refuse sur les points de contact recents
+
+Apres retrait de `BusinessBrandId`, le socle echoue TOUJOURS a la creation du
+consentement. La sonde, elle, passe avec exactement les memes 8 champs. La
+seule difference restante est le point de contact vise :
+
+| ContactPointEmail | Cree le | Consentement aujourd'hui |
+|---|---|---|
+| `9VlAW000000IIT70AO` | 26/08 | OK |
+| `9VlAW000000IOtV0AW` | 27/08 02h41 | REFUSE |
+| `9VlAW000000Ia530AC` | 27/08 16h01 | REFUSE |
+| `9VlAW000000IaBV0A0` | 27/08 16h06 | REFUSE |
+
+Le plus parlant : `9VlAW000000IOtV0AW` a RECU un consentement a 02h41 sans
+difficulte, et le refuse a 16h. Ce n'est donc pas un etat fige a la creation,
+c'est un changement survenu cote CRM dans la journee.
+
+Ni les champs, ni les valeurs, ni la longueur du `Name` (76 caracteres teste),
+ni le tiret cadratin de `@preuve` ne sont en cause : tous verifies un par un.
+
+A faire trancher cote CRM : quelle regle de validation, quel flow ou quelle
+regle de doublon a ete deployee le 27/08 sur `ContactPointConsent`. Sans elle
+les 6 formulaires sont a l'arret.

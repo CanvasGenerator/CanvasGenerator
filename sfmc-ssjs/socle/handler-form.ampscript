@@ -1389,7 +1389,25 @@ IF @submitted == "true" THEN
                            SANS bypass — ne pas les ecrire »). Contradiction
                            interne au document : on suit l'en-tete, plus recent
                            et plus explicite. A faire trancher. */
-                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                        /* ⚠ PAS de BusinessBrandId. Le champ etait envoye et
+                           accepte jusqu'au 27/08 dans la journee ; il est
+                           devenu REFUSE le meme jour, et son refus tuait la
+                           page a CHAQUE soumission des 6 formulaires.
+
+                           Mesure a la bissection (LPB_TST_Sonde_CPC) : les 8
+                           autres champs passent, l'ajout du seul
+                           BusinessBrandId fait echouer l'insert, avec EFAP
+                           comme avec BRASSART, et que GDPR_Status__c soit
+                           present ou non. Ce ne sont donc ni la valeur ni une
+                           combinaison : c'est le champ.
+
+                           La marque reste deductible du compte parent. On la
+                           resout toujours dans @brandId, pour le journal.
+
+                           ⚠ Legal_Texte_Accepted__c est en revanche REQUIS :
+                           sans lui l'insert echoue aussi. @preuve vaut au
+                           minimum "[v1]", donc il n'est jamais vide. */
+                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
                             "ContactPointId",          @cpId,
                             "Channel__c",              @canalValue,
                             "Name",                    Concat("Consent ", @canalValue, " - ", @email,
@@ -1398,8 +1416,7 @@ IF @submitted == "true" THEN
                             "Status__c",               "Opt-in",
                             "GDPR_Status__c",          "Marketing active",
                             "CaptureSource",           "SFMC CloudPage",
-                            "Legal_Texte_Accepted__c", @preuve,
-                            "BusinessBrandId",         @brandId)
+                            "Legal_Texte_Accepted__c", @preuve)
                     ENDIF
                     SET @journal = Concat(@journal, " CPC:", @canalValue)
                     IF @LOG_ACTIF == "true" THEN

@@ -247,6 +247,52 @@ try {
 
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
+    /**
+     * Ordre d'affichage d'une liste.
+     *
+     * Salesforce rend les valeurs de picklist dans l'ordre du value set, qui
+     * n'est ni alphabetique ni numerique : les 201 indicatifs arrivent par
+     * exemple en 992, 379, 387, 243... Illisible dans un <select>.
+     *
+     * Deux tris, parce que deux natures de donnees :
+     *   - Indicatif : NUMERIQUE. Un tri alphabetique mettrait 1 avant 212,
+     *     mais aussi 33 apres 212 ; on compare donc les nombres.
+     *   - le reste  : ALPHABETIQUE, avec localeCompare pour que Egypte passe
+     *     avant Emirats et Etats-Unis, ce qu'un tri par code ne fait pas.
+     *
+     * Les niveaux d'etudes ne sont volontairement PAS tries : leur ordre
+     * naturel est pedagogique (College, Seconde, Premiere, Terminale...) et
+     * l'alphabet le detruirait. Le socle a deja son propre classement pour
+     * eux, via `ordre`.
+     */
+    function trier(name, options) {
+        if (!options || options.length < 2) return options;
+        var copie = options.slice();
+
+        if (name === 'Indicatif') {
+            copie.sort(function (a, b) {
+                var na = parseInt(a.value, 10);
+                var nb = parseInt(b.value, 10);
+                if (isNaN(na) && isNaN(nb)) return 0;
+                if (isNaN(na)) return 1;
+                if (isNaN(nb)) return -1;
+                return na - nb;
+            });
+            return copie;
+        }
+
+        if (name === 'Country' || name === 'Campus') {
+            copie.sort(function (a, b) {
+                var la = a.label || a.value;
+                var lb = b.label || b.value;
+                return String(la).localeCompare(String(lb), 'fr', { sensitivity: 'base' });
+            });
+            return copie;
+        }
+
+        return options;
+    }
+
     /** Remplit un <select> en conservant sa 1re option (le placeholder). */
     function remplir(name, options, valeurCourante) {
         var el = champ(name);
@@ -257,6 +303,8 @@ try {
         // servent de repli, et un champ obligatoire ne se retrouve jamais vide
         // ni desactive a cause d'un value set introuvable cote org.
         if (!options || !options.length) return el;
+
+        options = trier(name, options);
 
         var placeholder = el.querySelector('option[value=""]');
         el.innerHTML = '';
