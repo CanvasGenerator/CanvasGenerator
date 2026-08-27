@@ -165,7 +165,10 @@ export default function (editor, categories) {
 .pc-phone-wrap { display: flex; gap: 8px; }
 .pc-phone-prefix-wrap {
     position: relative;
-    width: 92px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 .pc-phone-prefix-wrap::after {
@@ -294,14 +297,14 @@ export default function (editor, categories) {
                 <label class="pc-label">${t.mobile}<span class="req">*</span></label>
                 <div class="pc-phone-wrap">
                     <div class="pc-phone-prefix-wrap">
-                        <select class="pc-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="pc-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="pc-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -498,10 +501,16 @@ export default function (editor, categories) {
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.pc-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (raw && !raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
