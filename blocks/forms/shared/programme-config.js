@@ -95,8 +95,108 @@ export function isProgrammeSchool(school) {
  */
 export function getProgrammes(level, campus, lang = 'fr') {
     if (!level) return [];
+
+    const duCrm = programmesDuSocle(level, campus);
+    if (duCrm) return duCrm;
+
     const byCampus = (PROGRAMMES_BY_CAMPUS[lang] || {})[campus];
     if (byCampus && byCampus[level]) return byCampus[level];
     const def = PROGRAMMES_DEFAULT[lang] || PROGRAMMES_DEFAULT.fr;
     return def[level] || [];
+}
+
+/**
+ * Les VRAIS programmes, lus dans window.SOCLE_DATA que la CloudPage publie.
+ *
+ * Pourquoi cette source d'abord : les données statiques ci-dessus sont des
+ * données de TEST, et leurs clés sont en minuscules ('bac+3'). En page
+ * publiée, le socle remplace les options de StudyLevel par le value set du
+ * CRM, qui écrit 'BAC+3'. La correspondance échouait donc toujours, et le
+ * champ « Programme souhaité » restait masqué : dynamique dans le builder,
+ * jamais en production.
+ *
+ * Ici les deux côtés viennent du même value set Salesforce
+ * (Account.Academic_Level_List__c d'un côté, LearningProgram de l'autre),
+ * donc la comparaison est exacte. Idem pour le campus, où le socle et
+ * `campusNameFor__c` disent tous deux « EFAP PARIS ».
+ *
+ * Le socle a déjà filtré la liste : programmes de l'école courante, et pour
+ * le formulaire de candidature uniquement ceux qui ont une session de
+ * candidature ouverte (PTAT). Rien à refaire de ce côté.
+ *
+ * @returns {Array|null} null quand le socle n'a rien publié — l'appelant
+ *          retombe alors sur les données statiques.
+ */
+function programmesDuSocle(level, campus) {
+    const D = typeof window !== 'undefined' ? window.SOCLE_DATA : null;
+    if (!D || !D.programs || !D.programs.length) return null;
+
+    const cible = canonNiveau(level);
+
+    const liste = D.programs
+        .filter(p => (!campus || p.campus === campus) && niveauxDuProgramme(p).indexOf(cible) !== -1)
+        .map(p => ({ value: p.id, label: p.name }));
+
+    // Un niveau sans programme est une réponse valide du CRM, pas une absence
+    // de réponse : on rend [] et le champ se masque, sans repli sur le test.
+    return liste;
+}
+
+/**
+ * Les niveaux d'un programme, sous forme canonique.
+ *
+ * `LearningProgram.Academic_Level_List__c` est MULTI-SELECT : une seule chaîne
+ * porte plusieurs niveaux séparés par des points-virgules, par exemple
+ * « Collège;Seconde;Première;Terminale;Bac obtenu;Bac+1;CAP;BEP;Autres ».
+ * Comparer la chaîne entière au niveau choisi ne matcherait jamais.
+ */
+function niveauxDuProgramme(p) {
+    return String(p.level || '').split(';').map(canonNiveau);
+}
+
+/**
+ * Correspondance des deux référentiels de niveau.
+ *
+ * Les deux côtés du CRM n'écrivent pas les niveaux pareil :
+ *   Account.Academic_Level_List__c   -> BAC+3, BAC+5 et +, BAC obtenu ou Prépa
+ *   LearningProgram.Academic_Level_List__c -> Bac+3, Bac+5/+, Bac obtenu
+ *
+ * C'est l'écart n°9 du suivi du responsable data. Les majuscules règlent 11
+ * des 13 valeurs ; les deux dernières demandent une correspondance explicite.
+ * Relevé le 27/08/2026 sur BRASSART, EFAP et ICART : 13 valeurs de part et
+ * d'autre, correspondance un pour un.
+ *
+ * ⚠ Cette table est NOTRE lecture, pas une décision du CRM. Elle reste à faire
+ * valider : c'est exactement la « table de correspondance officielle » que le
+ * responsable data attend. Si le CRM normalise les deux référentiels, ces deux
+ * lignes disparaissent et `canonNiveau` se réduit à un simple toUpperCase.
+ */
+const NIVEAU_EQUIV = {
+    'BAC+5/+':    'BAC+5 ET +',
+    'BAC OBTENU': 'BAC OBTENU OU PRÉPA'
+};
+
+function canonNiveau(v) {
+    const c = String(v || '').trim().toUpperCase();
+    return NIVEAU_EQUIV[c] || c;
+}
+
+/**
+ * Le PTAT (fenêtre de candidature) du programme choisi.
+ *
+ * Le socle expose window.SOCLE_DATA.ptats, déjà restreint à l'école courante.
+ * Un programme ouvert à plusieurs rentrées a plusieurs PTAT ; faute de champ
+ * « rentrée » dans les formulaires EDH, on prend le premier. Le socle en a
+ * besoin pour écrire PTAT_Id__c et pour armer les règles de blocage : un
+ * PTAT_Id vide les désactive entièrement, donc le premier vaut mieux que rien.
+ *
+ * @returns {string} l'Id du PTAT, ou '' si introuvable.
+ */
+export function getPtatForProgramme(programId) {
+    const D = typeof window !== 'undefined' ? window.SOCLE_DATA : null;
+    if (!D || !D.ptats || !programId) return '';
+    for (let i = 0; i < D.ptats.length; i++) {
+        if (D.ptats[i].programId === programId) return D.ptats[i].ptatId;
+    }
+    return '';
 }

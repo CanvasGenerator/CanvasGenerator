@@ -20,7 +20,7 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
-import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
+import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
 import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
 
 export default function (editor, categories) {
@@ -336,6 +336,10 @@ ${hidden}
                     <option value="">${t.programmePh}</option>
                 </select>
             </div>
+            <!-- Rempli par majPtat() au choix du programme. Le socle s'en sert
+                 pour ecrire PTAT_Id__c et pour armer les regles de blocage
+                 candidature : vide, ces regles ne s'appliquent pas. -->
+            <input type="hidden" name="PTAT_Id" value="">
         </div>
 
         <!-- RGPD -->
@@ -440,11 +444,22 @@ ${SOCLE_READ_SNIPPET}
                 programmeField.classList.add('hidden');
                 programmeSelect.value = '';
             }
+            majPtat();
+        }
+
+        function majPtat() {
+            const ptatEl = form.querySelector('[name="PTAT_Id"]');
+            if (!ptatEl) return;
+            ptatEl.value = programmeSelect
+                ? getPtatForProgramme(programmeSelect.value)
+                : '';
         }
 
         if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
         if (campusEl) campusEl.addEventListener('change', refreshProgramme);
+        if (programmeSelect) programmeSelect.addEventListener('change', majPtat);
         refreshProgramme();
+        majPtat();
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);
