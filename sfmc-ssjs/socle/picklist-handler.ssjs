@@ -247,6 +247,92 @@ try {
 
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
+    /**
+     * La langue d'AFFICHAGE de la page.
+     *
+     * Le socle ne la connait pas : un Content Block ne prend pas de parametre.
+     * Le formulaire, lui, la porte dans data-lang — c'est le builder qui l'y
+     * pose selon la variante du bloc (francaise ou anglaise). On lit donc le
+     * DOM, pas une variable AMPscript.
+     */
+    function langueAffichage() {
+        try {
+            var f = document.querySelector('[data-lang]');
+            return (f && String(f.getAttribute('data-lang') || '').toLowerCase()) || 'fr';
+        } catch (e) { return 'fr'; }
+    }
+
+    /**
+     * Le libelle a AFFICHER pour une option.
+     *
+     * ⚠ Ne concerne QUE le texte visible. La `value` de l'option n'est jamais
+     * touchee : c'est la valeur Salesforce d'origine, celle que le socle
+     * d'ecriture attend, et la traduire casserait toutes les ecritures.
+     *
+     * Les valeurs du CRM sont en francais. En page anglaise, on cherche leur
+     * equivalent dans SOCLE_DATA.traductions, alimente depuis la DE
+     * LPB_Dico_Traductions. Pas d'entree, ou anglais vide : on garde le
+     * francais, ce qui est degrade mais jamais casse.
+     */
+    function libelleAffiche(option, langue) {
+        var brut = option.label || option.value;
+        if (langue !== 'en') return brut;
+        var dico = D && D.traductions;
+        if (!dico) return brut;
+        return dico[brut] || brut;
+    }
+
+    /**
+     * Ordre d'affichage d'une liste.
+     *
+     * Salesforce rend les valeurs de picklist dans l'ordre du value set, qui
+     * n'est ni alphabetique ni numerique : les 201 indicatifs arrivent par
+     * exemple en 992, 379, 387, 243... Illisible dans un <select>.
+     *
+     * Deux tris, parce que deux natures de donnees :
+     *   - Indicatif : NUMERIQUE. Un tri alphabetique mettrait 1 avant 212,
+     *     mais aussi 33 apres 212 ; on compare donc les nombres.
+     *   - le reste  : ALPHABETIQUE, avec localeCompare pour que Egypte passe
+     *     avant Emirats et Etats-Unis, ce qu'un tri par code ne fait pas.
+     *
+     * Les niveaux d'etudes ne sont volontairement PAS tries : leur ordre
+     * naturel est pedagogique (College, Seconde, Premiere, Terminale...) et
+     * l'alphabet le detruirait. Le socle a deja son propre classement pour
+     * eux, via `ordre`.
+     */
+    function trier(name, options) {
+        if (!options || options.length < 2) return options;
+        var copie = options.slice();
+
+        if (name === 'Indicatif') {
+            copie.sort(function (a, b) {
+                var na = parseInt(a.value, 10);
+                var nb = parseInt(b.value, 10);
+                if (isNaN(na) && isNaN(nb)) return 0;
+                if (isNaN(na)) return 1;
+                if (isNaN(nb)) return -1;
+                return na - nb;
+            });
+            return copie;
+        }
+
+        if (name === 'Country' || name === 'Campus') {
+            // Tri sur le libelle AFFICHE, et dans la locale de la page : une
+            // liste anglaise triee selon l'alphabet francais serait desordonnee
+            // pour le lecteur.
+            var lg = langueAffichage();
+            var loc = lg === 'en' ? 'en' : 'fr';
+            copie.sort(function (a, b) {
+                var la = libelleAffiche(a, lg);
+                var lb = libelleAffiche(b, lg);
+                return String(la).localeCompare(String(lb), loc, { sensitivity: 'base' });
+            });
+            return copie;
+        }
+
+        return options;
+    }
+
     /** Remplit un <select> en conservant sa 1re option (le placeholder). */
     function remplir(name, options, valeurCourante) {
         var el = champ(name);
@@ -258,14 +344,18 @@ try {
         // ni desactive a cause d'un value set introuvable cote org.
         if (!options || !options.length) return el;
 
+        options = trier(name, options);
+        var langue = langueAffichage();
+
         var placeholder = el.querySelector('option[value=""]');
         el.innerHTML = '';
         if (placeholder) el.appendChild(placeholder);
 
         for (var i = 0; i < options.length; i++) {
             var o = document.createElement('option');
+            // La valeur reste celle du CRM ; seul le texte est traduit.
             o.value = options[i].value;
-            o.textContent = options[i].label || options[i].value;
+            o.textContent = libelleAffiche(options[i], langue);
             if (valeurCourante && options[i].value === valeurCourante) o.selected = true;
             el.appendChild(o);
         }

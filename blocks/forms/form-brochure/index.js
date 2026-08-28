@@ -14,6 +14,7 @@ import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fiel
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     /* ── Traductions FR / EN ─────────────────────────────────────────── */
@@ -105,7 +106,8 @@ export default function (editor, categories) {
 
         return `
 <section class="brf-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -161,7 +163,10 @@ export default function (editor, categories) {
 .brf-phone-wrap { display: flex; gap: 8px; }
 .brf-phone-prefix-wrap {
     position: relative;
-    width: 84px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 .brf-phone-prefix-wrap::after {
@@ -309,14 +314,14 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
                 <label class="brf-label">${t.mobile}<span class="req">*</span></label>
                 <div class="brf-phone-wrap">
                     <div class="brf-phone-prefix-wrap">
-                        <select class="brf-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="brf-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="brf-input brf-phone-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -562,10 +567,16 @@ ${SOCLE_READ_SNIPPET}
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.brf-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (raw && !raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
@@ -623,14 +634,14 @@ ${SOCLE_READ_SNIPPET}
     editor.on('load',            () => setTimeout(tryInitBrf, 300));
 
     /* ── Enregistrement des blocs FR + EN ────────────────────────────── */
-    editor.BlockManager.add('form-brochure', {
+    ajouterBloc(editor,'form-brochure', {
         label: 'Formulaire Brochure',
         category: categories.FORMS,
         content: buildContent('fr'),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-brochure-en', {
+    ajouterBloc(editor,'form-brochure-en', {
         label: 'Formulaire Brochure Anglais',
         category: categories.FORMS,
         content: buildContent('en'),

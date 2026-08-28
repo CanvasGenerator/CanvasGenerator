@@ -8,11 +8,12 @@
 
 import { buildEventBlock, attachEventFormLogic } from '../shared/event-form.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     attachEventFormLogic(editor);
 
-    editor.BlockManager.add('form-atelier', {
+    ajouterBloc(editor,'form-atelier', {
         label: 'Formulaire Atelier Découverte',
         category: categories.FORMS,
         content: buildEventBlock({
@@ -25,7 +26,7 @@ export default function (editor, categories) {
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-atelier-en', {
+    ajouterBloc(editor,'form-atelier-en', {
         label: 'Formulaire Atelier Découverte Anglais',
         category: categories.FORMS,
         content: buildEventBlock({

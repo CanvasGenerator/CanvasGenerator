@@ -20,9 +20,10 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
-import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
+import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
 import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     /* ── Traductions FR / EN ─────────────────────────────────────────── */
@@ -90,7 +91,8 @@ export default function (editor, categories) {
 
         return `
 <section class="cnd-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -146,7 +148,10 @@ export default function (editor, categories) {
 .cnd-phone-wrap { display: flex; gap: 8px; }
 .cnd-phone-prefix-wrap {
     position: relative;
-    width: 84px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 .cnd-phone-prefix-wrap::after {
@@ -287,14 +292,14 @@ ${hidden}
                 <label class="cnd-label">${t.mobile}<span class="req">*</span></label>
                 <div class="cnd-phone-wrap">
                     <div class="cnd-phone-prefix-wrap">
-                        <select class="cnd-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="cnd-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="cnd-input cnd-phone-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -333,6 +338,10 @@ ${hidden}
                     <option value="">${t.programmePh}</option>
                 </select>
             </div>
+            <!-- Rempli par majPtat() au choix du programme. Le socle s'en sert
+                 pour ecrire PTAT_Id__c et pour armer les regles de blocage
+                 candidature : vide, ces regles ne s'appliquent pas. -->
+            <input type="hidden" name="PTAT_Id" value="">
         </div>
 
         <!-- RGPD -->
@@ -437,11 +446,22 @@ ${SOCLE_READ_SNIPPET}
                 programmeField.classList.add('hidden');
                 programmeSelect.value = '';
             }
+            majPtat();
+        }
+
+        function majPtat() {
+            const ptatEl = form.querySelector('[name="PTAT_Id"]');
+            if (!ptatEl) return;
+            ptatEl.value = programmeSelect
+                ? getPtatForProgramme(programmeSelect.value)
+                : '';
         }
 
         if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
         if (campusEl) campusEl.addEventListener('change', refreshProgramme);
+        if (programmeSelect) programmeSelect.addEventListener('change', majPtat);
         refreshProgramme();
+        majPtat();
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);
@@ -480,10 +500,16 @@ ${SOCLE_READ_SNIPPET}
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.cnd-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (raw && !raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
@@ -532,14 +558,14 @@ ${SOCLE_READ_SNIPPET}
     editor.on('load',            () => setTimeout(tryInitCnd, 300));
 
     /* ── Enregistrement des blocs FR + EN ────────────────────────────── */
-    editor.BlockManager.add('form-candidature', {
+    ajouterBloc(editor,'form-candidature', {
         label: 'Formulaire Candidature',
         category: categories.FORMS,
         content: buildContent('fr'),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-candidature-en', {
+    ajouterBloc(editor,'form-candidature-en', {
         label: 'Formulaire Candidature Anglais',
         category: categories.FORMS,
         content: buildContent('en'),

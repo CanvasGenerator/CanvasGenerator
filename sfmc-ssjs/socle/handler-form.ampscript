@@ -191,6 +191,28 @@ SET @INTERACTION_ACTIVE = "true"
    `CampaignMemberId__c`, en texte.
 
    Repasser a "CampaignMemberInteraction__c" suffit a revenir en arriere. */
+/* ---- MARQUE SUR LE CONSENTEMENT -----------------------------------------
+   A "false" depuis le 27/08/2026.
+
+   `BusinessBrandId` porte la marque au nom de laquelle le consentement est
+   donne — un opt-in EFAP n'est pas un opt-in BRASSART, et le RGPD demande un
+   consentement par responsable de traitement. Le champ etait envoye et accepte
+   le matin du 27/08 ; l'apres-midi il fait echouer l'insert, et ce refus tuait
+   la page a CHAQUE soumission des 6 formulaires.
+
+   Mesure a la bissection (LPB_TST_Sonde_CPC), sur un point de contact ancien
+   donc hors du blocage general : les 8 autres champs passent, l'ajout du seul
+   BusinessBrandId fait echouer, avec EFAP (1BUAW0000000QNX4A2) comme avec
+   BRASSART (1BUAW0000000QNY4A2), et que GDPR_Status__c soit present ou non.
+   Ni la valeur ni une combinaison : le champ.
+
+   Le drapeau plutot que la suppression, parce que le besoin RGPD reste entier
+   et que la cause est un changement d'org, pas une decision de conception. Le
+   jour ou la sonde redit que le champ passe, un mot suffit a le remettre.
+   Sans lui, la marque reste deductible du compte parent. */
+VAR @ECRIRE_MARQUE_CONSENT
+SET @ECRIRE_MARQUE_CONSENT = "false"
+
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
@@ -1389,17 +1411,36 @@ IF @submitted == "true" THEN
                            SANS bypass — ne pas les ecrire »). Contradiction
                            interne au document : on suit l'en-tete, plus recent
                            et plus explicite. A faire trancher. */
-                        SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
-                            "ContactPointId",          @cpId,
-                            "Channel__c",              @canalValue,
-                            "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                              " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
-                            "PrivacyConsentStatus",    "OptIn",
-                            "Status__c",               "Opt-in",
-                            "GDPR_Status__c",          "Marketing active",
-                            "CaptureSource",           "SFMC CloudPage",
-                            "Legal_Texte_Accepted__c", @preuve,
-                            "BusinessBrandId",         @brandId)
+                        /* ⚠ Legal_Texte_Accepted__c est REQUIS : sans lui
+                           l'insert echoue. @preuve vaut au minimum "[v1]",
+                           donc il n'est jamais vide.
+
+                           BusinessBrandId : voir @ECRIRE_MARQUE_CONSENT en
+                           tete de fichier. */
+                        IF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "GDPR_Status__c",          "Marketing active",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "Legal_Texte_Accepted__c", @preuve,
+                                "BusinessBrandId",         @brandId)
+                        ELSE
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "GDPR_Status__c",          "Marketing active",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "Legal_Texte_Accepted__c", @preuve)
+                        ENDIF
                     ENDIF
                     SET @journal = Concat(@journal, " CPC:", @canalValue)
                     IF @LOG_ACTIF == "true" THEN
