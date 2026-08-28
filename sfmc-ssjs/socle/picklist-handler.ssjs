@@ -248,6 +248,41 @@ try {
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
     /**
+     * La langue d'AFFICHAGE de la page.
+     *
+     * Le socle ne la connait pas : un Content Block ne prend pas de parametre.
+     * Le formulaire, lui, la porte dans data-lang — c'est le builder qui l'y
+     * pose selon la variante du bloc (francaise ou anglaise). On lit donc le
+     * DOM, pas une variable AMPscript.
+     */
+    function langueAffichage() {
+        try {
+            var f = document.querySelector('[data-lang]');
+            return (f && String(f.getAttribute('data-lang') || '').toLowerCase()) || 'fr';
+        } catch (e) { return 'fr'; }
+    }
+
+    /**
+     * Le libelle a AFFICHER pour une option.
+     *
+     * ⚠ Ne concerne QUE le texte visible. La `value` de l'option n'est jamais
+     * touchee : c'est la valeur Salesforce d'origine, celle que le socle
+     * d'ecriture attend, et la traduire casserait toutes les ecritures.
+     *
+     * Les valeurs du CRM sont en francais. En page anglaise, on cherche leur
+     * equivalent dans SOCLE_DATA.traductions, alimente depuis la DE
+     * LPB_Dico_Traductions. Pas d'entree, ou anglais vide : on garde le
+     * francais, ce qui est degrade mais jamais casse.
+     */
+    function libelleAffiche(option, langue) {
+        var brut = option.label || option.value;
+        if (langue !== 'en') return brut;
+        var dico = D && D.traductions;
+        if (!dico) return brut;
+        return dico[brut] || brut;
+    }
+
+    /**
      * Ordre d'affichage d'une liste.
      *
      * Salesforce rend les valeurs de picklist dans l'ordre du value set, qui
@@ -282,10 +317,15 @@ try {
         }
 
         if (name === 'Country' || name === 'Campus') {
+            // Tri sur le libelle AFFICHE, et dans la locale de la page : une
+            // liste anglaise triee selon l'alphabet francais serait desordonnee
+            // pour le lecteur.
+            var lg = langueAffichage();
+            var loc = lg === 'en' ? 'en' : 'fr';
             copie.sort(function (a, b) {
-                var la = a.label || a.value;
-                var lb = b.label || b.value;
-                return String(la).localeCompare(String(lb), 'fr', { sensitivity: 'base' });
+                var la = libelleAffiche(a, lg);
+                var lb = libelleAffiche(b, lg);
+                return String(la).localeCompare(String(lb), loc, { sensitivity: 'base' });
             });
             return copie;
         }
@@ -305,6 +345,7 @@ try {
         if (!options || !options.length) return el;
 
         options = trier(name, options);
+        var langue = langueAffichage();
 
         var placeholder = el.querySelector('option[value=""]');
         el.innerHTML = '';
@@ -312,8 +353,9 @@ try {
 
         for (var i = 0; i < options.length; i++) {
             var o = document.createElement('option');
+            // La valeur reste celle du CRM ; seul le texte est traduit.
             o.value = options[i].value;
-            o.textContent = options[i].label || options[i].value;
+            o.textContent = libelleAffiche(options[i], langue);
             if (valeurCourante && options[i].value === valeurCourante) o.selected = true;
             el.appendChild(o);
         }
