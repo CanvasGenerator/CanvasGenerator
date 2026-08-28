@@ -78,8 +78,17 @@ for (const rel of CIBLES) {
         orphelin ? `structure orpheline : ${orphelin}` : `${pile.length} bloc(s) non ferme(s)`);
 
     /* 3. Toute variable utilisee doit etre declaree. AMPscript ne le signale
-          pas : une variable oubliee vaut vide, et le champ ne s'ecrit jamais. */
-    const decl = new Set();
+          pas : une variable oubliee vaut vide, et le champ ne s'ecrit jamais.
+
+          UNE exception, et une seule : les variables posees par la PAGE qui
+          inclut le bloc. Un Content Block partage la portee AMPscript de sa
+          page, et la declarer ici par un VAR la REINITIALISERAIT — on
+          effacerait la valeur qu'on cherche justement a lire. Elles sont
+          donc listees, avec ce que chacune porte. */
+    const POSEES_PAR_LA_PAGE = new Set([
+        '@LPB_ECOLE'   // l'ecole de la landing page, figee par le builder
+    ]);
+    const decl = new Set(POSEES_PAR_LA_PAGE);
     for (const m of code.matchAll(/^\s*VAR\s+(.+)$/gm)) {
         for (const v of m[1].split(',')) decl.add(v.trim());
     }
