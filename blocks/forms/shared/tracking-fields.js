@@ -33,7 +33,26 @@ export const AD_FIELDS = ['gclid', 'fbclid'];
  * @param {string}  [opts.langueSouhaitee=''] - Langue d'enseignement souhaitée (défaut IFA Paris = fr)
  * @returns {string} HTML des inputs cachés
  */
+/**
+ * L'école courante au moment de CONSTRUIRE le bloc.
+ *
+ * ⚠ Ne pas confondre avec le remplissage à l'exécution, plus bas : celui-ci
+ * lit `window.CURRENT_SCHOOL`, qui n'existe QUE dans le builder. Sur une page
+ * publiée il est absent, et le champ `Marque` restait donc vide — le socle
+ * d'écriture ne pouvait ni résoudre la marque du consentement ni la campagne.
+ * Figer la valeur ici, à la construction, règle les deux.
+ */
+function ecoleCourante() {
+    try {
+        const s = (typeof window !== 'undefined' && window.CURRENT_SCHOOL) || null;
+        return s ? String(s.id || '') : '';
+    } catch (e) { return ''; }
+}
+
 export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque = '', langueSouhaitee = '' }) {
+    /* L'ID de l'école, pas son nom : c'est lui qui sert de clé dans
+       LPB_Mapping_Ecoles et dans la clé de campagne « brochure|efap|FR ». */
+    if (!marque) marque = ecoleCourante();
     const utm = UTM_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     const ads = AD_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     return `

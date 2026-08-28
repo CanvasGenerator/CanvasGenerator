@@ -1027,3 +1027,56 @@ avec un contenu que la MISE A JOUR du meme asset a ensuite accepte sans broncher
 Contourne en creant l'asset avec un contenu trivial, puis en le mettant a jour.
 A savoir pour tout bloc qui melange AMPscript, `<select>` et
 `ContentBlockByKey`.
+
+## 28 aout 2026 - l'ecole n'arrivait pas jusqu'au socle en page publiee
+
+Les listes campus et programmes sortaient VIDES sur une landing page publiee.
+Tous mes essais de lecture passaient `?Marque=efap` dans l'URL ; je ne l'avais
+jamais teste sans.
+
+### La cause
+
+Le socle lit `RequestParameter("SchoolId")` puis `("Marque")`, c'est-a-dire la
+QUERY STRING. Or un `<input type="hidden">` n'est PAS un parametre de requete
+tant que le formulaire n'est pas soumis : au premier affichage — un GET sans
+query string — les deux sont vides.
+
+Le champ cache `Marque` etait vide lui aussi, pour une raison voisine : il est
+rempli a l'execution depuis `window.CURRENT_SCHOOL`, une variable qui n'existe
+que dans le BUILDER. En page publiee, rien ne le remplit.
+
+Consequence en cascade : pas d'ecole -> pas de prefixe -> `LPB_Mapping_Ecoles`
+ne repond pas -> aucun campus, aucun programme. Et cote ecriture, pas de
+marque et pas de resolution de campagne.
+
+### La correction
+
+Le builder connait l'ecole au moment ou il construit le bloc
+(`registerBlocks` s'execute apres le chargement de l'ecole). On la fige donc
+DEUX fois dans le HTML publie :
+
+  - `%%[ SET @LPB_ECOLE = "efap" ]%%` juste avant l'include du socle.
+    Un Content Block ne prend pas de parametre, mais il PARTAGE la portee
+    AMPscript de la page qui l'inclut : une variable posee avant l'include est
+    lisible par le socle. C'est la troisieme source de `@school`.
+  - `<input type="hidden" name="Marque" value="efap">`, pour la soumission.
+
+⚠ Ne JAMAIS declarer `@LPB_ECOLE` par un `VAR` dans le socle : `VAR`
+reinitialise, et on effacerait la valeur que la page vient de poser. Le lint
+porte une liste d'exception dediee pour cette variable-la.
+
+Mesure sur `LPB_TST_Dico_Rendu`, sans aucune query string :
+
+    @LPB_ECOLE = "efap"   ->  ecole lue "efap", 10 campus
+    @LPB_ECOLE absente    ->  ecole lue "", 0 campus, 196 pays
+                              page VIVANTE, options statiques en repli
+
+Le mode degrade est donc conserve : sans ecole, on n'ecrit rien et on ne casse
+rien.
+
+### ⚠ Les pages deja enregistrees gardent l'ancien HTML
+
+Le correctif agit a la CONSTRUCTION du bloc. Une page sauvegardee avant
+aujourd'hui porte encore `value=""` et pas de prelude : il faut y reinserer le
+bloc formulaire. Piege rencontre en verifiant — la toile du builder restaure le
+contenu stocke, et je lisais un bloc ancien en croyant tester le neuf.

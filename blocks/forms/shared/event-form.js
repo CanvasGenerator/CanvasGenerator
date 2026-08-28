@@ -17,7 +17,7 @@ import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
-import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
+import { socleReadSnippet } from './socle-read-snippet.js';
 
     /* ── Picklists ──────────────────────────────────────────────────── */
     const campusOptions = buildOptions(
@@ -775,7 +775,7 @@ ${showChild ? `
     </div>
 
 </div><!-- /.jpo-card -->
-${SOCLE_READ_SNIPPET}
+${socleReadSnippet()}
 </section>`;
     }
 

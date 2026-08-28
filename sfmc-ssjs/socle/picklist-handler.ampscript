@@ -41,8 +41,31 @@ VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
 VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
 
+/* ---- QUELLE ECOLE ? -----------------------------------------------------
+   Trois sources, dans cet ordre.
+
+   1. `?SchoolId=` puis `?Marque=` dans l'URL. Pratique pour les pages de test,
+      mais ABSENTS d'une page publiee : un <input type="hidden"> n'est pas un
+      parametre de requete tant que le formulaire n'est pas soumis. Au premier
+      affichage — un GET sans query string — les deux sont vides.
+
+   2. `@LPB_ECOLE`, posee par la page ELLE-MEME juste avant d'inclure ce bloc.
+      C'est la source reelle en production : le builder connait l'ecole au
+      moment ou il construit le formulaire, et la fige dans le HTML publie.
+      Un Content Block ne prend pas de parametre, mais il partage la portee
+      AMPscript de la page qui l'inclut : une variable posee avant l'include
+      est donc lisible ici.
+
+   ⚠ Ne JAMAIS declarer @LPB_ECOLE par un VAR ici : VAR reinitialise, et on
+   effacerait la valeur que la page vient de poser.
+
+   Sans aucune des trois, @school reste vide : le prefixe est introuvable, la
+   DE des ecoles ne repond pas, et les listes campus/programmes sortent vides.
+   Les options statiques du builder servent alors de repli — degrade, mais
+   jamais casse. */
 SET @school = RequestParameter("SchoolId")
 IF Empty(@school) THEN SET @school = RequestParameter("Marque") ENDIF
+IF Empty(@school) THEN SET @school = @LPB_ECOLE ENDIF
 
 /* La regle de la specialite differe entre brochure et candidature. */
 SET @formTypePage = Lowercase(RequestParameter("TypeFormulaire"))
