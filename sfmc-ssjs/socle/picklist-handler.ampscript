@@ -39,6 +39,7 @@ VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
 VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
+VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
 
 SET @school = RequestParameter("SchoolId")
 IF Empty(@school) THEN SET @school = RequestParameter("Marque") ENDIF
@@ -96,6 +97,42 @@ SET @jsCountry   = ""
 SET @jsIndicatif = ""
 SET @jsLevel     = ""
 SET @jsQui       = ""
+
+/* ==========================================================================
+   DICTIONNAIRE D'AFFICHAGE FR -> EN
+   ==========================================================================
+   UNE lecture de DE, publiee telle quelle dans SOCLE_DATA. C'est le JS qui
+   choisit la langue, pas le socle : un Content Block ne prend pas de parametre,
+   et le socle ne peut donc PAS savoir si la page qui l'inclut est francaise ou
+   anglaise. Le formulaire, lui, le sait — il porte data-lang.
+
+   Consequence voulue : un seul bloc socle sert les deux langues, et la VALEUR
+   postee n'est jamais touchee. Le JS ne remplace que le texte affiche de
+   l'option ; `value` reste la valeur Salesforce d'origine, celle que le socle
+   d'ecriture attend.
+
+   Seules les lignes REELLEMENT traduites sont publiees : une entree dont
+   l'anglais est vide n'apporte rien et le JS retomberait de toute facon sur le
+   francais. Environ 280 paires aujourd'hui.
+
+   Alimentation : bloc LPB_TST_Dico_Sync (insere les valeurs du CRM absentes),
+   puis scripts/traduire-dico.js (remplit l'anglais via Gemini). La DE reste
+   corrigeable a la main, et une correction n'est jamais ecrasee.
+   ========================================================================== */
+SET @jsDico = ""
+SET @sepD = ""
+SET @dicoRows = LookupRows("LPB_Dico_Traductions", "Actif", "true")
+SET @nDico = RowCount(@dicoRows)
+FOR @i = 1 TO @nDico DO
+    SET @row = Row(@dicoRows, @i)
+    SET @dicoEn = Field(@row, "En")
+    IF NOT Empty(@dicoEn) THEN
+        SET @jsDico = Concat(@jsDico, @sepD, "'",
+            Replace(Replace(Field(@row, "Fr"), "\", "\\"), "'", "\'"), "':'",
+            Replace(Replace(@dicoEn, "\", "\\"), "'", "\'"), "'")
+        SET @sepD = ","
+    ENDIF
+NEXT @i
 
 /* ---- 1. Pays -> Account.LivingCountry__c ------------------------------- */
 SET @dur = ""
@@ -523,6 +560,7 @@ window.SOCLE_DATA = {
         "StudyLevel": [%%=v(@jsLevel)=%%],
         "VousEtes":   [%%=v(@jsQui)=%%]
     },
+    "traductions": {%%=v(@jsDico)=%%},
     "campus":   [%%=v(@jsCampus)=%%],
     "programs": [%%=v(@jsProgs)=%%],
     "ptats":    [%%=v(@jsPtats)=%%],
@@ -650,6 +688,41 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     function champ(name) { return document.querySelector('[name="' + name + '"]'); }
 
     /**
+     * La langue d'AFFICHAGE de la page.
+     *
+     * Le socle ne la connait pas : un Content Block ne prend pas de parametre.
+     * Le formulaire, lui, la porte dans data-lang — c'est le builder qui l'y
+     * pose selon la variante du bloc (francaise ou anglaise). On lit donc le
+     * DOM, pas une variable AMPscript.
+     */
+    function langueAffichage() {
+        try {
+            var f = document.querySelector('[data-lang]');
+            return (f && String(f.getAttribute('data-lang') || '').toLowerCase()) || 'fr';
+        } catch (e) { return 'fr'; }
+    }
+
+    /**
+     * Le libelle a AFFICHER pour une option.
+     *
+     * ⚠ Ne concerne QUE le texte visible. La `value` de l'option n'est jamais
+     * touchee : c'est la valeur Salesforce d'origine, celle que le socle
+     * d'ecriture attend, et la traduire casserait toutes les ecritures.
+     *
+     * Les valeurs du CRM sont en francais. En page anglaise, on cherche leur
+     * equivalent dans SOCLE_DATA.traductions, alimente depuis la DE
+     * LPB_Dico_Traductions. Pas d'entree, ou anglais vide : on garde le
+     * francais, ce qui est degrade mais jamais casse.
+     */
+    function libelleAffiche(option, langue) {
+        var brut = option.label || option.value;
+        if (langue !== 'en') return brut;
+        var dico = D && D.traductions;
+        if (!dico) return brut;
+        return dico[brut] || brut;
+    }
+
+    /**
      * Ordre d'affichage d'une liste.
      *
      * Salesforce rend les valeurs de picklist dans l'ordre du value set, qui
@@ -684,10 +757,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         }
 
         if (name === 'Country' || name === 'Campus') {
+            // Tri sur le libelle AFFICHE, et dans la locale de la page : une
+            // liste anglaise triee selon l'alphabet francais serait desordonnee
+            // pour le lecteur.
+            var lg = langueAffichage();
+            var loc = lg === 'en' ? 'en' : 'fr';
             copie.sort(function (a, b) {
-                var la = a.label || a.value;
-                var lb = b.label || b.value;
-                return String(la).localeCompare(String(lb), 'fr', { sensitivity: 'base' });
+                var la = libelleAffiche(a, lg);
+                var lb = libelleAffiche(b, lg);
+                return String(la).localeCompare(String(lb), loc, { sensitivity: 'base' });
             });
             return copie;
         }
@@ -707,6 +785,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (!options || !options.length) return el;
 
         options = trier(name, options);
+        var langue = langueAffichage();
 
         var placeholder = el.querySelector('option[value=""]');
         el.innerHTML = '';
@@ -714,8 +793,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
         for (var i = 0; i < options.length; i++) {
             var o = document.createElement('option');
+            // La valeur reste celle du CRM ; seul le texte est traduit.
             o.value = options[i].value;
-            o.textContent = options[i].label || options[i].value;
+            o.textContent = libelleAffiche(options[i], langue);
             if (valeurCourante && options[i].value === valeurCourante) o.selected = true;
             el.appendChild(o);
         }
