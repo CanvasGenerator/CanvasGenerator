@@ -130,7 +130,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         return `
 <section class="jpo-section"
   ${isStage ? 'data-form-variant="stage"' : 'data-header-align="center"'}
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>

@@ -126,7 +126,8 @@ export default function (editor, categories) {
 
         return `
 <section class="wbc-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
