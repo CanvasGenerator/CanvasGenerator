@@ -912,7 +912,14 @@ Bissection avec `LPB_TST_Sonde_CPC` : les 8 autres champs passent, l'ajout du
 seul `BusinessBrandId` fait echouer, avec EFAP (`1BUAW0000000QNX4A2`) comme
 avec BRASSART (`1BUAW0000000QNY4A2`) — deux Ids valides, lus sur l'org — et que
 `GDPR_Status__c` soit present ou non. Ce n'est donc ni la valeur ni une
-combinaison : c'est le champ. Retire du socle.
+combinaison : c'est le champ.
+
+Pose derriere `@ECRIRE_MARQUE_CONSENT`, a "false", plutot que supprime : le
+besoin RGPD reste entier — un opt-in EFAP n'est pas un opt-in BRASSART — et la
+cause est un changement d'org, pas une decision de conception. Le jour ou
+`LPB_TST_Sonde_CPC` redit que le champ passe, repasser le drapeau a "true"
+suffit. Branche "false" verifiee de bout en bout sur un point de contact du
+26/08 : statut=success, CPC:Email cree.
 
 ### `Legal_Texte_Accepted__c` est REQUIS
 
