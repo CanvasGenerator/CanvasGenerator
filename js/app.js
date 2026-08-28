@@ -867,6 +867,32 @@ function initEditor(schoolId) {
         });
         // Ajoute Monter / Descendre en tête (une seule fois), pour tout bloc
         // déplaçable/copiable — sections ET div.
+        //
+        // ⚠ Ces deux boutons deplacent le composant par coll.add(sel, {at}),
+        // SANS consulter `draggable`. Sur un champ de formulaire verrouille,
+        // ils contourneraient donc le verrou : on ne les propose pas.
+        //
+        // Les boutons NATIFS de GrapesJS doivent etre retires de la meme facon.
+        // Ils sont pourtant censes suivre les drapeaux du composant, mais la
+        // barre est construite a l'initialisation du composant, AVANT que le
+        // hook component:add n'ait pose les verrous : elle garde donc les trois
+        // boutons d'un composant libre. On l'aligne ici sur l'etat reel.
+        const verrouille =
+            sel.get('draggable') === false ||
+            sel.get('copyable')  === false ||
+            sel.get('removable') === false;
+        if (verrouille) {
+            tb = tb.filter(i => {
+                const c = i && i.command;
+                if (sel.get('draggable') === false &&
+                    (c === 'tlb-move' || c === 'lp-move-up' || c === 'lp-move-down')) return false;
+                if (sel.get('copyable')  === false && c === 'tlb-clone')  return false;
+                if (sel.get('removable') === false && c === 'tlb-delete') return false;
+                return true;
+            });
+            sel.set('toolbar', tb);
+            return;
+        }
         if (!tb.some(i => i.command === 'lp-move-up')) {
             tb.unshift(
                 { attributes: { class: 'fa fa-angle-up',   title: 'Monter le bloc' },   command: 'lp-move-up' },
@@ -1036,6 +1062,50 @@ function initEditor(schoolId) {
         } catch(e) {}
         return false;
     }
+
+    // ── Verrouillage des champs de formulaire ───────────────────────────
+    // Les champs et leurs valeurs sont pilotes par le CRM : les listes sont
+    // remplies a la publication depuis Salesforce, et le socle d'ecriture lit
+    // les reponses par l'attribut `name`. Un champ deplace change l'ordre de
+    // lecture, un champ supprime fait disparaitre une donnee attendue, et un
+    // champ duplique produit deux `name` identiques que FormData ecrase.
+    //
+    // On verrouille donc la STRUCTURE et on laisse le STYLE : `selectable`
+    // reste vrai, sans quoi le Style Manager devient inaccessible et le besoin
+    // « on peut modifier les styles comme actuellement » tombe.
+    //
+    // La <section> racine, elle, garde tous ses droits : c'est le bloc que
+    // l'utilisateur pose et deplace dans sa page.
+    function estRacineFormulaire(comp) {
+        try {
+            const attrs = comp.getAttributes ? comp.getAttributes() : {};
+            return attrs['data-lp-form'] === '1';
+        } catch (e) { return false; }
+    }
+
+    function dansUnFormulaire(comp) {
+        try {
+            let p = comp.parent && comp.parent();
+            while (p) {
+                if (estRacineFormulaire(p)) return true;
+                p = p.parent && p.parent();
+            }
+        } catch (e) {}
+        return false;
+    }
+
+    editor.on('component:add', (component) => {
+        if (!dansUnFormulaire(component)) return;
+        // Mutation automatique de drapeaux : hors pile d'undo, comme pour la FAQ.
+        const verrou = () => component.set({
+            removable: false,
+            draggable: false,
+            copyable:  false,
+            selectable: true,
+            hoverable:  true
+        });
+        try { editor.UndoManager.skip(verrou); } catch (e) { verrou(); }
+    });
 
     editor.on('component:add', (component) => {
         // Verrouiller si enfant d'un ma-faq-section (sauf le titre).

@@ -8,11 +8,12 @@
 
 import { buildEventBlock, attachEventFormLogic } from '../shared/event-form.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     attachEventFormLogic(editor);
 
-    editor.BlockManager.add('form-jpo', {
+    ajouterBloc(editor,'form-jpo', {
         label: 'Formulaire JPO',
         category: categories.FORMS,
         content: buildEventBlock({
@@ -25,7 +26,7 @@ export default function (editor, categories) {
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-jpo-en', {
+    ajouterBloc(editor,'form-jpo-en', {
         label: 'Formulaire JPO Anglais',
         category: categories.FORMS,
         content: buildEventBlock({

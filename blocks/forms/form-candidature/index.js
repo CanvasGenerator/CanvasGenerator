@@ -23,6 +23,7 @@ import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fiel
 import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
 import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     /* ── Traductions FR / EN ─────────────────────────────────────────── */
@@ -90,7 +91,8 @@ export default function (editor, categories) {
 
         return `
 <section class="cnd-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -556,14 +558,14 @@ ${SOCLE_READ_SNIPPET}
     editor.on('load',            () => setTimeout(tryInitCnd, 300));
 
     /* ── Enregistrement des blocs FR + EN ────────────────────────────── */
-    editor.BlockManager.add('form-candidature', {
+    ajouterBloc(editor,'form-candidature', {
         label: 'Formulaire Candidature',
         category: categories.FORMS,
         content: buildContent('fr'),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-candidature-en', {
+    ajouterBloc(editor,'form-candidature-en', {
         label: 'Formulaire Candidature Anglais',
         category: categories.FORMS,
         content: buildContent('en'),
