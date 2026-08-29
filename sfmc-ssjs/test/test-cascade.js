@@ -186,6 +186,30 @@ test('Sans conditions, rien ne change [REGRESSION]', (d, run) => {
     if (!d.visible('Speciality')) throw new Error('Speciality masquee sans aucune condition posee');
 }, LAYOUT_AVEC_CONTACT);
 
+/* Le cas BRASSART cumule les deux : rythme a partir de bac+3 ET pour la seule
+   direction artistique. Aucun autre test ne croisait un seuil de niveau avec
+   une condition — c'est la combinaison, pas chaque moitie, qui pouvait casser. */
+const cfgCumul = (conds) => cfg({ champs: {
+    Speciality: { visible: 'toujours', niveauMin: 0 },
+    Rhythm:     { visible: 'toujours', niveauMin: 0 },
+    Language:   { visible: 'niveau', niveauMin: 4, conditions: conds },
+} });
+
+test('Cumul seuil + condition : les deux remplis, le champ est propose', (d, run) => {
+    run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (!d.visible('Language')) throw new Error('Language masque alors que seuil et condition sont vrais');
+});
+
+test('Cumul seuil + condition : le seuil seul ne suffit pas', (d, run) => {
+    run(cfgCumul('Campus=EFAP LILLE'), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (d.visible('Language')) throw new Error('Language propose alors que la condition est fausse');
+});
+
+test('Cumul seuil + condition : la condition seule ne suffit pas', (d, run) => {
+    run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
+    if (d.visible('Language')) throw new Error('Language propose sous le seuil de niveau');
+});
+
 /* ---- Ordre d'affichage ------------------------------------------------- */
 test('Ordre IFA : la langue passe avant la specialite [REGRESSION]', (d, run) => {
     run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
