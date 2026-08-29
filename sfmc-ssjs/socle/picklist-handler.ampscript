@@ -41,6 +41,7 @@ VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
 VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
+VAR @evtIndex, @evtRows, @nEvt, @e
 
 /* ---- QUELLE ECOLE ? -----------------------------------------------------
    Trois sources, dans cet ordre.
@@ -491,57 +492,39 @@ IF NOT Empty(@typeEvt) THEN
         "eventType__c",          "=",  @typeEvt)
     SET @n = RowCount(@rows)
     SET @sepI = ""
-    SET @minDelta = -1
+    SET @evtIndex = ";"
 
-    /* --- Passe 1 : a combien de jours tombe le PROCHAIN evenement eligible ?
-       Le filtre campus/ouverture doit s'appliquer DES cette passe : une date
-       fermee ou d'un autre campus ne doit pas fixer le point de depart de la
-       fenetre, sinon elle decalerait les 15 jours pour rien. */
+    /* --- UNE SEULE PASSE : on publie TOUT le futur de l'ecole -------------
+       La regle metier veut la prochaine date PAR CAMPUS, puis les evenements
+       des 15 jours qui la suivent :
+
+         « les prochaines JPO BRASSART Lyon sont le 10 et le 17 octobre : je
+           peux choisir l'une ou l'autre. A Bordeaux, le 10 octobre et le 10
+           novembre : je ne peux choisir que le 10 octobre. »
+
+       La fenetre depend donc du CAMPUS choisi, et le socle ne le connait pas :
+       c'est une selection faite dans le navigateur, apres le rendu. La calculer
+       ici donnerait une fenetre unique pour toute l'ecole — celle du campus le
+       plus proche — et masquerait des dates legitimes ailleurs.
+
+       On publie donc toutes les dates a venir de l'ecole avec leur ecart en
+       jours, et le JS calcule la fenetre sur le seul campus retenu. */
     FOR @i = 1 TO @n DO
         SET @row   = Row(@rows, @i)
         SET @cName = Field(@row, "campusNameFor__c")
-
-        /* Campus filtre ICI et non cote Salesforce : ni `Campus__c` (lookup) ni
-           `campusNameFor__c` (formule) ne supportent les operateurs dont on
-           aurait besoin. On lit tout, on trie ici.
-
-           Deux criteres, dans cet ordre :
-             - `Campus__c` dans les campus de l'ecole. C'est le bon : le champ
-               est renseigne partout.
-             - a defaut, le prefixe sur `campusNameFor__c`. Repli pour les
-               instances qui n'ont pas de campus rattache.
-           Prefixe vide = on ne filtre pas, la page affiche toutes les dates. */
         SET @instCampusId = Field(@row, "Campus__c")
+
         IF Length(@prefixUp) == 0
            OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
            OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1) THEN
             IF Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
                 SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
+
                 IF @delta >= 0 THEN
-                    IF @minDelta == -1 OR @delta < @minDelta THEN SET @minDelta = @delta ENDIF
-                ENDIF
-            ENDIF
-        ENDIF
-    NEXT @i
-
-    /* --- Passe 2 : tout ce qui tombe dans les 15 jours suivant cette date. */
-    SET @maxDelta = Add(@minDelta, 15)
-
-    FOR @i = 1 TO @n DO
-        SET @row   = Row(@rows, @i)
-        SET @cName = Field(@row, "campusNameFor__c")
-
-        SET @instCampusId = Field(@row, "Campus__c")
-        IF Length(@prefixUp) == 0
-           OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
-           OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1) THEN
-            IF Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
-                SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
-
-                IF @minDelta >= 0 AND @delta >= @minDelta AND @delta <= @maxDelta THEN
                     /* Le nom du campus vient de la DE quand `campusNameFor__c`
                        est vide, ce qui est le cas general. Sans lui, le libelle
-                       d'une date ne dirait pas OU elle a lieu. */
+                       ne dirait pas OU la date a lieu — et le JS ne pourrait
+                       pas filtrer par campus. */
                     SET @instCampusNom = @cName
                     IF Empty(@instCampusNom) AND NOT Empty(@instCampusId) THEN
                         FOR @k = 1 TO @nCampus DO
@@ -550,23 +533,30 @@ IF NOT Empty(@typeEvt) THEN
                             ENDIF
                         NEXT @k
                     ENDIF
-                    SET @iid = Field(@row, "Id")
-                    /* Pre-selection = l'echeance la plus proche, pas la premiere
-                       ligne renvoyee : Salesforce ne garantit aucun ordre. */
-                    IF Empty(@instSel) AND @delta == @minDelta THEN SET @instSel = @iid ENDIF
-                    IF @iid == @instSel THEN SET @evtParent = Field(@row, "summit__Event__c") ENDIF
 
+                    SET @iid = Field(@row, "Id")
                     SET @nbInst = Add(@nbInst, 1)
+
+                    /* `evenement` sert au JS a retrouver les ateliers de la date
+                       choisie : les types sont rattaches a l'EVENEMENT. */
                     SET @jsInstances = Concat(@jsInstances, @sepI, "{value:'", @iid,
-                        "',label:'",   Replace(Replace(Field(@row,"Name"), "\", "\\"), "'", "\'"),
-                        "',date:'",    Field(@row, "summit__Instance_Start_Date__c"),
-                        "',heure:'",   Field(@row, "summit__Instance_Start_Time__c"),
-                        "',heureFin:'",Field(@row, "summit__Instance_End_Time__c"),
-                        "',campus:'",  Replace(Replace(@instCampusNom, "\", "\\"), "'", "\'"),
-                        "',address:'", Replace(Replace(Field(@row,"summit__Location_Address_Override__c"), "\", "\\"), "'", "\'"),
-                        "',jours:",    @delta,
+                        "',label:'",     Replace(Replace(Field(@row,"Name"), "\", "\\"), "'", "\'"),
+                        "',date:'",      Field(@row, "summit__Instance_Start_Date__c"),
+                        "',heure:'",     Field(@row, "summit__Instance_Start_Time__c"),
+                        "',heureFin:'",  Field(@row, "summit__Instance_End_Time__c"),
+                        "',campus:'",    Replace(Replace(@instCampusNom, "\", "\\"), "'", "\'"),
+                        "',address:'",   Replace(Replace(Field(@row,"summit__Location_Address_Override__c"), "\", "\\"), "'", "\'"),
+                        "',evenement:'", Field(@row, "summit__Event__c"),
+                        "',jours:",      @delta,
                         "}")
                     SET @sepI = ","
+
+                    /* Index des evenements distincts : leurs ateliers sont lus
+                       juste apres, une requete par evenement. */
+                    SET @evtParent = Field(@row, "summit__Event__c")
+                    IF NOT Empty(@evtParent) AND IndexOf(@evtIndex, Concat(";", @evtParent, ";")) == 0 THEN
+                        SET @evtIndex = Concat(@evtIndex, @evtParent, ";")
+                    ENDIF
                 ENDIF
             ENDIF
         ENDIF
@@ -579,12 +569,27 @@ IF NOT Empty(@typeEvt) THEN
        A ne pas confondre avec summit__Summit_Events_Appointments__c, qui est
        l'atelier CHOISI par un inscrit (donnee d'ecriture, rattachee a une
        Registration) et ne porte aucun drapeau "obligatoire". */
+    /* ⚠ UNE REQUETE PAR EVENEMENT DISTINCT parmi les dates publiees.
+
+       Avant, on ne lisait que l'evenement de la date preselectionnee. Des que
+       le visiteur changeait de campus — donc potentiellement d'evenement — les
+       ateliers proposes n'etaient plus ceux de sa date. Il y a un a trois
+       evenements pour une ecole et un type donnes : le cout est negligeable. */
+    SET @evtRows = BuildRowsetFromString(@evtIndex, ";")
+    SET @nEvt = RowCount(@evtRows)
+    SET @sepA = ""
+
+    FOR @e = 1 TO @nEvt DO
+    SET @evtParent = Trim(Field(Row(@evtRows, @e), 1))
     IF NOT Empty(@evtParent) THEN
         SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Appointment_Type__c",
             "Id,Name,summit__Title__c,summit__Appointment_Type__c,summit__Date_Available_Start__c,summit__Date_Available_End__c,summit__Required_Appointment__c,summit__Restrict_To_Instance_Title__c,summit__Sort_Order__c",
             "summit__Summit_Events__c", "=", @evtParent)
         SET @n = RowCount(@rows)
-        SET @sepA = ""
+        /* ⚠ NE PAS reinitialiser @sepA ici : la boucle tourne une fois par
+           EVENEMENT, et le separateur doit courir sur toute la liste. Le
+           remettre a vide privait de virgule le premier atelier de chaque
+           evenement suivant — window.SOCLE_DATA devenait indefini. */
 
         /* ⚠ On publie les ateliers de TOUTES les instances de l'evenement, en
            emportant leur restriction — c'est le JS qui filtre.
@@ -621,6 +626,7 @@ IF NOT Empty(@typeEvt) THEN
                `type` reste emis : il est court et sur une ligne. */
             SET @jsAppts = Concat(@jsAppts, @sepA, "{value:'", Field(@row,"Id"),
                 "',label:'",       Replace(Replace(@l, "\", "\\"), "'", "\'"),
+                "',evenement:'",   @evtParent,
                 "',instance:'",    Replace(Replace(@restrict, "\", "\\"), "'", "\'"),
                 "',type:'",        Replace(Replace(Field(@row,"summit__Appointment_Type__c"), "\", "\\"), "'", "\'"),
                 "',debut:'",       Field(@row, "summit__Date_Available_Start__c"),
@@ -631,6 +637,7 @@ IF NOT Empty(@typeEvt) THEN
             SET @sepA = ","
         NEXT @i
     ENDIF
+    NEXT @e
 ENDIF
 
 /* ---- EMISSION DE SOCLE_DATA ------------------------------------------------
@@ -1205,6 +1212,46 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     /* -- 3. Famille evenement : dates + ateliers ---------------------- */
 
     /**
+     * Les dates proposees pour UN campus.
+     *
+     * La regle metier : la prochaine date de CE campus, puis tout ce qui tombe
+     * dans les 15 jours qui la suivent.
+     *
+     *   « les prochaines JPO BRASSART Lyon sont le 10 et le 17 octobre : je
+     *     peux choisir l'une ou l'autre. A Bordeaux, le 10 octobre et le 10
+     *     novembre : je ne peux choisir que le 10 octobre. »
+     *
+     * La fenetre se calcule donc ICI et non dans le socle : elle depend d'un
+     * choix fait apres le rendu. Le socle publie toutes les dates a venir de
+     * l'ecole avec leur ecart en jours ; on ne garde que celles du campus.
+     *
+     * Campus non encore choisi : on rend TOUT, sans fenetre. Masquer les dates
+     * avant que le visiteur ait choisi lui laisserait croire qu'il n'y en a
+     * aucune.
+     */
+    function datesPour(campus) {
+        var toutes = (D.instances || []).slice();
+        if (!campus) return toutes.sort(parJour);
+
+        var duCampus = toutes.filter(function (i) { return i.campus === campus; });
+        if (!duCampus.length) return [];
+
+        var plusProche = duCampus.reduce(function (m, i) {
+            var j = Number(i.jours);
+            return (m === null || j < m) ? j : m;
+        }, null);
+
+        return duCampus
+            .filter(function (i) {
+                var j = Number(i.jours);
+                return j >= plusProche && j <= plusProche + 15;
+            })
+            .sort(parJour);
+    }
+
+    function parJour(a, b) { return (Number(a.jours) || 0) - (Number(b.jours) || 0); }
+
+    /**
      * Les ateliers proposes pour UNE instance.
      *
      * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
@@ -1213,7 +1260,14 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      */
     function ateliersDe(instanceId) {
         if (!D.appointments || !D.appointments.length) return [];
+        var inst = (D.instances || []).filter(function (i) { return i.value === instanceId; })[0];
+        var evt = inst ? inst.evenement : '';
         return D.appointments.filter(function (a) {
+            /* Deux filtres, pas un. L'evenement d'abord : le socle publie
+               desormais les ateliers de TOUS les evenements de l'ecole, et ceux
+               d'une JPO Lyon n'ont rien a faire sur une date Bordeaux.
+               La restriction d'instance ensuite, quand elle est posee. */
+            if (evt && a.evenement && a.evenement !== evt) return false;
             return !a.instance || a.instance === instanceId;
         }).sort(function (x, y) {
             /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
@@ -1323,53 +1377,63 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
     if (D.instances && D.instances.length) {
         var elInst = champ('InstanceId');
-
-        /* Deux rendus possibles pour la date, selon ce que le formulaire pose.
-
-           BOUTONS RADIO — demandes par la regle metier — si le formulaire
-           fournit un conteneur [data-socle="instances"]. La date la plus proche
-           est presélectionnée : le socle a deja classe les instances par
-           echeance, la premiere est donc la bonne.
-
-           SELECT — repli, pour les formulaires qui portent encore un
-           <select name="InstanceId">. */
         var zoneDates = document.querySelector('[data-socle="instances"]');
+        var elCampus = champ('Campus');
 
-        if (zoneDates) {
-            zoneDates.innerHTML = '';
-            D.instances.forEach(function (inst, i) {
-                var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
-                var wrap = document.createElement('label');
-                wrap.className = 'socle-instance';
+        /**
+         * Rend les dates du campus courant, puis les ateliers de la premiere.
+         *
+         * Deux rendus possibles, selon ce que le formulaire pose :
+         *   BOUTONS RADIO dans [data-socle="instances"] — ce que demande la
+         *   regle metier, la date la plus proche presélectionnée ;
+         *   SELECT name="InstanceId" — repli pour les formulaires anciens.
+         */
+        function rendreDates() {
+            var liste = datesPour(elCampus ? elCampus.value : '');
 
-                var radio = document.createElement('input');
-                radio.type = 'radio';
-                radio.name = 'InstanceId';
-                radio.id = id;
-                radio.value = inst.value;
-                if (i === 0) radio.checked = true;
+            if (zoneDates) {
+                zoneDates.innerHTML = '';
+                liste.forEach(function (inst, i) {
+                    var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
+                    var wrap = document.createElement('label');
+                    wrap.className = 'socle-instance';
 
-                var txt = document.createElement('span');
-                txt.textContent = libelleInstance(inst);
+                    var radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'InstanceId';
+                    radio.id = id;
+                    radio.value = inst.value;
+                    if (i === 0) radio.checked = true;
 
-                radio.addEventListener('change', function () {
-                    if (radio.checked) rendreAteliers(radio.value);
+                    var txt = document.createElement('span');
+                    txt.textContent = libelleInstance(inst);
+
+                    radio.addEventListener('change', function () {
+                        if (radio.checked) rendreAteliers(radio.value);
+                    });
+
+                    wrap.appendChild(radio);
+                    wrap.appendChild(txt);
+                    zoneDates.appendChild(wrap);
                 });
 
-                wrap.appendChild(radio);
-                wrap.appendChild(txt);
-                zoneDates.appendChild(wrap);
-            });
-            rendreAteliers(D.instances[0].value);
+            } else if (elInst && elInst.tagName === 'SELECT') {
+                remplir('InstanceId', liste, valeur('InstanceId'));
+                if (!elInst.value && liste.length) elInst.value = liste[0].value;
+            }
 
-        } else if (elInst && elInst.tagName === 'SELECT') {
-            remplir('InstanceId', D.instances, valeur('InstanceId'));
-            if (!elInst.value) elInst.value = D.instances[0].value;
-            elInst.addEventListener('change', function () {
-                rendreAteliers(elInst.value);
-            });
-            rendreAteliers(elInst.value);
+            /* Les ateliers suivent la date retenue. Aucune date : on vide, sans
+               quoi la liste de la selection precedente resterait a l'ecran. */
+            rendreAteliers(liste.length ? liste[0].value : '');
         }
+
+        if (elInst && elInst.tagName === 'SELECT') {
+            elInst.addEventListener('change', function () { rendreAteliers(elInst.value); });
+        }
+        /* Changer de campus rebat les dates : la fenetre de 15 jours se calcule
+           sur le campus retenu, pas sur l'ecole entiere. */
+        if (elCampus) elCampus.addEventListener('change', rendreDates);
+        rendreDates();
     }
 
     }   /* fin demarrer() */

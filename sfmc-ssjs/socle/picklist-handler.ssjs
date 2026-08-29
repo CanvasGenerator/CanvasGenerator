@@ -669,6 +669,46 @@ try {
     /* -- 3. Famille evenement : dates + ateliers ---------------------- */
 
     /**
+     * Les dates proposees pour UN campus.
+     *
+     * La regle metier : la prochaine date de CE campus, puis tout ce qui tombe
+     * dans les 15 jours qui la suivent.
+     *
+     *   « les prochaines JPO BRASSART Lyon sont le 10 et le 17 octobre : je
+     *     peux choisir l'une ou l'autre. A Bordeaux, le 10 octobre et le 10
+     *     novembre : je ne peux choisir que le 10 octobre. »
+     *
+     * La fenetre se calcule donc ICI et non dans le socle : elle depend d'un
+     * choix fait apres le rendu. Le socle publie toutes les dates a venir de
+     * l'ecole avec leur ecart en jours ; on ne garde que celles du campus.
+     *
+     * Campus non encore choisi : on rend TOUT, sans fenetre. Masquer les dates
+     * avant que le visiteur ait choisi lui laisserait croire qu'il n'y en a
+     * aucune.
+     */
+    function datesPour(campus) {
+        var toutes = (D.instances || []).slice();
+        if (!campus) return toutes.sort(parJour);
+
+        var duCampus = toutes.filter(function (i) { return i.campus === campus; });
+        if (!duCampus.length) return [];
+
+        var plusProche = duCampus.reduce(function (m, i) {
+            var j = Number(i.jours);
+            return (m === null || j < m) ? j : m;
+        }, null);
+
+        return duCampus
+            .filter(function (i) {
+                var j = Number(i.jours);
+                return j >= plusProche && j <= plusProche + 15;
+            })
+            .sort(parJour);
+    }
+
+    function parJour(a, b) { return (Number(a.jours) || 0) - (Number(b.jours) || 0); }
+
+    /**
      * Les ateliers proposes pour UNE instance.
      *
      * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
@@ -677,7 +717,14 @@ try {
      */
     function ateliersDe(instanceId) {
         if (!D.appointments || !D.appointments.length) return [];
+        var inst = (D.instances || []).filter(function (i) { return i.value === instanceId; })[0];
+        var evt = inst ? inst.evenement : '';
         return D.appointments.filter(function (a) {
+            /* Deux filtres, pas un. L'evenement d'abord : le socle publie
+               desormais les ateliers de TOUS les evenements de l'ecole, et ceux
+               d'une JPO Lyon n'ont rien a faire sur une date Bordeaux.
+               La restriction d'instance ensuite, quand elle est posee. */
+            if (evt && a.evenement && a.evenement !== evt) return false;
             return !a.instance || a.instance === instanceId;
         }).sort(function (x, y) {
             /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
@@ -787,53 +834,63 @@ try {
 
     if (D.instances && D.instances.length) {
         var elInst = champ('InstanceId');
-
-        /* Deux rendus possibles pour la date, selon ce que le formulaire pose.
-
-           BOUTONS RADIO — demandes par la regle metier — si le formulaire
-           fournit un conteneur [data-socle="instances"]. La date la plus proche
-           est presélectionnée : le socle a deja classe les instances par
-           echeance, la premiere est donc la bonne.
-
-           SELECT — repli, pour les formulaires qui portent encore un
-           <select name="InstanceId">. */
         var zoneDates = document.querySelector('[data-socle="instances"]');
+        var elCampus = champ('Campus');
 
-        if (zoneDates) {
-            zoneDates.innerHTML = '';
-            D.instances.forEach(function (inst, i) {
-                var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
-                var wrap = document.createElement('label');
-                wrap.className = 'socle-instance';
+        /**
+         * Rend les dates du campus courant, puis les ateliers de la premiere.
+         *
+         * Deux rendus possibles, selon ce que le formulaire pose :
+         *   BOUTONS RADIO dans [data-socle="instances"] — ce que demande la
+         *   regle metier, la date la plus proche presélectionnée ;
+         *   SELECT name="InstanceId" — repli pour les formulaires anciens.
+         */
+        function rendreDates() {
+            var liste = datesPour(elCampus ? elCampus.value : '');
 
-                var radio = document.createElement('input');
-                radio.type = 'radio';
-                radio.name = 'InstanceId';
-                radio.id = id;
-                radio.value = inst.value;
-                if (i === 0) radio.checked = true;
+            if (zoneDates) {
+                zoneDates.innerHTML = '';
+                liste.forEach(function (inst, i) {
+                    var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
+                    var wrap = document.createElement('label');
+                    wrap.className = 'socle-instance';
 
-                var txt = document.createElement('span');
-                txt.textContent = libelleInstance(inst);
+                    var radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'InstanceId';
+                    radio.id = id;
+                    radio.value = inst.value;
+                    if (i === 0) radio.checked = true;
 
-                radio.addEventListener('change', function () {
-                    if (radio.checked) rendreAteliers(radio.value);
+                    var txt = document.createElement('span');
+                    txt.textContent = libelleInstance(inst);
+
+                    radio.addEventListener('change', function () {
+                        if (radio.checked) rendreAteliers(radio.value);
+                    });
+
+                    wrap.appendChild(radio);
+                    wrap.appendChild(txt);
+                    zoneDates.appendChild(wrap);
                 });
 
-                wrap.appendChild(radio);
-                wrap.appendChild(txt);
-                zoneDates.appendChild(wrap);
-            });
-            rendreAteliers(D.instances[0].value);
+            } else if (elInst && elInst.tagName === 'SELECT') {
+                remplir('InstanceId', liste, valeur('InstanceId'));
+                if (!elInst.value && liste.length) elInst.value = liste[0].value;
+            }
 
-        } else if (elInst && elInst.tagName === 'SELECT') {
-            remplir('InstanceId', D.instances, valeur('InstanceId'));
-            if (!elInst.value) elInst.value = D.instances[0].value;
-            elInst.addEventListener('change', function () {
-                rendreAteliers(elInst.value);
-            });
-            rendreAteliers(elInst.value);
+            /* Les ateliers suivent la date retenue. Aucune date : on vide, sans
+               quoi la liste de la selection precedente resterait a l'ecran. */
+            rendreAteliers(liste.length ? liste[0].value : '');
         }
+
+        if (elInst && elInst.tagName === 'SELECT') {
+            elInst.addEventListener('change', function () { rendreAteliers(elInst.value); });
+        }
+        /* Changer de campus rebat les dates : la fenetre de 15 jours se calcule
+           sur le campus retenu, pas sur l'ecole entiere. */
+        if (elCampus) elCampus.addEventListener('change', rendreDates);
+        rendreDates();
     }
 
     }   /* fin demarrer() */
