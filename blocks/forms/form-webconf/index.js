@@ -656,6 +656,9 @@ export default function (editor, categories) {
             const linkEl = card.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché : voir les autres formulaires. */
+            const preuveEl = card.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         function updateCard(val) {
