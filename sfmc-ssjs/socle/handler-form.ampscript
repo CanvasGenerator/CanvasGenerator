@@ -217,6 +217,7 @@ VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
 VAR @itPreview, @itContext, @itHorodatage, @evtParent
+VAR @detailOrigine
 
 VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -893,26 +894,13 @@ IF @submitted == "true" THEN
                jamais sur un prospect neuf. */
             SET @itHorodatage = FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")
 
-            /* Origine de creation : first-touch, donc jamais reecrite. */
-            IF Empty(Field(@row,"CreationSourceDate__c")) THEN
-                IF @LOG_ACTIF == "true" THEN
-                    SET @logOrdre = Add(@logOrdre, 1)
-                    InsertData("LPB_Log_Soumissions",
-                        "RowId", Concat(@runId, "-", @logOrdre),
-                        "RunId", @runId,
-                        "Ordre", @logOrdre,
-                        "Horodatage", Now(),
-                        "Etape", "37 - CreationSourceDate__c",
-                        "Statut", "OK",
-                        "Objet", "Account",
-                        "RecordId", @paId,
-                        "Detail", "va tenter",
-                        "Email", @email,
-                        "Ecole", @ecole,
-                        "FormType", @formType)
-                ENDIF
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDate__c", @itHorodatage)
-            ENDIF
+            /* CreationSourceDate__c n'est PAS ecrit, ici ni ailleurs : l'org
+               le refuse, et le refus tue la page. Mesure du 29/08 sur un compte
+               neuf — le journal s'arrete net entre « 28 - avant creation » et
+               « 30 - account cree », la seule ecriture entre les deux etant
+               celle-la. Le garde-fou Empty() masquait le probleme : sur les
+               comptes existants le champ est deja rempli cote CRM, donc la
+               ligne n'etait jamais atteinte. C'est le CRM qui l'alimente. */
             IF Empty(Field(@row,"CreationSourceDetail__c")) AND NOT Empty(RequestParameter("NomFormulaire")) THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
@@ -1174,6 +1162,31 @@ IF @submitted == "true" THEN
                Sinon on journalisait « account cree » avec un RecordId vide. */
             IF NOT Empty(@paId) THEN
                 SET @isNew = "true"
+
+                /* ---- ORIGINE DE CREATION, SUR UN COMPTE NEUF --------------
+                   Ce champ n'etait ecrit que dans la branche
+                   « prospect deja connu » : un compte cree a l'instant n'y
+                   passe jamais. Il y restait donc vide — et l'org REFUSE
+                   alors le ContactPointConsent qui suit.
+
+                   C'est ce qui a longtemps ressemble a un blocage arbitraire
+                   du consentement : mes comptes du 26/08 avaient recu
+                   plusieurs soumissions, donc etaient passes par la branche
+                   « deja connu » et avaient herite du champ ; ceux du 27/08,
+                   soumis une seule fois, ne l'avaient pas. Mesure du 29/08
+                   sur quatre comptes : poser CreationSourceDetail__c suffit a
+                   faire accepter le consentement, seul et a lui seul.
+
+                   Le formulaire fournit toujours NomFormulaire, mais le repli
+                   n'est pas decoratif : sans valeur, pas de consentement, donc
+                   pas de preuve RGPD. On prefere une origine approximative a
+                   une trace absente. */
+                SET @detailOrigine = RequestParameter("NomFormulaire")
+                IF Empty(@detailOrigine) THEN
+                    SET @detailOrigine = Concat("Formulaire ", @formType)
+                ENDIF
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDetail__c", @detailOrigine)
+
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
