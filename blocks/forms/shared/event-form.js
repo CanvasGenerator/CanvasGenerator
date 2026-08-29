@@ -17,6 +17,7 @@ import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
+import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
 
     /* ── Picklists ──────────────────────────────────────────────────── */
@@ -62,6 +63,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
     const TRANS = {
         fr: {
             campus:      'Campus',
+            dateChoix:   'Choisissez votre date',
+            ateliers:    'Au programme',
             youAre:      'Vous êtes',
             lastName:    'Nom',
             firstName:   'Prénom',
@@ -71,6 +74,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             studyLevel:  "Niveau d'études",
             programme:   'Programme souhaité',
             programmePh: 'Sélectionnez un programme...',
+            speciality:   'Spécialité',
+            specialityPh: 'Sélectionnez...',
             childLastName:  'Nom de votre enfant',
             childFirstName: 'Prénom de votre enfant',
             childPhone:     'Téléphone de votre enfant',
@@ -88,6 +93,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
         },
         en: {
             campus:      'Campus',
+            dateChoix:   'Choose your date',
+            ateliers:    'Programme',
             youAre:      'You are',
             lastName:    'Last name',
             firstName:   'First name',
@@ -97,6 +104,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             studyLevel:  'Level of study',
             programme:   'Desired programme',
             programmePh: 'Select a programme...',
+            speciality:   'Speciality',
+            specialityPh: 'Select...',
             childLastName:  "Your child's last name",
             childFirstName: "Your child's first name",
             childPhone:     "Your child's phone",
@@ -251,6 +260,41 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-campus-select:focus {
     border-color: var(--brand-muted, #6b7280);
 }
+
+/* Dates et ateliers rendus par le socle. Vides tant que le CRM n'a pas
+   repondu : les conteneurs se replient alors sur zero hauteur. */
+.jpo-dates,
+.jpo-ateliers {
+    display: grid;
+    gap: 8px;
+}
+.jpo-dates label,
+.jpo-ateliers label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.45;
+    background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.jpo-dates label:hover,
+.jpo-ateliers label:hover { border-color: #b9b9b9; }
+.jpo-dates input,
+.jpo-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.jpo-dates label:has(input:checked),
+.jpo-ateliers label:has(input:checked) {
+    border-color: #1a1a1a;
+    background: #fafafa;
+}
+/* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
+   compris, plutot que de laisser un intitule orphelin. */
+.jpo-dates-field:has(.jpo-dates:empty),
+.jpo-ateliers-field:has(.jpo-ateliers:empty) { display: none; }
 
 .jpo-event-card {
     display: none;
@@ -659,6 +703,30 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Ces deux conteneurs DOIVENT rester DANS le <form> : le socle y
+             cree des <input type="radio" name="InstanceId">, et un champ hors
+             formulaire ne serait jamais soumis.
+
+             Vides dans le builder, qui n'execute pas le socle. En page
+             publiee, le socle y pose les dates du CRM (boutons radio, la plus
+             proche cochee) puis les conferences de la date choisie, avec leurs
+             horaires. Changer de date refiltre les conferences.
+
+             InstanceId est ce que le socle d'ecriture attend : sans lui il
+             refuse la soumission. EventDate ci-dessus ne porte qu'un texte
+             d'affichage. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">${t.ateliers}</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
 ${showVousEtes ? `
         <div class="jpo-row">
             <div class="jpo-field">
@@ -726,6 +794,23 @@ ${showVousEtes ? `
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="jpo-err-msg">${t.errPhone}</span>
+            </div>
+        </div>
+
+        <!-- Spécialité (règle §6) — seule brique de la cascade sur les
+             formulaires événement : le contrat ne prévoit rythme, langue et
+             rentrée que sur la candidature. Masquée au départ ; c'est la
+             cascade qui décide, selon l'école et le nombre de valeurs
+             restantes. Un champ à une seule valeur reste masqué mais
+             renseigné, et part au CRM.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="jpo-field jpo-speciality-field hidden">
+            <label class="jpo-label">${t.speciality}</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select" name="Speciality" data-placeholder="${t.specialityPh}">
+                    <option value="">${t.specialityPh}</option>
+                </select>
             </div>
         </div>
 
@@ -916,12 +1001,36 @@ export function attachEventFormLogic(editor) {
             const linkEl = card.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = card.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* Scoped updateEventCard — colonne gauche : date + heures + conférence ;
            colonne droite : « Campus <ville> » + adresse (comme la maquette). */
+        /* La carte figee vient de `jpoEvents`, un dictionnaire ecrit en dur dans
+           le builder : une date par campus, saisie a la main. Elle sert
+           d'illustration tant que le CRM ne repond pas — dans le builder,
+           typiquement, ou le socle ne s'execute pas.
+
+           Des que le socle publie de vraies dates, elle ment : on la retire.
+           C'est la liste de boutons radio qui fait foi. */
+        function socleAUneDate() {
+            try {
+                var D = (form.ownerDocument.defaultView || window).SOCLE_DATA;
+                return !!(D && D.instances && D.instances.length);
+            } catch (e) { return false; }
+        }
+
         function updateCard(val) {
             const cardEl = card.querySelector('.jpo-event-card');
+            if (socleAUneDate()) {
+                if (cardEl) cardEl.style.display = 'none';
+                return;
+            }
             const dateEl = card.querySelector('.jpo-event-date');
             const addrEl = card.querySelector('.jpo-event-detail');
             const confEl = card.querySelector('.jpo-event-right');
@@ -975,8 +1084,15 @@ export function attachEventFormLogic(editor) {
         })();
         const showProgramme = isProgrammeSchool(school);
 
+        /* ── Cascade de reconstitution du programme (règle §6) ────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote la
+           spécialité, et le champ Programme n'a plus lieu d'être. Sinon —
+           builder, ou Salesforce muet — on garde l'ancien select Programme
+           alimenté par niveau + campus. Les deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
         function refreshProgramme() {
-            if (!programmeField || !programmeSelect) return;
+            if (cascadeActive || !programmeField || !programmeSelect) return;
             const niveau = niveauEl ? niveauEl.value : '';
             const campus = campusSelect ? campusSelect.value : '';
             const progs  = showProgramme ? getProgrammes(niveau, campus, lang) : [];
@@ -1009,6 +1125,7 @@ export function attachEventFormLogic(editor) {
         campusSelect.addEventListener('change', refreshProgramme);
         refreshProgramme();
         refreshChild();
+        if (cascadeActive && programmeField) programmeField.classList.add('hidden');
 
         const emailEl = form.querySelector('[name="EmailAddress"]');
         if (emailEl) emailEl.addEventListener('blur', function () {

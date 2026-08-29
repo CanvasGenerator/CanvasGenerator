@@ -57,9 +57,20 @@ const cfg = (o = {}) => Object.assign({
               Language: { visible: 'toujours', niveauMin: 0 } },
 }, o);
 
+/* Brochure et formulaires evenement ne portent QUE la specialite : le contrat
+   ne prevoit rythme, langue et rentree que sur la candidature. La cascade doit
+   donc tolerer l'absence des trois autres champs. */
+const LAYOUT_SPECIALITE_SEULE = [['Email', 0], ['Campus', 1], ['Niveau', 1],
+                                 ['Speciality', 1], ['Consentements', 0]];
+
+/* « Vous etes » ne fait pas partie de la cascade, mais une condition croisee
+   peut s'y referer : c'est le cas de la specialite de la brochure CREAD. */
+const LAYOUT_AVEC_CONTACT = [['Email', 0], ['Campus', 1], ['Niveau', 1],
+                             ['VousEtes', 1], ['Speciality', 1], ['Consentements', 0]];
+
 let ok = 0; const echecs = [];
-function test(nom, fn) {
-    const dom = creerDom(LAYOUT);
+function test(nom, fn, layout = LAYOUT) {
+    const dom = creerDom(layout);
     try {
         fn(dom, (config, selections = {}) => {
             dom.reset();
@@ -130,6 +141,73 @@ test('progressif=false affiche les champs sans attendre le niveau (cas EFAP)', (
 test('langueDefaut est applique quand rien n\'est choisi (IFA Paris)', (d, run) => {
     run(cfg({ langueDefaut: 'FR' }), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
     egal(d.champs.Language.value, 'FR', 'langue par defaut');
+});
+
+/* ---- Formulaires sans la cascade complete ------------------------------ */
+test('Speciality seule : la cascade tourne sans rythme, langue ni rentree', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    egal(d.options('Speciality').sort(), ['Comm', 'Luxe'], 'specialites proposees');
+    if (!d.visible('Speciality')) throw new Error('Speciality masquee alors qu il y a deux valeurs');
+}, LAYOUT_SPECIALITE_SEULE);
+
+test('Speciality seule : une valeur unique reste masquee mais renseignee', (d, run) => {
+    run(cfg(), { Campus: 'EFAP LILLE', Niveau: 'Terminale' });
+    egal(d.champs.Speciality.value, 'Comm', 'valeur unique posee d office');
+    if (d.visible('Speciality')) throw new Error('Speciality affichee alors qu il n y a qu une valeur');
+}, LAYOUT_SPECIALITE_SEULE);
+
+/* ---- Conditions croisees (regle CREAD) --------------------------------- */
+const CONDS = 'Campus=EFAP PARIS;VousEtes=Career Change';
+const cfgCond = () => cfg({ champs: {
+    Speciality: { visible: 'toujours', niveauMin: 0, conditions: CONDS },
+    Rhythm:     { visible: 'toujours', niveauMin: 0 },
+    Language:   { visible: 'toujours', niveauMin: 0 },
+} });
+
+test('Conditions croisees : les deux remplies, le champ est propose', (d, run) => {
+    run(cfgCond(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', VousEtes: 'Career Change' });
+    if (!d.visible('Speciality')) throw new Error('Speciality masquee alors que les deux conditions sont vraies');
+}, LAYOUT_AVEC_CONTACT);
+
+test('Conditions croisees : une seule remplie ne suffit pas', (d, run) => {
+    run(cfgCond(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', VousEtes: 'Student' });
+    if (d.visible('Speciality')) throw new Error('Speciality proposee au mauvais type de contact');
+    run(cfgCond(), { Campus: 'EFAP LILLE', Niveau: 'Terminale', VousEtes: 'Career Change' });
+    if (d.visible('Speciality')) throw new Error('Speciality proposee au mauvais campus');
+}, LAYOUT_AVEC_CONTACT);
+
+test('Conditions croisees : un champ cite mais absent du formulaire masque', (d, run) => {
+    run(cfgCond(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (d.visible('Speciality')) throw new Error('condition invérifiable traitee comme vraie');
+}, LAYOUT_SPECIALITE_SEULE);
+
+test('Sans conditions, rien ne change [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', VousEtes: 'Student' });
+    if (!d.visible('Speciality')) throw new Error('Speciality masquee sans aucune condition posee');
+}, LAYOUT_AVEC_CONTACT);
+
+/* Le cas BRASSART cumule les deux : rythme a partir de bac+3 ET pour la seule
+   direction artistique. Aucun autre test ne croisait un seuil de niveau avec
+   une condition — c'est la combinaison, pas chaque moitie, qui pouvait casser. */
+const cfgCumul = (conds) => cfg({ champs: {
+    Speciality: { visible: 'toujours', niveauMin: 0 },
+    Rhythm:     { visible: 'toujours', niveauMin: 0 },
+    Language:   { visible: 'niveau', niveauMin: 4, conditions: conds },
+} });
+
+test('Cumul seuil + condition : les deux remplis, le champ est propose', (d, run) => {
+    run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (!d.visible('Language')) throw new Error('Language masque alors que seuil et condition sont vrais');
+});
+
+test('Cumul seuil + condition : le seuil seul ne suffit pas', (d, run) => {
+    run(cfgCumul('Campus=EFAP LILLE'), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (d.visible('Language')) throw new Error('Language propose alors que la condition est fausse');
+});
+
+test('Cumul seuil + condition : la condition seule ne suffit pas', (d, run) => {
+    run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
+    if (d.visible('Language')) throw new Error('Language propose sous le seuil de niveau');
 });
 
 /* ---- Ordre d'affichage ------------------------------------------------- */

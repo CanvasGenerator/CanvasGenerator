@@ -19,6 +19,7 @@ import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
+import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
 
 import { ajouterBloc } from '../shared/blocs-desactives.js';
@@ -27,6 +28,8 @@ export default function (editor, categories) {
     /* ── Traductions FR / EN ─────────────────────────────────────────── */
     const TRANS = {
         fr: {
+            dateChoix:   'Choisissez votre date',
+            ateliers:    'Au programme',
             title:       "Demande d'immersion",
             subtitle:    "Vivez une journée dans notre école. Laissez-nous vos coordonnées, notre équipe vous recontacte.",
             lastName:    'Nom',
@@ -38,6 +41,8 @@ export default function (editor, categories) {
             campus:      'Campus',
             programme:   'Programme souhaité',
             programmePh: 'Sélectionnez un programme...',
+            speciality:   'Spécialité',
+            specialityPh: 'Sélectionnez...',
             rgpdLink:    'ici',
             submit:      'Envoyer ma demande',
             sending:     'Envoi en cours...',
@@ -51,6 +56,8 @@ export default function (editor, categories) {
             errGeneric:  'Une erreur est survenue, veuillez réessayer.',
         },
         en: {
+            dateChoix:   'Choose your date',
+            ateliers:    'Programme',
             title:       'Immersion request',
             subtitle:    'Spend a day at our school. Leave us your details and our team will contact you.',
             lastName:    'Last name',
@@ -62,6 +69,8 @@ export default function (editor, categories) {
             campus:      'Campus',
             programme:   'Desired programme',
             programmePh: 'Select a programme...',
+            speciality:   'Speciality',
+            specialityPh: 'Select...',
             rgpdLink:    'here',
             submit:      'Send my request',
             sending:     'Sending...',
@@ -141,6 +150,26 @@ export default function (editor, categories) {
     pointer-events: none;
 }
 .imf-phone-wrap { display: flex; gap: 8px; }
+.imf-dates,
+.imf-ateliers { display: grid; gap: 8px; }
+.imf-dates label,
+.imf-ateliers label {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border: 1px solid #e2e2e2; border-radius: 8px;
+    cursor: pointer; font-size: 14px; line-height: 1.45; background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.imf-dates label:hover,
+.imf-ateliers label:hover { border-color: #b9b9b9; }
+.imf-dates input,
+.imf-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.imf-dates label:has(input:checked),
+.imf-ateliers label:has(input:checked) { border-color: #1a1a1a; background: #fafafa; }
+/* Bloc entier masque tant qu'il n'y a rien a proposer : un intitule sans
+   option n'apprend rien. */
+.imf-dates-field:has(.imf-dates:empty),
+.imf-ateliers-field:has(.imf-ateliers:empty) { display: none; }
+
 .imf-phone-prefix-wrap {
     position: relative;
     /* 112px et non 84 : le socle remplace les options par les 201
@@ -312,6 +341,21 @@ ${hidden}
             </div>
         </div>
 
+        <!-- Spécialité (règle §6) — seule brique de la cascade ici : le
+             contrat ne prévoit rythme, langue et rentrée que sur la
+             candidature. Masquée au départ ; c'est la cascade qui décide.
+             Un champ à une seule valeur reste masqué mais renseigné.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="imf-field imf-speciality-field hidden">
+            <label class="imf-label">${t.speciality}</label>
+            <div class="imf-sel-wrap">
+                <select class="imf-select" name="Speciality" data-placeholder="${t.specialityPh}">
+                    <option value="">${t.specialityPh}</option>
+                </select>
+            </div>
+        </div>
+
         <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
         <div class="imf-field imf-programme-field hidden">
             <label class="imf-label">${t.programme}</label>
@@ -320,6 +364,27 @@ ${hidden}
                     <option value="">${t.programmePh}</option>
                 </select>
             </div>
+        </div>
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Memes conteneurs que les autres formulaires evenement, memes
+             contraintes : ils doivent rester DANS le <form>, puisque le socle y
+             cree des <input type="radio" name="InstanceId">.
+
+             TypeEvenement est indispensable : sans lui le socle ne lit
+             aucune instance. L'immersion releve de la famille evenement depuis
+             l'arbitrage du mapping v4 — inscription Summit, pas de campagne. -->
+        <input type="hidden" name="TypeEvenement" value="Immersion">
+        <input type="hidden" name="Appointments"  value="">
+
+        <div class="imf-field imf-dates-field">
+            <label class="imf-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="imf-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="imf-field imf-ateliers-field">
+            <label class="imf-label">${t.ateliers}</label>
+            <div class="imf-ateliers" data-socle="appointments"></div>
         </div>
 
         <!-- RGPD -->
@@ -393,6 +458,12 @@ ${socleReadSnippet()}
             const linkEl = form.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = form.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* ── Champs cachés (tracking / CRM) ── */
@@ -411,8 +482,15 @@ ${socleReadSnippet()}
         })();
         const showProgramme = isProgrammeSchool(school);
 
+        /* ── Cascade de reconstitution du programme (règle §6) ────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote la
+           spécialité, et le champ Programme n'a plus lieu d'être. Sinon —
+           builder, ou Salesforce muet — on garde l'ancien select Programme.
+           Les deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
         function refreshProgramme() {
-            if (!programmeField || !programmeSelect) return;
+            if (cascadeActive || !programmeField || !programmeSelect) return;
             const niveau = niveauEl ? niveauEl.value : '';
             const campus = campusEl ? campusEl.value : '';
             const progs  = showProgramme ? getProgrammes(niveau, campus, lang) : [];
@@ -429,6 +507,7 @@ ${socleReadSnippet()}
         if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
         if (campusEl) campusEl.addEventListener('change', refreshProgramme);
         refreshProgramme();
+        if (cascadeActive && programmeField) programmeField.classList.add('hidden');
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);

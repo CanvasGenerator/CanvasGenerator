@@ -170,6 +170,15 @@ function niveauxDuProgramme(p) {
  * valider : c'est exactement la « table de correspondance officielle » que le
  * responsable data attend. Si le CRM normalise les deux référentiels, ces deux
  * lignes disparaissent et `canonNiveau` se réduit à un simple toUpperCase.
+ *
+ * En attendant, la sonde `LPB_TST_Sonde_Niveaux` confronte les deux côtés et
+ * signale toute valeur que rien ne rattache — le seul symptôme, sinon, est la
+ * disparition SILENCIEUSE des programmes concernés. Passage du 29/08/2026 :
+ * 13 valeurs de part et d'autre, toutes rattachées.
+ *
+ * ⚠ La sonde recopie ces deux lignes en AMPscript : le navigateur ne lit pas
+ * AMPscript, il n'y a pas de source unique possible. Modifier la table ici
+ * oblige à la modifier là-bas.
  */
 const NIVEAU_EQUIV = {
     'BAC+5/+':    'BAC+5 ET +',
@@ -192,6 +201,11 @@ function canonNiveau(v) {
  *
  * @returns {string} l'Id du PTAT, ou '' si introuvable.
  */
+/* Exportees pour la cascade de reconstitution du programme
+   (cascade-programme.js) : elle doit comparer les niveaux exactement comme
+   ici, multi-select et divergences de referentiel comprises. */
+export { canonNiveau, niveauxDuProgramme };
+
 export function getPtatForProgramme(programId) {
     const D = typeof window !== 'undefined' ? window.SOCLE_DATA : null;
     if (!D || !D.ptats || !programId) return '';

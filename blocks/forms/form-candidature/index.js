@@ -21,6 +21,7 @@ import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
+import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
 
 import { ajouterBloc } from '../shared/blocs-desactives.js';
@@ -40,6 +41,11 @@ export default function (editor, categories) {
             studyLevel:  "Niveau d'études",
             campus:      'Campus',
             programme:   'Programme souhaité',
+            speciality:  'Spécialité',
+            rhythm:      'Rythme',
+            language:    'Langue d\'enseignement',
+            rentree:     'Rentrée',
+            choisir:     'Sélectionnez...',
             programmePh: 'Sélectionnez un programme...',
             rgpdLink:    'ici',
             submit:      'Je candidate',
@@ -65,6 +71,11 @@ export default function (editor, categories) {
             studyLevel:  'Level of study',
             campus:      'Campus',
             programme:   'Desired programme',
+            speciality:  'Specialisation',
+            rhythm:      'Study mode',
+            language:    'Language of instruction',
+            rentree:     'Intake',
+            choisir:     'Select...',
             programmePh: 'Select a programme...',
             rgpdLink:    'here',
             submit:      'Apply now',
@@ -330,6 +341,51 @@ ${hidden}
             </div>
         </div>
 
+        <!-- ═══════ RECONSTITUTION DU PROGRAMME ═══════
+             Règle §6 : le programme est scindé en champs conditionnels —
+             campus → niveau → spécialité → rythme → langue → rentrée. Chacun
+             ne propose que ce qui reste atteignable, et le dernier choix
+             désigne un programme unique, donc un PTAT.
+
+             Tous masqués au départ : c'est la cascade qui décide de les
+             montrer, selon l'école (ordre, affichage progressif) et le nombre
+             de valeurs restantes. Un champ à une seule valeur reste masqué mais
+             renseigné — la réponse part au CRM sans qu'on pose la question.
+
+             Inertes dans le builder, qui n'exécute pas le socle. -->
+        <div class="cnd-field cnd-speciality-field hidden">
+            <label class="cnd-label">${t.speciality}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Speciality" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rhythm-field hidden">
+            <label class="cnd-label">${t.rhythm}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rhythm" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-language-field hidden">
+            <label class="cnd-label">${t.language}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Language" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rentree-field hidden">
+            <label class="cnd-label">${t.rentree}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rentree" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+
         <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
         <div class="cnd-field cnd-programme-field hidden">
             <label class="cnd-label">${t.programme}</label>
@@ -415,6 +471,12 @@ ${socleReadSnippet()}
             const linkEl = form.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = form.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* ── Champs cachés (tracking / CRM + langue souhaitée IFA) ── */
@@ -457,11 +519,25 @@ ${socleReadSnippet()}
                 : '';
         }
 
-        if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
-        if (campusEl) campusEl.addEventListener('change', refreshProgramme);
-        if (programmeSelect) programmeSelect.addEventListener('change', majPtat);
-        refreshProgramme();
-        majPtat();
+        /* ── Cascade de reconstitution du programme ──────────────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote :
+           spécialité, rythme, langue et rentrée reconstituent le programme, et
+           le champ Programme devient un résultat qu'on ne montre plus.
+
+           Sinon — builder, ou Salesforce muet — on garde l'ancien
+           comportement : un select Programme alimenté par niveau + campus. Les
+           deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
+        if (cascadeActive) {
+            if (programmeField) programmeField.classList.add('hidden');
+        } else {
+            if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
+            if (campusEl) campusEl.addEventListener('change', refreshProgramme);
+            if (programmeSelect) programmeSelect.addEventListener('change', majPtat);
+            refreshProgramme();
+            majPtat();
+        }
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);

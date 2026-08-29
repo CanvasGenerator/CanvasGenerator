@@ -440,11 +440,21 @@ try {
     function afficher(name, visible) {
         var el = champ(name);
         if (!el) return;
+        /* Les conteneurs de nos formulaires D'ABORD : sans eux la remontee
+           s'arretait au `.cnd-sel-wrap`, donc on masquait le <select> en
+           laissant son libelle orphelin a l'ecran. */
         var porteur = el.closest
-            ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
+            ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
+               el.closest('.brf-field') || el.closest('.jpo-field') ||
+               el.closest('.imf-field') || el.closest('.form-group') ||
                el.closest('.field') || el.closest('label') || el.parentNode)
             : el.parentNode;
-        (porteur || el).style.display = visible ? '' : 'none';
+        porteur = porteur || el;
+        porteur.style.display = visible ? '' : 'none';
+        /* Deux leviers : ces champs naissent avec la classe `hidden`
+           (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
+           l'emporte pas sur une regle de classe. */
+        if (porteur.classList) porteur.classList.toggle('hidden', !visible);
     }
 
     /**
@@ -459,8 +469,58 @@ try {
         if (!CFG || !CFG.champs || !CFG.champs[name]) return true;   // pas de config = ancien comportement
         var regle = CFG.champs[name];
         if (regle.visible === 'jamais') return false;
-        if (regle.visible === 'niveau') return ordreNiveauChoisi() >= Number(regle.niveauMin || 0);
+        if (regle.visible === 'niveau' && ordreNiveauChoisi() < Number(regle.niveauMin || 0)) return false;
+        return conditionsRemplies(regle.conditions);
+    }
+
+    /**
+     * Conditions CROISEES, en plus de l'axe unique de la matrice.
+     *
+     * « Champ=Valeur;Champ=Valeur », TOUTES vraies pour que le champ soit
+     * propose. Les noms sont les attributs name[] du formulaire, les valeurs
+     * celles du CRM — pas les libelles affiches, qui changent avec la langue.
+     *
+     * Ce que la matrice ne savait pas dire : CREAD ne propose la specialite de
+     * sa brochure qu'au campus de Lyon, et pour un contact en reconversion. Un
+     * seul axe par champ (jamais / toujours / seuil de niveau) ne pouvait pas
+     * l'exprimer ; la regle restait donc en commentaire dans la config, et le
+     * champ etait simplement desactive.
+     *
+     * Chaine vide = aucune condition = autorise. Un champ nomme mais ABSENT du
+     * formulaire rend la condition fausse : mieux vaut ne pas proposer que
+     * proposer sur une condition qu'on ne sait pas verifier.
+     */
+    function conditionsRemplies(brut) {
+        if (!brut) return true;
+        var paires = String(brut).split(';');
+        for (var i = 0; i < paires.length; i++) {
+            var paire = paires[i];
+            if (!paire || paire.indexOf('=') === -1) continue;
+            var coupe = paire.indexOf('=');
+            var nom = paire.slice(0, coupe).replace(/^\s+|\s+$/g, '');
+            var attendu = paire.slice(coupe + 1).replace(/^\s+|\s+$/g, '');
+            if (!nom) continue;
+            var el = champ(nom);
+            if (!el || String(el.value) !== attendu) return false;
+        }
         return true;
+    }
+
+    /** Les champs cites par une condition, tous champs confondus. */
+    function champsDesConditions() {
+        var noms = {};
+        if (CFG && CFG.champs) {
+            for (var k in CFG.champs) {
+                if (!CFG.champs.hasOwnProperty(k)) continue;
+                var brut = CFG.champs[k].conditions;
+                if (!brut) continue;
+                String(brut).split(';').forEach(function (paire) {
+                    var coupe = paire.indexOf('=');
+                    if (coupe > 0) noms[paire.slice(0, coupe).replace(/^\s+|\s+$/g, '')] = true;
+                });
+            }
+        }
+        return Object.keys(noms);
     }
 
     /* -- Ordre d'affichage propre a l'ecole ----------------------------------
@@ -560,12 +620,23 @@ try {
 
     /* -- 2. Cascade programme ---------------------------------------- */
     function rafraichirCascade() {
-        // Cascade complete (niveau -> specialite -> ... -> rentree -> programme
-        // -> PTAT) : reservee aux formulaires qui portent la RENTREE, comme
-        // form-salesforce-core. Les formulaires EDH (brochure, JPO, immersion,
-        // candidature...) n'ont pas de <select name="Rentree"> : leur champ
-        // Programme suit une logique propre, on n'y touche donc pas.
-        if (!champ('Rentree')) return;
+        /* Deux portees, et il faut les distinguer.
+
+           La cascade des CRITERES (niveau -> specialite -> rythme -> langue)
+           vaut des qu'un seul de ces champs est present : brochure, JPO,
+           atelier, stage et immersion ne portent que la specialite, le contrat
+           ne prevoyant rythme, langue et rentree que sur la candidature.
+
+           La resolution du PROGRAMME (rentree -> programme -> PTAT) reste
+           reservee aux formulaires qui portent la RENTREE. Sans elle, on ne
+           peut pas choisir entre deux programmes, et les formulaires EDH ont
+           d'ailleurs leur propre logique sur ce champ : on n'y touche pas.
+
+           Le garde-fou unique d'avant — sortir faute de <select Rentree> —
+           confondait les deux et neutralisait la specialite sur les cinq
+           formulaires ci-dessus. */
+        var aRentree = Boolean(champ('Rentree'));
+        if (!aRentree && !champ('Speciality') && !champ('Rhythm') && !champ('Language')) return;
 
         var sel = {
             campus:     valeur('Campus'),
@@ -598,15 +669,31 @@ try {
             var el  = champ(nom);
             if (!el) continue;
 
-            var nbOptions = el.options ? el.options.length : 0;
+            /* HORS placeholder. `remplir` conserve l'<option value=""> du
+               formulaire : compter `options.length` revenait a voir deux
+               choix la ou il n'y en a qu'un, et la regle « une seule valeur »
+               ne se declenchait jamais sur une vraie page. */
+            var reelles = [];
+            if (el.options) {
+                for (var k = 0; k < el.options.length; k++) {
+                    if (el.options[k].value !== '') reelles.push(el.options[k]);
+                }
+            }
+
             var visible = autorise(nom);
 
             if (visible && progressif) {
                 // en mode progressif, le champ n'apparait qu'une fois le niveau pose
                 if (!sel.level) visible = false;
             }
-            // une seule option reelle (hors placeholder) : valeur transmise, champ masque
-            if (visible && nbOptions <= 1) visible = false;
+            // une seule option reelle : valeur transmise, champ masque
+            if (visible && reelles.length <= 1) visible = false;
+
+            /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
+               dans le formulaire, donc elle part au CRM. Sans cela le
+               placeholder restait selectionne et le champ partait vide — le
+               contraire de ce que demande le contrat. */
+            if (reelles.length === 1) el.value = reelles[0].value;
 
             afficher(nom, visible);
         }
@@ -616,6 +703,8 @@ try {
             var elLang = champ('Language');
             if (elLang && !elLang.value) elLang.value = CFG.langueDefaut;
         }
+
+        if (!aRentree) return;
 
         // programmes encore valides -> rentrees possibles
         var valides = filtrer(sel);
@@ -658,7 +747,12 @@ try {
         }
     }
 
+    /* Les champs de la cascade, PLUS ceux cites par une condition croisee :
+       « Vous etes » ne fait pas partie de la cascade, mais la specialite de la
+       brochure CREAD en depend. Sans cet ecouteur, la condition n'etait
+       reevaluee qu'au prochain changement de campus ou de niveau. */
     ['Campus', 'Niveau', 'Level', 'Speciality', 'Rhythm', 'Language', 'Rentree', 'Programme']
+        .concat(champsDesConditions())
         .forEach(function (n) {
             var el = champ(n);
             if (el) el.addEventListener('change', rafraichirCascade);
@@ -667,20 +761,144 @@ try {
     if (D.programs.length) rafraichirCascade();
 
     /* -- 3. Famille evenement : dates + ateliers ---------------------- */
-    if (D.instances.length) {
-        var elInst = champ('InstanceId');
-        if (elInst && elInst.tagName === 'SELECT') {
-            remplir('InstanceId', D.instances, valeur('InstanceId'));
-            // 1re date pre-selectionnee si l'utilisateur n'a rien choisi
-            if (!elInst.value && D.instances.length) elInst.value = D.instances[0].value;
-        }
+
+    /**
+     * Les dates proposees pour UN campus.
+     *
+     * La regle metier : la prochaine date de CE campus, puis tout ce qui tombe
+     * dans les 15 jours qui la suivent.
+     *
+     *   « les prochaines JPO BRASSART Lyon sont le 10 et le 17 octobre : je
+     *     peux choisir l'une ou l'autre. A Bordeaux, le 10 octobre et le 10
+     *     novembre : je ne peux choisir que le 10 octobre. »
+     *
+     * La fenetre se calcule donc ICI et non dans le socle : elle depend d'un
+     * choix fait apres le rendu. Le socle publie toutes les dates a venir de
+     * l'ecole avec leur ecart en jours ; on ne garde que celles du campus.
+     *
+     * Campus non encore choisi : on rend TOUT, sans fenetre. Masquer les dates
+     * avant que le visiteur ait choisi lui laisserait croire qu'il n'y en a
+     * aucune.
+     */
+    function datesPour(campus) {
+        var toutes = (D.instances || []).slice();
+        if (!campus) return toutes.sort(parJour);
+
+        var duCampus = toutes.filter(function (i) { return i.campus === campus; });
+        if (!duCampus.length) return [];
+
+        var plusProche = duCampus.reduce(function (m, i) {
+            var j = Number(i.jours);
+            return (m === null || j < m) ? j : m;
+        }, null);
+
+        return duCampus
+            .filter(function (i) {
+                var j = Number(i.jours);
+                return j >= plusProche && j <= plusProche + 15;
+            })
+            .sort(parJour);
     }
 
-    var zone = document.querySelector('[data-socle="appointments"]');
-    if (zone && D.appointments.length) {
+    function parJour(a, b) { return (Number(a.jours) || 0) - (Number(b.jours) || 0); }
+
+    /**
+     * Les ateliers proposes pour UNE instance.
+     *
+     * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
+     * (le champ Salesforce s'appelle summit__Restrict_To_Instance_Title__c mais
+     * contient bien un Id). Vide = propose sur toutes les dates.
+     */
+    function ateliersDe(instanceId) {
+        if (!D.appointments || !D.appointments.length) return [];
+        var inst = (D.instances || []).filter(function (i) { return i.value === instanceId; })[0];
+        var evt = inst ? inst.evenement : '';
+        return D.appointments.filter(function (a) {
+            /* Deux filtres, pas un. L'evenement d'abord : le socle publie
+               desormais les ateliers de TOUS les evenements de l'ecole, et ceux
+               d'une JPO Lyon n'ont rien a faire sur une date Bordeaux.
+               La restriction d'instance ensuite, quand elle est posee. */
+            if (evt && a.evenement && a.evenement !== evt) return false;
+            return !a.instance || a.instance === instanceId;
+        }).sort(function (x, y) {
+            /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
+               la journee, celui qu'un visiteur attend. `summit__Sort_Order__c`
+               ne prend le relais que si les horaires manquent. */
+            if (x.debut && y.debut && x.debut !== y.debut) {
+                return x.debut < y.debut ? -1 : 1;
+            }
+            return (Number(x.ordre) || 0) - (Number(y.ordre) || 0);
+        });
+    }
+
+    /**
+     * "2026-08-29T09:30:00.000Z" -> "09:30", "09:30:00.000Z" -> "09:30".
+     *
+     * Deux formats a absorber : les creneaux de conference sont des DATE-HEURES
+     * (summit__Date_Available_Start__c), les horaires d'instance de simples
+     * HEURES (summit__Instance_Start_Time__c). On ne garde que heure et minute
+     * — la date est deja sur la ligne, et les millisecondes n'apprennent rien.
+     *
+     * Format inattendu : on rend la valeur telle quelle plutot que de masquer
+     * l'information.
+     */
+    function heureSeule(v) {
+        var t = String(v || '');
+        var m = t.match(/T(\d{2}:\d{2})/) || t.match(/^(\d{2}:\d{2})/);
+        return m ? m[1] : t;
+    }
+
+    /** "09:30 - 10:30" quand les deux bornes sont la, sinon ce qu'on a. */
+    function plage(debut, fin) {
+        var d = debut ? heureSeule(debut) : '';
+        var f = fin ? heureSeule(fin) : '';
+        if (d && f) return d + ' - ' + f;
+        return d || f;
+    }
+
+    /** Le texte a afficher pour une date : horaires et adresse compris. */
+    function libelleInstance(inst) {
+        var bouts = [];
+        if (inst.date)   bouts.push(inst.date);
+        var h = plage(inst.heure, inst.heureFin);
+        if (h)           bouts.push(h);
+        if (inst.campus) bouts.push(inst.campus);
+        if (inst.address) bouts.push(inst.address);
+        return bouts.length ? bouts.join(' · ') : (inst.label || inst.value);
+    }
+
+    /**
+     * Rend la liste des ateliers de la date courante.
+     *
+     * Appelee a chaque changement de date : les conferences d'une JPO du 10
+     * septembre ne sont pas celles du 17 octobre, et le socle ne peut pas
+     * savoir a l'avance laquelle le visiteur choisira.
+     */
+    function rendreAteliers(instanceId) {
+        var zone = document.querySelector('[data-socle="appointments"]');
+        if (!zone) return;
+        /* SEULS LES OBLIGATOIRES sont proposes — arbitrage du 29/08. Les
+           sous-evenements facultatifs existent cote CRM, mais les afficher
+           revenait a demander au visiteur de composer son programme, ce que la
+           regle metier ne prevoit pas : il s'inscrit a une date, et ce qu'elle
+           comprend d'obligatoire lui est presente. */
+        var liste = ateliersDe(instanceId).filter(function (a) {
+            return a.required === true || a.required === 'true';
+        });
         zone.innerHTML = '';
-        D.appointments.forEach(function (a) {
-            var id = 'appt_' + a.value.replace(/[^a-zA-Z0-9_-]/g, '');
+
+        /* Rien d'obligatoire a cette date : on masque le bloc entier plutot
+           que de laisser un intitule « Au programme » suivi du vide. */
+        var porteurAteliers = zone.closest
+            ? (zone.closest('.jpo-ateliers-field') || zone.closest('.jpo-field') || zone.parentNode)
+            : zone.parentNode;
+        if (porteurAteliers) {
+            porteurAteliers.style.display = liste.length ? '' : 'none';
+            if (porteurAteliers.classList) porteurAteliers.classList.toggle('hidden', !liste.length);
+        }
+
+        liste.forEach(function (a) {
+            var id = 'appt_' + String(a.value).replace(/[^a-zA-Z0-9_-]/g, '');
             var wrap = document.createElement('label');
             wrap.className = 'socle-appointment';
 
@@ -692,14 +910,26 @@ try {
             box.setAttribute('data-required', String(a.required));
 
             var txt = document.createElement('span');
-            txt.textContent = a.label + (box.checked ? ' (obligatoire)' : '');
+            /* Les horaires viennent de summit__Date_Available_Start__c /
+               _End__c sur le type : c'est la que le CRM porte les creneaux de
+               conference. */
+            var h = plage(a.debut, a.fin);
+            /* Plus de mention « (obligatoire) » : la liste ne contient plus
+               que ceux-la, la repeter sur chaque ligne n'apprend rien. */
+            txt.textContent = a.label + (h ? ' — ' + h : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);
             zone.appendChild(wrap);
         });
 
-        // regroupe les cases cochees dans le champ cache "Appointments"
+        /* Regroupe les cases cochees dans le champ cache "Appointments", que le
+           socle d'ecriture decoupe sur les virgules.
+
+           A REFAIRE a chaque rendu : les cases sont recreees quand la date
+           change, et l'ecouteur pose sur les anciennes disparait avec elles.
+           Le champ cache est remis a jour tout de suite, pour que les ateliers
+           obligatoires soient comptes meme si le visiteur ne touche a rien. */
         var cible = champ('Appointments');
         if (cible) {
             var maj = function () {
@@ -712,6 +942,68 @@ try {
             maj();
         }
     }
+
+    if (D.instances && D.instances.length) {
+        var elInst = champ('InstanceId');
+        var zoneDates = document.querySelector('[data-socle="instances"]');
+        var elCampus = champ('Campus');
+
+        /**
+         * Rend les dates du campus courant, puis les ateliers de la premiere.
+         *
+         * Deux rendus possibles, selon ce que le formulaire pose :
+         *   BOUTONS RADIO dans [data-socle="instances"] — ce que demande la
+         *   regle metier, la date la plus proche presélectionnée ;
+         *   SELECT name="InstanceId" — repli pour les formulaires anciens.
+         */
+        function rendreDates() {
+            var liste = datesPour(elCampus ? elCampus.value : '');
+
+            if (zoneDates) {
+                zoneDates.innerHTML = '';
+                liste.forEach(function (inst, i) {
+                    var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
+                    var wrap = document.createElement('label');
+                    wrap.className = 'socle-instance';
+
+                    var radio = document.createElement('input');
+                    radio.type = 'radio';
+                    radio.name = 'InstanceId';
+                    radio.id = id;
+                    radio.value = inst.value;
+                    if (i === 0) radio.checked = true;
+
+                    var txt = document.createElement('span');
+                    txt.textContent = libelleInstance(inst);
+
+                    radio.addEventListener('change', function () {
+                        if (radio.checked) rendreAteliers(radio.value);
+                    });
+
+                    wrap.appendChild(radio);
+                    wrap.appendChild(txt);
+                    zoneDates.appendChild(wrap);
+                });
+
+            } else if (elInst && elInst.tagName === 'SELECT') {
+                remplir('InstanceId', liste, valeur('InstanceId'));
+                if (!elInst.value && liste.length) elInst.value = liste[0].value;
+            }
+
+            /* Les ateliers suivent la date retenue. Aucune date : on vide, sans
+               quoi la liste de la selection precedente resterait a l'ecran. */
+            rendreAteliers(liste.length ? liste[0].value : '');
+        }
+
+        if (elInst && elInst.tagName === 'SELECT') {
+            elInst.addEventListener('change', function () { rendreAteliers(elInst.value); });
+        }
+        /* Changer de campus rebat les dates : la fenetre de 15 jours se calcule
+           sur le campus retenu, pas sur l'ecole entiere. */
+        if (elCampus) elCampus.addEventListener('change', rendreDates);
+        rendreDates();
+    }
+
     }   /* fin demarrer() */
 })();
 </script>

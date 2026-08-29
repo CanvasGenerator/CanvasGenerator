@@ -12,6 +12,7 @@ import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
+import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
 
 import { ajouterBloc } from '../shared/blocs-desactives.js';
@@ -33,6 +34,8 @@ export default function (editor, categories) {
             country:        'Pays de résidence',
             programme:      'Programme souhaité',
             programmePh:    'Sélectionnez un programme...',
+            speciality:     'Spécialité',
+            specialityPh:   'Sélectionnez...',
             childLastName:  'Nom de votre enfant',
             childFirstName: 'Prénom de votre enfant',
             childPhone:     'Téléphone de votre enfant',
@@ -63,6 +66,8 @@ export default function (editor, categories) {
             country:        'Country of residence',
             programme:      'Desired programme',
             programmePh:    'Select a programme...',
+            speciality:     'Speciality',
+            specialityPh:   'Select...',
             childLastName:  "Your child's last name",
             childFirstName: "Your child's first name",
             childPhone:     "Your child's phone",
@@ -352,6 +357,22 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
             </div>
         </div>
 
+        <!-- Spécialité (règle §6) — seule brique de la cascade présente ici :
+             le contrat ne prévoit rythme, langue et rentrée que sur la
+             candidature. Masquée au départ ; c'est la cascade qui décide, selon
+             l'école et le nombre de valeurs restantes. Un champ à une seule
+             valeur reste masqué mais renseigné, et part au CRM.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="brf-field brf-speciality-field hidden">
+            <label class="brf-label">${t.speciality}</label>
+            <div class="brf-sel-wrap">
+                <select class="brf-select" name="Speciality" data-placeholder="${t.specialityPh}">
+                    <option value="">${t.specialityPh}</option>
+                </select>
+            </div>
+        </div>
+
         <!-- Programme (conditionnel : visible si niveau a des spécialités) -->
         <div class="brf-field brf-programme-field hidden">
             <label class="brf-label">${t.programme}</label>
@@ -459,6 +480,12 @@ ${socleReadSnippet()}
             const linkEl = form.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = form.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* ── Champs cachés (tracking / CRM) ── */
@@ -482,6 +509,15 @@ ${socleReadSnippet()}
         })();
         const showProgramme = isProgrammeSchool(school);
 
+        /* ── Cascade de reconstitution du programme (règle §6) ────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote la
+           spécialité, et le champ Programme n'a plus lieu d'être.
+
+           Sinon — builder, ou Salesforce muet — on garde l'ancien
+           comportement : un select Programme alimenté par niveau + campus.
+           Les deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
         function refreshConditions() {
             const vousEtes = vousEtesEl ? vousEtesEl.value : '';
             const niveau   = niveauEl   ? niveauEl.value   : '';
@@ -499,9 +535,10 @@ ${socleReadSnippet()}
                 });
             }
 
-            /* Niveau + campus + école → programmes */
-            const progs = showProgramme ? getProgrammes(niveau, campus, lang) : [];
-            if (programmeField && programmeSelect) {
+            /* Niveau + campus + école → programmes. Sauté quand la cascade
+               tient le sujet : elle a déjà masqué ce champ. */
+            const progs = (showProgramme && !cascadeActive) ? getProgrammes(niveau, campus, lang) : [];
+            if (!cascadeActive && programmeField && programmeSelect) {
                 if (progs.length > 0) {
                     programmeSelect.innerHTML = `<option value="">${t.programmePh}</option>`
                         + progs.map(p => `<option value="${p.value}">${p.label}</option>`).join('');
@@ -517,6 +554,7 @@ ${socleReadSnippet()}
         if (niveauEl)   niveauEl.addEventListener('change', refreshConditions);
         if (campusEl)   campusEl.addEventListener('change', refreshConditions);
         refreshConditions();
+        if (cascadeActive && programmeField) programmeField.classList.add('hidden');
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);

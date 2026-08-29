@@ -36,9 +36,26 @@ function creerDom(layout) {
         },
     };
 
+    /* Les formulaires masquent par CLASSE, pas par style inline : les champs de
+       la cascade naissent avec `hidden`. Le harnais doit le refleter, sans quoi
+       il declare visible un champ qu'un navigateur garderait cache. */
+    function creerClassList(initiales) {
+        const set = new Set(initiales);
+        return {
+            add: (c) => set.add(c),
+            remove: (c) => set.delete(c),
+            contains: (c) => set.has(c),
+            toggle: (c, force) => (force === undefined ? (set.has(c) ? set.delete(c) : set.add(c))
+                                                      : (force ? set.add(c) : set.delete(c))),
+        };
+    }
+
     const champs = {};
     for (const [nom, estCascade] of layout) {
-        const porteur = { _nom: nom, style: {}, parentNode: parent, nextSibling: null };
+        const porteur = {
+            _nom: nom, style: {}, parentNode: parent, nextSibling: null,
+            classList: creerClassList(estCascade ? ['hidden'] : []),
+        };
         parent.childNodes.push(porteur);
         if (estCascade) {
             const el = {
@@ -79,12 +96,16 @@ function creerDom(layout) {
         nbEcouteurs: (type) => (ecouteurs[type] || []).length,
         ordre: () => parent.childNodes.map((n) => n._nom),
         options: (nom) => (champs[nom] ? champs[nom].options.map((o) => o.textContent) : null),
-        visible: (nom) => champs[nom] && champs[nom].parentNode.style.display !== 'none',
+        visible: (nom) => Boolean(champs[nom]) &&
+            champs[nom].parentNode.style.display !== 'none' &&
+            !champs[nom].parentNode.classList.contains('hidden'),
         reset() {
             parent.childNodes.length = 0;
-            for (const [nom] of layout) {
-                const p = champs[nom] ? champs[nom].parentNode : { _nom: nom, style: {} };
+            for (const [nom, estCascade] of layout) {
+                const p = champs[nom] ? champs[nom].parentNode
+                                      : { _nom: nom, style: {}, classList: creerClassList([]) };
                 p._nom = nom; p.style.display = ''; p.parentNode = parent;
+                if (p.classList) p.classList.toggle('hidden', Boolean(estCascade));
                 parent.childNodes.push(p);
             }
             parent._sync();
