@@ -1080,3 +1080,100 @@ Le correctif agit a la CONSTRUCTION du bloc. Une page sauvegardee avant
 aujourd'hui porte encore `value=""` et pas de prelude : il faut y reinserer le
 bloc formulaire. Piege rencontre en verifiant — la toile du builder restaure le
 contenu stocke, et je lisais un bloc ancien en croyant tester le neuf.
+
+## 28 aout 2026 - dates en boutons radio, conferences refiltrees
+
+La regle metier demande des boutons radio pour les dates, la plus proche
+presélectionnée, et l'affichage des horaires debut/fin et de l'adresse.
+
+### Ce qui a change
+
+`summit__Instance_End_Time__c` est desormais lu et publie sous `heureFin`. Le
+champ existait, le socle ne le lisait pas.
+
+Le JS rend les dates en BOUTONS RADIO quand le formulaire fournit un conteneur
+`[data-socle="instances"]`, avec la premiere presélectionnée. Le `<select
+name="InstanceId">` reste accepte en repli. Libelle d'une date :
+
+    2026-09-10 · 09:30:00.000Z - 15:30:00.000Z · L'Hôtel, 13 rue des Beaux-Arts, 75006 Paris
+
+### Les conferences etaient figees sur la premiere date
+
+Le filtrage des types d'atelier se faisait cote AMPscript, contre l'instance
+presélectionnée. Des que le visiteur changeait de date, la liste restait celle
+de la date d'origine — fausse, et sans le moindre signe.
+
+Le socle publie donc maintenant les types de TOUTES les instances de
+l'evenement, en emportant leur restriction, et c'est le JS qui filtre. Le socle
+ne peut pas savoir quelle date sera choisie ; seul le navigateur le sait.
+
+`summit__Restrict_To_Instance_Title__c` porte l'ID de l'instance malgre son nom.
+Vide = atelier propose sur toutes les dates.
+
+Verifie : la date presélectionnée (Tours) n'a aucun atelier ; passer sur la date
+dont l'Id correspond a la restriction fait apparaitre les 3, l'obligatoire coche
+d'office, et remplit le champ cache `Appointments`.
+
+Le regroupement des cases cochees est refait a CHAQUE rendu : les cases sont
+recreees au changement de date, et l'ecouteur pose sur les anciennes disparait
+avec elles.
+
+### ⚠ NE JAMAIS emettre un champ Salesforce MULTILIGNE dans SOCLE_DATA
+
+`summit__Description__c` a ete tente puis retire. Ses valeurs contiennent des
+retours a la ligne, interdits dans une chaine JS entre apostrophes :
+`window.SOCLE_DATA` devenait INDEFINI, tout le socle muet, aucune erreur
+visible. Et AMPscript ne permet pas d'ecrire "\n" dans un litteral, donc on ne
+peut meme pas les remplacer proprement.
+
+Symptome a reconnaitre : toutes les listes vides alors que la page vit.
+
+### Les horaires de conference : summit__Date_Available_Start__c / _End__c
+
+⚠ J'avais conclu qu'aucun champ ne les portait. FAUX — je n'avais pas essaye
+les bons noms. Ils sont sur `summit__Summit_Events_Appointment_Type__c` :
+
+    summit__Date_Available_Start__c    2026-08-29T08:00:00.000Z
+    summit__Date_Available_End__c      2026-08-29T09:00:00.000Z
+
+Renseignes sur les 42 types crees par le CRM. Les trois conferences d'un
+evenement donnent 08:00-09:00, 09:30-10:30, 12:00-12:30.
+
+Publies sous `debut` et `fin`, affiches a cote du titre, et les ateliers sont
+tries PAR HORAIRE — c'est l'ordre du deroule de la journee, celui qu'un
+visiteur attend. `summit__Sort_Order__c` ne prend le relais que si les horaires
+manquent.
+
+Deux formats a absorber a l'affichage : les creneaux de conference sont des
+DATE-HEURES, les horaires d'instance de simples HEURES
+(`09:30:00.000Z`, sans `T`). `heureSeule()` gere les deux.
+
+### Campus__c, pas campusNameFor__c
+
+`campusNameFor__c` est vide sur 30 des 34 instances JPO. Le socle filtrait les
+instances sur ce champ : consequence mesuree, AUCUNE date des qu'une ecole etait
+posee — et en production l'ecole l'est toujours.
+
+Le bon champ est `Campus__c` : un LOOKUP vers un Account de type ecole EDH,
+renseigne PARTOUT. Et ses valeurs sont exactement la colonne
+`SchoolAccountId` de `LPB_Mapping_Campus`, celle qui sert deja a ecrire
+`Ecole__c`. Une seule lecture de DE donne donc les campus de l'ecole, et le
+filtre porte sur des Ids — sans ambiguite, contrairement a une comparaison de
+noms.
+
+`campusNameFor__c` reste un repli pour les instances sans `Campus__c`. Et comme
+il est vide dans le cas general, le NOM du campus affiche dans le libelle d'une
+date est lui aussi resolu depuis la DE : sans cela, le visiteur ne saurait pas
+ou la date a lieu.
+
+Mesure avant / apres, sur `LPB_TST_Dico_Rendu` :
+
+    ?ecole=efap&TypeEvenement=JPO         0 date  ->  3 dates
+    ?ecole=brassart&TypeEvenement=Atelier 0 date  ->  3 dates
+
+Rendu obtenu :
+
+    2026-09-10 · 09:30 - 15:30 · EFAP PARIS · L'Hôtel, 13 rue des Beaux-Arts, 75006 Paris
+      Présentation de l'école — 08:00 - 09:00
+      Atelier découverte du programme — 09:30 - 10:30 (obligatoire)
+      Entretien individuel d'orientation — 12:00 - 12:30
