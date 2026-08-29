@@ -440,11 +440,21 @@ try {
     function afficher(name, visible) {
         var el = champ(name);
         if (!el) return;
+        /* Les conteneurs de nos formulaires D'ABORD : sans eux la remontee
+           s'arretait au `.cnd-sel-wrap`, donc on masquait le <select> en
+           laissant son libelle orphelin a l'ecran. */
         var porteur = el.closest
-            ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
+            ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
+               el.closest('.brf-field') || el.closest('.jpo-field') ||
+               el.closest('.imf-field') || el.closest('.form-group') ||
                el.closest('.field') || el.closest('label') || el.parentNode)
             : el.parentNode;
-        (porteur || el).style.display = visible ? '' : 'none';
+        porteur = porteur || el;
+        porteur.style.display = visible ? '' : 'none';
+        /* Deux leviers : ces champs naissent avec la classe `hidden`
+           (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
+           l'emporte pas sur une regle de classe. */
+        if (porteur.classList) porteur.classList.toggle('hidden', !visible);
     }
 
     /**
@@ -560,12 +570,23 @@ try {
 
     /* -- 2. Cascade programme ---------------------------------------- */
     function rafraichirCascade() {
-        // Cascade complete (niveau -> specialite -> ... -> rentree -> programme
-        // -> PTAT) : reservee aux formulaires qui portent la RENTREE, comme
-        // form-salesforce-core. Les formulaires EDH (brochure, JPO, immersion,
-        // candidature...) n'ont pas de <select name="Rentree"> : leur champ
-        // Programme suit une logique propre, on n'y touche donc pas.
-        if (!champ('Rentree')) return;
+        /* Deux portees, et il faut les distinguer.
+
+           La cascade des CRITERES (niveau -> specialite -> rythme -> langue)
+           vaut des qu'un seul de ces champs est present : brochure, JPO,
+           atelier, stage et immersion ne portent que la specialite, le contrat
+           ne prevoyant rythme, langue et rentree que sur la candidature.
+
+           La resolution du PROGRAMME (rentree -> programme -> PTAT) reste
+           reservee aux formulaires qui portent la RENTREE. Sans elle, on ne
+           peut pas choisir entre deux programmes, et les formulaires EDH ont
+           d'ailleurs leur propre logique sur ce champ : on n'y touche pas.
+
+           Le garde-fou unique d'avant — sortir faute de <select Rentree> —
+           confondait les deux et neutralisait la specialite sur les cinq
+           formulaires ci-dessus. */
+        var aRentree = Boolean(champ('Rentree'));
+        if (!aRentree && !champ('Speciality') && !champ('Rhythm') && !champ('Language')) return;
 
         var sel = {
             campus:     valeur('Campus'),
@@ -598,15 +619,31 @@ try {
             var el  = champ(nom);
             if (!el) continue;
 
-            var nbOptions = el.options ? el.options.length : 0;
+            /* HORS placeholder. `remplir` conserve l'<option value=""> du
+               formulaire : compter `options.length` revenait a voir deux
+               choix la ou il n'y en a qu'un, et la regle « une seule valeur »
+               ne se declenchait jamais sur une vraie page. */
+            var reelles = [];
+            if (el.options) {
+                for (var k = 0; k < el.options.length; k++) {
+                    if (el.options[k].value !== '') reelles.push(el.options[k]);
+                }
+            }
+
             var visible = autorise(nom);
 
             if (visible && progressif) {
                 // en mode progressif, le champ n'apparait qu'une fois le niveau pose
                 if (!sel.level) visible = false;
             }
-            // une seule option reelle (hors placeholder) : valeur transmise, champ masque
-            if (visible && nbOptions <= 1) visible = false;
+            // une seule option reelle : valeur transmise, champ masque
+            if (visible && reelles.length <= 1) visible = false;
+
+            /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
+               dans le formulaire, donc elle part au CRM. Sans cela le
+               placeholder restait selectionne et le champ partait vide — le
+               contraire de ce que demande le contrat. */
+            if (reelles.length === 1) el.value = reelles[0].value;
 
             afficher(nom, visible);
         }
@@ -616,6 +653,8 @@ try {
             var elLang = champ('Language');
             if (elLang && !elLang.value) elLang.value = CFG.langueDefaut;
         }
+
+        if (!aRentree) return;
 
         // programmes encore valides -> rentrees possibles
         var valides = filtrer(sel);

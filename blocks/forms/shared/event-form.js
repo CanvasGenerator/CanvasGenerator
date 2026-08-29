@@ -17,6 +17,7 @@ import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
+import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
 
     /* ── Picklists ──────────────────────────────────────────────────── */
@@ -73,6 +74,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             studyLevel:  "Niveau d'études",
             programme:   'Programme souhaité',
             programmePh: 'Sélectionnez un programme...',
+            speciality:   'Spécialité',
+            specialityPh: 'Sélectionnez...',
             childLastName:  'Nom de votre enfant',
             childFirstName: 'Prénom de votre enfant',
             childPhone:     'Téléphone de votre enfant',
@@ -101,6 +104,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             studyLevel:  'Level of study',
             programme:   'Desired programme',
             programmePh: 'Select a programme...',
+            speciality:   'Speciality',
+            specialityPh: 'Select...',
             childLastName:  "Your child's last name",
             childFirstName: "Your child's first name",
             childPhone:     "Your child's phone",
@@ -792,6 +797,23 @@ ${showVousEtes ? `
             </div>
         </div>
 
+        <!-- Spécialité (règle §6) — seule brique de la cascade sur les
+             formulaires événement : le contrat ne prévoit rythme, langue et
+             rentrée que sur la candidature. Masquée au départ ; c'est la
+             cascade qui décide, selon l'école et le nombre de valeurs
+             restantes. Un champ à une seule valeur reste masqué mais
+             renseigné, et part au CRM.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="jpo-field jpo-speciality-field hidden">
+            <label class="jpo-label">${t.speciality}</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select" name="Speciality" data-placeholder="${t.specialityPh}">
+                    <option value="">${t.specialityPh}</option>
+                </select>
+            </div>
+        </div>
+
         <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
         <div class="jpo-field jpo-programme-field hidden">
             <label class="jpo-label">${t.programme}</label>
@@ -1062,8 +1084,15 @@ export function attachEventFormLogic(editor) {
         })();
         const showProgramme = isProgrammeSchool(school);
 
+        /* ── Cascade de reconstitution du programme (règle §6) ────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote la
+           spécialité, et le champ Programme n'a plus lieu d'être. Sinon —
+           builder, ou Salesforce muet — on garde l'ancien select Programme
+           alimenté par niveau + campus. Les deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
         function refreshProgramme() {
-            if (!programmeField || !programmeSelect) return;
+            if (cascadeActive || !programmeField || !programmeSelect) return;
             const niveau = niveauEl ? niveauEl.value : '';
             const campus = campusSelect ? campusSelect.value : '';
             const progs  = showProgramme ? getProgrammes(niveau, campus, lang) : [];
@@ -1096,6 +1125,7 @@ export function attachEventFormLogic(editor) {
         campusSelect.addEventListener('change', refreshProgramme);
         refreshProgramme();
         refreshChild();
+        if (cascadeActive && programmeField) programmeField.classList.add('hidden');
 
         const emailEl = form.querySelector('[name="EmailAddress"]');
         if (emailEl) emailEl.addEventListener('blur', function () {

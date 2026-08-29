@@ -78,9 +78,16 @@ export function brancherCascadeProgramme(form) {
                 el.closest('[data-socle-champ]') || el.closest('.form-group'))) || el.parentNode;
     }
 
+    /* Deux leviers, parce que les formulaires en utilisent deux : les champs
+       de la cascade naissent avec la classe `hidden` (`.cnd-field.hidden {
+       display: none }`), et lever le seul `style.display` ne les revele pas —
+       la regle de classe l'emporte sur une valeur inline vide. Le harnais de
+       test, qui n'a pas de CSS, ne pouvait pas le montrer. */
     function afficher(el, visible) {
         const p = porteur(el);
-        if (p) p.style.display = visible ? '' : 'none';
+        if (!p) return;
+        p.style.display = visible ? '' : 'none';
+        if (p.classList) p.classList.toggle('hidden', !visible);
     }
 
     /** Ordinal du niveau choisi. 0 si inconnu : aucune règle de seuil ne joue. */
