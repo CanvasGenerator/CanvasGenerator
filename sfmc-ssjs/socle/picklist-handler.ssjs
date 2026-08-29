@@ -469,8 +469,58 @@ try {
         if (!CFG || !CFG.champs || !CFG.champs[name]) return true;   // pas de config = ancien comportement
         var regle = CFG.champs[name];
         if (regle.visible === 'jamais') return false;
-        if (regle.visible === 'niveau') return ordreNiveauChoisi() >= Number(regle.niveauMin || 0);
+        if (regle.visible === 'niveau' && ordreNiveauChoisi() < Number(regle.niveauMin || 0)) return false;
+        return conditionsRemplies(regle.conditions);
+    }
+
+    /**
+     * Conditions CROISEES, en plus de l'axe unique de la matrice.
+     *
+     * « Champ=Valeur;Champ=Valeur », TOUTES vraies pour que le champ soit
+     * propose. Les noms sont les attributs name[] du formulaire, les valeurs
+     * celles du CRM — pas les libelles affiches, qui changent avec la langue.
+     *
+     * Ce que la matrice ne savait pas dire : CREAD ne propose la specialite de
+     * sa brochure qu'au campus de Lyon, et pour un contact en reconversion. Un
+     * seul axe par champ (jamais / toujours / seuil de niveau) ne pouvait pas
+     * l'exprimer ; la regle restait donc en commentaire dans la config, et le
+     * champ etait simplement desactive.
+     *
+     * Chaine vide = aucune condition = autorise. Un champ nomme mais ABSENT du
+     * formulaire rend la condition fausse : mieux vaut ne pas proposer que
+     * proposer sur une condition qu'on ne sait pas verifier.
+     */
+    function conditionsRemplies(brut) {
+        if (!brut) return true;
+        var paires = String(brut).split(';');
+        for (var i = 0; i < paires.length; i++) {
+            var paire = paires[i];
+            if (!paire || paire.indexOf('=') === -1) continue;
+            var coupe = paire.indexOf('=');
+            var nom = paire.slice(0, coupe).replace(/^\s+|\s+$/g, '');
+            var attendu = paire.slice(coupe + 1).replace(/^\s+|\s+$/g, '');
+            if (!nom) continue;
+            var el = champ(nom);
+            if (!el || String(el.value) !== attendu) return false;
+        }
         return true;
+    }
+
+    /** Les champs cites par une condition, tous champs confondus. */
+    function champsDesConditions() {
+        var noms = {};
+        if (CFG && CFG.champs) {
+            for (var k in CFG.champs) {
+                if (!CFG.champs.hasOwnProperty(k)) continue;
+                var brut = CFG.champs[k].conditions;
+                if (!brut) continue;
+                String(brut).split(';').forEach(function (paire) {
+                    var coupe = paire.indexOf('=');
+                    if (coupe > 0) noms[paire.slice(0, coupe).replace(/^\s+|\s+$/g, '')] = true;
+                });
+            }
+        }
+        return Object.keys(noms);
     }
 
     /* -- Ordre d'affichage propre a l'ecole ----------------------------------
@@ -697,7 +747,12 @@ try {
         }
     }
 
+    /* Les champs de la cascade, PLUS ceux cites par une condition croisee :
+       « Vous etes » ne fait pas partie de la cascade, mais la specialite de la
+       brochure CREAD en depend. Sans cet ecouteur, la condition n'etait
+       reevaluee qu'au prochain changement de campus ou de niveau. */
     ['Campus', 'Niveau', 'Level', 'Speciality', 'Rhythm', 'Language', 'Rentree', 'Programme']
+        .concat(champsDesConditions())
         .forEach(function (n) {
             var el = champ(n);
             if (el) el.addEventListener('change', rafraichirCascade);
@@ -822,8 +877,25 @@ try {
     function rendreAteliers(instanceId) {
         var zone = document.querySelector('[data-socle="appointments"]');
         if (!zone) return;
-        var liste = ateliersDe(instanceId);
+        /* SEULS LES OBLIGATOIRES sont proposes — arbitrage du 29/08. Les
+           sous-evenements facultatifs existent cote CRM, mais les afficher
+           revenait a demander au visiteur de composer son programme, ce que la
+           regle metier ne prevoit pas : il s'inscrit a une date, et ce qu'elle
+           comprend d'obligatoire lui est presente. */
+        var liste = ateliersDe(instanceId).filter(function (a) {
+            return a.required === true || a.required === 'true';
+        });
         zone.innerHTML = '';
+
+        /* Rien d'obligatoire a cette date : on masque le bloc entier plutot
+           que de laisser un intitule « Au programme » suivi du vide. */
+        var porteurAteliers = zone.closest
+            ? (zone.closest('.jpo-ateliers-field') || zone.closest('.jpo-field') || zone.parentNode)
+            : zone.parentNode;
+        if (porteurAteliers) {
+            porteurAteliers.style.display = liste.length ? '' : 'none';
+            if (porteurAteliers.classList) porteurAteliers.classList.toggle('hidden', !liste.length);
+        }
 
         liste.forEach(function (a) {
             var id = 'appt_' + String(a.value).replace(/[^a-zA-Z0-9_-]/g, '');
@@ -842,9 +914,9 @@ try {
                _End__c sur le type : c'est la que le CRM porte les creneaux de
                conference. */
             var h = plage(a.debut, a.fin);
-            txt.textContent = a.label
-                + (h ? ' — ' + h : '')
-                + (box.checked ? ' (obligatoire)' : '');
+            /* Plus de mention « (obligatoire) » : la liste ne contient plus
+               que ceux-la, la repeter sur chaque ligne n'apprend rien. */
+            txt.textContent = a.label + (h ? ' — ' + h : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);

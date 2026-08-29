@@ -39,6 +39,7 @@ VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
 VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
+VAR @condRows, @condRow, @i9, @condSpec, @condRyth, @condLang
 VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
 VAR @evtIndex, @evtRows, @nEvt, @e
@@ -117,6 +118,35 @@ IF RowCount(@cfgRows) > 0 THEN
     SET @cfgLangV = Field(@cfg, "LangueVisible")
     SET @cfgLangN = Field(@cfg, "LangueNiveauMin")
 ENDIF
+
+/* ---- Conditions croisees ----------------------------------------------
+   La matrice ci-dessus n'exprime qu'UN axe par champ : jamais / toujours /
+   seuil de niveau. Certaines regles en croisent deux — CREAD ne propose la
+   specialite qu'au campus de Lyon ET pour un contact en reconversion. Plutot
+   que d'elargir la matrice pour un cas, une DE a part porte ces conditions,
+   evaluees dans le navigateur sur les valeurs COURANTES du formulaire.
+
+   Une ligne par (ecole, type de formulaire, champ). `*` vaut pour tous les
+   formulaires. Aucune ligne = aucune condition, donc comportement inchange. */
+SET @condRows = LookupRows("LPB_Config_Conditions", "Ecole", @school)
+SET @condSpec = ""
+SET @condRyth = ""
+SET @condLang = ""
+
+FOR @i9 = 1 TO RowCount(@condRows) DO
+    SET @condRow = Row(@condRows, @i9)
+    IF Lowercase(Field(@condRow, "Actif")) != "false" THEN
+        IF Field(@condRow, "TypeFormulaire") == "*" OR Lowercase(Field(@condRow, "TypeFormulaire")) == @formTypePage THEN
+            IF Lowercase(Field(@condRow, "Champ")) == "speciality" THEN
+                SET @condSpec = Field(@condRow, "Conditions")
+            ELSEIF Lowercase(Field(@condRow, "Champ")) == "rhythm" THEN
+                SET @condRyth = Field(@condRow, "Conditions")
+            ELSEIF Lowercase(Field(@condRow, "Champ")) == "language" THEN
+                SET @condLang = Field(@condRow, "Conditions")
+            ENDIF
+        ENDIF
+    ENDIF
+NEXT @i9
 
 SET @jsCountry   = ""
 SET @jsIndicatif = ""
@@ -680,9 +710,9 @@ window.SOCLE_DATA = {
         "langueDefaut": '%%=v(@cfgLangueDef)=%%',
         "rentreeDecalee": %%[ IF Lowercase(@cfgRentree) == "true" THEN ]%%true%%[ ELSE ]%%false%%[ ENDIF ]%%,
         "champs": {
-            "Speciality": { "visible": '%%=v(@cfgSpecV)=%%', "niveauMin": %%=v(@cfgSpecN)=%% },
-            "Rhythm":     { "visible": '%%=v(@cfgRythV)=%%', "niveauMin": %%=v(@cfgRythN)=%% },
-            "Language":   { "visible": '%%=v(@cfgLangV)=%%', "niveauMin": %%=v(@cfgLangN)=%% }
+            "Speciality": { "visible": '%%=v(@cfgSpecV)=%%', "niveauMin": %%=v(@cfgSpecN)=%%, "conditions": '%%=v(@condSpec)=%%' },
+            "Rhythm":     { "visible": '%%=v(@cfgRythV)=%%', "niveauMin": %%=v(@cfgRythN)=%%, "conditions": '%%=v(@condRyth)=%%' },
+            "Language":   { "visible": '%%=v(@cfgLangV)=%%', "niveauMin": %%=v(@cfgLangN)=%%, "conditions": '%%=v(@condLang)=%%' }
         }
     }
 };
@@ -1012,8 +1042,58 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (!CFG || !CFG.champs || !CFG.champs[name]) return true;   // pas de config = ancien comportement
         var regle = CFG.champs[name];
         if (regle.visible === 'jamais') return false;
-        if (regle.visible === 'niveau') return ordreNiveauChoisi() >= Number(regle.niveauMin || 0);
+        if (regle.visible === 'niveau' && ordreNiveauChoisi() < Number(regle.niveauMin || 0)) return false;
+        return conditionsRemplies(regle.conditions);
+    }
+
+    /**
+     * Conditions CROISEES, en plus de l'axe unique de la matrice.
+     *
+     * « Champ=Valeur;Champ=Valeur », TOUTES vraies pour que le champ soit
+     * propose. Les noms sont les attributs name[] du formulaire, les valeurs
+     * celles du CRM — pas les libelles affiches, qui changent avec la langue.
+     *
+     * Ce que la matrice ne savait pas dire : CREAD ne propose la specialite de
+     * sa brochure qu'au campus de Lyon, et pour un contact en reconversion. Un
+     * seul axe par champ (jamais / toujours / seuil de niveau) ne pouvait pas
+     * l'exprimer ; la regle restait donc en commentaire dans la config, et le
+     * champ etait simplement desactive.
+     *
+     * Chaine vide = aucune condition = autorise. Un champ nomme mais ABSENT du
+     * formulaire rend la condition fausse : mieux vaut ne pas proposer que
+     * proposer sur une condition qu'on ne sait pas verifier.
+     */
+    function conditionsRemplies(brut) {
+        if (!brut) return true;
+        var paires = String(brut).split(';');
+        for (var i = 0; i < paires.length; i++) {
+            var paire = paires[i];
+            if (!paire || paire.indexOf('=') === -1) continue;
+            var coupe = paire.indexOf('=');
+            var nom = paire.slice(0, coupe).replace(/^\s+|\s+$/g, '');
+            var attendu = paire.slice(coupe + 1).replace(/^\s+|\s+$/g, '');
+            if (!nom) continue;
+            var el = champ(nom);
+            if (!el || String(el.value) !== attendu) return false;
+        }
         return true;
+    }
+
+    /** Les champs cites par une condition, tous champs confondus. */
+    function champsDesConditions() {
+        var noms = {};
+        if (CFG && CFG.champs) {
+            for (var k in CFG.champs) {
+                if (!CFG.champs.hasOwnProperty(k)) continue;
+                var brut = CFG.champs[k].conditions;
+                if (!brut) continue;
+                String(brut).split(';').forEach(function (paire) {
+                    var coupe = paire.indexOf('=');
+                    if (coupe > 0) noms[paire.slice(0, coupe).replace(/^\s+|\s+$/g, '')] = true;
+                });
+            }
+        }
+        return Object.keys(noms);
     }
 
     /* -- Ordre d'affichage propre a l'ecole ----------------------------------
@@ -1240,7 +1320,12 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         }
     }
 
+    /* Les champs de la cascade, PLUS ceux cites par une condition croisee :
+       « Vous etes » ne fait pas partie de la cascade, mais la specialite de la
+       brochure CREAD en depend. Sans cet ecouteur, la condition n'etait
+       reevaluee qu'au prochain changement de campus ou de niveau. */
     ['Campus', 'Niveau', 'Level', 'Speciality', 'Rhythm', 'Language', 'Rentree', 'Programme']
+        .concat(champsDesConditions())
         .forEach(function (n) {
             var el = champ(n);
             if (el) el.addEventListener('change', rafraichirCascade);
@@ -1365,8 +1450,25 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     function rendreAteliers(instanceId) {
         var zone = document.querySelector('[data-socle="appointments"]');
         if (!zone) return;
-        var liste = ateliersDe(instanceId);
+        /* SEULS LES OBLIGATOIRES sont proposes — arbitrage du 29/08. Les
+           sous-evenements facultatifs existent cote CRM, mais les afficher
+           revenait a demander au visiteur de composer son programme, ce que la
+           regle metier ne prevoit pas : il s'inscrit a une date, et ce qu'elle
+           comprend d'obligatoire lui est presente. */
+        var liste = ateliersDe(instanceId).filter(function (a) {
+            return a.required === true || a.required === 'true';
+        });
         zone.innerHTML = '';
+
+        /* Rien d'obligatoire a cette date : on masque le bloc entier plutot
+           que de laisser un intitule « Au programme » suivi du vide. */
+        var porteurAteliers = zone.closest
+            ? (zone.closest('.jpo-ateliers-field') || zone.closest('.jpo-field') || zone.parentNode)
+            : zone.parentNode;
+        if (porteurAteliers) {
+            porteurAteliers.style.display = liste.length ? '' : 'none';
+            if (porteurAteliers.classList) porteurAteliers.classList.toggle('hidden', !liste.length);
+        }
 
         liste.forEach(function (a) {
             var id = 'appt_' + String(a.value).replace(/[^a-zA-Z0-9_-]/g, '');
@@ -1385,9 +1487,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                _End__c sur le type : c'est la que le CRM porte les creneaux de
                conference. */
             var h = plage(a.debut, a.fin);
-            txt.textContent = a.label
-                + (h ? ' — ' + h : '')
-                + (box.checked ? ' (obligatoire)' : '');
+            /* Plus de mention « (obligatoire) » : la liste ne contient plus
+               que ceux-la, la repeter sur chaque ligne n'apprend rien. */
+            txt.textContent = a.label + (h ? ' — ' + h : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);

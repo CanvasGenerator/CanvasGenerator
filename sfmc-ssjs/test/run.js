@@ -8,6 +8,7 @@ const etapes = [
     ['Lint AMPscript',           ['lint-ampscript.js']],
     ['Inliner',                  ['test-inliner.js']],
     ['Cascade navigateur',       ['test-cascade.js']],
+    ['Sous-evenements',          ['test-ateliers.js']],
 ];
 
 let echecs = 0;
