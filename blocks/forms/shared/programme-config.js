@@ -192,6 +192,11 @@ function canonNiveau(v) {
  *
  * @returns {string} l'Id du PTAT, ou '' si introuvable.
  */
+/* Exportees pour la cascade de reconstitution du programme
+   (cascade-programme.js) : elle doit comparer les niveaux exactement comme
+   ici, multi-select et divergences de referentiel comprises. */
+export { canonNiveau, niveauxDuProgramme };
+
 export function getPtatForProgramme(programId) {
     const D = typeof window !== 'undefined' ? window.SOCLE_DATA : null;
     if (!D || !D.ptats || !programId) return '';
