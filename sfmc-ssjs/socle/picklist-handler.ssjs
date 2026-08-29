@@ -667,20 +667,80 @@ try {
     if (D.programs.length) rafraichirCascade();
 
     /* -- 3. Famille evenement : dates + ateliers ---------------------- */
-    if (D.instances.length) {
-        var elInst = champ('InstanceId');
-        if (elInst && elInst.tagName === 'SELECT') {
-            remplir('InstanceId', D.instances, valeur('InstanceId'));
-            // 1re date pre-selectionnee si l'utilisateur n'a rien choisi
-            if (!elInst.value && D.instances.length) elInst.value = D.instances[0].value;
-        }
+
+    /**
+     * Les ateliers proposes pour UNE instance.
+     *
+     * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
+     * (le champ Salesforce s'appelle summit__Restrict_To_Instance_Title__c mais
+     * contient bien un Id). Vide = propose sur toutes les dates.
+     */
+    function ateliersDe(instanceId) {
+        if (!D.appointments || !D.appointments.length) return [];
+        return D.appointments.filter(function (a) {
+            return !a.instance || a.instance === instanceId;
+        }).sort(function (x, y) {
+            /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
+               la journee, celui qu'un visiteur attend. `summit__Sort_Order__c`
+               ne prend le relais que si les horaires manquent. */
+            if (x.debut && y.debut && x.debut !== y.debut) {
+                return x.debut < y.debut ? -1 : 1;
+            }
+            return (Number(x.ordre) || 0) - (Number(y.ordre) || 0);
+        });
     }
 
-    var zone = document.querySelector('[data-socle="appointments"]');
-    if (zone && D.appointments.length) {
+    /**
+     * "2026-08-29T09:30:00.000Z" -> "09:30", "09:30:00.000Z" -> "09:30".
+     *
+     * Deux formats a absorber : les creneaux de conference sont des DATE-HEURES
+     * (summit__Date_Available_Start__c), les horaires d'instance de simples
+     * HEURES (summit__Instance_Start_Time__c). On ne garde que heure et minute
+     * — la date est deja sur la ligne, et les millisecondes n'apprennent rien.
+     *
+     * Format inattendu : on rend la valeur telle quelle plutot que de masquer
+     * l'information.
+     */
+    function heureSeule(v) {
+        var t = String(v || '');
+        var m = t.match(/T(\d{2}:\d{2})/) || t.match(/^(\d{2}:\d{2})/);
+        return m ? m[1] : t;
+    }
+
+    /** "09:30 - 10:30" quand les deux bornes sont la, sinon ce qu'on a. */
+    function plage(debut, fin) {
+        var d = debut ? heureSeule(debut) : '';
+        var f = fin ? heureSeule(fin) : '';
+        if (d && f) return d + ' - ' + f;
+        return d || f;
+    }
+
+    /** Le texte a afficher pour une date : horaires et adresse compris. */
+    function libelleInstance(inst) {
+        var bouts = [];
+        if (inst.date)   bouts.push(inst.date);
+        var h = plage(inst.heure, inst.heureFin);
+        if (h)           bouts.push(h);
+        if (inst.campus) bouts.push(inst.campus);
+        if (inst.address) bouts.push(inst.address);
+        return bouts.length ? bouts.join(' · ') : (inst.label || inst.value);
+    }
+
+    /**
+     * Rend la liste des ateliers de la date courante.
+     *
+     * Appelee a chaque changement de date : les conferences d'une JPO du 10
+     * septembre ne sont pas celles du 17 octobre, et le socle ne peut pas
+     * savoir a l'avance laquelle le visiteur choisira.
+     */
+    function rendreAteliers(instanceId) {
+        var zone = document.querySelector('[data-socle="appointments"]');
+        if (!zone) return;
+        var liste = ateliersDe(instanceId);
         zone.innerHTML = '';
-        D.appointments.forEach(function (a) {
-            var id = 'appt_' + a.value.replace(/[^a-zA-Z0-9_-]/g, '');
+
+        liste.forEach(function (a) {
+            var id = 'appt_' + String(a.value).replace(/[^a-zA-Z0-9_-]/g, '');
             var wrap = document.createElement('label');
             wrap.className = 'socle-appointment';
 
@@ -692,14 +752,26 @@ try {
             box.setAttribute('data-required', String(a.required));
 
             var txt = document.createElement('span');
-            txt.textContent = a.label + (box.checked ? ' (obligatoire)' : '');
+            /* Les horaires viennent de summit__Date_Available_Start__c /
+               _End__c sur le type : c'est la que le CRM porte les creneaux de
+               conference. */
+            var h = plage(a.debut, a.fin);
+            txt.textContent = a.label
+                + (h ? ' — ' + h : '')
+                + (box.checked ? ' (obligatoire)' : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);
             zone.appendChild(wrap);
         });
 
-        // regroupe les cases cochees dans le champ cache "Appointments"
+        /* Regroupe les cases cochees dans le champ cache "Appointments", que le
+           socle d'ecriture decoupe sur les virgules.
+
+           A REFAIRE a chaque rendu : les cases sont recreees quand la date
+           change, et l'ecouteur pose sur les anciennes disparait avec elles.
+           Le champ cache est remis a jour tout de suite, pour que les ateliers
+           obligatoires soient comptes meme si le visiteur ne touche a rien. */
         var cible = champ('Appointments');
         if (cible) {
             var maj = function () {
@@ -712,6 +784,58 @@ try {
             maj();
         }
     }
+
+    if (D.instances && D.instances.length) {
+        var elInst = champ('InstanceId');
+
+        /* Deux rendus possibles pour la date, selon ce que le formulaire pose.
+
+           BOUTONS RADIO — demandes par la regle metier — si le formulaire
+           fournit un conteneur [data-socle="instances"]. La date la plus proche
+           est presélectionnée : le socle a deja classe les instances par
+           echeance, la premiere est donc la bonne.
+
+           SELECT — repli, pour les formulaires qui portent encore un
+           <select name="InstanceId">. */
+        var zoneDates = document.querySelector('[data-socle="instances"]');
+
+        if (zoneDates) {
+            zoneDates.innerHTML = '';
+            D.instances.forEach(function (inst, i) {
+                var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
+                var wrap = document.createElement('label');
+                wrap.className = 'socle-instance';
+
+                var radio = document.createElement('input');
+                radio.type = 'radio';
+                radio.name = 'InstanceId';
+                radio.id = id;
+                radio.value = inst.value;
+                if (i === 0) radio.checked = true;
+
+                var txt = document.createElement('span');
+                txt.textContent = libelleInstance(inst);
+
+                radio.addEventListener('change', function () {
+                    if (radio.checked) rendreAteliers(radio.value);
+                });
+
+                wrap.appendChild(radio);
+                wrap.appendChild(txt);
+                zoneDates.appendChild(wrap);
+            });
+            rendreAteliers(D.instances[0].value);
+
+        } else if (elInst && elInst.tagName === 'SELECT') {
+            remplir('InstanceId', D.instances, valeur('InstanceId'));
+            if (!elInst.value) elInst.value = D.instances[0].value;
+            elInst.addEventListener('change', function () {
+                rendreAteliers(elInst.value);
+            });
+            rendreAteliers(elInst.value);
+        }
+    }
+
     }   /* fin demarrer() */
 })();
 </script>
