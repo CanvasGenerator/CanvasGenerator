@@ -57,9 +57,15 @@ const cfg = (o = {}) => Object.assign({
               Language: { visible: 'toujours', niveauMin: 0 } },
 }, o);
 
+/* Brochure et formulaires evenement ne portent QUE la specialite : le contrat
+   ne prevoit rythme, langue et rentree que sur la candidature. La cascade doit
+   donc tolerer l'absence des trois autres champs. */
+const LAYOUT_SPECIALITE_SEULE = [['Email', 0], ['Campus', 1], ['Niveau', 1],
+                                 ['Speciality', 1], ['Consentements', 0]];
+
 let ok = 0; const echecs = [];
-function test(nom, fn) {
-    const dom = creerDom(LAYOUT);
+function test(nom, fn, layout = LAYOUT) {
+    const dom = creerDom(layout);
     try {
         fn(dom, (config, selections = {}) => {
             dom.reset();
@@ -131,6 +137,19 @@ test('langueDefaut est applique quand rien n\'est choisi (IFA Paris)', (d, run) 
     run(cfg({ langueDefaut: 'FR' }), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
     egal(d.champs.Language.value, 'FR', 'langue par defaut');
 });
+
+/* ---- Formulaires sans la cascade complete ------------------------------ */
+test('Speciality seule : la cascade tourne sans rythme, langue ni rentree', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    egal(d.options('Speciality').sort(), ['Comm', 'Luxe'], 'specialites proposees');
+    if (!d.visible('Speciality')) throw new Error('Speciality masquee alors qu il y a deux valeurs');
+}, LAYOUT_SPECIALITE_SEULE);
+
+test('Speciality seule : une valeur unique reste masquee mais renseignee', (d, run) => {
+    run(cfg(), { Campus: 'EFAP LILLE', Niveau: 'Terminale' });
+    egal(d.champs.Speciality.value, 'Comm', 'valeur unique posee d office');
+    if (d.visible('Speciality')) throw new Error('Speciality affichee alors qu il n y a qu une valeur');
+}, LAYOUT_SPECIALITE_SEULE);
 
 /* ---- Ordre d'affichage ------------------------------------------------- */
 test('Ordre IFA : la langue passe avant la specialite [REGRESSION]', (d, run) => {
