@@ -14,6 +14,8 @@
  */
 
 /* Champs de tracking alimentés depuis les paramètres d'URL. */
+import { resolveRgpdConfig } from './rgpd-config.js';
+
 export const UTM_FIELDS = [
     'utm_source', 'utm_medium', 'utm_campaign',
     'utm_content', 'utm_term', 'utm_id', 'utm_campus'
@@ -42,6 +44,13 @@ export const AD_FIELDS = ['gclid', 'fbclid'];
  * d'écriture ne pouvait ni résoudre la marque du consentement ni la campagne.
  * Figer la valeur ici, à la construction, règle les deux.
  */
+/** Rend une valeur sûre dans un attribut HTML entre guillemets. */
+function escapeAttr(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function ecoleCourante() {
     try {
         const s = (typeof window !== 'undefined' && window.CURRENT_SCHOOL) || null;
@@ -53,6 +62,17 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
     /* L'ID de l'école, pas son nom : c'est lui qui sert de clé dans
        LPB_Mapping_Ecoles et dans la clé de campagne « brochure|efap|FR ». */
     if (!marque) marque = ecoleCourante();
+
+    /* La PREUVE du consentement : la formulation exacte que la personne coche.
+       Le socle la préfixe d'un numéro de version et l'écrit dans
+       `Legal_Texte_Accepted__c`, un champ REQUIS. Sans elle, la trace se
+       réduisait à « [v1] » — une version sans texte, qui ne prouve rien.
+
+       Même source que le libellé affiché à côté de la case : les deux ne
+       peuvent pas diverger au rendu. Si la config RGPD est rafraîchie ensuite
+       en asynchrone, chaque formulaire remet le champ à jour (voir le
+       fetchRgpdConfig de chaque bloc). */
+    const preuve = escapeAttr(resolveRgpdConfig(lang).text || '');
     const utm = UTM_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     const ads = AD_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     return `
@@ -63,6 +83,7 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
         <input type="hidden" name="Marque"               value="${marque}">
         <input type="hidden" name="LanguePreferee"       value="${lang}">
         <input type="hidden" name="LangueSouhaitee"      value="${langueSouhaitee}">
+        <input type="hidden" name="LegalTexteAccepted"   value="${preuve}">
         <input type="hidden" name="DateDernierContact"   value="">
         <input type="hidden" name="TypeDernierContact"   value="">
         <input type="hidden" name="CampagneAssociee"     value="">

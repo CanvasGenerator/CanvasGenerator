@@ -979,6 +979,12 @@ export function attachEventFormLogic(editor) {
             const linkEl = card.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = card.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* Scoped updateEventCard — colonne gauche : date + heures + conférence ;
