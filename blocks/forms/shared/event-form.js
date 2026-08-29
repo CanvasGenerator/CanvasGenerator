@@ -62,6 +62,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
     const TRANS = {
         fr: {
             campus:      'Campus',
+            dateChoix:   'Choisissez votre date',
+            ateliers:    'Au programme',
             youAre:      'Vous êtes',
             lastName:    'Nom',
             firstName:   'Prénom',
@@ -88,6 +90,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
         },
         en: {
             campus:      'Campus',
+            dateChoix:   'Choose your date',
+            ateliers:    'Programme',
             youAre:      'You are',
             lastName:    'Last name',
             firstName:   'First name',
@@ -251,6 +255,41 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 .jpo-campus-select:focus {
     border-color: var(--brand-muted, #6b7280);
 }
+
+/* Dates et ateliers rendus par le socle. Vides tant que le CRM n'a pas
+   repondu : les conteneurs se replient alors sur zero hauteur. */
+.jpo-dates,
+.jpo-ateliers {
+    display: grid;
+    gap: 8px;
+}
+.jpo-dates label,
+.jpo-ateliers label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.45;
+    background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.jpo-dates label:hover,
+.jpo-ateliers label:hover { border-color: #b9b9b9; }
+.jpo-dates input,
+.jpo-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.jpo-dates label:has(input:checked),
+.jpo-ateliers label:has(input:checked) {
+    border-color: #1a1a1a;
+    background: #fafafa;
+}
+/* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
+   compris, plutot que de laisser un intitule orphelin. */
+.jpo-dates-field:has(.jpo-dates:empty),
+.jpo-ateliers-field:has(.jpo-ateliers:empty) { display: none; }
 
 .jpo-event-card {
     display: none;
@@ -659,6 +698,30 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Ces deux conteneurs DOIVENT rester DANS le <form> : le socle y
+             cree des <input type="radio" name="InstanceId">, et un champ hors
+             formulaire ne serait jamais soumis.
+
+             Vides dans le builder, qui n'execute pas le socle. En page
+             publiee, le socle y pose les dates du CRM (boutons radio, la plus
+             proche cochee) puis les conferences de la date choisie, avec leurs
+             horaires. Changer de date refiltre les conferences.
+
+             InstanceId est ce que le socle d'ecriture attend : sans lui il
+             refuse la soumission. EventDate ci-dessus ne porte qu'un texte
+             d'affichage. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">${t.ateliers}</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
 ${showVousEtes ? `
         <div class="jpo-row">
             <div class="jpo-field">
@@ -920,8 +983,26 @@ export function attachEventFormLogic(editor) {
 
         /* Scoped updateEventCard — colonne gauche : date + heures + conférence ;
            colonne droite : « Campus <ville> » + adresse (comme la maquette). */
+        /* La carte figee vient de `jpoEvents`, un dictionnaire ecrit en dur dans
+           le builder : une date par campus, saisie a la main. Elle sert
+           d'illustration tant que le CRM ne repond pas — dans le builder,
+           typiquement, ou le socle ne s'execute pas.
+
+           Des que le socle publie de vraies dates, elle ment : on la retire.
+           C'est la liste de boutons radio qui fait foi. */
+        function socleAUneDate() {
+            try {
+                var D = (form.ownerDocument.defaultView || window).SOCLE_DATA;
+                return !!(D && D.instances && D.instances.length);
+            } catch (e) { return false; }
+        }
+
         function updateCard(val) {
             const cardEl = card.querySelector('.jpo-event-card');
+            if (socleAUneDate()) {
+                if (cardEl) cardEl.style.display = 'none';
+                return;
+            }
             const dateEl = card.querySelector('.jpo-event-date');
             const addrEl = card.querySelector('.jpo-event-detail');
             const confEl = card.querySelector('.jpo-event-right');
