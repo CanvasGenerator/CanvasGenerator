@@ -9,6 +9,7 @@ const etapes = [
     ['Inliner',                  ['test-inliner.js']],
     ['Cascade navigateur',       ['test-cascade.js']],
     ['Sous-evenements',          ['test-ateliers.js']],
+    ['Champs requis',            ['test-requis.js']],
 ];
 
 let echecs = 0;

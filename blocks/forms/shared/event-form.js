@@ -16,6 +16,7 @@
 import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
+import { validerEtRevelerRequis } from './champs-requis.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
 import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
@@ -291,6 +292,42 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     border-color: #1a1a1a;
     background: #fafafa;
 }
+
+/* Une date se lit en deux temps : QUAND et OU a gauche, la conference
+   d'ouverture a droite. Le socle rend cette structure ; le CSS ne fait que la
+   poser. En dessous de 560px les deux colonnes s'empilent — sur telephone,
+   deux colonnes de 40 caracteres ne se lisent plus. */
+.socle-instance-corps {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.socle-instance-quand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.socle-instance-date {
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.socle-instance-lieu {
+    color: #555;
+    /* L'adresse arrive du CRM avec ses propres retours a la ligne. */
+    white-space: pre-line;
+}
+.socle-instance-conf {
+    color: #555;
+    text-align: right;
+    max-width: 45%;
+}
+@media (max-width: 560px) {
+    .socle-instance-conf { text-align: left; max-width: 100%; }
+}
 /* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
    compris, plutot que de laisser un intitule orphelin. */
 .jpo-dates-field:has(.jpo-dates:empty),
@@ -510,6 +547,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     cursor: pointer;
 }
 
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.jpo-rgpd { flex-wrap: wrap; }
+.jpo-rgpd .jpo-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .jpo-rgpd {
     display: flex;
     align-items: flex-start;
@@ -716,17 +760,9 @@ ${hidden}
 
              InstanceId est ce que le socle d'ecriture attend : sans lui il
              refuse la soumission. EventDate ci-dessus ne porte qu'un texte
-             d'affichage. -->
-        <div class="jpo-field jpo-dates-field">
-            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
-            <div class="jpo-dates" data-socle="instances"></div>
-        </div>
+             d'affichage.
 
-        <div class="jpo-field jpo-ateliers-field">
-            <label class="jpo-label">${t.ateliers}</label>
-            <div class="jpo-ateliers" data-socle="appointments"></div>
-        </div>
-        <input type="hidden" name="Appointments" value="">
+             Les conteneurs eux-memes sont plus bas, juste avant le bouton. -->
 ${showVousEtes ? `
         <div class="jpo-row">
             <div class="jpo-field">
@@ -838,6 +874,22 @@ ${showChild ? `
             <input class="jpo-input jpo-child-phone-input" type="tel" name="ChildPhone">
             <span class="jpo-err-msg">${t.errPhone}</span>
         </div>` : ''}
+
+        <!-- DATES ET SOUS-EVENEMENTS, EN BAS — arbitrage du 30/08.
+             Ils etaient juste sous le campus, donc avant meme que le visiteur
+             ait donne son nom : on lui demandait de choisir un creneau avant de
+             savoir s'il irait au bout. Ils ferment desormais le formulaire,
+             juste avant le consentement et le bouton. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">${t.ateliers}</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
 
         <div class="jpo-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true">
@@ -1143,14 +1195,11 @@ export function attachEventFormLogic(editor) {
             e.preventDefault();
             let ok = true;
 
-            ['VousEtes', 'LastName', 'FirstName', 'StudyLevel'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
-
-            if (!campusSelect.value) { campusSelect.classList.add('err'); ok = false; }
-            else campusSelect.classList.remove('err');
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
