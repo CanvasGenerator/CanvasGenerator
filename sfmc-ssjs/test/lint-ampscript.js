@@ -85,8 +85,13 @@ for (const rel of CIBLES) {
           page, et la declarer ici par un VAR la REINITIALISERAIT — on
           effacerait la valeur qu'on cherche justement a lire. Elles sont
           donc listees, avec ce que chacune porte. */
+    /* Posees par la PAGE, avant l'include du socle : un Content Block partage la
+       portee AMPscript de la page qui l'inclut. Elles n'ont donc pas de VAR ici,
+       et ce n'est pas un oubli. Voir blocks/forms/shared/socle-read-snippet.js */
     const POSEES_PAR_LA_PAGE = new Set([
-        '@LPB_ECOLE'   // l'ecole de la landing page, figee par le builder
+        '@LPB_ECOLE',      // l'ecole de la landing page
+        '@LPB_TYPE_FORM',  // brochure | candidature | evenement | immersion
+        '@LPB_TYPE_EVT'    // JPO | Atelier_Decouverte | Stage | Immersion
     ]);
     const decl = new Set(POSEES_PAR_LA_PAGE);
     for (const m of code.matchAll(/^\s*VAR\s+(.+)$/gm)) {

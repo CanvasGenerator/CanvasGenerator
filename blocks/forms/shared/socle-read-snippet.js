@@ -43,15 +43,31 @@ function ecoleCourante() {
  * AMPscript de la page qui l'inclut. Poser `@LPB_ECOLE` juste avant l'include
  * suffit donc, et c'est la troisième source que le socle consulte.
  *
+ * Même raisonnement pour le TYPE de formulaire et le TYPE d'événement, posés
+ * ici depuis le 30/08. Ils ne venaient que de la query string, ce qui obligeait
+ * à composer l'URL à la main : sans eux, AUCUNE date d'événement ne remontait,
+ * et une page brochure se voyait appliquer la règle de spécialité des autres
+ * formulaires. Le bloc, lui, connaît son propre type — il n'avait qu'à le dire.
+ *
  * Sans école connue (mode Master, ou école non chargée), on n'émet rien : le
  * socle retombe sur son comportement dégradé, listes vides et options
  * statiques en repli.
  */
-export function socleReadSnippet() {
+export function socleReadSnippet({ formType = '', eventType = '' } = {}) {
+    /* Guillemets et antislashs interdits : ces valeurs partent dans une chaine
+       AMPscript. Elles viennent du code des blocs, pas d'une saisie, mais la
+       garde coute une ligne. */
+    const propre = (v) => String(v || '').replace(/["\\]/g, '');
+
+    const poses = [];
     const ecole = ecoleCourante();
-    const prelude = ecole
+    if (ecole)     poses.push(`SET @LPB_ECOLE = "${propre(ecole)}"`);
+    if (formType)  poses.push(`SET @LPB_TYPE_FORM = "${propre(formType)}"`);
+    if (eventType) poses.push(`SET @LPB_TYPE_EVT = "${propre(eventType)}"`);
+
+    const prelude = poses.length
         ? `
-        %%[ SET @LPB_ECOLE = "${ecole.replace(/"/g, '')}" ]%%`
+        %%[ ${poses.join(' ')} ]%%`
         : '';
     return prelude + SOCLE_READ_SNIPPET;
 }

@@ -860,7 +860,7 @@ ${showChild ? `
     </div>
 
 </div><!-- /.jpo-card -->
-${socleReadSnippet()}
+${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
 </section>`;
     }
 

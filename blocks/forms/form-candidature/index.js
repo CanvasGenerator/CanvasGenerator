@@ -416,7 +416,7 @@ ${hidden}
     </form>
 
 </div><!-- /.cnd-card -->
-${socleReadSnippet()}
+${socleReadSnippet({ formType: 'candidature' })}
 </section>`;
     }
 
