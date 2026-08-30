@@ -21,12 +21,19 @@ const SRC = path.join(__dirname, '..', 'socle', 'picklist-handler.ssjs');
 const blocs = [...fs.readFileSync(SRC, 'utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)];
 const CASCADE = blocs[blocs.length - 1][1];
 
-/* Une date, trois sous-evenements : deux obligatoires, un facultatif. */
-const INSTANCE = { value: 'i1', label: 'Samedi 10 octobre', date: '2026-10-10', address: 'Paris', jours: '0' };
+/* Deux dates du meme evenement. Les sous-evenements portent l'Id de LEUR
+   instance : un atelier se tient a une date, pas a un evenement. */
+const INSTANCE = { value: 'i1', label: 'Samedi 10 octobre', date: '2026-10-10',
+                   address: 'Paris', jours: '0', campus: 'EFAP PARIS', evenement: 'e1' };
 const APPOINTMENTS = [
-    { value: 'a1', label: 'Conference de presentation', required: 'true',  debut: '10:30', fin: '11:15' },
-    { value: 'a2', label: 'Visite libre',               required: 'false', debut: '',      fin: '' },
-    { value: 'a3', label: 'Entretien individuel',       required: true,    debut: '',      fin: '' },
+    { value: 'a1', label: 'Conference de presentation', required: 'true',  debut: '10:30', fin: '11:15', instance: 'i1', evenement: 'e1' },
+    { value: 'a2', label: 'Visite libre',               required: 'false', debut: '',      fin: '',      instance: 'i1', evenement: 'e1' },
+    { value: 'a3', label: 'Entretien individuel',       required: true,    debut: '',      fin: '',      instance: 'i1', evenement: 'e1' },
+    /* Obligatoire, mais rattache a une AUTRE date du meme evenement. */
+    { value: 'a4', label: 'Atelier du 17',              required: true,    debut: '09:00', fin: '10:00', instance: 'i2', evenement: 'e1' },
+    /* Obligatoire, mais sans instance : on ne sait pas a quelle date il se
+       tient, donc on ne le propose nulle part. */
+    { value: 'a5', label: 'Creneau sans date',          required: true,    debut: '14:00', fin: '15:00', instance: '',   evenement: 'e1' },
 ];
 
 function creerElement(tag) {
@@ -70,10 +77,12 @@ function creerDom() {
         toggle(c, f) { f ? this._c.add(c) : this._c.delete(c); },
     };
 
+    /* Un campus EST necessaire depuis le 30/08 : sans lui le socle ne propose
+       aucune date, donc aucun sous-evenement. */
     const champs = {
         Appointments: { tagName: 'INPUT', value: '', addEventListener() {} },
         InstanceId: null,
-        Campus: null,
+        Campus: { tagName: 'SELECT', value: 'EFAP PARIS', options: [], addEventListener() {} },
     };
 
     const document = {
@@ -154,6 +163,37 @@ test('Aucun obligatoire : le bloc entier est masque [REGRESSION]', () => {
     egal(cases(d.zone).length, 0, 'aucune case');
     if (d.porteur.style.display !== 'none') throw new Error('le bloc reste affiche, intitule sans contenu');
     if (!d.porteur.classList.contains('hidden')) throw new Error('la classe hidden n est pas posee');
+});
+
+test('Un sous-evenement d une AUTRE date n est pas propose [REGRESSION]', () => {
+    const d = jouer(APPOINTMENTS);
+    const vus = cases(d.zone).map((c) => c.value);
+    if (vus.indexOf('a4') > -1) throw new Error('atelier du 17 propose sous la date du 10');
+});
+
+test('Un sous-evenement SANS instance n est propose nulle part [REGRESSION]', () => {
+    /* Il s'affichait sous TOUTES les dates de l'evenement : les conferences du
+       10 septembre apparaissaient aussi sous le 26. */
+    const d = jouer(APPOINTMENTS);
+    const vus = cases(d.zone).map((c) => c.value);
+    if (vus.indexOf('a5') > -1) throw new Error('atelier sans date propose quand meme');
+});
+
+test('Sans campus, aucune date et donc aucun sous-evenement [REGRESSION]', () => {
+    const d = creerDom();
+    d.champs.Campus.value = '';
+    vm.runInNewContext(CASCADE, {
+        window: {
+            SOCLE_DATA: {
+                school: 'efap', picklists: {}, campus: [], programs: [], ptats: [], terms: [],
+                instances: [INSTANCE], appointments: APPOINTMENTS,
+                config: { progressif: true, ordre: 'campus,niveau', champs: {} },
+            },
+        },
+        document: d.document,
+    });
+    egal(cases(d.zone).length, 0, 'sous-evenements proposes sans campus');
+    egal(d.champs.Appointments.value, '', 'champ cache renseigne sans date');
 });
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);

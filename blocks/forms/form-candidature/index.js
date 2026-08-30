@@ -21,6 +21,7 @@ import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { validerEtRevelerRequis } from '../shared/champs-requis.js';
+import { soumettre } from '../shared/envoi-socle.js';
 import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -601,8 +602,11 @@ ${socleReadSnippet({ formType: 'candidature' })}
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            /* MODE TEST : simulation d'envoi */
-            new Promise(resolve => setTimeout(() => resolve({ ok: true }), 1000))
+            /* Envoi REEL au socle d'ecriture sur une page publiee, simulation
+               dans le builder — ou aucun socle ne tourne. Le formulaire se
+               poste a lui-meme : le socle est inclus dans la page.
+               Voir shared/envoi-socle.js. */
+            soumettre(data, form.ownerDocument)
                 .then(res => {
                     if (res.ok) {
                         form.style.display = 'none';
@@ -623,7 +627,9 @@ ${socleReadSnippet({ formType: 'candidature' })}
                         }
                     } else {
                         if (btn) { btn.disabled = false; btn.textContent = t.submit; }
-                        alert(t.errGeneric);
+                        /* Le message du socle plutot qu'un « une erreur est
+                           survenue » : c'est lui qui nomme le champ refuse. */
+                        alert(res.message || t.errGeneric);
                     }
                 });
         });

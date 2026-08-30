@@ -17,6 +17,7 @@ import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { validerEtRevelerRequis } from './champs-requis.js';
+import { soumettre } from './envoi-socle.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
 import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
@@ -977,8 +978,10 @@ ${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
         }
     }
 
-    function handleSubmit(data) {
-        return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 900));
+    /* Envoi REEL au socle d'ecriture sur une page publiee, simulation dans le
+       builder — ou aucun socle ne tourne. Voir shared/envoi-socle.js. */
+    function handleSubmit(data, doc) {
+        return soumettre(data, doc);
     }
 
     function showConfirmation(card, data, t) {
@@ -1239,12 +1242,14 @@ export function attachEventFormLogic(editor) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            handleSubmit(data).then(res => {
+            handleSubmit(data, form.ownerDocument).then(res => {
                 if (res.ok) {
                     showConfirmation(card, data, t);
                 } else {
                     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
-                    alert(t.errGeneric);
+                    /* Le message du socle plutot qu'un « une erreur est
+                       survenue » : c'est lui qui nomme le champ refuse. */
+                    alert(res.message || t.errGeneric);
                 }
             });
         });

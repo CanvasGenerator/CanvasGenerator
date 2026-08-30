@@ -1245,6 +1245,66 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (D.picklists.hasOwnProperty(nom)) remplir(nom, D.picklists[nom], valeur(nom));
     }
     remplir('Campus', D.campus, valeur('Campus'));
+    preselectionnerCampus();
+
+    /**
+     * Pre-selectionne le campus donne dans l'URL : ?campus=lyon
+     *
+     * Une landing page est souvent declinee par ville — autant que le
+     * formulaire arrive deja sur la bonne. Les dates d'evenement en dependent
+     * directement : sans campus, on n'en propose aucune.
+     *
+     * Rapprochement TOLERANT, car personne n'ecrira « EFAP LYON » dans une URL :
+     * on accepte la valeur exacte, la meme casse mise a part, puis le nom de
+     * ville seul. On ne touche a rien si le champ est deja renseigne — un choix
+     * du visiteur prime toujours sur un parametre d'URL.
+     */
+    function preselectionnerCampus() {
+        var el = champ('Campus');
+        if (!el || el.value) return;
+
+        var voulu = parametreUrl('campus') || parametreUrl('Campus');
+        if (!voulu) return;
+        voulu = voulu.replace(/^\s+|\s+$/g, '');
+        if (!voulu) return;
+
+        var cible = voulu.toUpperCase();
+        var options = el.options || [];
+        var exact = null, approches = [];
+
+        for (var i = 0; i < options.length; i++) {
+            var v = String(options[i].value || '');
+            if (!v) continue;
+            var V = v.toUpperCase();
+            if (V === cible) { exact = v; break; }
+            /* « lyon » retrouve « EFAP LYON » : on cherche le mot entier, pas
+               une sous-chaine — « nice » ne doit pas accrocher « VENICE ». */
+            if (V.split(' ').indexOf(cible) !== -1) approches.push(v);
+        }
+
+        /* AMBIGU = ON NE FAIT RIEN. « campus=efap » designe les dix campus de
+           l'ecole : retenir le premier reviendrait a choisir Paris au hasard,
+           et le visiteur ne verrait jamais qu'on a decide pour lui. Mieux vaut
+           un champ vide, qu'il remplira lui-meme. */
+        var retenu = exact || (approches.length === 1 ? approches[0] : null);
+        if (!retenu) return;
+        el.value = retenu;
+        /* Pas d'evenement `change` a emettre ici : aucun ecouteur n'est encore
+           pose a ce stade. La cascade et les dates lisent la valeur lors de
+           leur PREMIER rendu, plus bas — c'est ce qui rend l'ordre des sections
+           important, et pourquoi cet appel doit rester juste apres le
+           remplissage du champ. */
+    }
+
+    /** Un parametre de la query string, sans dependre de URLSearchParams. */
+    function parametreUrl(nom) {
+        try {
+            var q = String(window.location.search || '');
+            var re = new RegExp('[?&]' + nom + '=([^&#]*)');
+            var m = re.exec(q);
+            return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+        } catch (e) { return ''; }
+    }
 
     /* -- 2. Cascade programme ---------------------------------------- */
     function rafraichirCascade() {
@@ -1444,7 +1504,11 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      */
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
-        if (!campus) return toutes.sort(parJour);
+        /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
+           auparavant toutes les dates de l'ecole, tous campus confondus : le
+           visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
+           de 15 jours — qui se calcule PAR CAMPUS — ne s'appliquait pas. */
+        if (!campus) return [];
 
         var duCampus = toutes.filter(function (i) { return i.campus === campus; });
         if (!duCampus.length) return [];
@@ -1469,10 +1533,21 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      *
      * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
      * (le champ Salesforce s'appelle summit__Restrict_To_Instance_Title__c mais
-     * contient bien un Id). Vide = propose sur toutes les dates.
+     * contient bien un Id).
+     *
+     * ⚠ RATTACHEMENT STRICT depuis le 30/08. Un atelier sans instance etait
+     * auparavant propose sur TOUTES les dates de l'evenement — les conferences
+     * du 10 septembre s'affichaient donc aussi sous le 26. Un atelier se tient
+     * a une date, pas a un evenement : sans instance renseignee, on ne sait pas
+     * laquelle, et on prefere ne rien proposer a proposer un horaire faux.
      */
     function ateliersDe(instanceId) {
         if (!D.appointments || !D.appointments.length) return [];
+        /* Aucune date retenue — campus pas encore choisi, ou aucune date dans
+           la fenetre : il n'y a rien a proposer. Sans cette garde, le
+           rapprochement strict remontait les ateliers dont l'instance est vide,
+           c'est-a-dire exactement ceux qu'on ne sait pas dater. */
+        if (!instanceId) return [];
         var inst = (D.instances || []).filter(function (i) { return i.value === instanceId; })[0];
         var evt = inst ? inst.evenement : '';
         return D.appointments.filter(function (a) {
@@ -1481,7 +1556,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                d'une JPO Lyon n'ont rien a faire sur une date Bordeaux.
                La restriction d'instance ensuite, quand elle est posee. */
             if (evt && a.evenement && a.evenement !== evt) return false;
-            return !a.instance || a.instance === instanceId;
+            return a.instance === instanceId;
         }).sort(function (x, y) {
             /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
                la journee, celui qu'un visiteur attend. `summit__Sort_Order__c`
