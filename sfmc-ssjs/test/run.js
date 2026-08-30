@@ -10,6 +10,7 @@ const etapes = [
     ['Cascade navigateur',       ['test-cascade.js']],
     ['Sous-evenements',          ['test-ateliers.js']],
     ['Champs requis',            ['test-requis.js']],
+    ['Envoi au socle',           ['test-envoi.js']],
 ];
 
 let echecs = 0;
