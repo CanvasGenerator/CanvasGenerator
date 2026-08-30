@@ -63,6 +63,12 @@ const cfg = (o = {}) => Object.assign({
 const LAYOUT_SPECIALITE_SEULE = [['Email', 0], ['Campus', 1], ['Niveau', 1],
                                  ['Speciality', 1], ['Consentements', 0]];
 
+/* Le nom que portent REELLEMENT les formulaires EDH. Tous les autres tests
+   disent 'Niveau', le nom de form-salesforce-core — c'est ce qui a laisse
+   passer un socle qui ne lisait pas StudyLevel. */
+const LAYOUT_STUDYLEVEL = [['Email', 0], ['Campus', 1], ['StudyLevel', 1],
+                           ['Speciality', 1], ['Consentements', 0]];
+
 /* « Vous etes » ne fait pas partie de la cascade, mais une condition croisee
    peut s'y referer : c'est le cas de la specialite de la brochure CREAD. */
 const LAYOUT_AVEC_CONTACT = [['Email', 0], ['Campus', 1], ['Niveau', 1],
@@ -155,6 +161,44 @@ test('Speciality seule : une valeur unique reste masquee mais renseignee', (d, r
     egal(d.champs.Speciality.value, 'Comm', 'valeur unique posee d office');
     if (d.visible('Speciality')) throw new Error('Speciality affichee alors qu il n y a qu une valeur');
 }, LAYOUT_SPECIALITE_SEULE);
+
+/* ---- Nom du champ niveau ----------------------------------------------- */
+test('StudyLevel filtre la specialite au meme titre que Niveau [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.options('Speciality').sort(), ['Comm', 'Luxe'], 'specialites a Bac+3');
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'Terminale' });
+    egal(d.options('Speciality'), ['Comm'], 'specialites en Terminale');
+}, LAYOUT_STUDYLEVEL);
+
+test('StudyLevel declenche la cascade [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS' });
+    const avant = d.options('Speciality').length;
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'Terminale' });
+    if (d.options('Speciality').length === avant) {
+        throw new Error('la liste ne bouge pas quand le niveau change — socle sourd a StudyLevel');
+    }
+}, LAYOUT_STUDYLEVEL);
+
+/* ---- Referentiels de niveau divergents --------------------------------- */
+test('Le niveau du formulaire et celui des programmes se rejoignent [REGRESSION]', (d, run) => {
+    /* Le formulaire envoie le referentiel Account (BAC+3, majuscules), les
+       programmes portent celui de LearningProgram (Bac+3). La comparaison
+       litterale ne matchait rien. */
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'BAC+3' });
+    egal(d.options('Speciality').sort(), ['Comm', 'Luxe'], 'specialites pour BAC+3 en majuscules');
+}, LAYOUT_STUDYLEVEL);
+
+test('« BAC obtenu ou Prépa » rejoint « Bac obtenu » [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'BAC obtenu ou Prépa' });
+    egal(d.options('Speciality'), ['Comm'], 'specialites pour le libelle long');
+}, LAYOUT_STUDYLEVEL);
+
+test('Aucune valeur atteignable : la liste est VIDEE, pas laissee telle quelle [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'BAC+3' });
+    egal(d.options('Speciality').length, 2, 'deux specialites au depart');
+    run(cfg(), { Campus: 'EFAP PARIS', StudyLevel: 'Bac+1' });
+    egal(d.options('Speciality'), [], 'liste videe quand plus rien n est atteignable');
+}, LAYOUT_STUDYLEVEL);
 
 /* ---- Conditions croisees (regle CREAD) --------------------------------- */
 const CONDS = 'Campus=EFAP PARIS;VousEtes=Career Change';
