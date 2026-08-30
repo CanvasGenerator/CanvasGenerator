@@ -278,9 +278,14 @@ export default function (editor, categories) {
          Un formulaire sans method partait donc en GET natif, toutes les
          donnees dans l'URL — nom, e-mail, telephone.
 
-         `novalidate` retire : c'est le NAVIGATEUR qui exige les champs
-         affiches, sans une ligne de JS. Le socle pose et retire `required`
-         en meme temps qu'il montre ou masque un champ. -->
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
     <form class="cnd-form" data-lang="${lang}" method="post">
 ${hidden}
 
