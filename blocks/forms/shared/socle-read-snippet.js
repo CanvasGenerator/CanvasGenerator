@@ -65,12 +65,19 @@ export function socleReadSnippet({ formType = '', eventType = '' } = {}) {
     if (formType)  poses.push(`SET @LPB_TYPE_FORM = "${propre(formType)}"`);
     if (eventType) poses.push(`SET @LPB_TYPE_EVT = "${propre(eventType)}"`);
 
-    const prelude = poses.length
-        ? `
-        %%[ ${poses.join(' ')} ]%%`
-        : '';
-    return prelude + SOCLE_READ_SNIPPET;
+    if (!poses.length) return SOCLE_READ_SNIPPET;
+
+    /* DANS le conteneur masqué, pas devant lui. AMPscript ne regarde que
+       l'ordre du texte — être avant l'include suffit — alors que le builder,
+       lui, AFFICHE tout ce qui traîne hors d'un bloc masqué. Le préambule
+       s'écrivait donc en clair au-dessus du formulaire, dans le canevas comme
+       sur la page publiée avant exécution. */
+    return SOCLE_READ_SNIPPET.replace(RE_INCLUDE_SNIPPET,
+        (inclus) => `%%[ ${poses.join(' ')} ]%%\n            ${inclus}`);
 }
+
+/* L'include, tel qu'il apparaît dans SOCLE_READ_SNIPPET juste dessous. */
+const RE_INCLUDE_SNIPPET = /%%=ContentBlockByKey\("LPB_Picklist_Handler_AG"\)=%%/;
 
 export const SOCLE_READ_SNIPPET = `
         <!-- LECTURE SALESFORCE CORE — remplit les listes depuis le CRM à la

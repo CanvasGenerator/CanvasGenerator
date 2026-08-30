@@ -773,29 +773,56 @@ try {
         remplir('Rentree', termes, rentree, true);
         rentree = valeur('Rentree');
 
-        // programmes ouverts a la rentree choisie
-        var progs = [];
-        if (rentree) {
-            var vus = {};
-            D.ptats.forEach(function (t) {
-                if (t.termId !== rentree || !idsValides[t.programId] || vus[t.programId]) return;
-                vus[t.programId] = true;
-                var p = valides.filter(function (x) { return x.id === t.programId; })[0];
-                progs.push({ value: t.programId, label: p ? p.name : t.programId });
-            });
-        }
+        /* ---- LA LISTE DES PROGRAMMES VIENT DES PROGRAMMES ----------------
+           Et non des PTAT, comme jusqu'au 30/08. Deux consequences de l'ancien
+           montage, toutes deux silencieuses :
+
+             - un programme SANS PTAT n'apparaissait jamais, alors qu'il est
+               bien ouvert a ce campus et a ce niveau. Le PTAT est une fenetre
+               de candidature, pas la definition du cursus ;
+             - la liste restait VIDE tant qu'aucune rentree n'etait choisie, au
+               rebours de tous les autres formulaires, ou le programme se deduit
+               du campus et du niveau.
+
+           On part donc des programmes retenus par la cascade, et la rentree ne
+           fait plus que RESTREINDRE cette liste quand elle est renseignee —
+           exactement comme la specialite restreint le rythme. */
+        var progs = valides.filter(function (p) {
+            if (!rentree) return true;
+            return aUnPtat(p.id, rentree);
+        }).map(function (p) {
+            return { value: p.id, label: p.name || p.id };
+        });
+
         var programme = valeur('Programme');
         remplir('Programme', progs, programme, true);
         programme = valeur('Programme');
 
-        // resolution du PTAT final -> champ cache transmis a l'ecriture
+        /* ---- LE PTAT, DEDUIT ET NON DEMANDE ------------------------------
+           C'est la seule donnee dont le socle d'ecriture a besoin. Une rentree
+           choisie la designe exactement ; sinon on prend la premiere du
+           programme, faute de quoi un programme a rentree unique — masquee par
+           la regle « une seule valeur » — partait sans PTAT. */
         var cible = champ('PTAT_Id');
         if (cible) {
-            var trouve = D.ptats.filter(function (t) {
-                return t.programId === programme && t.termId === rentree;
-            })[0];
+            var trouve = null;
+            for (var q = 0; q < D.ptats.length; q++) {
+                var t = D.ptats[q];
+                if (t.programId !== programme) continue;
+                if (rentree && t.termId !== rentree) continue;
+                trouve = t;
+                break;
+            }
             cible.value = trouve ? trouve.ptatId : '';
         }
+    }
+
+    /** Ce programme est-il ouvert a cette rentree ? */
+    function aUnPtat(programId, termId) {
+        for (var i = 0; i < D.ptats.length; i++) {
+            if (D.ptats[i].programId === programId && D.ptats[i].termId === termId) return true;
+        }
+        return false;
     }
 
     /* Les champs de la cascade, PLUS ceux cites par une condition croisee :
@@ -908,6 +935,43 @@ try {
     }
 
     /** Le texte a afficher pour une date : horaires et adresse compris. */
+    var JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+    var MOIS  = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin',
+                 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'];
+
+    /**
+     * « Samedi 06 juin 2026 » a partir d'un yyyy-MM-dd.
+     *
+     * Date construite en UTC : `new Date("2026-06-06")` est deja interprete en
+     * UTC par le navigateur, et relire avec getDay() local ferait reculer d'un
+     * jour a l'ouest de Greenwich. Une JPO annoncee le vendredi pour un samedi,
+     * c'est le genre d'erreur qu'on ne voit qu'apres coup.
+     */
+    function dateLongue(iso) {
+        if (!iso) return '';
+        var d = new Date(String(iso).slice(0, 10) + 'T12:00:00Z');
+        if (isNaN(d.getTime())) return String(iso);
+        var jour = JOURS[d.getUTCDay()];
+        var n = d.getUTCDate();
+        return jour.charAt(0).toUpperCase() + jour.slice(1) + ' ' +
+               (n < 10 ? '0' + n : n) + ' ' + MOIS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+    }
+
+    /**
+     * La conference mise en avant a droite de la date.
+     *
+     * On prend le sous-evenement le plus MATINAL de l'instance : c'est celui
+     * qui ouvre la journee, et la maquette lui reserve cette place. Choisir par
+     * le LIBELLE (« conference », « presentation »...) aurait dependu de la
+     * facon dont le CRM nomme ses creneaux — trop fragile pour de l'affichage.
+     */
+    function conferenceDe(instanceId) {
+        var liste = ateliersDe(instanceId).filter(function (a) { return a.debut; });
+        if (!liste.length) return null;
+        liste.sort(function (a, b) { return String(a.debut).localeCompare(String(b.debut)); });
+        return { label: liste[0].label, heure: heureSeule(liste[0].debut) };
+    }
+
     function libelleInstance(inst) {
         var bouts = [];
         if (inst.date)   bouts.push(inst.date);
@@ -1024,15 +1088,49 @@ try {
                     radio.value = inst.value;
                     if (i === 0) radio.checked = true;
 
-                    var txt = document.createElement('span');
-                    txt.textContent = libelleInstance(inst);
+                    /* Deux colonnes, comme la maquette : a gauche le quand et
+                       le ou, a droite la conference d'ouverture. Une seule
+                       chaine « date · horaires · campus · adresse » ne
+                       hierarchisait rien — tout arrivait au meme poids. */
+                    var corps = document.createElement('span');
+                    corps.className = 'socle-instance-corps';
+
+                    var gauche = document.createElement('span');
+                    gauche.className = 'socle-instance-quand';
+
+                    var quand = document.createElement('strong');
+                    quand.className = 'socle-instance-date';
+                    quand.textContent = dateLongue(inst.date) || inst.label || inst.value;
+                    gauche.appendChild(quand);
+
+                    var detail = [];
+                    var h = plage(inst.heure, inst.heureFin);
+                    if (h) detail.push(h);
+                    if (inst.address) detail.push(inst.address);
+                    if (detail.length) {
+                        var lieu = document.createElement('span');
+                        lieu.className = 'socle-instance-lieu';
+                        /* L'adresse porte ses propres retours a la ligne cote
+                           CRM ; on les respecte plutot que de tout aplatir. */
+                        lieu.textContent = detail.join(' - ');
+                        gauche.appendChild(lieu);
+                    }
+                    corps.appendChild(gauche);
+
+                    var conf = conferenceDe(inst.value);
+                    if (conf) {
+                        var droite = document.createElement('span');
+                        droite.className = 'socle-instance-conf';
+                        droite.textContent = conf.label + (conf.heure ? ' : ' + conf.heure : '');
+                        corps.appendChild(droite);
+                    }
 
                     radio.addEventListener('change', function () {
                         if (radio.checked) rendreAteliers(radio.value);
                     });
 
                     wrap.appendChild(radio);
-                    wrap.appendChild(txt);
+                    wrap.appendChild(corps);
                     zoneDates.appendChild(wrap);
                 });
 

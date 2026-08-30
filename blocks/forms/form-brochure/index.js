@@ -11,6 +11,7 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
+import { validerEtRevelerRequis } from '../shared/champs-requis.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -201,6 +202,13 @@ export default function (editor, categories) {
     outline: none;
     cursor: pointer;
 }
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.brf-rgpd { flex-wrap: wrap; }
+.brf-rgpd .brf-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .brf-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
 .brf-rgpd input[type="checkbox"] {
     width: 18px;
@@ -576,11 +584,11 @@ ${socleReadSnippet({ formType: 'brochure' })}
             e.preventDefault();
             let ok = true;
 
-            ['VousEtes', 'LastName', 'FirstName', 'StudyLevel', 'Campus', 'Country'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);

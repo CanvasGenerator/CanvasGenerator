@@ -18,6 +18,7 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
+import { validerEtRevelerRequis } from '../shared/champs-requis.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -165,6 +166,20 @@ export default function (editor, categories) {
 .imf-ateliers input { margin-top: 3px; flex-shrink: 0; }
 .imf-dates label:has(input:checked),
 .imf-ateliers label:has(input:checked) { border-color: #1a1a1a; background: #fafafa; }
+
+/* Meme structure en deux colonnes que les autres formulaires evenement : le
+   socle rend les memes classes, quel que soit le formulaire qui l'accueille. */
+.socle-instance-corps {
+    display: flex; flex: 1; gap: 16px;
+    justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
+}
+.socle-instance-quand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.socle-instance-date { font-weight: 700; color: #1a1a1a; }
+.socle-instance-lieu { color: #555; white-space: pre-line; }
+.socle-instance-conf { color: #555; text-align: right; max-width: 45%; }
+@media (max-width: 560px) {
+    .socle-instance-conf { text-align: left; max-width: 100%; }
+}
 /* Bloc entier masque tant qu'il n'y a rien a proposer : un intitule sans
    option n'apprend rien. */
 .imf-dates-field:has(.imf-dates:empty),
@@ -205,6 +220,13 @@ export default function (editor, categories) {
     outline: none;
     cursor: pointer;
 }
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.imf-rgpd { flex-wrap: wrap; }
+.imf-rgpd .imf-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .imf-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
 .imf-rgpd input[type="checkbox"] {
     width: 18px;
@@ -522,11 +544,11 @@ ${socleReadSnippet({ formType: 'immersion', eventType: 'Immersion' })}
             e.preventDefault();
             let ok = true;
 
-            ['LastName', 'FirstName', 'StudyLevel', 'Campus'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
