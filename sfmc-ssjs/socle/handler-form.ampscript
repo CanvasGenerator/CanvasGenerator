@@ -352,7 +352,17 @@ IF @submitted == "true" THEN
 
         /* Actif=false = Id non renseigne ou non verifie. On n'ecrit alors AUCUN
            CampaignMember : mieux vaut une adhesion manquante et tracee qu'une
-           adhesion rattachee a la mauvaise campagne. */
+           adhesion rattachee a la mauvaise campagne.
+
+           DEUX cas tombent dans le ELSE, et il faut les distinguer au journal :
+             - la ligne EXISTE mais Actif=false : campagne a verifier ;
+             - la ligne N'EXISTE PAS : c'est le cas de tous les formulaires
+               evenement. Le mapping ne couvre que brochure et candidature, 40
+               lignes au contrat, et c'est voulu — une inscription a une JPO est
+               tracee par sa Summit Registration.
+
+           Ecrire « inactive » dans le second cas laissait croire a une campagne
+           desactivee, donc a un incident. Il n'y en a pas. */
         IF Lowercase(@campActif) == "true" THEN
             SET @campaignId = Lookup("LPB_Mapping_Campagnes", "CampaignId", "Cle", @cleCampagne)
             SET @journal = Concat(@journal, " CAMP:", @cleCampagne)
@@ -367,6 +377,25 @@ IF @submitted == "true" THEN
                     "Statut", "OK",
                     "Objet", "Campaign",
                     "RecordId", @campaignId,
+                    "Detail", @cleCampagne,
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+        ELSEIF Empty(@campActif) THEN
+            /* Aucune ligne pour cette cle : normal sur un formulaire evenement. */
+            SET @journal = Concat(@journal, " CAMP:sans-objet(", @cleCampagne, ")")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "20 - aucune campagne prevue",
+                    "Statut", "IGNORE",
+                    "Objet", "Campaign",
+                    "RecordId", "",
                     "Detail", @cleCampagne,
                     "Email", @email,
                     "Ecole", @ecole,
