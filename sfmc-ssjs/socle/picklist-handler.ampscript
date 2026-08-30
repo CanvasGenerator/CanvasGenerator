@@ -70,8 +70,15 @@ SET @school = RequestParameter("SchoolId")
 IF Empty(@school) THEN SET @school = RequestParameter("Marque") ENDIF
 IF Empty(@school) THEN SET @school = @LPB_ECOLE ENDIF
 
-/* La regle de la specialite differe entre brochure et candidature. */
+/* La regle de la specialite differe entre brochure et candidature.
+
+   Meme mecanique que @LPB_ECOLE ci-dessus, et pour la meme raison : le champ
+   cache TypeFormulaire du formulaire n'existe qu'au POST, or le socle s'execute
+   au GET. Sans repli, il fallait composer l'URL a la main — et une page
+   brochure se voyait appliquer la regle de specialite des AUTRES formulaires,
+   silencieusement. Le bloc, lui, connait son type : il le pose avant l'include. */
 SET @formTypePage = Lowercase(RequestParameter("TypeFormulaire"))
+IF Empty(@formTypePage) THEN SET @formTypePage = Lowercase(@LPB_TYPE_FORM) ENDIF
 
 /* Ecole -> prefixe campus, via la DE de correspondance.
    `Actif` est un garde-fou volontaire : un prefixe faux ne provoque aucune
@@ -486,6 +493,10 @@ SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
 SET @typeEvt     = RequestParameter("TypeEvenement")
+/* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
+   formulaire. Sans elle, une page evenement ouverte normalement n'affichait
+   AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
+IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
 SET @instSel     = RequestParameter("InstanceId")
 SET @evtParent   = ""
 

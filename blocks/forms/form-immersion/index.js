@@ -403,7 +403,7 @@ ${hidden}
     </form>
 
 </div><!-- /.imf-card -->
-${socleReadSnippet()}
+${socleReadSnippet({ formType: 'immersion', eventType: 'Immersion' })}
 </section>`;
     }
 

@@ -425,7 +425,7 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
     </form>
 
 </div><!-- /.brf-card -->
-${socleReadSnippet()}
+${socleReadSnippet({ formType: 'brochure' })}
 </section>`;
     }
 
