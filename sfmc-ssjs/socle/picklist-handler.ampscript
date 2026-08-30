@@ -907,7 +907,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     }
 
     /** Remplit un <select> en conservant sa 1re option (le placeholder). */
-    function remplir(name, options, valeurCourante) {
+    function remplir(name, options, valeurCourante, viderSiVide) {
         var el = champ(name);
         if (!el || el.tagName !== 'SELECT') return null;
 
@@ -915,7 +915,20 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         // <select>. Les options statiques deja presentes (baked par le builder)
         // servent de repli, et un champ obligatoire ne se retrouve jamais vide
         // ni desactive a cause d'un value set introuvable cote org.
-        if (!options || !options.length) return el;
+        //
+        // ⚠ Sauf pour la CASCADE, qui passe viderSiVide : la, une liste vide
+        // est un RESULTAT — aucune valeur n'est atteignable a ce niveau — et
+        // garder l'ancienne proposait des choix impossibles. Cette garde a
+        // masque des heures durant un filtre de niveau qui ne matchait rien :
+        // le <select> gardait sa liste precedente, donc rien ne semblait bouger.
+        if (!options || !options.length) {
+            if (!viderSiVide) return el;
+            var vide = el.querySelector('option[value=""]');
+            el.innerHTML = '';
+            if (vide) el.appendChild(vide);
+            el.value = '';
+            return el;
+        }
 
         options = trier(name, options);
         var langue = langueAffichage();
@@ -959,12 +972,43 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     }
 
     /** Une cellule multipicklist "a;b;c" contient-elle la valeur attendue ? */
-    function contient(cellule, attendu) {
-        if (cellule === attendu) return true;
+    /**
+     * Les deux cotes du CRM n'ecrivent pas les niveaux pareil :
+     *   Account.Academic_Level_List__c        BAC+3, BAC+5 et +, BAC obtenu ou Prepa
+     *   LearningProgram.Academic_Level_List__c  Bac+3, Bac+5/+,   Bac obtenu
+     *
+     * Le formulaire envoie le premier, les programmes portent le second. Une
+     * comparaison litterale ne matche donc JAMAIS sur un niveau : le filtre
+     * rendait 0 programme, `remplir` n'y touchait pas (voir sa garde), et le
+     * <select> gardait sa liste precedente. Changer de niveau ne changeait
+     * visiblement rien — alors que le seuil, lui, fonctionnait.
+     *
+     * Meme table que NIVEAU_EQUIV dans blocks/forms/shared/programme-config.js,
+     * et que la sonde LPB_TST_Sonde_Niveaux. Trois copies, faute de source
+     * commune entre AMPscript, le navigateur et le builder.
+     */
+    function canonNiveau(v) {
+        var c = String(v === null || v === undefined ? '' : v)
+                    .replace(/^\s+|\s+$/g, '').toUpperCase();
+        if (c === 'BAC+5/+')    return 'BAC+5 ET +';
+        if (c === 'BAC OBTENU') return 'BAC OBTENU OU PRÉPA';
+        return c;
+    }
+
+    function texteBrut(v) { return String(v === null || v === undefined ? '' : v); }
+
+    /**
+     * Egalite toleante : un programme « Bac+2;Bac+3 » remonte pour Bac+2 ET
+     * pour Bac+3. `norme` rapproche deux referentiels quand il le faut.
+     */
+    function contient(cellule, attendu, norme) {
+        norme = norme || texteBrut;
+        var att = norme(attendu);
+        if (norme(cellule) === att) return true;
         if (!cellule) return false;
         var parts = String(cellule).split(';');
         for (var i = 0; i < parts.length; i++) {
-            if (parts[i].replace(/^\s+|\s+$/g, '') === attendu) return true;
+            if (norme(parts[i].replace(/^\s+|\s+$/g, '')) === att) return true;
         }
         return false;
     }
@@ -976,7 +1020,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                 if (!criteres[k]) continue;          // critere non renseigne -> ignore
                 // egalite tolerante : un programme "Bac+2;Bac+3" doit remonter
                 // pour Bac+2 ET pour Bac+3.
-                if (!contient(p[k], criteres[k])) return false;
+                if (!contient(p[k], criteres[k], k === 'level' ? canonNiveau : null)) return false;
             }
             return true;
         });
@@ -1213,17 +1257,24 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
         var sel = {
             campus:     valeur('Campus'),
-            level:      valeur('Niveau') || valeur('Level'),
+            /* ⚠ StudyLevel : c'est le nom que portent TOUS les formulaires EDH.
+               Seul `form-salesforce-core` utilise `Niveau`. Sans ce troisieme
+               repli, sel.level restait vide en permanence et la specialite
+               n'etait filtree QUE par le campus : changer de niveau d'etudes ne
+               changeait rien a la liste. Le seuil de niveau, lui, marchait —
+               ordreNiveauChoisi() connaissait deja les trois noms — ce qui
+               rendait la panne d'autant moins visible. */
+            level:      valeur('Niveau') || valeur('Level') || valeur('StudyLevel'),
             speciality: valeur('Speciality'),
             rhythm:     valeur('Rhythm'),
             language:   valeur('Language')
         };
 
         // chaque liste ne propose que ce qui reste possible en amont
-        remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level);
-        remplir('Speciality', distinct(filtrer({ campus: sel.campus, level: sel.level }), 'speciality'), sel.speciality);
-        remplir('Rhythm',     distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality }), 'rhythm'), sel.rhythm);
-        remplir('Language',   distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm }), 'language'), sel.language);
+        remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level, true);
+        remplir('Speciality', distinct(filtrer({ campus: sel.campus, level: sel.level }), 'speciality'), sel.speciality, true);
+        remplir('Rhythm',     distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality }), 'rhythm'), sel.rhythm, true);
+        remplir('Language',   distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm }), 'language'), sel.language, true);
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
@@ -1292,7 +1343,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             termes.push({ value: t.termId, label: libelle ? libelle.label : t.termId });
         });
         var rentree = valeur('Rentree');
-        remplir('Rentree', termes, rentree);
+        remplir('Rentree', termes, rentree, true);
         rentree = valeur('Rentree');
 
         // programmes ouverts a la rentree choisie
@@ -1307,7 +1358,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             });
         }
         var programme = valeur('Programme');
-        remplir('Programme', progs, programme);
+        remplir('Programme', progs, programme, true);
         programme = valeur('Programme');
 
         // resolution du PTAT final -> champ cache transmis a l'ecriture
@@ -1324,7 +1375,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
        « Vous etes » ne fait pas partie de la cascade, mais la specialite de la
        brochure CREAD en depend. Sans cet ecouteur, la condition n'etait
        reevaluee qu'au prochain changement de campus ou de niveau. */
-    ['Campus', 'Niveau', 'Level', 'Speciality', 'Rhythm', 'Language', 'Rentree', 'Programme']
+    ['Campus', 'Niveau', 'Level', 'StudyLevel', 'Speciality', 'Rhythm', 'Language', 'Rentree', 'Programme']
         .concat(champsDesConditions())
         .forEach(function (n) {
             var el = champ(n);
