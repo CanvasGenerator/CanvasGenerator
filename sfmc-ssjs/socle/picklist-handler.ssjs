@@ -495,6 +495,15 @@ try {
             : el.parentNode;
         porteur = porteur || el;
         porteur.style.display = visible ? '' : 'none';
+
+        /* `required` SUIT la visibilite. C'est le navigateur qui exige les
+           champs affiches — le JS des blocs ne tourne que dans le builder, il
+           n'y a donc aucune validation maison sur une page publiee.
+           Laisser `required` sur un champ masque bloquerait la soumission sans
+           rien montrer : le navigateur refuse de partir et ne peut pas mettre
+           le focus sur un champ invisible. */
+        if (visible) { el.setAttribute('required', 'required'); }
+        else { el.removeAttribute('required'); }
         /* Deux leviers : ces champs naissent avec la classe `hidden`
            (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
            l'emporte pas sur une regle de classe. */
@@ -1133,6 +1142,56 @@ try {
         }
     }
 
+    /* ====================================================================
+       APRES UNE SOUMISSION — montrer l'ecran de confirmation
+       ====================================================================
+       Le formulaire poste sur sa PROPRE page : le socle d'ecriture s'execute
+       le premier et laisse son bilan en commentaire HTML, puis celui-ci rend
+       la reponse. On relit ce commentaire plutot qu'une variable AMPscript
+       partagee : le bloc d'ecriture peut etre absent d'une page publiee avant
+       son introduction, et lire une variable jamais declaree tue la page.
+
+       C'est le SEUL chemin possible. Le JS des blocs ne tourne que dans le
+       builder — une page publiee ne connait que ce script-ci — et un
+       formulaire sans method partait donc en GET natif, toutes les donnees
+       dans l'URL.
+
+       ⚠ AMPscript n'a pas de try/catch : une ecriture refusee remplace la page
+       entiere, commentaire compris. Pas de marqueur = pas de confirmation, et
+       c'est le comportement voulu. */
+    (function apresSoumission() {
+        var source = '';
+        try { source = document.documentElement.innerHTML || ''; } catch (e) { return; }
+
+        var m = /socle ecriture:\s*statut=(\w+)/i.exec(source);
+        if (!m || m[1] !== 'success') return;
+
+        var form = document.querySelector('form.jpo-form, form.brf-form, form.cnd-form, form.imf-form');
+        if (!form) return;
+
+        /* Chaque famille a sa carte et son ecran de succes, deja dans le HTML.
+           On bascule l'affichage, on n'en fabrique aucun. */
+        var carte = form.parentNode;
+        while (carte && carte.className &&
+               !/-card(\s|$)/.test(carte.className)) { carte = carte.parentNode; }
+        carte = carte || document;
+
+        var zone   = carte.querySelector('.jpo-form-zone');
+        var succes = carte.querySelector('.jpo-success, .brf-success, .cnd-success, .imf-success');
+        if (!succes) return;
+
+        if (zone) { zone.style.display = 'none'; } else { form.style.display = 'none'; }
+        succes.style.display = 'block';
+        if (succes.classList) succes.classList.remove('hidden');
+
+        /* Le titre et le sous-titre du formulaire n'ont plus lieu d'etre. */
+        var entetes = carte.querySelectorAll('.jpo-title, .brf-title, .cnd-title, .imf-title, ' +
+                                             '.jpo-subtitle, .brf-subtitle, .cnd-subtitle, .imf-subtitle');
+        for (var i = 0; i < entetes.length; i++) entetes[i].style.display = 'none';
+
+        try { succes.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+    })();
+
     if (D.instances && D.instances.length) {
         var elInst = champ('InstanceId');
         var zoneDates = document.querySelector('[data-socle="instances"]');
@@ -1162,6 +1221,10 @@ try {
                     radio.id = id;
                     radio.value = inst.value;
                     if (i === 0) radio.checked = true;
+                    /* Un seul `required` suffit pour tout le groupe, et le
+                       navigateur s'en charge : choisir une date n'est pas
+                       facultatif. */
+                    if (i === 0) radio.required = true;
 
                     /* Deux colonnes, comme la maquette : a gauche le quand et
                        le ou, a droite la conference d'ouverture. Une seule

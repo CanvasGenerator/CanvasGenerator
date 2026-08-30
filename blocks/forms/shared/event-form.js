@@ -744,7 +744,15 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     </div>
 
     <div class="jpo-form-zone">
-    <form class="jpo-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         `novalidate` retire : c'est le NAVIGATEUR qui exige les champs
+         affiches, sans une ligne de JS. Le socle pose et retire `required`
+         en meme temps qu'il montre ou masque un champ. -->
+    <form class="jpo-form" data-lang="${lang}" method="post">
 ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
@@ -893,7 +901,7 @@ ${showChild ? `
         <input type="hidden" name="Appointments" value="">
 
         <div class="jpo-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="jpo-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span>
                 <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>

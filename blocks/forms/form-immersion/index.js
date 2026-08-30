@@ -298,7 +298,15 @@ export default function (editor, categories) {
     </div>
 
     <!-- Formulaire -->
-    <form class="imf-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         `novalidate` retire : c'est le NAVIGATEUR qui exige les champs
+         affiches, sans une ligne de JS. Le socle pose et retire `required`
+         en meme temps qu'il montre ou masque un champ. -->
+    <form class="imf-form" data-lang="${lang}" method="post">
 ${hidden}
 
         <!-- Nom / Prénom -->
@@ -412,7 +420,7 @@ ${hidden}
 
         <!-- RGPD -->
         <div class="imf-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="imf-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
