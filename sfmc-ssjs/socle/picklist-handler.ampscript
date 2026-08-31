@@ -1727,54 +1727,241 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     }
 
     /* ====================================================================
-       APRES UNE SOUMISSION — montrer l'ecran de confirmation
+       SOUMISSION — envoi sans rechargement, puis confirmation
        ====================================================================
-       Le formulaire poste sur sa PROPRE page : le socle d'ecriture s'execute
-       le premier et laisse son bilan en commentaire HTML, puis celui-ci rend
-       la reponse. On relit ce commentaire plutot qu'une variable AMPscript
-       partagee : le bloc d'ecriture peut etre absent d'une page publiee avant
-       son introduction, et lire une variable jamais declaree tue la page.
+       Le JS des blocs ne tourne QUE dans le builder : sur une page publiee il
+       n'y a que ce script-ci. C'est donc ici que vit la soumission.
 
-       C'est le SEUL chemin possible. Le JS des blocs ne tourne que dans le
-       builder — une page publiee ne connait que ce script-ci — et un
-       formulaire sans method partait donc en GET natif, toutes les donnees
-       dans l'URL.
+       Le formulaire garde `method="post"` : si ce script ne s'execute pas, le
+       navigateur poste nativement et la page de reponse affiche quand meme la
+       confirmation, plus bas. On ameliore, on ne remplace pas.
+
+       La validation, elle, reste au navigateur : `required` suit la visibilite
+       des champs, l'evenement `submit` n'est meme pas emis tant qu'il manque
+       quelque chose. Aucune validation maison a maintenir.
 
        ⚠ AMPscript n'a pas de try/catch : une ecriture refusee remplace la page
-       entiere, commentaire compris. Pas de marqueur = pas de confirmation, et
-       c'est le comportement voulu. */
-    (function apresSoumission() {
-        var source = '';
-        try { source = document.documentElement.innerHTML || ''; } catch (e) { return; }
+       entiere, bilan compris. Pas de marqueur = echec, jamais un imprevu. */
 
-        var m = /socle ecriture:\s*statut=(\w+)/i.exec(source);
-        if (!m || m[1] !== 'success') return;
+    var FORMULAIRES = 'form.jpo-form, form.brf-form, form.cnd-form, form.imf-form';
 
-        var form = document.querySelector('form.jpo-form, form.brf-form, form.cnd-form, form.imf-form');
-        if (!form) return;
+    /* ====================================================================
+       TRACKING — recopier ce que la page a calcule dans les champs caches
+       ====================================================================
+       La CloudPage d'affichage lit l'URL, en deduit le canal d'acquisition et
+       le consentement cookies, et publie le tout dans `window.tracking_params`.
+       Mais elle ne remplit PAS les champs caches du formulaire : c'etait le
+       role de populateHiddenFields(), cote blocs, qui ne tourne que dans le
+       builder.
 
-        /* Chaque famille a sa carte et son ecran de succes, deja dans le HTML.
-           On bascule l'affichage, on n'en fabrique aucun. */
-        var carte = form.parentNode;
-        while (carte && carte.className &&
-               !/-card(\s|$)/.test(carte.className)) { carte = carte.parentNode; }
-        carte = carte || document;
+       Consequence mesuree le 31/08 sur une page publiee : utm_source, gclid,
+       fbclid, canal, sous_canal, clientId — tous vides a l'ecriture, alors que
+       la page les connaissait. Tout le tracking d'acquisition etait perdu, en
+       silence, sur les six formulaires.
 
-        var zone   = carte.querySelector('.jpo-form-zone');
+       Les noms different de part et d'autre : `client_id` cote page,
+       `clientId` cote formulaire. D'ou la table. */
+    var TRACKING = {
+        utm_source: 'utm_source', utm_medium: 'utm_medium', utm_campaign: 'utm_campaign',
+        utm_content: 'utm_content', utm_term: 'utm_term', utm_id: 'utm_id',
+        gclid: 'gclid', fbclid: 'fbclid',
+        canal: 'canal', sous_canal: 'sous_canal',
+        consent: 'consent', date_consentement_cookies: 'date_consentement_cookies',
+        client_id: 'clientId'
+    };
+
+    function remplirTracking(form) {
+        var p = null;
+        try { p = window.tracking_params || null; } catch (e) { p = null; }
+
+        for (var cle in TRACKING) {
+            if (!TRACKING.hasOwnProperty(cle)) continue;
+            var el = form.querySelector('[name="' + TRACKING[cle] + '"]');
+            if (!el) continue;
+            /* On n'ECRASE jamais une valeur deja posee : une page peut avoir
+               ete construite avec ses propres champs remplis. */
+            if (el.value) continue;
+            var v = p ? p[cle] : '';
+            if (v !== undefined && v !== null && v !== '') el.value = v;
+        }
+
+        /* utm_campus n'est pas publie par la page — elle expose `campus`, qui
+           est le campus PRE-SELECTIONNE, pas le parametre publicitaire. On le
+           relit donc a la source. */
+        var camp = form.querySelector('[name="utm_campus"]');
+        if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+    }
+
+    /* Un message par famille. Le HTML publie porte des titres VIDES — ils
+       etaient remplis par le JS des blocs, absent ici. */
+    var MESSAGES = {
+        brochure: {
+            titre: 'Votre brochure est en route',
+            texte: 'Merci ! Vous allez la recevoir par e-mail dans quelques instants. Pensez a verifier vos indesirables.'
+        },
+        candidature: {
+            titre: 'Votre candidature est enregistree',
+            texte: 'Consultez votre boite mail : un message vient de vous etre envoye pour activer votre compte et acceder au portail candidature.'
+        },
+        evenement: {
+            titre: 'Votre place est reservee',
+            texte: 'Merci ! Vous recevrez un e-mail de confirmation avec la date, l\'horaire et l\'adresse.'
+        },
+        immersion: {
+            titre: 'Votre demande est bien recue',
+            texte: 'Merci ! Nous revenons vers vous tres vite pour convenir des modalites de votre immersion.'
+        }
+    };
+
+    /** La famille du formulaire, lue dans son propre champ cache. */
+    function familleDe(form) {
+        var el = form.querySelector('[name="TypeFormulaire"]');
+        var t = el ? String(el.value || '').toLowerCase() : '';
+        if (MESSAGES[t]) return t;
+        /* Tolerance : les anciennes pages postaient jpo, atelier ou stage. */
+        if (t === 'jpo' || t === 'atelier' || t === 'stage') return 'evenement';
+        return 'evenement';
+    }
+
+    /** La carte qui entoure le formulaire, quel que soit le prefixe. */
+    function carteDe(form) {
+        var n = form.parentNode;
+        while (n && n.className !== undefined) {
+            if (/-card(\s|$)/.test(String(n.className))) return n;
+            n = n.parentNode;
+        }
+        return form.parentNode;
+    }
+
+    /**
+     * Remplace le formulaire par l'ecran de succes.
+     *
+     * On REUTILISE le bloc `.xxx-success` deja present : il porte le style de
+     * l'ecole. Ses titres sont vides sur une page publiee, on les remplit.
+     */
+    function montrerSucces(form) {
+        var carte = carteDe(form);
         var succes = carte.querySelector('.jpo-success, .brf-success, .cnd-success, .imf-success');
-        if (!succes) return;
+        var msg = MESSAGES[familleDe(form)];
 
+        var zone = carte.querySelector('.jpo-form-zone');
         if (zone) { zone.style.display = 'none'; } else { form.style.display = 'none'; }
-        succes.style.display = 'block';
-        if (succes.classList) succes.classList.remove('hidden');
 
-        /* Le titre et le sous-titre du formulaire n'ont plus lieu d'etre. */
+        /* Titre et sous-titre du formulaire : ils annoncaient une action qui
+           n'a plus lieu d'etre. */
         var entetes = carte.querySelectorAll('.jpo-title, .brf-title, .cnd-title, .imf-title, ' +
                                              '.jpo-subtitle, .brf-subtitle, .cnd-subtitle, .imf-subtitle');
         for (var i = 0; i < entetes.length; i++) entetes[i].style.display = 'none';
 
+        if (!succes) {
+            succes = document.createElement('div');
+            succes.className = 'socle-succes';
+            succes.style.padding = '28px 20px';
+            succes.style.textAlign = 'center';
+            carte.appendChild(succes);
+            succes.innerHTML = '<div style="font-size:36px;margin-bottom:10px">&#10004;</div>';
+        }
+
+        var titre = succes.querySelector('.jpo-success-thanks, .brf-success-title, ' +
+                                         '.cnd-success-title, .imf-success-title');
+        var texte = succes.querySelector('.jpo-success-msg, .brf-success-msg, ' +
+                                         '.cnd-success-msg, .imf-success-msg');
+        if (titre) { titre.textContent = msg.titre; }
+        if (texte) { texte.textContent = msg.texte; }
+        if (!titre && !texte) {
+            var h = document.createElement('h3');
+            h.textContent = msg.titre;
+            var p = document.createElement('p');
+            p.textContent = msg.texte;
+            succes.appendChild(h);
+            succes.appendChild(p);
+        }
+
+        succes.style.display = 'block';
+        if (succes.classList) succes.classList.remove('hidden');
         try { succes.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
-    })();
+    }
+
+    /** Le bilan que le socle d'ecriture laisse en commentaire dans la reponse. */
+    function bilanDe(html) {
+        var m = /socle ecriture:\s*statut=(\w+)/i.exec(String(html || ''));
+        if (!m) return { ok: false, message: '' };
+        var e = /socle erreur:\s*([\s\S]*?)\s*-->/i.exec(String(html));
+        return { ok: m[1] === 'success', message: e ? e[1] : '' };
+    }
+
+    function brancherSoumission(form) {
+        if (form.__socleBranche) return;
+        form.__socleBranche = true;
+
+        /* AVANT toute soumission, y compris le POST natif sans JS : les champs
+           doivent porter le tracking des l'affichage. */
+        remplirTracking(form);
+
+        form.addEventListener('submit', function (ev) {
+            /* Le navigateur a deja valide : l'evenement n'arrive pas autrement. */
+            if (typeof window.fetch !== 'function') return;   // repli : POST natif
+            ev.preventDefault();
+
+            var bouton = form.querySelector('button[type="submit"], input[type="submit"]');
+            var libelle = bouton ? bouton.innerHTML : '';
+            if (bouton) { bouton.disabled = true; bouton.textContent = 'Envoi en cours...'; }
+
+            var corps = [];
+            var champs = form.querySelectorAll('input, select, textarea');
+            for (var i = 0; i < champs.length; i++) {
+                var c = champs[i];
+                if (!c.name) continue;
+                var type = (c.type || '').toLowerCase();
+                if ((type === 'checkbox' || type === 'radio') && !c.checked) continue;
+                if (type === 'submit' || type === 'button') continue;
+                corps.push(encodeURIComponent(c.name) + '=' + encodeURIComponent(c.value == null ? '' : c.value));
+            }
+            corps.push('submitted=true');
+
+            window.fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: corps.join('&'),
+                credentials: 'same-origin'
+            }).then(function (r) { return r.text(); })
+              .then(function (html) {
+                  var bilan = bilanDe(html);
+                  if (bilan.ok) { montrerSucces(form); return; }
+                  if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
+                  /* Le message du socle nomme le champ refuse ; le notre ne
+                     dirait rien de plus que « ca n'a pas marche ». */
+                  window.alert(bilan.message ||
+                      "L'envoi n'a pas abouti. Merci de reessayer dans un instant.");
+              })
+              .catch(function () {
+                  if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
+                  window.alert("L'envoi n'a pas abouti. Verifiez votre connexion.");
+              });
+        });
+    }
+
+    /* Tout ce bloc est SECONDAIRE : le formulaire poste nativement sans lui.
+       Une API absente ne doit donc pas emporter le remplissage des listes, qui
+       est la raison d'etre du socle. D'ou le try/catch — et le harnais de test,
+       qui n'a pas querySelectorAll, l'a demontre avant la production. */
+    try {
+        if (document.querySelectorAll) {
+            var formulaires = document.querySelectorAll(FORMULAIRES);
+            for (var f = 0; f < formulaires.length; f++) brancherSoumission(formulaires[f]);
+
+            /* REPLI SANS JS — la page a ete postee nativement et le socle a
+               ecrit. On relit son bilan dans la page rendue plutot qu'une
+               variable AMPscript : le bloc d'ecriture est absent des pages
+               publiees avant son introduction, et lire une variable jamais
+               declaree tue la page. */
+            var source = document.documentElement ? (document.documentElement.innerHTML || '') : '';
+            if (bilanDe(source).ok) {
+                var dejaPoste = document.querySelector(FORMULAIRES);
+                if (dejaPoste) montrerSucces(dejaPoste);
+            }
+        }
+    } catch (eSoumission) { /* les listes restent remplies, c'est l'essentiel */ }
 
     if (D.instances && D.instances.length) {
         var elInst = champ('InstanceId');

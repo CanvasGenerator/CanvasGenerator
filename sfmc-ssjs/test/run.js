@@ -12,6 +12,7 @@ const etapes = [
     ['Sous-evenements',          ['test-ateliers.js']],
     ['Champs requis',            ['test-requis.js']],
     ['Envoi au socle',           ['test-envoi.js']],
+    ['Confirmation',             ['test-confirmation.js']],
 ];
 
 let echecs = 0;
