@@ -459,6 +459,60 @@ test('attend DOMContentLoaded quand le document charge encore', () => {
     }
 });
 
+/* ══════════════════════════════════════════════════════════════════════════
+   « Champs visibles des formulaires.xlsx » — 31/08/2026
+   ══════════════════════════════════════════════════════════════════════════
+   Le champ que le fichier intitule « Programme souhaite » est le champ
+   SPECIALITE. Hors candidature, trois ecoles seulement le portent — BRASSART,
+   IFA Paris, MoPA — et l'axe vient de
+   LPB_Config_Champs_Ecole.ProgrammeVisible. Sur la candidature, les dix ecoles
+   l'affichent, et c'est SpecialiteVisible qui decide.
+
+   S'y ajoute le CAMPUS, masque pour les quatre ecoles qui n'en proposent pas. */
+
+test('Hors candidature, la specialite suit l axe de l ecole', (d, jouer) => {
+    jouer(cfg({ champs: { Speciality: { visible: 'toujours', niveauMin: 0 } } }),
+          { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    if (!d.visible('Speciality')) throw new Error('specialite masquee alors que l ecole la porte');
+    const opts = d.options('Speciality');
+    if (!opts.includes('Comm') || !opts.includes('Luxe')) {
+        throw new Error(`specialites du couple campus x niveau absentes : ${JSON.stringify(opts)}`);
+    }
+}, LAYOUT_STUDYLEVEL);
+
+test('Une ecole sans « Programme souhaite » n affiche pas la specialite', (d, jouer) => {
+    /* Sept ecoles sur dix : EFAP, CREAD, ESEC, ICART, Ecole Bleue, EFJ, 3WA. */
+    jouer(cfg({ champs: { Speciality: { visible: 'jamais', niveauMin: 0 } } }),
+          { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    if (d.visible('Speciality')) throw new Error('specialite proposee malgre un axe jamais');
+}, LAYOUT_STUDYLEVEL);
+
+test('Le campus se masque pour les ecoles qui n en proposent pas', (d, jouer) => {
+    jouer(cfg({ champs: { Campus: { visible: 'jamais', niveauMin: 0 },
+                          Speciality: { visible: 'toujours', niveauMin: 0 } } }), {});
+    if (d.visible('Campus')) throw new Error('campus propose malgre CampusVisible=jamais');
+    if (d.requis('Campus')) {
+        throw new Error('campus masque mais toujours obligatoire : la soumission serait bloquee sans rien montrer');
+    }
+}, LAYOUT_STUDYLEVEL);
+
+test('Campus masque ET valeur unique : la valeur est posee [REGRESSION]', (d, jouer) => {
+    /* Sur un formulaire evenement, les dates sont filtrees par campus et
+       « sans campus choisi, aucune date ». Masquer sans poser donnerait donc un
+       formulaire sans creneau — une impasse muette. */
+    const dom = require('./harness-dom').creerDom(LAYOUT_STUDYLEVEL);
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            campus: [{ value: 'MOPA ARLES', label: 'ARLES' }],
+            config: cfg({ champs: { Campus: { visible: 'jamais', niveauMin: 0 } } }) }) },
+        document: dom.document,
+    });
+    if (dom.visible('Campus')) throw new Error('campus propose malgre CampusVisible=jamais');
+    if (dom.champs.Campus.value !== 'MOPA ARLES') {
+        throw new Error(`campus unique non pose : ${JSON.stringify(dom.champs.Campus.value)}`);
+    }
+}, LAYOUT_STUDYLEVEL);
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
     echecs.forEach((e) => console.error('  ✗ ' + e + '\n'));

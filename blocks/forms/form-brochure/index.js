@@ -379,11 +379,15 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
             </div>
         </div>
 
-        <!-- Spécialité (règle §6) — seule brique de la cascade présente ici :
-             le contrat ne prévoit rythme, langue et rentrée que sur la
-             candidature. Masquée au départ ; c'est la cascade qui décide, selon
-             l'école et le nombre de valeurs restantes. Un champ à une seule
-             valeur reste masqué mais renseigné, et part au CRM.
+        <!-- Spécialité (règle §6) — seule brique de la cascade hors
+             candidature : le contrat ne prévoit rythme, langue et rentrée que
+             sur la candidature. Masquée au départ ; c'est le socle qui décide,
+             selon la matrice de l'école et le nombre de valeurs restantes. Un
+             champ à une seule valeur reste masqué mais renseigné, et part au CRM.
+
+             C'est CE champ que « Champs visibles des formulaires.xlsx » appelle
+             « Programme souhaité » — trois écoles le portent hors candidature :
+             BRASSART, IFA Paris, MoPA.
 
              Inerte dans le builder, qui n'exécute pas le socle. -->
         <div class="brf-field brf-speciality-field hidden">

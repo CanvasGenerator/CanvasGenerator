@@ -377,10 +377,13 @@ ${hidden}
             </div>
         </div>
 
-        <!-- Spécialité (règle §6) — seule brique de la cascade ici : le
-             contrat ne prévoit rythme, langue et rentrée que sur la
-             candidature. Masquée au départ ; c'est la cascade qui décide.
-             Un champ à une seule valeur reste masqué mais renseigné.
+        <!-- Spécialité (règle §6) — seule brique de la cascade hors
+             candidature. Masquée au départ ; c'est le socle qui décide. Un champ
+             à une seule valeur reste masqué mais renseigné.
+
+             C'est CE champ que « Champs visibles des formulaires.xlsx » appelle
+             « Programme souhaité » — trois écoles le portent hors candidature :
+             BRASSART, IFA Paris, MoPA.
 
              Inerte dans le builder, qui n'exécute pas le socle. -->
         <div class="imf-field imf-speciality-field hidden">

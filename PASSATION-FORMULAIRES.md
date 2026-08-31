@@ -171,37 +171,51 @@ update, tout `AcademicInterest.*` / `IndividualApplication.*`, et
 restreinte par les précédentes. La **spécialité** est sur les 6 formulaires ;
 rythme, langue et rentrée sur la **candidature seule**.
 
+> Le fichier « Champs visibles » appelle la spécialité **« Programme
+> souhaité »**. Même champ, autre nom — voir §Champs visibles.
+
 Trois comportements à ne pas confondre :
 - **progressif** — les champs après le niveau n'apparaissent qu'une fois le
   précédent renseigné. EFAP en est exempté (`progressif=false`) ;
 - **une seule valeur** — champ **masqué mais renseigné**, la valeur part au CRM ;
 - **ordre par école** — IFA Paris demande la langue avant la spécialité.
 
-> ⚠ La chaîne de **filtrage** est codée en dur (campus → niveau → spécialité →
+> ⚠ La chaîne de **filtrage** reste codée en dur (campus → niveau → spécialité →
 > rythme → langue) et **ne suit pas `OrdreChamps`**. Chez IFA Paris, les
-> spécialités ne sont donc pas restreintes par la langue choisie. Non corrigé.
+> spécialités ne sont donc pas restreintes par la langue choisie. **Non corrigé**
+> — c'est l'ordre d'AFFICHAGE qui l'a été, pas l'ordre de filtrage.
 
-> ⚠ `appliquerOrdre` exige que tous les champs partagent le même parent DOM ; sur
-> nos formulaires chacun a son propre `.cnd-field`. **`OrdreChamps` n'a donc
-> aucun effet.** Non corrigé.
+> ✅ **`OrdreChamps` fonctionne depuis le 31/08.** Il n'avait effectivement aucun
+> effet : `appliquerOrdre` exigeait que tous les porteurs partagent le même
+> parent DOM et s'alignait sur celui du premier trouvé — le campus, dans son
+> `.cnd-row` à deux colonnes. Spécialité, rythme, langue et rentrée, enfants
+> directs du `<form>`, étaient donc écartés ; il ne restait qu'un porteur et la
+> fonction sortait. On **reordonne désormais par section**, et `NOM_DOM`
+> reconnaît enfin `StudyLevel` — sans quoi le niveau restait hors du
+> reordonnancement. Vérifié en recette : IFA Paris rend bien
+> `Language, Speciality, Rhythm, Rentree`.
 
 Le programme vient des **programmes**, pas des PTAT : un programme sans PTAT
 apparaît, et la liste ne dépend plus d'une rentrée choisie. Le PTAT est déduit à
 la fin.
 
-### Configuration par école — 3 DE
+### Configuration par école — 4 DE
 
 | DE | Rôle |
 |---|---|
 | `LPB_Config_Formulaires` | un axe par champ : `jamais` / `toujours` / `niveau` + seuil |
+| `LPB_Config_Champs_Ecole` | **campus**, et **spécialité hors candidature** (colonne `ProgrammeVisible`, nom repris du fichier) |
 | `LPB_Config_Conditions` | conditions **croisées**, `Champ=Valeur;Champ=Valeur` |
 | `LPB_Mapping_Niveaux` | ordinaux : Terminale 1 · Bac+1 2 · Bac+2 3 · **Bac+3 4** · Bac+4 5 · Bac+5 6 |
 
-Deux règles y sont exprimées :
-- **CREAD brochure** — spécialité si `Campus=CREAD LYON` **et** `VousEtes=Career Change`
-- **BRASSART rythme** — `Speciality=Art Direction`, cumulé au seuil bac+3
+> ⚠ `LPB_Config_Champs_Ecole` est lue par `LookupRows` **sans filet** : une DE
+> absente tue la page. Elle doit exister en Prod **avant** d'y déployer le socle.
 
-> Sémantique choisie par moi, à confirmer : conditions vraies ⇒ champ proposé.
+Les deux conditions croisées (CREAD brochure, BRASSART rythme) sont
+**désactivées depuis le 31/08** (`Actif=false`, conservées telles quelles) :
+« Champs visibles des formulaires.xlsx » ne porte plus aucun champ de cascade
+hors candidature, et donne les quatre à toutes les écoles sur la candidature,
+sans restriction de spécialité ni de niveau.
 
 ### Événements
 
@@ -322,8 +336,8 @@ dans leur enchaînement réel.
   `SCR_OptOut_PATCH` / `SCR_OptOut_PATCH_CRM` — vérifié absent de ce dépôt
 
 ### Fonctionnel à trancher
-- [ ] `OrdreChamps` sans effet, et chaîne de filtrage indépendante de l'ordre
-      (§4) — visible seulement chez IFA Paris
+- [ ] Chaîne de **filtrage** indépendante de `OrdreChamps` (§4) — visible
+      seulement chez IFA Paris. L'ordre d'affichage, lui, est corrigé
 - [ ] `Interaction__c` non créée sur les formulaires événement : effet de bord du
       bloc campagne, pas une décision. **Statu quo validé** le 31/08
 - [ ] Sémantique des conditions croisées à confirmer
@@ -348,6 +362,7 @@ dans leur enchaînement réel.
 
 Tous en `@example-edh.test`, sauf ceux de l'utilisateur. Filtrer sur le domaine.
 
+`prog.souhaite.31aout` · `spec.inventee.31aout` · `g[1-5].31aout` ·
 `sonde.*` · `test.*` · `neuf.correctif*` · `parcours.jpo.31aout` ·
 `libelle.*.31aout` · `tracking.jpo.31aout` · `diag.*.31aout` · `dbl.[ab].31aout` ·
 `pick[0-3].31aout` · `pilote*.cand.31aout` · `cache.[ab].31aout` ·
@@ -392,9 +407,39 @@ vérifier avec `LPB_TST_Sonde_Compte&acc=…`.
 Attendu : écran de succès sans rechargement, compte + points de contact +
 4 consentements + CampaignMember + Interaction, et le tracking rempli.
 
-Si ça échoue : lire la **dernière ligne du RunId** dans `LPB_Log_Soumissions`.
-Son silence dit que l'écriture n'a pas démarré ; sa position dit où elle est
-morte.
+### Champs visibles — alignement du 31/08
+
+Source : **« Champs visibles des formulaires.xlsx »**. Le sens du fichier est
+dans les **couleurs de remplissage**, pas dans le texte : vert = affiché,
+gris = non affiché, vert clair = progressif.
+
+> ⚠ **La ligne « Programme souhaité » désigne le champ `Speciality`.** Ce n'est
+> pas un champ de plus. J'ai d'abord construit un vrai champ « programme » —
+> erreur, annulée.
+
+| Champ | Règle du fichier | Était |
+|---|---|---|
+| Mon profil (`VousEtes`) | brochure + JPO | aussi sur atelier |
+| Pays de résidence (`Country`) | brochure seule | aussi sur candidature |
+| Campus | masqué pour IFA Paris, École Bleue, MoPA, 3WA | toujours affiché |
+| Spécialité **hors candidature** | BRASSART, IFA Paris, MoPA | EFAP, ICART, École Bleue et CREAD aussi, avec des seuils de niveau |
+| Spécialité **sur candidature** | les 10 écoles | 4 écoles à `jamais`, ICART à bac+3 |
+| Rythme, langue | candidature, les 10 écoles | 5 à 7 écoles à `jamais`, seuils divers |
+| Progressif sauf EFAP | — | déjà conforme |
+| Ordre IFA Paris (langue avant spécialité) | — | **configuré mais sans effet** — corrigé (§4) |
+
+**`Account.Speciality__c` n'était pas écrit.** Le `<select Speciality>` était
+affiché sur les six formulaires et sa valeur partait nulle part. Le handler
+l'écrit désormais, après vérification contre l'org (`SPEC:ignore(...)` si la
+valeur n'existe pas — une picklist inventée tue la page).
+
+**Campus masqué ⇒ plus aucune date** sur un formulaire événement, les dates
+étant filtrées par campus. Le socle **pose** donc la valeur quand il n'y en a
+qu'une, et avertit en console quand il y en a plusieurs.
+
+Sonde dédiée : `LPB_TST_Sonde_Config` — `&ecole=&form=` relève la config
+publiée pour n'importe quel couple école × formulaire, socle d'écriture inclus.
+
 
 ### Conventions
 

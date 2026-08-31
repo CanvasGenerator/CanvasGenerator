@@ -490,7 +490,14 @@ try {
         var porteur = el.closest
             ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
                el.closest('.brf-field') || el.closest('.jpo-field') ||
-               el.closest('.imf-field') || el.closest('.form-group') ||
+               el.closest('.imf-field') ||
+               /* Le campus des formulaires evenement ne vit PAS dans un
+                  `.jpo-field` : il a sa propre zone, avec le rappel de date et
+                  d'adresse. Sans cette ligne la remontee s'arretait sur
+                  `.jpo-campus-select-wrap` et on masquait la liste en laissant
+                  son libelle — et l'encart — a l'ecran. Place APRES
+                  `.jpo-field` : les autres champs ne la voient jamais. */
+               el.closest('.jpo-campus-zone') || el.closest('.form-group') ||
                el.closest('.field') || el.closest('label') || el.parentNode)
             : el.parentNode;
         porteur = porteur || el;
@@ -719,6 +726,47 @@ try {
     }
     remplir('Campus', D.campus, valeur('Campus'));
     preselectionnerCampus();
+    appliquerCampus();
+
+    /**
+     * Le campus est-il propose par cette ecole ?
+     *
+     * « Champs visibles des formulaires.xlsx » (31/08) : IFA Paris, Ecole
+     * Bleue, MoPA et 3WA n'ont pas de campus a faire choisir, sur AUCUN des six
+     * formulaires. L'axe vit dans LPB_Config_Champs_Ecole, publie par le socle
+     * sous CFG.champs.Campus.
+     *
+     * ⚠ Masquer ne suffit pas : sur un formulaire evenement, les dates sont
+     * filtrees par campus et « sans campus choisi, aucune date ». Un champ
+     * simplement masque donnerait donc un formulaire sans creneau — une impasse
+     * muette. Quand une SEULE valeur reste, on la POSE, comme le contrat
+     * l'impose deja pour les champs de la cascade.
+     *
+     * Plusieurs valeurs et un axe `jamais` sont contradictoires : on n'en
+     * choisit aucune au hasard, et on le dit en console plutot que de laisser
+     * un formulaire vide sans explication.
+     */
+    function appliquerCampus() {
+        if (!CFG || !CFG.champs || !CFG.champs.Campus) return;
+        if (autorise('Campus')) return;
+
+        var el = champ('Campus');
+        if (!el) return;
+
+        var reelles = [];
+        if (el.options) {
+            for (var i = 0; i < el.options.length; i++) {
+                if (el.options[i].value !== '') reelles.push(el.options[i].value);
+            }
+        }
+        if (!el.value && reelles.length === 1) el.value = reelles[0];
+        if (!el.value && reelles.length > 1 && window.console && window.console.warn) {
+            window.console.warn('[socle] Campus masque pour cette ecole, mais '
+                + reelles.length + ' campus disponibles : aucun ne peut etre '
+                + 'pose sans choisir a la place du visiteur.');
+        }
+        afficher('Campus', false);
+    }
 
     /**
      * Pre-selectionne le campus donne dans l'URL : ?campus=lyon

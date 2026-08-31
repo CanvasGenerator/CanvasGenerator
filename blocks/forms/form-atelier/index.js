@@ -21,7 +21,7 @@ export default function (editor, categories) {
             submitLabel: 'RÉSERVER MA PLACE',
             formTitle: "Inscription à l'Atelier Découverte",
             formSubtitle: 'Participez à notre atelier et explorez nos programmes.',
-            lang: 'fr', showVousEtes: true, showChild: true
+            lang: 'fr', showVousEtes: false, showChild: false
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
@@ -34,7 +34,7 @@ export default function (editor, categories) {
             submitLabel: 'BOOK MY SPOT',
             formTitle: 'Discovery Workshop Registration',
             formSubtitle: 'Join our workshop and explore our programmes.',
-            lang: 'en', showVousEtes: true, showChild: true
+            lang: 'en', showVousEtes: false, showChild: false
         }),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
