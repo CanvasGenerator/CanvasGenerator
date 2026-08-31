@@ -1889,15 +1889,24 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
        quoi que ce soit. Le diagnostic vaut mieux qu'un « reessayez ». */
     var ECRITURE_PRESENTE = false;
     try {
-        ECRITURE_PRESENTE = /socle ecriture:/i.test(
+        ECRITURE_PRESENTE = /<!--\s*socle ecriture:/i.test(
             (document.documentElement && document.documentElement.innerHTML) || '');
     } catch (eDetect) { ECRITURE_PRESENTE = false; }
 
-    /** Le bilan que le socle d'ecriture laisse en commentaire dans la reponse. */
+    /**
+     * Le bilan que le socle d'ecriture laisse en COMMENTAIRE dans la reponse.
+     *
+     * ⚠ Ancre sur `<!--`, et ce n'est pas cosmetique : ce script contient ses
+     * propres expressions en clair, et la page les lui renvoie. Sans l'ancre,
+     * la recherche de « socle erreur: » trouvait le TEXTE de sa propre regex et
+     * rendait « \s*([\s\S]*?)\s* » comme message d'erreur au visiteur.
+     * Releve le 31/08 en inspectant une reponse reelle.
+     */
     function bilanDe(html) {
-        var m = /socle ecriture:\s*statut=(\w+)/i.exec(String(html || ''));
+        var texte = String(html || '');
+        var m = /<!--\s*socle ecriture:\s*statut=(\w+)/i.exec(texte);
         if (!m) return { ok: false, message: '' };
-        var e = /socle erreur:\s*([\s\S]*?)\s*-->/i.exec(String(html));
+        var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
         return { ok: m[1] === 'success', message: e ? e[1] : '' };
     }
 

@@ -246,6 +246,19 @@ test('Une page AVEC le socle d ecriture ne declenche aucun avertissement', () =>
     vrai(avertis.length === 0, `avertissement a tort : ${avertis[0]}`);
 });
 
+test('Le script ne se lit pas lui-meme [REGRESSION]', () => {
+    /* Ce script contient ses propres expressions en clair, et la page les lui
+       renvoie. Sans ancrage sur <!--, la recherche de « socle erreur: »
+       trouvait le TEXTE de sa propre regex et rendait
+       « \\s*([\\s\\S]*?)\\s* » comme message d'erreur au visiteur. */
+    const p = creerPage('brochure');
+    const faux = 'var RE = /socle ecriture:\\s*statut=(\\w+)/i;'
+               + 'var RE2 = /socle erreur:\\s*([\\s\\S]*?)\\s*-->/i;';
+    jouer(p, faux);
+    vrai(p.zone.style.display !== 'none',
+         'le script a pris sa propre source pour un bilan de succes');
+});
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 echecs.forEach((e) => console.log(`  ✗ ${e}\n`));
 process.exit(echecs.length ? 1 : 0);
