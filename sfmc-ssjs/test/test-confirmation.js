@@ -42,7 +42,17 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true } = {}) 
             scrollIntoView() {},
             querySelector: (sel) => trouver(n, sel)[0] || null,
             querySelectorAll: (sel) => trouver(n, sel),
+            /* `contains` et `children` sont ceux du vrai DOM, pas du confort :
+               le socle ENUMERE les enfants de la carte pour masquer tout ce qui
+               n'est pas l'ecran de succes. Sans eux, le harnais rendait ce
+               balayage inerte et le test de la zone campus passait a vide. */
+            contains(c) {
+                if (!c) return false;
+                if (c === n) return true;
+                return n.enfants.some((e) => e.contains(c));
+            },
         };
+        Object.defineProperty(n, 'children', { get: () => n.enfants });
         noeuds.push(n);
         return n;
     }
@@ -58,9 +68,13 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true } = {}) 
     cache.name = 'TypeFormulaire';
     cache.value = typeFormulaire;
     const entete  = el('jpo-title', 'H2');
+    /* La zone campus des formulaires evenement : SOEUR de la zone de
+       formulaire, pas sa descendante. C'est toute la difficulte du sujet. */
+    const campus  = el('jpo-campus-zone');
 
     if (succes) { succes.appendChild(titre); succes.appendChild(texte); carte.appendChild(succes); }
     carte.appendChild(entete);
+    carte.appendChild(campus);
     if (zone) { zone.appendChild(form); carte.appendChild(zone); } else { carte.appendChild(form); }
     form.appendChild(cache);
     /* Les champs caches de tracking, tels que le builder les pose : vides. */
@@ -100,7 +114,7 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true } = {}) 
         querySelector: (sel) => trouver(carte, sel)[0] || null,
         querySelectorAll: (sel) => trouver(carte, sel),
     };
-    return { document, carte, form, succes, titre, texte, zone, entete, caches };
+    return { document, carte, form, succes, titre, texte, zone, entete, campus, caches };
 }
 
 function jouer(page, htmlRendu) {
@@ -161,6 +175,25 @@ test('Sans marqueur de succes, rien ne bouge [REGRESSION]', () => {
     jouer(p, 'The page content contains errors and cannot be processed.');
     vrai(p.zone.style.display !== 'none', 'formulaire masque alors que rien n a ete ecrit');
     egal(p.titre.textContent, '', 'confirmation affichee sur un echec');
+});
+
+test('La zone campus disparait avec le formulaire [REGRESSION]', () => {
+    /* Sur un formulaire evenement, `.jpo-campus-zone` — la liste des campus et
+       le rappel de la date — est SOEUR de `.jpo-form-zone`, pas sa descendante.
+       Le socle ne masquait que la seconde : la confirmation s'affichait avec,
+       juste au-dessus, une liste de campus toujours cliquable. Constate en
+       recette sur la JPO le 31/08.
+
+       Le test ne vaut que parce que le harnais expose `children` et
+       `contains` : sans eux le balayage du socle serait inerte et ce test
+       passerait sans rien prouver. */
+    const p = creerPage('evenement');
+    jouer(p, SUCCES);
+    egal(p.campus.style.display, 'none', 'zone campus toujours affichee sous la confirmation');
+    egal(p.zone.style.display, 'none', 'zone de formulaire toujours affichee');
+    egal(p.entete.style.display, 'none', 'titre du formulaire toujours affiche');
+    vrai(p.succes.style.display !== 'none', 'ecran de succes masque par le balayage');
+    vrai(p.titre.textContent.length > 0, 'message de confirmation perdu');
 });
 
 test('Un statut error n est pas un succes', () => {
