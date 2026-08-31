@@ -998,9 +998,16 @@ ${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
     }
 
     function showConfirmation(card, data, t) {
-        const formZone = card.querySelector('.jpo-form-zone');
         const success  = card.querySelector('.jpo-success');
-        if (formZone) formZone.style.display = 'none';
+        /* Tout ce qui n'est pas l'écran de succès disparaît. Masquer la seule
+         * `.jpo-form-zone` laissait `.jpo-campus-zone` — la liste des campus et
+         * le rappel de date — affichée SOUS la confirmation : elle en est la
+         * sœur, pas la descendante. Même correctif que dans le socle, qui est
+         * le seul à s'exécuter sur une page publiée. */
+        Array.prototype.forEach.call(card.children, (enfant) => {
+            if (enfant === success || enfant.contains(success)) return;
+            enfant.style.display = 'none';
+        });
         if (success) {
             success.style.display = 'block';
             const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();

@@ -1278,6 +1278,28 @@ try {
             succes.innerHTML = '<div style="font-size:36px;margin-bottom:10px">&#10004;</div>';
         }
 
+        /* ---- TOUT LE RESTE DE LA CARTE DISPARAIT ----------------------
+           On ENUMERE les enfants de la carte au lieu de nommer les zones a
+           masquer. Le code precedent ne connaissait que `.jpo-form-zone` et
+           les titres : sur un formulaire evenement, `.jpo-campus-zone` — la
+           liste des campus et le rappel de date/adresse — est SOEUR de la zone
+           de formulaire, et restait donc affichee sous le message de
+           confirmation, avec sa liste toujours cliquable. Ajouter un selecteur
+           de plus n'aurait fait que reculer le probleme au bloc suivant.
+
+           Deux prudences : on ne masque jamais un element qui CONTIENT
+           l'ecran de succes, et on ne balaie que si `carteDe` a reellement
+           trouve une carte — son repli est le parent du formulaire, qui
+           pourrait etre un conteneur bien plus large que la carte. */
+        if (/-card(\s|$)/.test(String(carte.className || '')) && carte.children) {
+            for (var e = 0; e < carte.children.length; e++) {
+                var enfant = carte.children[e];
+                if (!enfant || enfant === succes) continue;
+                if (enfant.contains && enfant.contains(succes)) continue;
+                if (enfant.style) enfant.style.display = 'none';
+            }
+        }
+
         var titre = succes.querySelector('.jpo-success-thanks, .brf-success-title, ' +
                                          '.cnd-success-title, .imf-success-title');
         var texte = succes.querySelector('.jpo-success-msg, .brf-success-msg, ' +
