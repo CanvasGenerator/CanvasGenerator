@@ -114,6 +114,7 @@ function jouer(page, htmlRendu) {
             },
             location: { search: '?utm_campus=lyon', href: 'https://x/p?utm_campus=lyon' },
             tracking_params: page.tracking || null,
+            console: page.console || { warn() {} },
         },
         document: page.document,
     });
@@ -221,6 +222,28 @@ test('Sans tracking_params, rien ne casse', () => {
     p.tracking = null;
     jouer(p, '');
     egal(p.caches.utm_source.value, '', 'valeur inventee sans source');
+});
+
+test('Une page SANS socle d ecriture est signalee des le chargement [REGRESSION]', () => {
+    /* Le marqueur est emis a chaque requete, meme sur un simple affichage :
+       son absence complete signifie que le bloc n est pas inclus. Sans cette
+       distinction, l echec se lisait « reessayez dans un instant » — alors
+       qu aucune tentative ne pourra jamais aboutir avant republication. */
+    const p = creerPage('candidature');
+    const avertis = [];
+    p.console = { warn: (m) => avertis.push(String(m)) };
+    jouer(p, '<html>page publiee avant le socle d ecriture</html>');
+    vrai(avertis.length === 1, 'aucun avertissement au chargement');
+    vrai(/republier/i.test(avertis[0]), `avertissement peu clair : ${avertis[0]}`);
+});
+
+test('Une page AVEC le socle d ecriture ne declenche aucun avertissement', () => {
+    const p = creerPage('candidature');
+    const avertis = [];
+    p.console = { warn: (m) => avertis.push(String(m)) };
+    /* Sur un simple affichage le statut est vide, mais le marqueur est la. */
+    jouer(p, '<!-- socle ecriture: statut= pa= nouveau=false journal= -->');
+    vrai(avertis.length === 0, `avertissement a tort : ${avertis[0]}`);
 });
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);

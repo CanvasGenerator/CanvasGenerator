@@ -1882,12 +1882,39 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         try { succes.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
     }
 
+    /* Le socle d'ECRITURE laisse son marqueur a CHAQUE requete, pas seulement
+       apres une soumission — sur un simple affichage, `statut=` est vide. Son
+       absence complete signifie donc que le bloc n'est pas inclus dans cette
+       page : elle a ete publiee avant qu'il existe, et aucun POST n'y ecrira
+       quoi que ce soit. Le diagnostic vaut mieux qu'un « reessayez ». */
+    var ECRITURE_PRESENTE = false;
+    try {
+        ECRITURE_PRESENTE = /socle ecriture:/i.test(
+            (document.documentElement && document.documentElement.innerHTML) || '');
+    } catch (eDetect) { ECRITURE_PRESENTE = false; }
+
     /** Le bilan que le socle d'ecriture laisse en commentaire dans la reponse. */
     function bilanDe(html) {
         var m = /socle ecriture:\s*statut=(\w+)/i.exec(String(html || ''));
         if (!m) return { ok: false, message: '' };
         var e = /socle erreur:\s*([\s\S]*?)\s*-->/i.exec(String(html));
         return { ok: m[1] === 'success', message: e ? e[1] : '' };
+    }
+
+    /**
+     * Que dire quand le socle n'a rien repondu.
+     *
+     * Deux causes tres differentes, et les confondre fait perdre des heures :
+     * la page ne porte pas le socle d'ecriture, ou l'ecriture a ete refusee par
+     * le CRM. La premiere se corrige en republiant, la seconde pas.
+     */
+    function messageEchec() {
+        if (!ECRITURE_PRESENTE) {
+            return "Cette page ne contient pas le socle d'ecriture : rien n'a ete "
+                 + "enregistre. Republier la page depuis le builder.";
+        }
+        return "L'envoi n'a pas abouti — le CRM a refuse l'ecriture. "
+             + "Le detail est dans LPB_Log_Soumissions, derniere ligne du RunId.";
     }
 
     function brancherSoumission(form) {
@@ -1931,8 +1958,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                   if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
                   /* Le message du socle nomme le champ refuse ; le notre ne
                      dirait rien de plus que « ca n'a pas marche ». */
-                  window.alert(bilan.message ||
-                      "L'envoi n'a pas abouti. Merci de reessayer dans un instant.");
+                  window.alert(bilan.message || messageEchec());
               })
               .catch(function () {
                   if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
@@ -1948,6 +1974,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     try {
         if (document.querySelectorAll) {
             var formulaires = document.querySelectorAll(FORMULAIRES);
+            if (formulaires.length && !ECRITURE_PRESENTE && window.console && window.console.warn) {
+                window.console.warn('[socle] Cette page ne contient PAS le socle d\'ecriture : '
+                    + 'une soumission n\'enregistrera rien. Republier la page depuis le builder.');
+            }
             for (var f = 0; f < formulaires.length; f++) brancherSoumission(formulaires[f]);
 
             /* REPLI SANS JS — la page a ete postee nativement et le socle a
