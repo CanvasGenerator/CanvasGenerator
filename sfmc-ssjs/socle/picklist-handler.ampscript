@@ -1944,6 +1944,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             if (bouton) { bouton.disabled = true; bouton.textContent = 'Envoi en cours...'; }
 
             var corps = [];
+            var vus = {};
             var champs = form.querySelectorAll('input, select, textarea');
             for (var i = 0; i < champs.length; i++) {
                 var c = champs[i];
@@ -1951,9 +1952,31 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                 var type = (c.type || '').toLowerCase();
                 if ((type === 'checkbox' || type === 'radio') && !c.checked) continue;
                 if (type === 'submit' || type === 'button') continue;
+                vus[c.name] = true;
                 corps.push(encodeURIComponent(c.name) + '=' + encodeURIComponent(c.value == null ? '' : c.value));
             }
-            corps.push('submitted=true');
+
+            /* ⚠ UNE SEULE FOIS. Le formulaire porte deja un champ cache
+               `submitted` : l'ajouter sans condition le postait DEUX fois, et
+               RequestParameter("submitted") ne rendait alors plus "true". Tout
+               le bloc d'ecriture etait saute — reponse `statut=` vide, aucune
+               ligne de journal, et un message d'erreur qui accusait le CRM.
+               Reproduit et corrige le 31/08. */
+            if (!vus.submitted) corps.push('submitted=true');
+
+            /* ---- OPT-IN PAR CANAL, DEDUIT DE LA CASE RGPD ----------------
+               Le socle d'ecriture attend HasOptedInEmail / SMS / WhatsApp /
+               Phone, un par canal. Le formulaire ne porte qu'une case. La
+               conversion etait faite par le JS des blocs — absent d'une page
+               publiee : aucun consentement n'etait donc jamais enregistre,
+               alors que le visiteur avait bien coche. */
+            var rgpd = form.querySelector('[name="RGPDConsent"]');
+            var accepte = rgpd ? (rgpd.type === 'checkbox' ? rgpd.checked : !!rgpd.value) : false;
+            var CANAUX = ['HasOptedInEmail', 'HasOptedInSMS', 'HasOptedInWhatsApp', 'HasOptedInPhone'];
+            for (var k = 0; k < CANAUX.length; k++) {
+                if (vus[CANAUX[k]]) continue;          // le formulaire l'a deja dit
+                corps.push(CANAUX[k] + '=' + (accepte ? '1' : '0'));
+            }
 
             window.fetch(window.location.href, {
                 method: 'POST',

@@ -64,9 +64,9 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true } = {}) 
     if (zone) { zone.appendChild(form); carte.appendChild(zone); } else { carte.appendChild(form); }
     form.appendChild(cache);
     /* Les champs caches de tracking, tels que le builder les pose : vides. */
-    ['utm_source', 'utm_medium', 'gclid', 'clientId', 'canal', 'utm_campus'].forEach((n) => {
+    ['submitted', 'utm_source', 'utm_medium', 'gclid', 'clientId', 'canal', 'utm_campus'].forEach((n) => {
         const c = el('', 'INPUT');
-        c.name = n; c.type = 'hidden'; c.value = '';
+        c.name = n; c.type = 'hidden'; c.value = (n === 'submitted' ? 'true' : '');
         form.appendChild(c);
         caches[n] = c;
     });
@@ -115,6 +115,8 @@ function jouer(page, htmlRendu) {
             location: { search: '?utm_campus=lyon', href: 'https://x/p?utm_campus=lyon' },
             tracking_params: page.tracking || null,
             console: page.console || { warn() {} },
+            fetch: page.fetch || undefined,
+            alert() {},
         },
         document: page.document,
     });
@@ -257,6 +259,37 @@ test('Le script ne se lit pas lui-meme [REGRESSION]', () => {
     jouer(p, faux);
     vrai(p.zone.style.display !== 'none',
          'le script a pris sa propre source pour un bilan de succes');
+});
+
+test('`submitted` n est poste QU UNE FOIS [REGRESSION]', () => {
+    /* Le formulaire porte deja un champ cache `submitted`. L ajouter sans
+       condition le postait deux fois, RequestParameter rendait "true,true",
+       l egalite echouait cote AMPscript et TOUT le bloc d ecriture etait saute
+       — statut vide, aucune ligne de journal, et un message accusant le CRM.
+       Diagnostique le 31/08 en instrumentant le fetch d une page publiee. */
+    const p = creerPage('candidature');
+    let corps = '';
+    p.fetch = (u, o) => { corps = (o && o.body) || ''; return Promise.resolve({ text: () => Promise.resolve('') }); };
+    jouer(p, '');
+    p.form.__ecouteurs.submit({ preventDefault() {} });
+    const n = corps.split('submitted=true').length - 1;
+    egal(n, 1, 'drapeau submitted poste ' + n + ' fois');
+});
+
+test('Les opt-in par canal sont deduits de la case RGPD [REGRESSION]', () => {
+    /* Le socle d ecriture attend HasOptedInEmail / SMS / WhatsApp / Phone, un
+       par canal ; le formulaire n a qu une case. La conversion etait faite par
+       le JS des blocs, absent d une page publiee : aucun consentement n etait
+       enregistre, alors que le visiteur avait coche. */
+    const p = creerPage('brochure');
+    let corps = '';
+    p.fetch = (u, o) => { corps = (o && o.body) || ''; return Promise.resolve({ text: () => Promise.resolve('') }); };
+    jouer(p, '');
+    /* La case n existe pas dans ce faux formulaire : opt-out attendu. */
+    p.form.__ecouteurs.submit({ preventDefault() {} });
+    ['HasOptedInEmail', 'HasOptedInSMS', 'HasOptedInWhatsApp', 'HasOptedInPhone'].forEach((c) => {
+        vrai(corps.indexOf(c + '=0') > -1, `${c} absent du corps poste`);
+    });
 });
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
