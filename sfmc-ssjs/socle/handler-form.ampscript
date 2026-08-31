@@ -126,6 +126,7 @@ SET @sfBlockMsg = ""
 
 VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
+VAR @speciality, @specRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
 VAR @utmCampus, @consent, @dateCookies
@@ -256,6 +257,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @ecole      = RequestParameter("Marque")
     SET @formType   = Lowercase(RequestParameter("TypeFormulaire"))
     SET @ptatId     = RequestParameter("PTAT_Id")
+    SET @speciality = RequestParameter("Speciality")
     SET @campaignId = RequestParameter("CampaignId")
     SET @brandId    = RequestParameter("BusinessBrandId")
     SET @legalText  = RequestParameter("LegalTexteAccepted")
@@ -1344,6 +1346,38 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
             ELSE
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Application_Requested__c", "false")
+            ENDIF
+
+            /* ---- SPECIALITE — « PROGRAMME SOUHAITE » COTE CRM -------------
+               Le champ que « Champs visibles des formulaires.xlsx » intitule
+               « Programme souhaite » est le champ SPECIALITE du formulaire, et
+               son champ d'accueil est `Account.Speciality__c` — une picklist
+               dont les 62 valeurs sont celles de
+               `LearningProgram.Speciality__c`, d'ou le socle tire la liste.
+
+               Il n'existe d'ailleurs AUCUN champ programme sur Account : ni
+               Program__c, ni Programme__c, ni LearningProgram__c, ni
+               DesiredProgram__c. Sonde du 31/08.
+
+               ⚠ CETTE ECRITURE N'EXISTAIT PAS. Le <select Speciality> etait
+               bien affiche sur les six formulaires, mais sa valeur n'etait
+               ecrite nulle part : le visiteur repondait pour rien.
+
+               ⚠ ON NE FAIT PAS CONFIANCE AU POST. C'est une picklist, et une
+               valeur hors value set ne renvoie pas d'erreur : elle TUE LA PAGE.
+               N'importe qui peut poster ce champ. On verifie donc d'abord
+               qu'un programme porte reellement cette specialite — une lecture,
+               et aucune table de reference a maintenir a jour. Un value set qui
+               evolue cote CRM n'a ainsi rien a casser ici. */
+            IF NOT Empty(@speciality) THEN
+                SET @specRows = RetrieveSalesforceObjects("LearningProgram", "Id",
+                    "Speciality__c", "=", @speciality)
+                IF RowCount(@specRows) > 0 THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Speciality__c", @speciality)
+                    SET @journal = Concat(@journal, " SPEC:", @speciality)
+                ELSE
+                    SET @journal = Concat(@journal, " SPEC:ignore(", @speciality, ")")
+                ENDIF
             ENDIF
             IF @LOG_ACTIF == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
