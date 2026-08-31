@@ -179,6 +179,61 @@ test('StudyLevel declenche la cascade [REGRESSION]', (d, run) => {
     }
 }, LAYOUT_STUDYLEVEL);
 
+/* ---- Le programme se deduit des PROGRAMMES ------------------------------ */
+test('Les programmes sont proposes SANS attendre la rentree [REGRESSION]', (d, run) => {
+    /* La liste venait des PTAT et restait vide tant qu'aucune rentree n'etait
+       choisie — au rebours de tous les autres formulaires. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    egal(d.options('Programme').sort(), ['Annee 4', 'Annee 4 Luxe'], 'programmes sans rentree');
+});
+
+test('Un programme SANS PTAT apparait quand meme [REGRESSION]', (d, run) => {
+    /* Le PTAT est une fenetre de candidature, pas la definition du cursus.
+       « Lille A1 » n'en a aucun et n'etait donc jamais propose. */
+    run(cfg(), { Campus: 'EFAP LILLE', Niveau: 'Terminale' });
+    egal(d.options('Programme'), ['Lille A1'], 'programme sans PTAT');
+    egal(d.champs.PTAT_Id.value, '', 'PTAT invente pour un programme qui n en a pas');
+});
+
+test('La rentree RESTREINT la liste des programmes', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Rentree: 'T2027' });
+    egal(d.options('Programme'), ['Annee 4 Luxe'], 'programmes de la rentree 2027');
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Rentree: 'T2026' });
+    egal(d.options('Programme'), ['Annee 4'], 'programmes de la rentree 2026');
+});
+
+test('Le PTAT est pose meme sans rentree choisie [REGRESSION]', (d, run) => {
+    /* Un programme a rentree unique voit son champ Rentree masque par la regle
+       « une seule valeur » : exiger la rentree laissait alors PTAT_Id vide. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Speciality: 'Luxe', Programme: 'p3' });
+    egal(d.champs.PTAT_Id.value, 't-p3-2027', 'PTAT non resolu');
+});
+
+/* ---- Obligatoire = affiche -------------------------------------------- */
+test('`required` suit la visibilite du champ [REGRESSION]', (d, run) => {
+    /* C'est le NAVIGATEUR qui exige les champs : le JS des blocs ne tourne que
+       dans le builder. Laisser `required` sur un champ masque bloquerait la
+       soumission sans rien montrer — impossible de mettre le focus sur un
+       champ invisible, l'utilisateur ne verrait qu'un bouton sans effet. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (!d.visible('Speciality')) throw new Error('prealable : Speciality devrait etre visible');
+    if (!d.requis('Speciality')) throw new Error('champ affiche mais pas exige');
+
+    run(cfg({ champs: { Speciality: { visible: 'jamais', niveauMin: 0 },
+                        Rhythm: { visible: 'toujours', niveauMin: 0 },
+                        Language: { visible: 'toujours', niveauMin: 0 } } }),
+        { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (d.visible('Speciality')) throw new Error('prealable : Speciality devrait etre masquee');
+    if (d.requis('Speciality')) throw new Error('champ masque encore exige : soumission bloquee sans rien a l ecran');
+});
+
+test('Un champ a valeur unique est masque, renseigne, et NON exige', (d, run) => {
+    run(cfg(), { Campus: 'EFAP LILLE', Niveau: 'Terminale' });
+    egal(d.champs.Speciality.value, 'Comm', 'valeur unique posee');
+    if (d.visible('Speciality')) throw new Error('champ a valeur unique affiche');
+    if (d.requis('Speciality')) throw new Error('champ masque exige');
+});
+
 /* ---- Referentiels de niveau divergents --------------------------------- */
 test('Le niveau du formulaire et celui des programmes se rejoignent [REGRESSION]', (d, run) => {
     /* Le formulaire envoie le referentiel Account (BAC+3, majuscules), les

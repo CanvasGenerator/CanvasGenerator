@@ -65,16 +65,36 @@ export function socleReadSnippet({ formType = '', eventType = '' } = {}) {
     if (formType)  poses.push(`SET @LPB_TYPE_FORM = "${propre(formType)}"`);
     if (eventType) poses.push(`SET @LPB_TYPE_EVT = "${propre(eventType)}"`);
 
-    const prelude = poses.length
-        ? `
-        %%[ ${poses.join(' ')} ]%%`
-        : '';
-    return prelude + SOCLE_READ_SNIPPET;
+    if (!poses.length) return SOCLE_READ_SNIPPET;
+
+    /* DANS le conteneur masqué, pas devant lui. AMPscript ne regarde que
+       l'ordre du texte — être avant l'include suffit — alors que le builder,
+       lui, AFFICHE tout ce qui traîne hors d'un bloc masqué. Le préambule
+       s'écrivait donc en clair au-dessus du formulaire, dans le canevas comme
+       sur la page publiée avant exécution. */
+    return SOCLE_READ_SNIPPET.replace(RE_INCLUDE_SNIPPET,
+        (inclus) => `%%[ ${poses.join(' ')} ]%%\n            ${inclus}`);
 }
 
+/* Le PREMIER include du snippet ci-dessous. Le préambule se pose devant lui :
+   une variable AMPscript vaut pour toute la page, mais seulement à partir de
+   l'endroit où elle est écrite. */
+const RE_INCLUDE_SNIPPET = /%%=ContentBlockByKey\("LPB_[A-Za-z_]+"\)=%%/;
+
 export const SOCLE_READ_SNIPPET = `
-        <!-- LECTURE SALESFORCE CORE — remplit les listes depuis le CRM à la
-             publication. Inerte dans le builder, repli statique si SF absent. -->
+        <!-- SOCLE SALESFORCE CORE — deux blocs, deux moments.
+
+             LECTURE : remplit les listes depuis le CRM à l'affichage.
+             ÉCRITURE : n'agit QUE si \`submitted=true\` est posté. Le
+             formulaire se poste à lui-même (shared/envoi-socle.js), et ce
+             bloc-ci est ce qui reçoit la soumission — sans lui, le POST
+             n'écrirait rien, en silence.
+
+             L'écriture vient EN PREMIER : elle doit avoir créé le compte avant
+             que la lecture ne rende la page de réponse.
+
+             Inertes dans le builder, repli statique si Salesforce est muet. -->
         <div class="socle-read-snippet" style="display:none !important" aria-hidden="true" data-gjs-droppable="false" data-gjs-selectable="false">
+            %%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
             %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
         </div>`;

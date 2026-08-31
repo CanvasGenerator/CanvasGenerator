@@ -9,9 +9,22 @@
  */
 'use strict';
 const { inlineSocleBlocks, FICHIERS_META } = require('../../lib/socle-inliner');
+const { poserEcoleSurLaPage } = require('../../lib/ecole-page');
+const { buildAssetPayload } = require('../../lib/sfmc');
 
 let ok = 0; const echecs = [];
-function test(nom, fn) { try { fn(); ok++; } catch (e) { echecs.push(`${nom}\n      ${e.message}`); } }
+/* Certains tests sont asynchrones (buildAssetPayload). On empile les promesses
+   et on attend tout avant le bilan, sinon un echec passerait inapercu. */
+const enCours = [];
+function test(nom, fn) {
+    try {
+        const r = fn();
+        if (r && typeof r.then === 'function') {
+            enCours.push(r.then(() => { ok++; },
+                                (e) => { echecs.push(`${nom}\n      ${e.message}`); }));
+        } else { ok++; }
+    } catch (e) { echecs.push(`${nom}\n      ${e.message}`); }
+}
 function vrai(c, msg) { if (!c) throw new Error(msg); }
 
 const cle = (k) => `%%=ContentBlockByKey("${k}")=%%`;
@@ -59,11 +72,50 @@ test('AMPscript n\'est jamais injecte dans un bloc SSJS', () => {
     }
 });
 
+/* ⚠ Ce test passe par buildAssetPayload, le VRAI point d'entree de la
+   publication, et non par les deux fonctions enchainees a la main : le bug
+   etait precisement dans leur enchainement. lib/sfmc.js repartait du HTML
+   ORIGINAL pour inliner, jetant en silence ce que le prelude venait de poser.
+   Les pages publiees n'ont donc jamais porte @LPB_ECOLE ni les types — une page
+   JPO restait sans aucune date — alors que le journal annoncait « ecole posee ».
+
+   Une premiere version de ce test appelait poserEcoleSurLaPage puis
+   inlineSocleBlocks directement : elle passait AVANT correction, puisqu'elle
+   composait justement les deux dans le bon ordre. */
+test('Le prelude survit a la publication [REGRESSION]', async () => {
+    const page = '<form>'
+        + '<input type="hidden" name="Marque" value="">'
+        + '<input type="hidden" name="TypeFormulaire" value="evenement">'
+        + '<input type="hidden" name="TypeEvenement" value="JPO">'
+        + '</form>' + cle('LPB_Picklist_Handler_AG');
+
+    const payload = await buildAssetPayload({
+        projectName: 'school-efap__page-jpo', fullHtml: page,
+    });
+    const h = payload.content;
+    vrai(h.includes('window.SOCLE_DATA'), 'socle non inline');
+    vrai(h.includes('SET @LPB_ECOLE = "efap"'), 'ecole perdue a la publication');
+    vrai(h.includes('SET @LPB_TYPE_FORM = "evenement"'), 'type de formulaire perdu');
+    vrai(h.includes('SET @LPB_TYPE_EVT = "JPO"'), 'type d\'evenement perdu');
+});
+
+test('Le prelude reprend les types dans les champs caches de la page', () => {
+    const bro = '<input type="hidden" name="Marque" value="">'
+        + '<input type="hidden" name="TypeFormulaire" value="brochure">'
+        + cle('LPB_Picklist_Handler_AG');
+    const h = poserEcoleSurLaPage(bro, 'efap').html;
+    vrai(/SET @LPB_TYPE_FORM = "brochure"/.test(h), 'type brochure non repris');
+    vrai(!/@LPB_TYPE_EVT/.test(h), 'type d\'evenement invente sur une brochure');
+    vrai(poserEcoleSurLaPage(h, 'efap').prelude === false, 'prelude pose deux fois');
+});
+
 test('Un HTML sans cle ressort inchange', () => {
     const src = '<p>rien a inliner</p>';
     const r = inlineSocleBlocks(src);
     vrai(r.html === src && r.inline === false, 'HTML modifie sans raison');
 });
 
-console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
-if (echecs.length) { echecs.forEach((e) => console.error('  ✗ ' + e + '\n')); process.exit(1); }
+Promise.all(enCours).then(() => {
+    console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
+    if (echecs.length) { echecs.forEach((e) => console.error('  ✗ ' + e + '\n')); process.exit(1); }
+});

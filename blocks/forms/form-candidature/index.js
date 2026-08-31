@@ -20,6 +20,8 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
+import { validerEtRevelerRequis } from '../shared/champs-requis.js';
+import { soumettre } from '../shared/envoi-socle.js';
 import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -192,6 +194,13 @@ export default function (editor, categories) {
     outline: none;
     cursor: pointer;
 }
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.cnd-rgpd { flex-wrap: wrap; }
+.cnd-rgpd .cnd-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .cnd-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
 .cnd-rgpd input[type="checkbox"] {
     width: 18px;
@@ -264,7 +273,20 @@ export default function (editor, categories) {
     </div>
 
     <!-- Formulaire -->
-    <form class="cnd-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="cnd-form" data-lang="${lang}" method="post">
 ${hidden}
 
         <!-- Nom / Prénom -->
@@ -402,7 +424,7 @@ ${hidden}
 
         <!-- RGPD -->
         <div class="cnd-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="cnd-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
@@ -552,11 +574,11 @@ ${socleReadSnippet({ formType: 'candidature' })}
             e.preventDefault();
             let ok = true;
 
-            ['LastName', 'FirstName', 'Country', 'StudyLevel', 'Campus'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
@@ -593,8 +615,11 @@ ${socleReadSnippet({ formType: 'candidature' })}
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            /* MODE TEST : simulation d'envoi */
-            new Promise(resolve => setTimeout(() => resolve({ ok: true }), 1000))
+            /* Envoi REEL au socle d'ecriture sur une page publiee, simulation
+               dans le builder — ou aucun socle ne tourne. Le formulaire se
+               poste a lui-meme : le socle est inclus dans la page.
+               Voir shared/envoi-socle.js. */
+            soumettre(data, form.ownerDocument)
                 .then(res => {
                     if (res.ok) {
                         form.style.display = 'none';
@@ -615,7 +640,9 @@ ${socleReadSnippet({ formType: 'candidature' })}
                         }
                     } else {
                         if (btn) { btn.disabled = false; btn.textContent = t.submit; }
-                        alert(t.errGeneric);
+                        /* Le message du socle plutot qu'un « une erreur est
+                           survenue » : c'est lui qui nomme le champ refuse. */
+                        alert(res.message || t.errGeneric);
                     }
                 });
         });

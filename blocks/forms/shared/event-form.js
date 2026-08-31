@@ -16,6 +16,8 @@
 import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
+import { validerEtRevelerRequis } from './champs-requis.js';
+import { soumettre } from './envoi-socle.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
 import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
@@ -291,6 +293,42 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     border-color: #1a1a1a;
     background: #fafafa;
 }
+
+/* Une date se lit en deux temps : QUAND et OU a gauche, la conference
+   d'ouverture a droite. Le socle rend cette structure ; le CSS ne fait que la
+   poser. En dessous de 560px les deux colonnes s'empilent — sur telephone,
+   deux colonnes de 40 caracteres ne se lisent plus. */
+.socle-instance-corps {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+.socle-instance-quand {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+.socle-instance-date {
+    font-weight: 700;
+    color: #1a1a1a;
+}
+.socle-instance-lieu {
+    color: #555;
+    /* L'adresse arrive du CRM avec ses propres retours a la ligne. */
+    white-space: pre-line;
+}
+.socle-instance-conf {
+    color: #555;
+    text-align: right;
+    max-width: 45%;
+}
+@media (max-width: 560px) {
+    .socle-instance-conf { text-align: left; max-width: 100%; }
+}
 /* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
    compris, plutot que de laisser un intitule orphelin. */
 .jpo-dates-field:has(.jpo-dates:empty),
@@ -510,6 +548,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     cursor: pointer;
 }
 
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.jpo-rgpd { flex-wrap: wrap; }
+.jpo-rgpd .jpo-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .jpo-rgpd {
     display: flex;
     align-items: flex-start;
@@ -699,7 +744,20 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     </div>
 
     <div class="jpo-form-zone">
-    <form class="jpo-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="jpo-form" data-lang="${lang}" method="post">
 ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
@@ -716,17 +774,9 @@ ${hidden}
 
              InstanceId est ce que le socle d'ecriture attend : sans lui il
              refuse la soumission. EventDate ci-dessus ne porte qu'un texte
-             d'affichage. -->
-        <div class="jpo-field jpo-dates-field">
-            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
-            <div class="jpo-dates" data-socle="instances"></div>
-        </div>
+             d'affichage.
 
-        <div class="jpo-field jpo-ateliers-field">
-            <label class="jpo-label">${t.ateliers}</label>
-            <div class="jpo-ateliers" data-socle="appointments"></div>
-        </div>
-        <input type="hidden" name="Appointments" value="">
+             Les conteneurs eux-memes sont plus bas, juste avant le bouton. -->
 ${showVousEtes ? `
         <div class="jpo-row">
             <div class="jpo-field">
@@ -839,8 +889,24 @@ ${showChild ? `
             <span class="jpo-err-msg">${t.errPhone}</span>
         </div>` : ''}
 
+        <!-- DATES ET SOUS-EVENEMENTS, EN BAS — arbitrage du 30/08.
+             Ils etaient juste sous le campus, donc avant meme que le visiteur
+             ait donne son nom : on lui demandait de choisir un creneau avant de
+             savoir s'il irait au bout. Ils ferment desormais le formulaire,
+             juste avant le consentement et le bouton. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">${t.ateliers}</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
+
         <div class="jpo-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="jpo-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span>
                 <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
@@ -925,14 +991,23 @@ ${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
         }
     }
 
-    function handleSubmit(data) {
-        return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 900));
+    /* Envoi REEL au socle d'ecriture sur une page publiee, simulation dans le
+       builder — ou aucun socle ne tourne. Voir shared/envoi-socle.js. */
+    function handleSubmit(data, doc) {
+        return soumettre(data, doc);
     }
 
     function showConfirmation(card, data, t) {
-        const formZone = card.querySelector('.jpo-form-zone');
         const success  = card.querySelector('.jpo-success');
-        if (formZone) formZone.style.display = 'none';
+        /* Tout ce qui n'est pas l'écran de succès disparaît. Masquer la seule
+         * `.jpo-form-zone` laissait `.jpo-campus-zone` — la liste des campus et
+         * le rappel de date — affichée SOUS la confirmation : elle en est la
+         * sœur, pas la descendante. Même correctif que dans le socle, qui est
+         * le seul à s'exécuter sur une page publiée. */
+        Array.prototype.forEach.call(card.children, (enfant) => {
+            if (enfant === success || enfant.contains(success)) return;
+            enfant.style.display = 'none';
+        });
         if (success) {
             success.style.display = 'block';
             const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
@@ -1143,14 +1218,11 @@ export function attachEventFormLogic(editor) {
             e.preventDefault();
             let ok = true;
 
-            ['VousEtes', 'LastName', 'FirstName', 'StudyLevel'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
-
-            if (!campusSelect.value) { campusSelect.classList.add('err'); ok = false; }
-            else campusSelect.classList.remove('err');
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
@@ -1190,12 +1262,14 @@ export function attachEventFormLogic(editor) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            handleSubmit(data).then(res => {
+            handleSubmit(data, form.ownerDocument).then(res => {
                 if (res.ok) {
                     showConfirmation(card, data, t);
                 } else {
                     if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
-                    alert(t.errGeneric);
+                    /* Le message du socle plutot qu'un « une erreur est
+                       survenue » : c'est lui qui nomme le champ refuse. */
+                    alert(res.message || t.errGeneric);
                 }
             });
         });

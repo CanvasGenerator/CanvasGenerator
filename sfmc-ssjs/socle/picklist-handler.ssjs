@@ -495,6 +495,15 @@ try {
             : el.parentNode;
         porteur = porteur || el;
         porteur.style.display = visible ? '' : 'none';
+
+        /* `required` SUIT la visibilite. C'est le navigateur qui exige les
+           champs affiches — le JS des blocs ne tourne que dans le builder, il
+           n'y a donc aucune validation maison sur une page publiee.
+           Laisser `required` sur un champ masque bloquerait la soumission sans
+           rien montrer : le navigateur refuse de partir et ne peut pas mettre
+           le focus sur un champ invisible. */
+        if (visible) { el.setAttribute('required', 'required'); }
+        else { el.removeAttribute('required'); }
         /* Deux leviers : ces champs naissent avec la classe `hidden`
            (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
            l'emporte pas sur une regle de classe. */
@@ -661,6 +670,66 @@ try {
         if (D.picklists.hasOwnProperty(nom)) remplir(nom, D.picklists[nom], valeur(nom));
     }
     remplir('Campus', D.campus, valeur('Campus'));
+    preselectionnerCampus();
+
+    /**
+     * Pre-selectionne le campus donne dans l'URL : ?campus=lyon
+     *
+     * Une landing page est souvent declinee par ville — autant que le
+     * formulaire arrive deja sur la bonne. Les dates d'evenement en dependent
+     * directement : sans campus, on n'en propose aucune.
+     *
+     * Rapprochement TOLERANT, car personne n'ecrira « EFAP LYON » dans une URL :
+     * on accepte la valeur exacte, la meme casse mise a part, puis le nom de
+     * ville seul. On ne touche a rien si le champ est deja renseigne — un choix
+     * du visiteur prime toujours sur un parametre d'URL.
+     */
+    function preselectionnerCampus() {
+        var el = champ('Campus');
+        if (!el || el.value) return;
+
+        var voulu = parametreUrl('campus') || parametreUrl('Campus');
+        if (!voulu) return;
+        voulu = voulu.replace(/^\s+|\s+$/g, '');
+        if (!voulu) return;
+
+        var cible = voulu.toUpperCase();
+        var options = el.options || [];
+        var exact = null, approches = [];
+
+        for (var i = 0; i < options.length; i++) {
+            var v = String(options[i].value || '');
+            if (!v) continue;
+            var V = v.toUpperCase();
+            if (V === cible) { exact = v; break; }
+            /* « lyon » retrouve « EFAP LYON » : on cherche le mot entier, pas
+               une sous-chaine — « nice » ne doit pas accrocher « VENICE ». */
+            if (V.split(' ').indexOf(cible) !== -1) approches.push(v);
+        }
+
+        /* AMBIGU = ON NE FAIT RIEN. « campus=efap » designe les dix campus de
+           l'ecole : retenir le premier reviendrait a choisir Paris au hasard,
+           et le visiteur ne verrait jamais qu'on a decide pour lui. Mieux vaut
+           un champ vide, qu'il remplira lui-meme. */
+        var retenu = exact || (approches.length === 1 ? approches[0] : null);
+        if (!retenu) return;
+        el.value = retenu;
+        /* Pas d'evenement `change` a emettre ici : aucun ecouteur n'est encore
+           pose a ce stade. La cascade et les dates lisent la valeur lors de
+           leur PREMIER rendu, plus bas — c'est ce qui rend l'ordre des sections
+           important, et pourquoi cet appel doit rester juste apres le
+           remplissage du champ. */
+    }
+
+    /** Un parametre de la query string, sans dependre de URLSearchParams. */
+    function parametreUrl(nom) {
+        try {
+            var q = String(window.location.search || '');
+            var re = new RegExp('[?&]' + nom + '=([^&#]*)');
+            var m = re.exec(q);
+            return m ? decodeURIComponent(m[1].replace(/\+/g, ' ')) : '';
+        } catch (e) { return ''; }
+    }
 
     /* -- 2. Cascade programme ---------------------------------------- */
     function rafraichirCascade() {
@@ -773,29 +842,56 @@ try {
         remplir('Rentree', termes, rentree, true);
         rentree = valeur('Rentree');
 
-        // programmes ouverts a la rentree choisie
-        var progs = [];
-        if (rentree) {
-            var vus = {};
-            D.ptats.forEach(function (t) {
-                if (t.termId !== rentree || !idsValides[t.programId] || vus[t.programId]) return;
-                vus[t.programId] = true;
-                var p = valides.filter(function (x) { return x.id === t.programId; })[0];
-                progs.push({ value: t.programId, label: p ? p.name : t.programId });
-            });
-        }
+        /* ---- LA LISTE DES PROGRAMMES VIENT DES PROGRAMMES ----------------
+           Et non des PTAT, comme jusqu'au 30/08. Deux consequences de l'ancien
+           montage, toutes deux silencieuses :
+
+             - un programme SANS PTAT n'apparaissait jamais, alors qu'il est
+               bien ouvert a ce campus et a ce niveau. Le PTAT est une fenetre
+               de candidature, pas la definition du cursus ;
+             - la liste restait VIDE tant qu'aucune rentree n'etait choisie, au
+               rebours de tous les autres formulaires, ou le programme se deduit
+               du campus et du niveau.
+
+           On part donc des programmes retenus par la cascade, et la rentree ne
+           fait plus que RESTREINDRE cette liste quand elle est renseignee —
+           exactement comme la specialite restreint le rythme. */
+        var progs = valides.filter(function (p) {
+            if (!rentree) return true;
+            return aUnPtat(p.id, rentree);
+        }).map(function (p) {
+            return { value: p.id, label: p.name || p.id };
+        });
+
         var programme = valeur('Programme');
         remplir('Programme', progs, programme, true);
         programme = valeur('Programme');
 
-        // resolution du PTAT final -> champ cache transmis a l'ecriture
+        /* ---- LE PTAT, DEDUIT ET NON DEMANDE ------------------------------
+           C'est la seule donnee dont le socle d'ecriture a besoin. Une rentree
+           choisie la designe exactement ; sinon on prend la premiere du
+           programme, faute de quoi un programme a rentree unique — masquee par
+           la regle « une seule valeur » — partait sans PTAT. */
         var cible = champ('PTAT_Id');
         if (cible) {
-            var trouve = D.ptats.filter(function (t) {
-                return t.programId === programme && t.termId === rentree;
-            })[0];
+            var trouve = null;
+            for (var q = 0; q < D.ptats.length; q++) {
+                var t = D.ptats[q];
+                if (t.programId !== programme) continue;
+                if (rentree && t.termId !== rentree) continue;
+                trouve = t;
+                break;
+            }
             cible.value = trouve ? trouve.ptatId : '';
         }
+    }
+
+    /** Ce programme est-il ouvert a cette rentree ? */
+    function aUnPtat(programId, termId) {
+        for (var i = 0; i < D.ptats.length; i++) {
+            if (D.ptats[i].programId === programId && D.ptats[i].termId === termId) return true;
+        }
+        return false;
     }
 
     /* Les champs de la cascade, PLUS ceux cites par une condition croisee :
@@ -833,7 +929,11 @@ try {
      */
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
-        if (!campus) return toutes.sort(parJour);
+        /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
+           auparavant toutes les dates de l'ecole, tous campus confondus : le
+           visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
+           de 15 jours — qui se calcule PAR CAMPUS — ne s'appliquait pas. */
+        if (!campus) return [];
 
         var duCampus = toutes.filter(function (i) { return i.campus === campus; });
         if (!duCampus.length) return [];
@@ -858,10 +958,21 @@ try {
      *
      * `instance` porte l'Id de l'instance a laquelle l'atelier est restreint
      * (le champ Salesforce s'appelle summit__Restrict_To_Instance_Title__c mais
-     * contient bien un Id). Vide = propose sur toutes les dates.
+     * contient bien un Id).
+     *
+     * ⚠ RATTACHEMENT STRICT depuis le 30/08. Un atelier sans instance etait
+     * auparavant propose sur TOUTES les dates de l'evenement — les conferences
+     * du 10 septembre s'affichaient donc aussi sous le 26. Un atelier se tient
+     * a une date, pas a un evenement : sans instance renseignee, on ne sait pas
+     * laquelle, et on prefere ne rien proposer a proposer un horaire faux.
      */
     function ateliersDe(instanceId) {
         if (!D.appointments || !D.appointments.length) return [];
+        /* Aucune date retenue — campus pas encore choisi, ou aucune date dans
+           la fenetre : il n'y a rien a proposer. Sans cette garde, le
+           rapprochement strict remontait les ateliers dont l'instance est vide,
+           c'est-a-dire exactement ceux qu'on ne sait pas dater. */
+        if (!instanceId) return [];
         var inst = (D.instances || []).filter(function (i) { return i.value === instanceId; })[0];
         var evt = inst ? inst.evenement : '';
         return D.appointments.filter(function (a) {
@@ -870,7 +981,7 @@ try {
                d'une JPO Lyon n'ont rien a faire sur une date Bordeaux.
                La restriction d'instance ensuite, quand elle est posee. */
             if (evt && a.evenement && a.evenement !== evt) return false;
-            return !a.instance || a.instance === instanceId;
+            return a.instance === instanceId;
         }).sort(function (x, y) {
             /* Par horaire de conference d'abord : c'est l'ordre du deroulé de
                la journee, celui qu'un visiteur attend. `summit__Sort_Order__c`
@@ -908,6 +1019,43 @@ try {
     }
 
     /** Le texte a afficher pour une date : horaires et adresse compris. */
+    var JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
+    var MOIS  = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin',
+                 'juillet', 'aout', 'septembre', 'octobre', 'novembre', 'decembre'];
+
+    /**
+     * « Samedi 06 juin 2026 » a partir d'un yyyy-MM-dd.
+     *
+     * Date construite en UTC : `new Date("2026-06-06")` est deja interprete en
+     * UTC par le navigateur, et relire avec getDay() local ferait reculer d'un
+     * jour a l'ouest de Greenwich. Une JPO annoncee le vendredi pour un samedi,
+     * c'est le genre d'erreur qu'on ne voit qu'apres coup.
+     */
+    function dateLongue(iso) {
+        if (!iso) return '';
+        var d = new Date(String(iso).slice(0, 10) + 'T12:00:00Z');
+        if (isNaN(d.getTime())) return String(iso);
+        var jour = JOURS[d.getUTCDay()];
+        var n = d.getUTCDate();
+        return jour.charAt(0).toUpperCase() + jour.slice(1) + ' ' +
+               (n < 10 ? '0' + n : n) + ' ' + MOIS[d.getUTCMonth()] + ' ' + d.getUTCFullYear();
+    }
+
+    /**
+     * La conference mise en avant a droite de la date.
+     *
+     * On prend le sous-evenement le plus MATINAL de l'instance : c'est celui
+     * qui ouvre la journee, et la maquette lui reserve cette place. Choisir par
+     * le LIBELLE (« conference », « presentation »...) aurait dependu de la
+     * facon dont le CRM nomme ses creneaux — trop fragile pour de l'affichage.
+     */
+    function conferenceDe(instanceId) {
+        var liste = ateliersDe(instanceId).filter(function (a) { return a.debut; });
+        if (!liste.length) return null;
+        liste.sort(function (a, b) { return String(a.debut).localeCompare(String(b.debut)); });
+        return { label: liste[0].label, heure: heureSeule(liste[0].debut) };
+    }
+
     function libelleInstance(inst) {
         var bouts = [];
         if (inst.date)   bouts.push(inst.date);
@@ -994,6 +1142,327 @@ try {
         }
     }
 
+    /* ====================================================================
+       SOUMISSION — envoi sans rechargement, puis confirmation
+       ====================================================================
+       Le JS des blocs ne tourne QUE dans le builder : sur une page publiee il
+       n'y a que ce script-ci. C'est donc ici que vit la soumission.
+
+       Le formulaire garde `method="post"` : si ce script ne s'execute pas, le
+       navigateur poste nativement et la page de reponse affiche quand meme la
+       confirmation, plus bas. On ameliore, on ne remplace pas.
+
+       La validation, elle, reste au navigateur : `required` suit la visibilite
+       des champs, l'evenement `submit` n'est meme pas emis tant qu'il manque
+       quelque chose. Aucune validation maison a maintenir.
+
+       ⚠ AMPscript n'a pas de try/catch : une ecriture refusee remplace la page
+       entiere, bilan compris. Pas de marqueur = echec, jamais un imprevu. */
+
+    var FORMULAIRES = 'form.jpo-form, form.brf-form, form.cnd-form, form.imf-form';
+
+    /* ====================================================================
+       TRACKING — recopier ce que la page a calcule dans les champs caches
+       ====================================================================
+       La CloudPage d'affichage lit l'URL, en deduit le canal d'acquisition et
+       le consentement cookies, et publie le tout dans `window.tracking_params`.
+       Mais elle ne remplit PAS les champs caches du formulaire : c'etait le
+       role de populateHiddenFields(), cote blocs, qui ne tourne que dans le
+       builder.
+
+       Consequence mesuree le 31/08 sur une page publiee : utm_source, gclid,
+       fbclid, canal, sous_canal, clientId — tous vides a l'ecriture, alors que
+       la page les connaissait. Tout le tracking d'acquisition etait perdu, en
+       silence, sur les six formulaires.
+
+       Les noms different de part et d'autre : `client_id` cote page,
+       `clientId` cote formulaire. D'ou la table. */
+    var TRACKING = {
+        utm_source: 'utm_source', utm_medium: 'utm_medium', utm_campaign: 'utm_campaign',
+        utm_content: 'utm_content', utm_term: 'utm_term', utm_id: 'utm_id',
+        gclid: 'gclid', fbclid: 'fbclid',
+        canal: 'canal', sous_canal: 'sous_canal',
+        consent: 'consent', date_consentement_cookies: 'date_consentement_cookies',
+        client_id: 'clientId'
+    };
+
+    function remplirTracking(form) {
+        var p = null;
+        try { p = window.tracking_params || null; } catch (e) { p = null; }
+
+        for (var cle in TRACKING) {
+            if (!TRACKING.hasOwnProperty(cle)) continue;
+            var el = form.querySelector('[name="' + TRACKING[cle] + '"]');
+            if (!el) continue;
+            /* On n'ECRASE jamais une valeur deja posee : une page peut avoir
+               ete construite avec ses propres champs remplis. */
+            if (el.value) continue;
+            var v = p ? p[cle] : '';
+            if (v !== undefined && v !== null && v !== '') el.value = v;
+        }
+
+        /* utm_campus n'est pas publie par la page — elle expose `campus`, qui
+           est le campus PRE-SELECTIONNE, pas le parametre publicitaire. On le
+           relit donc a la source. */
+        var camp = form.querySelector('[name="utm_campus"]');
+        if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+    }
+
+    /* Un message par famille. Le HTML publie porte des titres VIDES — ils
+       etaient remplis par le JS des blocs, absent ici. */
+    var MESSAGES = {
+        brochure: {
+            titre: 'Votre brochure est en route',
+            texte: 'Merci ! Vous allez la recevoir par e-mail dans quelques instants. Pensez a verifier vos indesirables.'
+        },
+        candidature: {
+            titre: 'Votre candidature est enregistree',
+            texte: 'Consultez votre boite mail : un message vient de vous etre envoye pour activer votre compte et acceder au portail candidature.'
+        },
+        evenement: {
+            titre: 'Votre place est reservee',
+            texte: 'Merci ! Vous recevrez un e-mail de confirmation avec la date, l\'horaire et l\'adresse.'
+        },
+        immersion: {
+            titre: 'Votre demande est bien recue',
+            texte: 'Merci ! Nous revenons vers vous tres vite pour convenir des modalites de votre immersion.'
+        }
+    };
+
+    /** La famille du formulaire, lue dans son propre champ cache. */
+    function familleDe(form) {
+        var el = form.querySelector('[name="TypeFormulaire"]');
+        var t = el ? String(el.value || '').toLowerCase() : '';
+        if (MESSAGES[t]) return t;
+        /* Tolerance : les anciennes pages postaient jpo, atelier ou stage. */
+        if (t === 'jpo' || t === 'atelier' || t === 'stage') return 'evenement';
+        return 'evenement';
+    }
+
+    /** La carte qui entoure le formulaire, quel que soit le prefixe. */
+    function carteDe(form) {
+        var n = form.parentNode;
+        while (n && n.className !== undefined) {
+            if (/-card(\s|$)/.test(String(n.className))) return n;
+            n = n.parentNode;
+        }
+        return form.parentNode;
+    }
+
+    /**
+     * Remplace le formulaire par l'ecran de succes.
+     *
+     * On REUTILISE le bloc `.xxx-success` deja present : il porte le style de
+     * l'ecole. Ses titres sont vides sur une page publiee, on les remplit.
+     */
+    function montrerSucces(form) {
+        var carte = carteDe(form);
+        var succes = carte.querySelector('.jpo-success, .brf-success, .cnd-success, .imf-success');
+        var msg = MESSAGES[familleDe(form)];
+
+        var zone = carte.querySelector('.jpo-form-zone');
+        if (zone) { zone.style.display = 'none'; } else { form.style.display = 'none'; }
+
+        /* Titre et sous-titre du formulaire : ils annoncaient une action qui
+           n'a plus lieu d'etre. */
+        var entetes = carte.querySelectorAll('.jpo-title, .brf-title, .cnd-title, .imf-title, ' +
+                                             '.jpo-subtitle, .brf-subtitle, .cnd-subtitle, .imf-subtitle');
+        for (var i = 0; i < entetes.length; i++) entetes[i].style.display = 'none';
+
+        if (!succes) {
+            succes = document.createElement('div');
+            succes.className = 'socle-succes';
+            succes.style.padding = '28px 20px';
+            succes.style.textAlign = 'center';
+            carte.appendChild(succes);
+            succes.innerHTML = '<div style="font-size:36px;margin-bottom:10px">&#10004;</div>';
+        }
+
+        /* ---- TOUT LE RESTE DE LA CARTE DISPARAIT ----------------------
+           On ENUMERE les enfants de la carte au lieu de nommer les zones a
+           masquer. Le code precedent ne connaissait que `.jpo-form-zone` et
+           les titres : sur un formulaire evenement, `.jpo-campus-zone` — la
+           liste des campus et le rappel de date/adresse — est SOEUR de la zone
+           de formulaire, et restait donc affichee sous le message de
+           confirmation, avec sa liste toujours cliquable. Ajouter un selecteur
+           de plus n'aurait fait que reculer le probleme au bloc suivant.
+
+           Deux prudences : on ne masque jamais un element qui CONTIENT
+           l'ecran de succes, et on ne balaie que si `carteDe` a reellement
+           trouve une carte — son repli est le parent du formulaire, qui
+           pourrait etre un conteneur bien plus large que la carte. */
+        if (/-card(\s|$)/.test(String(carte.className || '')) && carte.children) {
+            for (var e = 0; e < carte.children.length; e++) {
+                var enfant = carte.children[e];
+                if (!enfant || enfant === succes) continue;
+                if (enfant.contains && enfant.contains(succes)) continue;
+                if (enfant.style) enfant.style.display = 'none';
+            }
+        }
+
+        var titre = succes.querySelector('.jpo-success-thanks, .brf-success-title, ' +
+                                         '.cnd-success-title, .imf-success-title');
+        var texte = succes.querySelector('.jpo-success-msg, .brf-success-msg, ' +
+                                         '.cnd-success-msg, .imf-success-msg');
+        if (titre) { titre.textContent = msg.titre; }
+        if (texte) { texte.textContent = msg.texte; }
+        if (!titre && !texte) {
+            var h = document.createElement('h3');
+            h.textContent = msg.titre;
+            var p = document.createElement('p');
+            p.textContent = msg.texte;
+            succes.appendChild(h);
+            succes.appendChild(p);
+        }
+
+        succes.style.display = 'block';
+        if (succes.classList) succes.classList.remove('hidden');
+        try { succes.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+    }
+
+    /* Le socle d'ECRITURE laisse son marqueur a CHAQUE requete, pas seulement
+       apres une soumission — sur un simple affichage, `statut=` est vide. Son
+       absence complete signifie donc que le bloc n'est pas inclus dans cette
+       page : elle a ete publiee avant qu'il existe, et aucun POST n'y ecrira
+       quoi que ce soit. Le diagnostic vaut mieux qu'un « reessayez ». */
+    var ECRITURE_PRESENTE = false;
+    try {
+        ECRITURE_PRESENTE = /<!--\s*socle ecriture:/i.test(
+            (document.documentElement && document.documentElement.innerHTML) || '');
+    } catch (eDetect) { ECRITURE_PRESENTE = false; }
+
+    /**
+     * Le bilan que le socle d'ecriture laisse en COMMENTAIRE dans la reponse.
+     *
+     * ⚠ Ancre sur `<!--`, et ce n'est pas cosmetique : ce script contient ses
+     * propres expressions en clair, et la page les lui renvoie. Sans l'ancre,
+     * la recherche de « socle erreur: » trouvait le TEXTE de sa propre regex et
+     * rendait « \s*([\s\S]*?)\s* » comme message d'erreur au visiteur.
+     * Releve le 31/08 en inspectant une reponse reelle.
+     */
+    function bilanDe(html) {
+        var texte = String(html || '');
+        var m = /<!--\s*socle ecriture:\s*statut=(\w+)/i.exec(texte);
+        if (!m) return { ok: false, message: '' };
+        var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
+        return { ok: m[1] === 'success', message: e ? e[1] : '' };
+    }
+
+    /**
+     * Que dire quand le socle n'a rien repondu.
+     *
+     * Deux causes tres differentes, et les confondre fait perdre des heures :
+     * la page ne porte pas le socle d'ecriture, ou l'ecriture a ete refusee par
+     * le CRM. La premiere se corrige en republiant, la seconde pas.
+     */
+    function messageEchec() {
+        if (!ECRITURE_PRESENTE) {
+            return "Cette page ne contient pas le socle d'ecriture : rien n'a ete "
+                 + "enregistre. Republier la page depuis le builder.";
+        }
+        return "L'envoi n'a pas abouti — le CRM a refuse l'ecriture. "
+             + "Le detail est dans LPB_Log_Soumissions, derniere ligne du RunId.";
+    }
+
+    function brancherSoumission(form) {
+        if (form.__socleBranche) return;
+        form.__socleBranche = true;
+
+        /* AVANT toute soumission, y compris le POST natif sans JS : les champs
+           doivent porter le tracking des l'affichage. */
+        remplirTracking(form);
+
+        form.addEventListener('submit', function (ev) {
+            /* Le navigateur a deja valide : l'evenement n'arrive pas autrement. */
+            if (typeof window.fetch !== 'function') return;   // repli : POST natif
+            ev.preventDefault();
+
+            var bouton = form.querySelector('button[type="submit"], input[type="submit"]');
+            var libelle = bouton ? bouton.innerHTML : '';
+            if (bouton) { bouton.disabled = true; bouton.textContent = 'Envoi en cours...'; }
+
+            var corps = [];
+            var vus = {};
+            var champs = form.querySelectorAll('input, select, textarea');
+            for (var i = 0; i < champs.length; i++) {
+                var c = champs[i];
+                if (!c.name) continue;
+                var type = (c.type || '').toLowerCase();
+                if ((type === 'checkbox' || type === 'radio') && !c.checked) continue;
+                if (type === 'submit' || type === 'button') continue;
+                vus[c.name] = true;
+                corps.push(encodeURIComponent(c.name) + '=' + encodeURIComponent(c.value == null ? '' : c.value));
+            }
+
+            /* ⚠ UNE SEULE FOIS. Le formulaire porte deja un champ cache
+               `submitted` : l'ajouter sans condition le postait DEUX fois, et
+               RequestParameter("submitted") ne rendait alors plus "true". Tout
+               le bloc d'ecriture etait saute — reponse `statut=` vide, aucune
+               ligne de journal, et un message d'erreur qui accusait le CRM.
+               Reproduit et corrige le 31/08. */
+            if (!vus.submitted) corps.push('submitted=true');
+
+            /* ---- OPT-IN PAR CANAL, DEDUIT DE LA CASE RGPD ----------------
+               Le socle d'ecriture attend HasOptedInEmail / SMS / WhatsApp /
+               Phone, un par canal. Le formulaire ne porte qu'une case. La
+               conversion etait faite par le JS des blocs — absent d'une page
+               publiee : aucun consentement n'etait donc jamais enregistre,
+               alors que le visiteur avait bien coche. */
+            var rgpd = form.querySelector('[name="RGPDConsent"]');
+            var accepte = rgpd ? (rgpd.type === 'checkbox' ? rgpd.checked : !!rgpd.value) : false;
+            var CANAUX = ['HasOptedInEmail', 'HasOptedInSMS', 'HasOptedInWhatsApp', 'HasOptedInPhone'];
+            for (var k = 0; k < CANAUX.length; k++) {
+                if (vus[CANAUX[k]]) continue;          // le formulaire l'a deja dit
+                corps.push(CANAUX[k] + '=' + (accepte ? '1' : '0'));
+            }
+
+            window.fetch(window.location.href, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8' },
+                body: corps.join('&'),
+                credentials: 'same-origin'
+            }).then(function (r) { return r.text(); })
+              .then(function (html) {
+                  var bilan = bilanDe(html);
+                  if (bilan.ok) { montrerSucces(form); return; }
+                  if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
+                  /* Le message du socle nomme le champ refuse ; le notre ne
+                     dirait rien de plus que « ca n'a pas marche ». */
+                  window.alert(bilan.message || messageEchec());
+              })
+              .catch(function () {
+                  if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
+                  window.alert("L'envoi n'a pas abouti. Verifiez votre connexion.");
+              });
+        });
+    }
+
+    /* Tout ce bloc est SECONDAIRE : le formulaire poste nativement sans lui.
+       Une API absente ne doit donc pas emporter le remplissage des listes, qui
+       est la raison d'etre du socle. D'ou le try/catch — et le harnais de test,
+       qui n'a pas querySelectorAll, l'a demontre avant la production. */
+    try {
+        if (document.querySelectorAll) {
+            var formulaires = document.querySelectorAll(FORMULAIRES);
+            if (formulaires.length && !ECRITURE_PRESENTE && window.console && window.console.warn) {
+                window.console.warn('[socle] Cette page ne contient PAS le socle d\'ecriture : '
+                    + 'une soumission n\'enregistrera rien. Republier la page depuis le builder.');
+            }
+            for (var f = 0; f < formulaires.length; f++) brancherSoumission(formulaires[f]);
+
+            /* REPLI SANS JS — la page a ete postee nativement et le socle a
+               ecrit. On relit son bilan dans la page rendue plutot qu'une
+               variable AMPscript : le bloc d'ecriture est absent des pages
+               publiees avant son introduction, et lire une variable jamais
+               declaree tue la page. */
+            var source = document.documentElement ? (document.documentElement.innerHTML || '') : '';
+            if (bilanDe(source).ok) {
+                var dejaPoste = document.querySelector(FORMULAIRES);
+                if (dejaPoste) montrerSucces(dejaPoste);
+            }
+        }
+    } catch (eSoumission) { /* les listes restent remplies, c'est l'essentiel */ }
+
     if (D.instances && D.instances.length) {
         var elInst = champ('InstanceId');
         var zoneDates = document.querySelector('[data-socle="instances"]');
@@ -1023,16 +1492,54 @@ try {
                     radio.id = id;
                     radio.value = inst.value;
                     if (i === 0) radio.checked = true;
+                    /* Un seul `required` suffit pour tout le groupe, et le
+                       navigateur s'en charge : choisir une date n'est pas
+                       facultatif. */
+                    if (i === 0) radio.required = true;
 
-                    var txt = document.createElement('span');
-                    txt.textContent = libelleInstance(inst);
+                    /* Deux colonnes, comme la maquette : a gauche le quand et
+                       le ou, a droite la conference d'ouverture. Une seule
+                       chaine « date · horaires · campus · adresse » ne
+                       hierarchisait rien — tout arrivait au meme poids. */
+                    var corps = document.createElement('span');
+                    corps.className = 'socle-instance-corps';
+
+                    var gauche = document.createElement('span');
+                    gauche.className = 'socle-instance-quand';
+
+                    var quand = document.createElement('strong');
+                    quand.className = 'socle-instance-date';
+                    quand.textContent = dateLongue(inst.date) || inst.label || inst.value;
+                    gauche.appendChild(quand);
+
+                    var detail = [];
+                    var h = plage(inst.heure, inst.heureFin);
+                    if (h) detail.push(h);
+                    if (inst.address) detail.push(inst.address);
+                    if (detail.length) {
+                        var lieu = document.createElement('span');
+                        lieu.className = 'socle-instance-lieu';
+                        /* L'adresse porte ses propres retours a la ligne cote
+                           CRM ; on les respecte plutot que de tout aplatir. */
+                        lieu.textContent = detail.join(' - ');
+                        gauche.appendChild(lieu);
+                    }
+                    corps.appendChild(gauche);
+
+                    var conf = conferenceDe(inst.value);
+                    if (conf) {
+                        var droite = document.createElement('span');
+                        droite.className = 'socle-instance-conf';
+                        droite.textContent = conf.label + (conf.heure ? ' : ' + conf.heure : '');
+                        corps.appendChild(droite);
+                    }
 
                     radio.addEventListener('change', function () {
                         if (radio.checked) rendreAteliers(radio.value);
                     });
 
                     wrap.appendChild(radio);
-                    wrap.appendChild(txt);
+                    wrap.appendChild(corps);
                     zoneDates.appendChild(wrap);
                 });
 

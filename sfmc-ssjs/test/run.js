@@ -6,9 +6,13 @@ const path = require('node:path');
 const etapes = [
     ['Synchro du JS de cascade', ['../../scripts/sync-cascade-js.js', '--check']],
     ['Lint AMPscript',           ['lint-ampscript.js']],
+    ['Import des blocs',         ['test-modules.js']],
     ['Inliner',                  ['test-inliner.js']],
     ['Cascade navigateur',       ['test-cascade.js']],
     ['Sous-evenements',          ['test-ateliers.js']],
+    ['Champs requis',            ['test-requis.js']],
+    ['Envoi au socle',           ['test-envoi.js']],
+    ['Confirmation',             ['test-confirmation.js']],
 ];
 
 let echecs = 0;

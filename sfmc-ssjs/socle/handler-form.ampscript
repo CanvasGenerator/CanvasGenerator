@@ -217,6 +217,7 @@ VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
 VAR @itPreview, @itContext, @itHorodatage, @evtParent
+VAR @refCanal, @refSous, @cle, @pos, @reste
 VAR @detailOrigine
 
 VAR @LOG_ACTIF, @runId, @logOrdre
@@ -230,9 +231,18 @@ SET @journal   = ""
 SET @isNew     = "false"
 SET @paId      = ""
 
-SET @submitted = RequestParameter("submitted")
+SET @submitted = Lowercase(RequestParameter("submitted"))
 
-IF @submitted == "true" THEN
+/* CONTIENT "true", et non EGALE "true".
+   Un formulaire peut poster le drapeau DEUX FOIS — le champ cache de la page
+   plus une valeur ajoutee par le script d'envoi. RequestParameter rend alors
+   "true,true", l'egalite echoue, et TOUT le bloc d'ecriture est saute : reponse
+   avec un statut vide, aucune ligne de journal, et un message d'erreur qui
+   accuse le CRM alors que rien ne lui a ete demande.
+   Diagnostique le 31/08 en instrumentant le fetch d'une page publiee. La
+   souplesse est ici preferable a la rigueur : le doublon est benin, le refus
+   silencieux ne l'est pas. */
+IF IndexOf(@submitted, "true") > 0 THEN
 
     /* ---- Lecture du formulaire (memes name[] que readForm() en SSJS) ---- */
     SET @email      = Trim(RequestParameter("EmailAddress"))
@@ -267,6 +277,50 @@ IF @submitted == "true" THEN
     IF Empty(@clientId) THEN SET @clientId = RequestParameter("clientId") ENDIF
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
+
+    /* ---- CANAL D'ACQUISITION : JAMAIS UNE VALEUR INVENTEE ---------------
+       Ces deux champs sont des PICKLISTS, et une valeur hors value set ne
+       renvoie pas d'erreur : elle TUE LA PAGE. Sans try/catch, le compte reste
+       cree et tout ce qui suit disparait — c'est exactement ce qui est arrive
+       le 31/08, dès que la CloudPage a commence a fournir ces valeurs.
+
+       La CloudPage a son propre vocabulaire, herite de sa table d'attribution :
+       « Autre », « Referrals », « Paid Social », « FACEBOOK-ADS ». L'org, elle,
+       propose 15 canaux et 12 sous-canaux, releves le 31/08, et AUCUN ne
+       s'appelle Autre, Referrals ni Paid Social.
+
+       On ne traduit donc que ce qui a un equivalent certain, et on laisse VIDE
+       le reste. Un canal manquant se rattrape par une requete ; une page morte
+       fait perdre la soumission entiere. */
+    SET @refCanal = "|direct=Direct|display=Display|geo=GEO|sea=SEA|seo=SEO|smo=SMO|sma=SMA|press=Press|presse=Press|brochure=Brochure|digital audio=Digital Audio|email marketing=Email Marketing|emailing=Email Marketing|education fair=Education Fair|salon=Education Fair|high school forum=High School Forum|forum lycee=High School Forum|referral partner=Referral Partner|"
+    SET @refSous  = "|tiktok ads=TikTok Ads|linkedin ads=LinkedIn Ads|digital audio=Digital Audio|display=Display|youtube ads=YouTube Ads|geo=GEO|instagram ads=Instagram Ads|snapchat ads=Snapchat Ads|wechat ads=WeChat Ads|line ads=Line Ads|facebook ads=Facebook Ads|paymax=Paymax|"
+
+    /* AMPscript n'a pas de fonction utilisateur : le rapprochement est deroule
+       deux fois. Cle normalisee — minuscules, tirets et soulignes en espaces —
+       puis la valeur EXACTE de l'org est relue dans la table. */
+    SET @cle = Replace(Replace(Lowercase(Trim(@canal)), "-", " "), "_", " ")
+    SET @pos = IndexOf(@refCanal, Concat("|", @cle, "="))
+    IF Empty(@canal) OR @pos == 0 THEN
+        IF NOT Empty(@canal) THEN
+            SET @journal = Concat(@journal, " CANAL:ignore(", @canal, ")")
+        ENDIF
+        SET @canal = ""
+    ELSE
+        SET @reste = Substring(@refCanal, Add(Add(@pos, Length(@cle)), 2))
+        SET @canal = Substring(@reste, 1, Subtract(IndexOf(@reste, "|"), 1))
+    ENDIF
+
+    SET @cle = Replace(Replace(Lowercase(Trim(@sousCanal)), "-", " "), "_", " ")
+    SET @pos = IndexOf(@refSous, Concat("|", @cle, "="))
+    IF Empty(@sousCanal) OR @pos == 0 THEN
+        IF NOT Empty(@sousCanal) THEN
+            SET @journal = Concat(@journal, " SOUSCANAL:ignore(", @sousCanal, ")")
+        ENDIF
+        SET @sousCanal = ""
+    ELSE
+        SET @reste = Substring(@refSous, Add(Add(@pos, Length(@cle)), 2))
+        SET @sousCanal = Substring(@reste, 1, Subtract(IndexOf(@reste, "|"), 1))
+    ENDIF
 
     /* ---- FOURNIS PAR LA CLOUDPAGE, PAS PAR LE VISITEUR -------------------
        content-block-viewer.html lit l'URL, deduit le canal d'acquisition depuis
@@ -352,7 +406,17 @@ IF @submitted == "true" THEN
 
         /* Actif=false = Id non renseigne ou non verifie. On n'ecrit alors AUCUN
            CampaignMember : mieux vaut une adhesion manquante et tracee qu'une
-           adhesion rattachee a la mauvaise campagne. */
+           adhesion rattachee a la mauvaise campagne.
+
+           DEUX cas tombent dans le ELSE, et il faut les distinguer au journal :
+             - la ligne EXISTE mais Actif=false : campagne a verifier ;
+             - la ligne N'EXISTE PAS : c'est le cas de tous les formulaires
+               evenement. Le mapping ne couvre que brochure et candidature, 40
+               lignes au contrat, et c'est voulu — une inscription a une JPO est
+               tracee par sa Summit Registration.
+
+           Ecrire « inactive » dans le second cas laissait croire a une campagne
+           desactivee, donc a un incident. Il n'y en a pas. */
         IF Lowercase(@campActif) == "true" THEN
             SET @campaignId = Lookup("LPB_Mapping_Campagnes", "CampaignId", "Cle", @cleCampagne)
             SET @journal = Concat(@journal, " CAMP:", @cleCampagne)
@@ -367,6 +431,25 @@ IF @submitted == "true" THEN
                     "Statut", "OK",
                     "Objet", "Campaign",
                     "RecordId", @campaignId,
+                    "Detail", @cleCampagne,
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+        ELSEIF Empty(@campActif) THEN
+            /* Aucune ligne pour cette cle : normal sur un formulaire evenement. */
+            SET @journal = Concat(@journal, " CAMP:sans-objet(", @cleCampagne, ")")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "20 - aucune campagne prevue",
+                    "Statut", "IGNORE",
+                    "Objet", "Campaign",
+                    "RecordId", "",
                     "Detail", @cleCampagne,
                     "Email", @email,
                     "Ecole", @ecole,
@@ -1186,6 +1269,43 @@ IF @submitted == "true" THEN
                     SET @detailOrigine = Concat("Formulaire ", @formType)
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "CreationSourceDetail__c", @detailOrigine)
+
+                /* ---- LE RESTE DU TRACKING, SUR UN COMPTE NEUF -------------
+                   La creation ne porte que UTMSource__c et ClientID__c : tout
+                   le reste n'etait ecrit que par la branche « prospect deja
+                   connu », ou un compte neuf ne passe jamais. Sur une PREMIERE
+                   soumission, le medium, la campagne, les identifiants
+                   publicitaires et le canal d'acquisition etaient donc perdus
+                   — c'est-a-dire dans le cas qui compte le plus pour
+                   l'attribution.
+
+                   Le canal et le sous-canal ont ete rapproches du value set
+                   plus haut : ce qui arrive ici est soit une valeur reelle de
+                   l'org, soit du vide. Sans cette garde, ecrire ces deux
+                   picklists tuerait la page.
+
+                   ⚠ DateConsentementCookies__c reste absent, a dessein : c'est
+                   un champ DATE, et nous n'avons jamais vu de valeur reelle
+                   d'Axeptio a valider. Now() brut y est refuse, et le refus tue
+                   la page. Il n'est donc pose que par la branche « deja connu »,
+                   ou une valeur non vide a deja franchi ce chemin. */
+                IF NOT Empty(@utmM)     THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMMedium__c", @utmM) ENDIF
+                IF NOT Empty(@utmC)     THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampaign__c", @utmC) ENDIF
+                IF NOT Empty(@utmCo)    THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMContent__c", @utmCo) ENDIF
+                IF NOT Empty(@utmT)     THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMTerm__c", @utmT) ENDIF
+                IF NOT Empty(@utmI)     THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMId__c", @utmI) ENDIF
+                IF NOT Empty(@utmCampus) THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampus__c", @utmCampus) ENDIF
+                IF NOT Empty(@gclid)    THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "gclid__c", @gclid) ENDIF
+                IF NOT Empty(@fbclid)   THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "fbclid__c", @fbclid) ENDIF
+                IF NOT Empty(@canal)    THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionChannel__c", @canal) ENDIF
+                IF NOT Empty(@sousCanal) THEN SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionSubChannel__c", @sousCanal) ENDIF
+                IF NOT Empty(@consent) THEN
+                    IF @consent == "1" OR Lowercase(@consent) == "true" THEN
+                        SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "true")
+                    ELSE
+                        SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "false")
+                    ENDIF
+                ENDIF
 
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)

@@ -60,6 +60,14 @@ function creerDom(layout) {
         if (estCascade) {
             const el = {
                 tagName: 'SELECT', name: nom, value: '', options: [], style: {}, disabled: false,
+                /* Les attributs comptent : `required` suit la visibilite, et
+                   c'est le NAVIGATEUR qui exige les champs affiches — il n'y a
+                   pas d'autre validation sur une page publiee. */
+                attributs: {},
+                setAttribute(n, v) { el.attributs[n] = String(v); },
+                removeAttribute(n) { delete el.attributs[n]; },
+                getAttribute(n) { return Object.prototype.hasOwnProperty.call(el.attributs, n) ? el.attributs[n] : null; },
+                hasAttribute(n) { return Object.prototype.hasOwnProperty.call(el.attributs, n); },
                 set innerHTML(v) { if (v === '') el.options.length = 0; },
                 get innerHTML() { return ''; },
                 querySelector: () => null,
@@ -96,6 +104,7 @@ function creerDom(layout) {
         nbEcouteurs: (type) => (ecouteurs[type] || []).length,
         ordre: () => parent.childNodes.map((n) => n._nom),
         options: (nom) => (champs[nom] ? champs[nom].options.map((o) => o.textContent) : null),
+        requis: (nom) => Boolean(champs[nom]) && champs[nom].hasAttribute('required'),
         visible: (nom) => Boolean(champs[nom]) &&
             champs[nom].parentNode.style.display !== 'none' &&
             !champs[nom].parentNode.classList.contains('hidden'),
@@ -109,7 +118,11 @@ function creerDom(layout) {
                 parent.childNodes.push(p);
             }
             parent._sync();
-            Object.values(champs).forEach((e) => { if (e.options) e.options.length = 0; e.value = ''; });
+            Object.values(champs).forEach((e) => {
+                if (e.options) e.options.length = 0;
+                e.value = '';
+                if (e.attributs) { for (const k of Object.keys(e.attributs)) delete e.attributs[k]; }
+            });
         },
     };
 }
