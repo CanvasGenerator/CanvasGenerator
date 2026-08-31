@@ -230,9 +230,18 @@ SET @journal   = ""
 SET @isNew     = "false"
 SET @paId      = ""
 
-SET @submitted = RequestParameter("submitted")
+SET @submitted = Lowercase(RequestParameter("submitted"))
 
-IF @submitted == "true" THEN
+/* CONTIENT "true", et non EGALE "true".
+   Un formulaire peut poster le drapeau DEUX FOIS — le champ cache de la page
+   plus une valeur ajoutee par le script d'envoi. RequestParameter rend alors
+   "true,true", l'egalite echoue, et TOUT le bloc d'ecriture est saute : reponse
+   avec un statut vide, aucune ligne de journal, et un message d'erreur qui
+   accuse le CRM alors que rien ne lui a ete demande.
+   Diagnostique le 31/08 en instrumentant le fetch d'une page publiee. La
+   souplesse est ici preferable a la rigueur : le doublon est benin, le refus
+   silencieux ne l'est pas. */
+IF IndexOf(@submitted, "true") > 0 THEN
 
     /* ---- Lecture du formulaire (memes name[] que readForm() en SSJS) ---- */
     SET @email      = Trim(RequestParameter("EmailAddress"))
