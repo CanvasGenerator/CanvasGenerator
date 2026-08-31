@@ -9,7 +9,8 @@
     "check:audit": "node scripts/check-audit-fields.js",
     "test": "node sfmc-ssjs/test/run.js",
     "test:socle": "node sfmc-ssjs/test/run.js",
-    "sync:cascade": "node scripts/sync-cascade-js.js"
+    "sync:cascade": "node scripts/sync-cascade-js.js",
+    "dump:socle": "node scripts/dump-socle-mappings.js"
   },
   "dependencies": {
     "cheerio": "^1.2.0",

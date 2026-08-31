@@ -1,4 +1,5 @@
 const { readSchools, findSchoolById } = require('../lib/schools');
+const audit = require('../lib/audit');
 const { supabaseRequest, slugify } = require('../lib/api-shared');
 const { normalizeBranding } = require('../js/fonts');
 
@@ -509,8 +510,13 @@ async function handleSchoolsRoute(req, res, pathname) {
 
     if (req.method === 'POST' && pathname === '/api/schools') {
         const school = schoolPayload(req.body || {});
-        const result = await supabaseRequest('POST', '/Schools?on_conflict=id', schoolDbPayload(school), {
+        const result = await audit.writeWithAudit('POST', '/Schools?on_conflict=id',
+            { ...schoolDbPayload(school), ...audit.auditFields(req) }, {
             'Prefer': 'resolution=merge-duplicates,return=representation'
+        });
+        await audit.recordActivity(req, {
+            action: audit.ACTIONS.SCHOOL_CREATED, targetId: school.id,
+            targetLabel: school.name || school.id, school: school.id
         });
         const content = await bootstrapSchoolStructure(school);
         res.status(200).json({ message: 'School saved', school: Array.isArray(result) ? result[0] : result, content });
@@ -529,9 +535,28 @@ async function handleSchoolsRoute(req, res, pathname) {
     if (req.method === 'PUT' && pathname.startsWith('/api/school/')) {
         const schoolId = pathname.replace('/api/school/', '');
         const school = schoolPayload({ ...(req.body || {}), id: schoolId });
-        const result = await supabaseRequest('POST', '/Schools?on_conflict=id', schoolDbPayload(school), {
+        const payload = schoolDbPayload(school);
+
+        // Etat AVANT : couleurs, codes GTM et autres reglages passent TOUS par
+        // cette meme route. Sans le comparer, le journal dirait « ecole
+        // modifiee » sans pouvoir distinguer une couleur d'un conteneur GTM.
+        const beforeRows = await supabaseRequest('GET',
+            `/Schools?id=eq.${encodeURIComponent(schoolId)}&select=*`).catch(() => []);
+        const before = Array.isArray(beforeRows) && beforeRows.length ? beforeRows[0] : null;
+
+        const result = await audit.writeWithAudit('POST', '/Schools?on_conflict=id',
+            { ...payload, ...audit.auditFields(req) }, {
             'Prefer': 'resolution=merge-duplicates,return=representation'
         });
+
+        const changed = before ? audit.changedKeys(before, payload) : Object.keys(payload);
+        await audit.recordActivity(req, {
+            action: audit.schoolActionFor(changed),
+            targetId: schoolId, targetLabel: school.name || schoolId, school: schoolId,
+            before, after: payload,
+            metadata: { changedFields: changed }
+        });
+
         const content = await bootstrapSchoolStructure(school);
         res.status(200).json({ message: 'School updated', school: Array.isArray(result) ? result[0] : result, content });
         return true;
