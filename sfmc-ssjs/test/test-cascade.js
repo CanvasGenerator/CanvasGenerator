@@ -318,6 +318,57 @@ test('Ordre IFA : la langue passe avant la specialite [REGRESSION]', (d, run) =>
         'ordre des champs');
 });
 
+/* Le markup REEL de la candidature : campus et niveau cote a cote dans un
+   `.cnd-row`, les quatre champs de cascade enfants directs du formulaire. */
+const LAYOUT_DEUX_SECTIONS = [['Email', 0], ['Campus', 1, 'row'], ['StudyLevel', 1, 'row'],
+                              ['Speciality', 1], ['Rhythm', 1], ['Language', 1],
+                              ['Rentree', 1], ['Consentements', 0]];
+
+test('Ordre IFA applique meme quand les champs ne sont pas freres [REGRESSION]', (d, run) => {
+    /* `appliquerOrdre` exigeait que TOUS les porteurs partagent un parent, et
+       s'alignait sur celui du premier trouve — le campus, dans son `.cnd-row`.
+       Les quatre champs de cascade, enfants du formulaire, etaient donc
+       ecartes : il ne restait qu'un porteur et la fonction sortait sans rien
+       faire. « Langue avant specialite » n'a jamais eu lieu sur une vraie page.
+
+       On reordonne desormais PAR SECTION. */
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const o = d.ordre();
+    const iL = o.indexOf('Language'), iS = o.indexOf('Speciality');
+    if (iL === -1 || iS === -1) throw new Error(`champs introuvables : ${o.join(' > ')}`);
+    if (iL > iS) throw new Error(`la langue reste apres la specialite : ${o.join(' > ')}`);
+    if (o[0] !== 'Email') throw new Error(`Email n'est plus premier : ${o.join(' > ')}`);
+}, LAYOUT_DEUX_SECTIONS);
+
+/* Une seule section, mais le niveau y est place AVANT le campus dans le HTML :
+   c'est le reordonnancement qui doit les remettre dans l'ordre demande. */
+const LAYOUT_NIVEAU_DABORD = [['Email', 0], ['StudyLevel', 1, 'bloc'], ['Campus', 1, 'bloc'],
+                              ['Speciality', 1, 'bloc'], ['Consentements', 0]];
+
+test('Le niveau nomme StudyLevel est reconnu par l ordre [REGRESSION]', (d, run) => {
+    /* NOM_DOM ne connaissait que `Niveau` et `Level`. Tous les formulaires EDH
+       postent `StudyLevel` : le niveau n'etait donc jamais retrouve ici, il
+       restait hors du reordonnancement et gardait sa place — devant le campus,
+       alors que la config demande le campus en premier. */
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('bloc'), ['Campus', 'StudyLevel', 'Speciality'],
+         'le campus doit passer devant le niveau');
+}, LAYOUT_NIVEAU_DABORD);
+
+test('Une section n est jamais traversee : chaque champ reste chez lui', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const section = d.ordreSection('row');
+    if (section.length !== 2) {
+        throw new Error(`la section a change de taille : ${JSON.stringify(section)}`);
+    }
+    if (d.ordre().indexOf('Campus') !== -1) {
+        throw new Error('le campus a quitte sa section pour le formulaire');
+    }
+}, LAYOUT_DEUX_SECTIONS);
+
 test('Un champ absent de la config garde sa place, il ne passe pas en tete [REGRESSION]', (d, run) => {
     run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
         { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
@@ -407,6 +458,60 @@ test('attend DOMContentLoaded quand le document charge encore', () => {
         throw new Error('Campus toujours vide apres DOMContentLoaded');
     }
 });
+
+/* ══════════════════════════════════════════════════════════════════════════
+   « Champs visibles des formulaires.xlsx » — 31/08/2026
+   ══════════════════════════════════════════════════════════════════════════
+   Le champ que le fichier intitule « Programme souhaite » est le champ
+   SPECIALITE. Hors candidature, trois ecoles seulement le portent — BRASSART,
+   IFA Paris, MoPA — et l'axe vient de
+   LPB_Config_Champs_Ecole.ProgrammeVisible. Sur la candidature, les dix ecoles
+   l'affichent, et c'est SpecialiteVisible qui decide.
+
+   S'y ajoute le CAMPUS, masque pour les quatre ecoles qui n'en proposent pas. */
+
+test('Hors candidature, la specialite suit l axe de l ecole', (d, jouer) => {
+    jouer(cfg({ champs: { Speciality: { visible: 'toujours', niveauMin: 0 } } }),
+          { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    if (!d.visible('Speciality')) throw new Error('specialite masquee alors que l ecole la porte');
+    const opts = d.options('Speciality');
+    if (!opts.includes('Comm') || !opts.includes('Luxe')) {
+        throw new Error(`specialites du couple campus x niveau absentes : ${JSON.stringify(opts)}`);
+    }
+}, LAYOUT_STUDYLEVEL);
+
+test('Une ecole sans « Programme souhaite » n affiche pas la specialite', (d, jouer) => {
+    /* Sept ecoles sur dix : EFAP, CREAD, ESEC, ICART, Ecole Bleue, EFJ, 3WA. */
+    jouer(cfg({ champs: { Speciality: { visible: 'jamais', niveauMin: 0 } } }),
+          { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    if (d.visible('Speciality')) throw new Error('specialite proposee malgre un axe jamais');
+}, LAYOUT_STUDYLEVEL);
+
+test('Le campus se masque pour les ecoles qui n en proposent pas', (d, jouer) => {
+    jouer(cfg({ champs: { Campus: { visible: 'jamais', niveauMin: 0 },
+                          Speciality: { visible: 'toujours', niveauMin: 0 } } }), {});
+    if (d.visible('Campus')) throw new Error('campus propose malgre CampusVisible=jamais');
+    if (d.requis('Campus')) {
+        throw new Error('campus masque mais toujours obligatoire : la soumission serait bloquee sans rien montrer');
+    }
+}, LAYOUT_STUDYLEVEL);
+
+test('Campus masque ET valeur unique : la valeur est posee [REGRESSION]', (d, jouer) => {
+    /* Sur un formulaire evenement, les dates sont filtrees par campus et
+       « sans campus choisi, aucune date ». Masquer sans poser donnerait donc un
+       formulaire sans creneau — une impasse muette. */
+    const dom = require('./harness-dom').creerDom(LAYOUT_STUDYLEVEL);
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            campus: [{ value: 'MOPA ARLES', label: 'ARLES' }],
+            config: cfg({ champs: { Campus: { visible: 'jamais', niveauMin: 0 } } }) }) },
+        document: dom.document,
+    });
+    if (dom.visible('Campus')) throw new Error('campus propose malgre CampusVisible=jamais');
+    if (dom.champs.Campus.value !== 'MOPA ARLES') {
+        throw new Error(`campus unique non pose : ${JSON.stringify(dom.champs.Campus.value)}`);
+    }
+}, LAYOUT_STUDYLEVEL);
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {

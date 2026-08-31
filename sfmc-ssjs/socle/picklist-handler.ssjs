@@ -490,7 +490,14 @@ try {
         var porteur = el.closest
             ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
                el.closest('.brf-field') || el.closest('.jpo-field') ||
-               el.closest('.imf-field') || el.closest('.form-group') ||
+               el.closest('.imf-field') ||
+               /* Le campus des formulaires evenement ne vit PAS dans un
+                  `.jpo-field` : il a sa propre zone, avec le rappel de date et
+                  d'adresse. Sans cette ligne la remontee s'arretait sur
+                  `.jpo-campus-select-wrap` et on masquait la liste en laissant
+                  son libelle — et l'encart — a l'ecran. Place APRES
+                  `.jpo-field` : les autres champs ne la voient jamais. */
+               el.closest('.jpo-campus-zone') || el.closest('.form-group') ||
                el.closest('.field') || el.closest('label') || el.parentNode)
             : el.parentNode;
         porteur = porteur || el;
@@ -592,58 +599,106 @@ try {
        Les noms de la config sont ceux du contrat (`speciality`, `rhythm`...) ;
        les attributs name[] du formulaire sont capitalises. D'ou la table. */
     var NOM_DOM = {
-        campus: 'Campus', niveau: 'Niveau', level: 'Niveau',
-        speciality: 'Speciality', rhythm: 'Rhythm', language: 'Language',
-        rentree: 'Rentree', programme: 'Programme'
+        campus: ['Campus'],
+        /* ⚠ TROIS noms pour le niveau. Tous les formulaires EDH postent
+           `StudyLevel` ; seul form-salesforce-core dit `Niveau`. La table n'en
+           connaissait que deux, donc le niveau n'etait JAMAIS retrouve ici : il
+           restait hors du reordonnancement et remontait en tete du formulaire,
+           devant le campus. Meme oubli que celui deja corrige dans `sel.level`. */
+        niveau: ['Niveau', 'Level', 'StudyLevel'],
+        level:  ['Niveau', 'Level', 'StudyLevel'],
+        speciality: ['Speciality'], rhythm: ['Rhythm'], language: ['Language'],
+        rentree: ['Rentree'], programme: ['Programme']
     };
 
+    /** Le champ d'une cle de configuration, quel que soit son nom DOM. */
+    function champDeCle(cle) {
+        var noms = NOM_DOM[cle] || [cle];
+        for (var i = 0; i < noms.length; i++) {
+            var el = champ(noms[i]);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    /** Le porteur visuel d'un champ : le conteneur, pas le <select> seul. */
+    function porteurDe(el) {
+        return el.closest
+            ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
+               el.closest('.brf-field') || el.closest('.jpo-field') ||
+               el.closest('.imf-field') || el.closest('.form-group') ||
+               el.closest('.field') || el.parentNode)
+            : el.parentNode;
+    }
+
+    /**
+     * Applique `OrdreChamps` — l'ordre d'affichage propre a l'ecole.
+     *
+     * ⚠ ON REORDONNE PAR SECTION, pas globalement. La version precedente
+     * exigeait que TOUS les champs de la cascade partagent le meme parent DOM,
+     * et s'alignait sur le parent du premier trouve. Or sur la candidature le
+     * campus et le niveau vivent dans un `.cnd-row` a deux colonnes, tandis que
+     * specialite, rythme, langue et rentree sont enfants directs du `<form>` :
+     * les quatre derniers etaient donc ecartes, il ne restait qu'un porteur, et
+     * la fonction sortait sans rien faire. `OrdreChamps` n'avait aucun effet sur
+     * un vrai formulaire — seulement sur un gabarit ou tout est frere.
+     *
+     * On groupe donc les porteurs PAR PARENT et on reordonne chaque groupe
+     * separement. Un champ ne traverse jamais une section — ce que la garde
+     * d'origine cherchait a eviter, et qui reste vrai — mais l'ordre relatif
+     * demande est respecte partout ou il a un sens.
+     *
+     * Cas reel : IFA Paris demande la langue AVANT la specialite. Les deux sont
+     * dans la meme section, l'echange a donc bien lieu.
+     */
     function appliquerOrdre() {
         if (!CFG || !CFG.ordre) return;
 
         var demande = String(CFG.ordre).split(',');
-        var porteurs = [], parent = null;
+        var groupes = [];          // [{ parent, porteurs: [] }]
+
+        function groupeDe(parent) {
+            for (var g = 0; g < groupes.length; g++) {
+                if (groupes[g].parent === parent) return groupes[g];
+            }
+            var neuf = { parent: parent, porteurs: [] };
+            groupes.push(neuf);
+            return neuf;
+        }
 
         for (var i = 0; i < demande.length; i++) {
             var cle = demande[i].replace(/^\s+|\s+$/g, '');
-            var el = champ(NOM_DOM[cle] || cle);
+            var el = champDeCle(cle);
             if (!el) continue;
-
-            /* On deplace le PORTEUR visuel, pas le <select> seul : sinon le
-               libelle resterait a son ancienne place, dissocie de son champ. */
-            var porteur = el.closest
-                ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
-                   el.closest('.field') || el.parentNode)
-                : el.parentNode;
+            var porteur = porteurDe(el);
             if (!porteur || !porteur.parentNode) continue;
-
-            /* Tous les champs de la cascade doivent partager le meme parent,
-               sinon reordonner reviendrait a les deplacer d'une section a une
-               autre. On s'aligne sur le parent du premier trouve et on ignore
-               les autres — mieux vaut un ordre partiel qu'un formulaire
-               demonte. */
-            if (!parent) parent = porteur.parentNode;
-            if (porteur.parentNode !== parent) continue;
-
-            porteurs.push(porteur);
+            var grp = groupeDe(porteur.parentNode);
+            if (grp.porteurs.indexOf(porteur) === -1) grp.porteurs.push(porteur);
         }
 
+        for (var n = 0; n < groupes.length; n++) reordonner(groupes[n]);
+    }
+
+    /**
+     * Reordonne les porteurs d'UNE section, sans toucher a ce qui les entoure.
+     *
+     * Les champs de la cascade ABSENTS de `ordre` — typiquement Programme, qui
+     * n'y figure jamais — gardent leur place a la suite. Les oublier les
+     * renverrait en tete : tous les champs listes seraient deplaces apres eux.
+     * C'est ce que faisait la premiere version, et le formulaire s'ouvrait sur
+     * le champ Programme.
+     */
+    function reordonner(groupe) {
+        var parent = groupe.parent;
+        var porteurs = groupe.porteurs;
         if (!parent || porteurs.length < 2) return;
 
-        /* Les champs de la cascade ABSENTS de `ordre` — typiquement Programme,
-           qui n'y figure jamais — doivent garder leur place. Les oublier les
-           renverrait en tete : tous les champs listes seraient deplaces apres
-           eux. C'est ce que faisait la premiere version, et le formulaire
-           s'ouvrait sur le champ Programme. */
-        var deja = {};
-        for (var k = 0; k < porteurs.length; k++) deja[k] = true;
         var restants = [];
         for (var n2 in NOM_DOM) {
             if (!NOM_DOM.hasOwnProperty(n2)) continue;
-            var e2 = champ(NOM_DOM[n2]);
+            var e2 = champDeCle(n2);
             if (!e2) continue;
-            var p2 = e2.closest ? (e2.closest('[data-socle-champ]') ||
-                     e2.closest('.form-group') || e2.closest('.field') ||
-                     e2.parentNode) : e2.parentNode;
+            var p2 = porteurDe(e2);
             if (!p2 || p2.parentNode !== parent) continue;
             if (porteurs.indexOf(p2) === -1 && restants.indexOf(p2) === -1) restants.push(p2);
         }
@@ -653,9 +708,9 @@ try {
            contient aussi le nom, l'email, les consentements. Un appendChild
            renverrait toute la cascade apres eux. On prend donc comme repere
            l'element qui suivait le dernier champ de la cascade. */
-        var dernier = sequence[0], idx = -1;
+        var dernier = sequence[0];
         for (var m = 0; m < parent.childNodes.length; m++) {
-            if (sequence.indexOf(parent.childNodes[m]) !== -1) { idx = m; dernier = parent.childNodes[m]; }
+            if (sequence.indexOf(parent.childNodes[m]) !== -1) dernier = parent.childNodes[m];
         }
         var repere = dernier ? dernier.nextSibling : null;
 
@@ -671,6 +726,47 @@ try {
     }
     remplir('Campus', D.campus, valeur('Campus'));
     preselectionnerCampus();
+    appliquerCampus();
+
+    /**
+     * Le campus est-il propose par cette ecole ?
+     *
+     * « Champs visibles des formulaires.xlsx » (31/08) : IFA Paris, Ecole
+     * Bleue, MoPA et 3WA n'ont pas de campus a faire choisir, sur AUCUN des six
+     * formulaires. L'axe vit dans LPB_Config_Champs_Ecole, publie par le socle
+     * sous CFG.champs.Campus.
+     *
+     * ⚠ Masquer ne suffit pas : sur un formulaire evenement, les dates sont
+     * filtrees par campus et « sans campus choisi, aucune date ». Un champ
+     * simplement masque donnerait donc un formulaire sans creneau — une impasse
+     * muette. Quand une SEULE valeur reste, on la POSE, comme le contrat
+     * l'impose deja pour les champs de la cascade.
+     *
+     * Plusieurs valeurs et un axe `jamais` sont contradictoires : on n'en
+     * choisit aucune au hasard, et on le dit en console plutot que de laisser
+     * un formulaire vide sans explication.
+     */
+    function appliquerCampus() {
+        if (!CFG || !CFG.champs || !CFG.champs.Campus) return;
+        if (autorise('Campus')) return;
+
+        var el = champ('Campus');
+        if (!el) return;
+
+        var reelles = [];
+        if (el.options) {
+            for (var i = 0; i < el.options.length; i++) {
+                if (el.options[i].value !== '') reelles.push(el.options[i].value);
+            }
+        }
+        if (!el.value && reelles.length === 1) el.value = reelles[0];
+        if (!el.value && reelles.length > 1 && window.console && window.console.warn) {
+            window.console.warn('[socle] Campus masque pour cette ecole, mais '
+                + reelles.length + ' campus disponibles : aucun ne peut etre '
+                + 'pose sans choisir a la place du visiteur.');
+        }
+        afficher('Campus', false);
+    }
 
     /**
      * Pre-selectionne le campus donne dans l'URL : ?campus=lyon
