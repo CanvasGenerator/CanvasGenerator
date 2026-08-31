@@ -7,6 +7,7 @@ const { translateHtml } = require('../lib/translate');
 const cheerio = require('cheerio');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
 const sfmcAuth = require('../lib/sfmc-auth');
+const audit = require('../lib/audit');
 const {
     syncLegacyProjectToContent,
     handleContentRoute,
@@ -291,6 +292,12 @@ module.exports = async function handler(req, res) {
                     updated_at:   p.created_at,
                     source:       'legacy',
                     status:       statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
+                    // Auteur de la derniere modification : porte par la page
+                    // structuree, fournie par statusOverlay. Meme correctif que
+                    // dans server.js — sans lui le dashboard affiche « — » pour
+                    // toute page absente de listMigratedDashboardPages().
+                    updated_by_name:  statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_name || null,
+                    updated_by_email: statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_email || null,
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }
@@ -413,10 +420,20 @@ module.exports = async function handler(req, res) {
                 name,
                 content,
                 category: category || 'Custom Components',
-                properties: properties || {}
+                properties: properties || {},
+                ...audit.auditFields(req)
             }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
 
             const newComponent = Array.isArray(supaResult) ? supaResult[0] : (supaResult || { id: Date.now(), school_id: normalizedSchoolId, name, content, category });
+            // Upsert : on ne sait pas si c'est une creation ou une mise a jour.
+            // `existed` est calcule plus haut dans la route quand il est dispo,
+            // sinon on retombe sur « modifie », qui ne ment pas.
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.BLOCK_UPDATED,
+                targetId: newComponent && newComponent.id,
+                targetLabel: name, school: normalizedSchoolId,
+                metadata: { category: category || 'Custom Components' }
+            });
             const sfmcResult = { skipped: true, action: 'disabled' };
             return res.status(200).json({ message: 'Component saved', sfmc: sfmcResult, component: newComponent });
         }
@@ -528,8 +545,13 @@ module.exports = async function handler(req, res) {
         if (req.method === 'POST' && pathname === '/api/faq') {
             const { question, answer } = req.body || {};
             if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
-            const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
-            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+            const result = await audit.writeWithAudit('POST', '/faq',
+                { question, answer, ...audit.auditFields(req) }, { 'Prefer': 'return=representation' });
+            const created = Array.isArray(result) ? result[0] : result;
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_CREATED, targetId: created && created.id, targetLabel: question
+            });
+            return res.status(200).json(created);
         }
 
         // PUT /api/faq/:id — modifier une question
@@ -537,14 +559,29 @@ module.exports = async function handler(req, res) {
             const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
             const { question, answer } = req.body || {};
             if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
-            const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+            // Etat AVANT, pour ne journaliser que ce qui change reellement.
+            const prevRows = await supabaseRequest('GET', `/faq?id=eq.${encodeURIComponent(id)}&select=question,answer`).catch(() => []);
+            const prev = Array.isArray(prevRows) && prevRows.length ? prevRows[0] : null;
+            const result = await audit.writeWithAudit('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`,
+                { question, answer, ...audit.auditFields(req) }, { 'Prefer': 'return=representation' });
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_UPDATED, targetId: id, targetLabel: question,
+                before: prev, after: { question, answer }
+            });
             return res.status(200).json(Array.isArray(result) ? result[0] : result);
         }
 
         // DELETE /api/faq/:id — supprimer une question
         if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
             const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            // Lu AVANT la suppression : apres, le libelle serait perdu.
+            const goneRows = await supabaseRequest('GET', `/faq?id=eq.${encodeURIComponent(id)}&select=question,answer`).catch(() => []);
+            const gone = Array.isArray(goneRows) && goneRows.length ? goneRows[0] : null;
             await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_DELETED, targetId: id,
+                targetLabel: gone && gone.question, before: gone
+            });
             return res.status(200).json({ message: 'FAQ supprimée' });
         }
 
@@ -561,6 +598,10 @@ module.exports = async function handler(req, res) {
             const { faq_id, page_type = 'general', sort_order = 0 } = req.body || {};
             if (!faq_id) return res.status(400).json({ error: 'faq_id requis' });
             const result = await supabaseRequest('POST', '/school_page_faq', { school_id: schoolId, faq_id, page_type, sort_order }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_LINKED, targetId: faq_id, school: schoolId,
+                metadata: { pageType: page_type, sortOrder: sort_order }
+            });
             return res.status(200).json(Array.isArray(result) ? result[0] : result);
         }
 
@@ -570,6 +611,10 @@ module.exports = async function handler(req, res) {
             const linkId = parts[1];
             if (!linkId) return res.status(400).json({ error: 'linkId requis' });
             await supabaseRequest('DELETE', `/school_page_faq?id=eq.${encodeURIComponent(linkId)}`);
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_UNLINKED, targetId: linkId,
+                school: decodeURIComponent(parts[0] || '')
+            });
             return res.status(200).json({ message: 'Association supprimée' });
         }
 
@@ -699,6 +744,17 @@ module.exports = async function handler(req, res) {
                     console.warn(`[Rename] Impossible de dépublier l'ancien asset dans SFMC (non bloquant):`, sfmcErr.message);
                 }
             }
+
+            // Le renommage touche le nom public de la page, son slug et son asset
+            // SFMC : il doit apparaître dans le journal au même titre qu'une
+            // modification de contenu.
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.PAGE_RENAMED,
+                targetLabel: newName,
+                school: audit.schoolFromProjectName(newName) || audit.schoolFromProjectName(oldName),
+                before: { project_name: oldName },
+                after:  { project_name: newName }
+            });
 
             return res.status(200).json({ ok: true });
         }
@@ -840,12 +896,27 @@ module.exports = async function handler(req, res) {
             delete seoHistoryProps.page_group_id;
             delete seoHistoryProps.is_original_language;
 
+            // L'auteur vient de la session SFMC, comme partout ailleurs. L'en-tête
+            // `x-user` est fournie par le client : elle ne sert plus que de repli
+            // quand l'authentification est en veille (AUTH_ENV=dev).
+            const seoActor = audit.actorOf(req);
             await supabaseRequest('POST', '/seo_history', {
                 project_name: projectName,
                 properties:   seoHistoryProps,
-                saved_by:     req.headers['x-user'] || null
+                saved_by:     seoActor.email || seoActor.name || req.headers['x-user'] || null
             }, { Prefer: 'return=minimal' });
             console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
+
+            // Journal d'activité : on ne retient que les champs SEO réellement
+            // modifiés. `properties` transporte aussi le HTML brut et le statut,
+            // qui n'ont rien à faire dans une ligne « SEO modifié ».
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.PAGE_SEO_UPDATED,
+                targetLabel: projectName,
+                school: audit.schoolFromProjectName(projectName),
+                before: audit.seoOnly(project.properties || {}),
+                after:  audit.seoOnly(mergedProperties)
+            });
 
             // ── 2. Reconstruire le HTML avec les nouvelles balises SEO ────────────
             await applyCustomMarketingCode(projectName, mergedProperties);
@@ -1399,6 +1470,18 @@ module.exports = async function handler(req, res) {
 
     } catch (e) {
         console.error('API Router Error:', e);
+
+        // Les erreurs SFMC portent la RAISON dans e.payload (corps renvoyé par
+        // l'API). La perdre ici ne laissait qu'un « HTTP 403 » nu, impossible à
+        // diagnostiquer sans accès aux logs du déploiement : on la remonte.
+        if (typeof e.code === 'string' && e.code.startsWith('SFMC')) {
+            return res.status(e.status && e.status >= 400 && e.status < 600 ? e.status : 500).json({
+                error: e.message,
+                code: e.code,
+                sfmc: e.payload || null
+            });
+        }
+
         return res.status(500).json({ error: e.message });
     }
 };

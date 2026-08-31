@@ -346,6 +346,25 @@ function withoutAudit(payload) {
  * erreur de colonne manquante (isMissingColumnError) — toute autre erreur est
  * propagée telle quelle, sinon on masquerait un vrai bug d'écriture.
  */
+/**
+ * INSERT /pages tolérant. Même logique de repli que patchPageWithAudit : sans la
+ * migration d'audit, un insert nommant updated_by_* échouerait et la CRÉATION DE
+ * PAGE deviendrait impossible. Perdre l'auteur est acceptable, empêcher la
+ * création ne l'est pas.
+ */
+async function insertPageWithAudit(payload) {
+    try {
+        return await insert('pages', payload);
+    } catch (e) {
+        const hasAudit = 'updated_by_name' in payload || 'updated_by_email' in payload;
+        const missing = isMissingColumnError(e, 'updated_by_name')
+                     || isMissingColumnError(e, 'updated_by_email');
+        if (!hasAudit || !missing) throw e;
+        console.warn('[audit] colonnes updated_by_* absentes : page creee SANS auteur.');
+        return await insert('pages', withoutAudit(payload));
+    }
+}
+
 async function patchPageWithAudit(pageId, patch, headers = null) {
     const url = `/pages?id=eq.${encodeURIComponent(pageId)}`;
     try {
@@ -487,7 +506,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             legacyProject.project_name
         );
 
-        page = await insert('pages', {
+        page = await insertPageWithAudit({
             entity_id: entity.id,
             folder_id: folder.id,
             title,
@@ -495,6 +514,10 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             language,
             status: legacyProject.properties?.status || 'draft',
             seo: seoFromProperties(legacyProject.properties),
+            // A la CREATION, « modifiee par » = la personne qui cree la page.
+            // Sans ceci la colonne restait a « — » jusqu'a la premiere
+            // re-sauvegarde, ce qui donnait des pages sans auteur apparent.
+            ...auditFieldsForPage(actor),
             metadata: {
                 source: 'legacy-projects',
                 legacyProjectName: legacyProject.project_name,
@@ -586,7 +609,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
 
 // Sauvegarde d'une variante de TRADUCTION (langue ≠ originale).
 // N'écrit que le modèle structuré (pas de table Projects, pas de SFMC — hors-scope V1).
-async function saveTranslationVariant(pageId, language, body = {}) {
+async function saveTranslationVariant(pageId, language, body = {}, actor = null) {
     const lang = normalizeLang(language);
     const pageResult = await supabaseRequest('GET', `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`);
     const page = Array.isArray(pageResult) && pageResult.length ? pageResult[0] : null;
@@ -606,7 +629,7 @@ async function saveTranslationVariant(pageId, language, body = {}) {
         project_data: body.project_data || {},
         change_summary: body.change_summary || `Traduction ${lang}`,
         language: lang
-    }, null, variant, /* updatePageCurrent */ false);
+    }, null, variant, /* updatePageCurrent */ false, actor);
 
     // Version de la langue d'origine servant de source à cette traduction (staleness).
     const original = await findVariant(pageId, originalLang);
@@ -1029,9 +1052,10 @@ async function savePage(req, res) {
         language: body.language || 'FR',
         status: body.status || 'draft',
         seo: body.seo || {},
-        metadata: body.metadata || {}
+        metadata: body.metadata || {},
+        ...auditFieldsForPage(sfmcAuth.getActor(req))
     };
-    const page = body.id ? await upsert('pages', 'id', payload) : await insert('pages', payload);
+    const page = body.id ? await upsert('pages', 'id', payload) : await insertPageWithAudit(payload);
     res.status(200).json({ page });
 }
 
@@ -1334,7 +1358,7 @@ async function getPageVariantContent(req, res, pageId, language) {
 }
 
 async function savePageVariant(req, res, pageId, language) {
-    const result = await saveTranslationVariant(pageId, language, req.body || {});
+    const result = await saveTranslationVariant(pageId, language, req.body || {}, sfmcAuth.getActor(req));
     if (result.error === 'page_not_found') return res.status(404).json({ error: 'Page not found' });
     if (result.error === 'cannot_save_original_as_translation') {
         return res.status(400).json({ error: 'La langue d\'origine se sauvegarde via /api/save.' });

@@ -19,6 +19,7 @@ const CIBLES = [
     'socle/handler-form.ampscript',
     'socle/picklist-handler.ampscript',
     'diagnostic/A-COLLER-cloudpage-ampscript.ssjs',
+    'diagnostic/A-COLLER-cloudpage-verif-salesforce.ampscript',
 ];
 
 /* Fonctions qui N'EXISTENT PAS en AMPscript mais qu'on suppose souvent.

@@ -1,4 +1,8 @@
 .env
+.env.*
+!.env.example
+recette-*.json
+
 node_modules/
 
 # ── Fichiers de travail SSJS : utiles en local, inutiles au fonctionnement ──
@@ -19,3 +23,5 @@ codex/
 # Bruit macOS et verrous Office
 .DS_Store
 ~$*
+.env.bak-avant-sync
+sfmc-ssjs/diagnostic/

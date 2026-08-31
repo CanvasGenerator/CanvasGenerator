@@ -6,6 +6,7 @@ const fs = require('fs');
 const cheerio = require('cheerio');
 const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
 const sfmcAuth = require('./lib/sfmc-auth');
+const audit = require('./lib/audit');
 const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
@@ -1156,12 +1157,27 @@ http.createServer(async (req, res) => {
                 delete seoHistoryProps.page_group_id;
                 delete seoHistoryProps.is_original_language;
 
+                // L'auteur vient de la session SFMC, comme partout ailleurs.
+                // L'en-tête `x-user` est fournie par le client : elle ne sert plus
+                // que de repli quand l'authentification est en veille (AUTH_ENV=dev).
+                const seoActor = audit.actorOf(req);
                 await supabaseRequest('POST', '/seo_history', {
                     project_name: projectName,
                     properties: seoHistoryProps,
-                    saved_by: req.headers['x-user'] || null
+                    saved_by: seoActor.email || seoActor.name || req.headers['x-user'] || null
                 }, { Prefer: 'return=minimal' });
                 console.log(`🗄️  [SEO-SETTINGS] Historique SEO enregistré pour "${projectName}"`);
+
+                // Journal d'activité : on ne retient que les champs SEO réellement
+                // modifiés. `properties` transporte aussi le HTML brut et le statut,
+                // qui n'ont rien à faire dans une ligne « SEO modifié ».
+                await audit.recordActivity(req, {
+                    action: audit.ACTIONS.PAGE_SEO_UPDATED,
+                    targetLabel: projectName,
+                    school: audit.schoolFromProjectName(projectName),
+                    before: audit.seoOnly(project.properties || {}),
+                    after:  audit.seoOnly(mergedProperties)
+                });
 
                 // 2. Reconstruire le HTML complet avec les nouvelles propriétés SEO
                 await applyCustomMarketingCode(projectName, mergedProperties);
@@ -1185,6 +1201,22 @@ http.createServer(async (req, res) => {
                 });
 
                 console.log(`✅ [SEO-SETTINGS] Propriétés SEO de "${projectName}" mises à jour dans Supabase!`);
+
+                // 3 bis. « Modifié par » : la liste des pages lit l'auteur sur la
+                // table structurée `pages` (via getStructuredStatusByLegacyName),
+                // jamais sur `Projects`. Sans cette mise à jour, une modification
+                // SEO n'apparaissait pas dans la colonne « modifié par ».
+                try {
+                    const structuredRows = await supabaseRequest('GET',
+                        `/pages?metadata->>legacyProjectName=eq.${encodeURIComponent(projectName)}&select=id`);
+                    for (const row of (Array.isArray(structuredRows) ? structuredRows : [])) {
+                        await audit.writeWithAudit('PATCH',
+                            `/pages?id=eq.${encodeURIComponent(row.id)}`, audit.auditFields(req));
+                    }
+                } catch (authorErr) {
+                    // Non bloquant : la sauvegarde SEO a déjà abouti.
+                    console.warn(`[SEO-SETTINGS] « modifié par » non mis à jour :`, authorErr.message);
+                }
 
                 // 4. Réponse immédiate au navigateur (la popup peut se fermer)
                 res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -1252,13 +1284,19 @@ http.createServer(async (req, res) => {
                 const normalizedSchoolId = String(school_id).toLowerCase();
 
                 // Use a custom request to get the inserted data (representation)
-                const supaResult = await supabaseRequest('POST', '/Component', {
+                const supaResult = await audit.writeWithAudit('POST', '/Component', {
                     school_id: normalizedSchoolId,
                     name,
                     category: category || 'Custom Components',
                     content,
-                    properties: properties || {}
+                    properties: properties || {},
+                    ...audit.auditFields(req)
                 }, { 'Prefer': 'resolution=merge-duplicates,return=representation' });
+                await audit.recordActivity(req, {
+                    action: audit.ACTIONS.BLOCK_UPDATED,
+                    targetLabel: name, school: normalizedSchoolId,
+                    metadata: { category: category || 'Custom Components' }
+                });
 
                 console.log('📡 Résultat Supabase (Save Component):', JSON.stringify(supaResult));
 
@@ -1356,11 +1394,14 @@ http.createServer(async (req, res) => {
 
                         for (const page of pageResult) {
                             const updatedMetadata = { ...(page.metadata || {}), legacyProjectName: newName };
-                            await supabaseRequest('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
+                            // `auditFields` pose updated_at ET l'auteur : un renommage
+                            // est une modification, il doit apparaître dans la colonne
+                            // « modifié par » de la liste des pages.
+                            await audit.writeWithAudit('PATCH', `/pages?id=eq.${encodeURIComponent(page.id)}`, {
                                 title: newTitle,
                                 slug: newSlug,
                                 metadata: updatedMetadata,
-                                updated_at: new Date().toISOString()
+                                ...audit.auditFields(req)
                             });
                         }
                         console.log(`✅ Tables de pages structurées mises à jour pour le renommage`);
@@ -1380,6 +1421,17 @@ http.createServer(async (req, res) => {
                         console.warn(`[Rename] Impossible de dépublier l'ancien asset dans SFMC (non bloquant):`, sfmcErr.message);
                     }
                 }
+
+                // Le renommage touche le nom public de la page, son slug et son
+                // asset SFMC : il doit apparaître dans le journal au même titre
+                // qu'une modification de contenu.
+                await audit.recordActivity(req, {
+                    action: audit.ACTIONS.PAGE_RENAMED,
+                    targetLabel: newName,
+                    school: audit.schoolFromProjectName(newName) || audit.schoolFromProjectName(oldName),
+                    before: { project_name: oldName },
+                    after:  { project_name: newName }
+                });
 
                 console.log(`✅ Renommage OK`);
                 res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2113,9 +2165,14 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     return res.end(JSON.stringify({ error: 'question et answer requis' }));
                 }
-                const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+                const result = await audit.writeWithAudit('POST', '/faq',
+                    { question, answer, ...audit.auditFields(req) }, { 'Prefer': 'return=representation' });
+                const created = Array.isArray(result) ? result[0] : result;
+                await audit.recordActivity(req, {
+                    action: audit.ACTIONS.FAQ_CREATED, targetId: created && created.id, targetLabel: question
+                });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                return res.end(JSON.stringify(created));
             } catch (e) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: e.message }));
@@ -2136,7 +2193,14 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     return res.end(JSON.stringify({ error: 'question et answer requis' }));
                 }
-                const result = await supabaseRequest('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`, { question, answer, updated_at: new Date().toISOString() }, { 'Prefer': 'return=representation' });
+                const prevRows = await supabaseRequest('GET', `/faq?id=eq.${encodeURIComponent(id)}&select=question,answer`).catch(() => []);
+                const prev = Array.isArray(prevRows) && prevRows.length ? prevRows[0] : null;
+                const result = await audit.writeWithAudit('PATCH', `/faq?id=eq.${encodeURIComponent(id)}`,
+                    { question, answer, ...audit.auditFields(req) }, { 'Prefer': 'return=representation' });
+                await audit.recordActivity(req, {
+                    action: audit.ACTIONS.FAQ_UPDATED, targetId: id, targetLabel: question,
+                    before: prev, after: { question, answer }
+                });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
             } catch (e) {
@@ -2151,7 +2215,13 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
     if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
         try {
             const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
+            const goneRows = await supabaseRequest('GET', `/faq?id=eq.${encodeURIComponent(id)}&select=question,answer`).catch(() => []);
+            const gone = Array.isArray(goneRows) && goneRows.length ? goneRows[0] : null;
             await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            await audit.recordActivity(req, {
+                action: audit.ACTIONS.FAQ_DELETED, targetId: id,
+                targetLabel: gone && gone.question, before: gone
+            });
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ message: 'FAQ supprimée' }));
         } catch (e) {
@@ -2486,6 +2556,14 @@ Règles importantes :
                     updated_at:           p.created_at,
                     source:               'legacy',
                     status:               statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
+                    // Auteur de la derniere modification. La table Projects ne le
+                    // connait pas : il vit sur la page structuree, que statusOverlay
+                    // fournit deja (indexee par metadata.legacyProjectName).
+                    // Sans ceci, toute page absente de listMigratedDashboardPages()
+                    // retombait sur cette projection et affichait « — » alors que
+                    // la base contenait bien l'auteur.
+                    updated_by_name:      statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_name || null,
+                    updated_by_email:     statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_email || null,
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }
