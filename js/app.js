@@ -3860,6 +3860,20 @@ function initUI(editor) {
             updateStatusBadge();
 
             hideLoading();
+
+            // ⚠ Le serveur répond 200 même quand la synchro SFMC est coupée
+            // (SFMC_SYNC_ENABLED != true) ou les identifiants absents : la page
+            // passe en « publié » côté app sans être poussée. Annoncer une
+            // publication réussie dans ce cas rendait la panne invisible — on
+            // le dit explicitement.
+            if (data?.sfmc?.skipped) {
+                await showAlert({
+                    title: 'Publié côté app seulement',
+                    message: `La page « ${assetName} » est marquée publiée, mais elle n'a PAS été envoyée à Salesforce Marketing Cloud : la synchro sortante est désactivée (${data.sfmc.reason || 'raison non précisée'}). Posez SFMC_SYNC_ENABLED=true dans l'environnement, redémarrez le serveur, puis republiez.`
+                });
+                return;
+            }
+
             await showAlert({
                 title: 'Publication réussie',
                 message: `La page « ${assetName} » a été ${action} sur Salesforce Marketing Cloud.`
