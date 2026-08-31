@@ -40,6 +40,7 @@ VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
 VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
 VAR @condRows, @condRow, @i9, @condSpec, @condRyth, @condLang
+VAR @chpRows, @chp, @cfgCampusV
 VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
 VAR @evtIndex, @evtRows, @nEvt, @e
@@ -112,14 +113,15 @@ IF RowCount(@cfgRows) > 0 THEN
     SET @cfgLangueDef  = Field(@cfg, "LangueDefaut")
     SET @cfgRentree    = Field(@cfg, "RentreeDecalee")
 
-    /* Le formulaire brochure a sa propre regle pour la specialite. */
-    IF @formTypePage == "brochure" THEN
-        SET @cfgSpecV = Field(@cfg, "BrochureSpecialite")
-        SET @cfgSpecN = Field(@cfg, "BrochureSpecialiteNiveauMin")
-    ELSE
-        SET @cfgSpecV = Field(@cfg, "SpecialiteVisible")
-        SET @cfgSpecN = Field(@cfg, "SpecialiteNiveauMin")
-    ENDIF
+    /* SpecialiteVisible ne vaut plus que pour la CANDIDATURE. Hors
+       candidature, l'axe vient de LPB_Config_Champs_Ecole.ProgrammeVisible,
+       lu plus bas — voir le commentaire de ce bloc.
+
+       BrochureSpecialite n'est plus lue : « Champs visibles des
+       formulaires.xlsx » donne la meme regle aux cinq formulaires hors
+       candidature, la brochure comprise. La colonne reste dans la DE. */
+    SET @cfgSpecV = Field(@cfg, "SpecialiteVisible")
+    SET @cfgSpecN = Field(@cfg, "SpecialiteNiveauMin")
     SET @cfgRythV = Field(@cfg, "RythmeVisible")
     SET @cfgRythN = Field(@cfg, "RythmeNiveauMin")
     SET @cfgLangV = Field(@cfg, "LangueVisible")
@@ -154,6 +156,39 @@ FOR @i9 = 1 TO RowCount(@condRows) DO
         ENDIF
     ENDIF
 NEXT @i9
+
+/* ---- Campus, et specialite hors candidature ---------------------------
+   Deux axes que LPB_Config_Formulaires ne sait pas exprimer, et qui viennent
+   de « Champs visibles des formulaires.xlsx » (31/08/2026).
+
+   CAMPUS — quatre ecoles n ont pas de campus a faire choisir : IFA Paris,
+   Ecole Bleue, MoPA, 3WA. Meme regle sur les six formulaires.
+
+   SPECIALITE hors candidature — colonne ProgrammeVisible.
+
+     ⚠ LE NOM DE LA COLONNE EST CELUI DU FICHIER, PAS CELUI DU CHAMP.
+     Le fichier intitule cette ligne « Programme souhaite », mais elle designe
+     bel et bien le champ SPECIALITE : c est la specialite qu on demande, et
+     `Account.Speciality__c` qui la recoit. Il n existe aucun champ programme
+     sur les formulaires hors candidature.
+
+     Trois ecoles la portent : BRASSART, IFA Paris, MoPA. Sur la candidature,
+     c est SpecialiteVisible (LPB_Config_Formulaires) qui decide, et les dix
+     ecoles l affichent.
+
+   Pas de ligne pour cette ecole = les deux champs restent proposes, soit le
+   comportement d avant. Une DE vide ne peut donc rien casser — une DE ABSENTE,
+   elle, tue la page : LookupRows n a pas de filet. */
+SET @cfgCampusV = "toujours"
+SET @chpRows = LookupRows("LPB_Config_Champs_Ecole", "Ecole", @school)
+IF RowCount(@chpRows) > 0 THEN
+    SET @chp = Row(@chpRows, 1)
+    IF NOT Empty(Field(@chp,"CampusVisible")) THEN SET @cfgCampusV = Field(@chp, "CampusVisible") ENDIF
+    IF @formTypePage != "candidature" AND NOT Empty(Field(@chp,"ProgrammeVisible")) THEN
+        SET @cfgSpecV = Field(@chp, "ProgrammeVisible")
+        SET @cfgSpecN = 0
+    ENDIF
+ENDIF
 
 SET @jsCountry   = ""
 SET @jsIndicatif = ""
@@ -723,7 +758,8 @@ window.SOCLE_DATA = {
         "champs": {
             "Speciality": { "visible": '%%=v(@cfgSpecV)=%%', "niveauMin": %%=v(@cfgSpecN)=%%, "conditions": '%%=v(@condSpec)=%%' },
             "Rhythm":     { "visible": '%%=v(@cfgRythV)=%%', "niveauMin": %%=v(@cfgRythN)=%%, "conditions": '%%=v(@condRyth)=%%' },
-            "Language":   { "visible": '%%=v(@cfgLangV)=%%', "niveauMin": %%=v(@cfgLangN)=%%, "conditions": '%%=v(@condLang)=%%' }
+            "Language":   { "visible": '%%=v(@cfgLangV)=%%', "niveauMin": %%=v(@cfgLangN)=%%, "conditions": '%%=v(@condLang)=%%' },
+            "Campus":     { "visible": '%%=v(@cfgCampusV)=%%', "niveauMin": 0, "conditions": '' }
         }
     }
 };
@@ -1176,58 +1212,106 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
        Les noms de la config sont ceux du contrat (`speciality`, `rhythm`...) ;
        les attributs name[] du formulaire sont capitalises. D'ou la table. */
     var NOM_DOM = {
-        campus: 'Campus', niveau: 'Niveau', level: 'Niveau',
-        speciality: 'Speciality', rhythm: 'Rhythm', language: 'Language',
-        rentree: 'Rentree', programme: 'Programme'
+        campus: ['Campus'],
+        /* ⚠ TROIS noms pour le niveau. Tous les formulaires EDH postent
+           `StudyLevel` ; seul form-salesforce-core dit `Niveau`. La table n'en
+           connaissait que deux, donc le niveau n'etait JAMAIS retrouve ici : il
+           restait hors du reordonnancement et remontait en tete du formulaire,
+           devant le campus. Meme oubli que celui deja corrige dans `sel.level`. */
+        niveau: ['Niveau', 'Level', 'StudyLevel'],
+        level:  ['Niveau', 'Level', 'StudyLevel'],
+        speciality: ['Speciality'], rhythm: ['Rhythm'], language: ['Language'],
+        rentree: ['Rentree'], programme: ['Programme']
     };
 
+    /** Le champ d'une cle de configuration, quel que soit son nom DOM. */
+    function champDeCle(cle) {
+        var noms = NOM_DOM[cle] || [cle];
+        for (var i = 0; i < noms.length; i++) {
+            var el = champ(noms[i]);
+            if (el) return el;
+        }
+        return null;
+    }
+
+    /** Le porteur visuel d'un champ : le conteneur, pas le <select> seul. */
+    function porteurDe(el) {
+        return el.closest
+            ? (el.closest('[data-socle-champ]') || el.closest('.cnd-field') ||
+               el.closest('.brf-field') || el.closest('.jpo-field') ||
+               el.closest('.imf-field') || el.closest('.form-group') ||
+               el.closest('.field') || el.parentNode)
+            : el.parentNode;
+    }
+
+    /**
+     * Applique `OrdreChamps` — l'ordre d'affichage propre a l'ecole.
+     *
+     * ⚠ ON REORDONNE PAR SECTION, pas globalement. La version precedente
+     * exigeait que TOUS les champs de la cascade partagent le meme parent DOM,
+     * et s'alignait sur le parent du premier trouve. Or sur la candidature le
+     * campus et le niveau vivent dans un `.cnd-row` a deux colonnes, tandis que
+     * specialite, rythme, langue et rentree sont enfants directs du `<form>` :
+     * les quatre derniers etaient donc ecartes, il ne restait qu'un porteur, et
+     * la fonction sortait sans rien faire. `OrdreChamps` n'avait aucun effet sur
+     * un vrai formulaire — seulement sur un gabarit ou tout est frere.
+     *
+     * On groupe donc les porteurs PAR PARENT et on reordonne chaque groupe
+     * separement. Un champ ne traverse jamais une section — ce que la garde
+     * d'origine cherchait a eviter, et qui reste vrai — mais l'ordre relatif
+     * demande est respecte partout ou il a un sens.
+     *
+     * Cas reel : IFA Paris demande la langue AVANT la specialite. Les deux sont
+     * dans la meme section, l'echange a donc bien lieu.
+     */
     function appliquerOrdre() {
         if (!CFG || !CFG.ordre) return;
 
         var demande = String(CFG.ordre).split(',');
-        var porteurs = [], parent = null;
+        var groupes = [];          // [{ parent, porteurs: [] }]
+
+        function groupeDe(parent) {
+            for (var g = 0; g < groupes.length; g++) {
+                if (groupes[g].parent === parent) return groupes[g];
+            }
+            var neuf = { parent: parent, porteurs: [] };
+            groupes.push(neuf);
+            return neuf;
+        }
 
         for (var i = 0; i < demande.length; i++) {
             var cle = demande[i].replace(/^\s+|\s+$/g, '');
-            var el = champ(NOM_DOM[cle] || cle);
+            var el = champDeCle(cle);
             if (!el) continue;
-
-            /* On deplace le PORTEUR visuel, pas le <select> seul : sinon le
-               libelle resterait a son ancienne place, dissocie de son champ. */
-            var porteur = el.closest
-                ? (el.closest('[data-socle-champ]') || el.closest('.form-group') ||
-                   el.closest('.field') || el.parentNode)
-                : el.parentNode;
+            var porteur = porteurDe(el);
             if (!porteur || !porteur.parentNode) continue;
-
-            /* Tous les champs de la cascade doivent partager le meme parent,
-               sinon reordonner reviendrait a les deplacer d'une section a une
-               autre. On s'aligne sur le parent du premier trouve et on ignore
-               les autres — mieux vaut un ordre partiel qu'un formulaire
-               demonte. */
-            if (!parent) parent = porteur.parentNode;
-            if (porteur.parentNode !== parent) continue;
-
-            porteurs.push(porteur);
+            var grp = groupeDe(porteur.parentNode);
+            if (grp.porteurs.indexOf(porteur) === -1) grp.porteurs.push(porteur);
         }
 
+        for (var n = 0; n < groupes.length; n++) reordonner(groupes[n]);
+    }
+
+    /**
+     * Reordonne les porteurs d'UNE section, sans toucher a ce qui les entoure.
+     *
+     * Les champs de la cascade ABSENTS de `ordre` — typiquement Programme, qui
+     * n'y figure jamais — gardent leur place a la suite. Les oublier les
+     * renverrait en tete : tous les champs listes seraient deplaces apres eux.
+     * C'est ce que faisait la premiere version, et le formulaire s'ouvrait sur
+     * le champ Programme.
+     */
+    function reordonner(groupe) {
+        var parent = groupe.parent;
+        var porteurs = groupe.porteurs;
         if (!parent || porteurs.length < 2) return;
 
-        /* Les champs de la cascade ABSENTS de `ordre` — typiquement Programme,
-           qui n'y figure jamais — doivent garder leur place. Les oublier les
-           renverrait en tete : tous les champs listes seraient deplaces apres
-           eux. C'est ce que faisait la premiere version, et le formulaire
-           s'ouvrait sur le champ Programme. */
-        var deja = {};
-        for (var k = 0; k < porteurs.length; k++) deja[k] = true;
         var restants = [];
         for (var n2 in NOM_DOM) {
             if (!NOM_DOM.hasOwnProperty(n2)) continue;
-            var e2 = champ(NOM_DOM[n2]);
+            var e2 = champDeCle(n2);
             if (!e2) continue;
-            var p2 = e2.closest ? (e2.closest('[data-socle-champ]') ||
-                     e2.closest('.form-group') || e2.closest('.field') ||
-                     e2.parentNode) : e2.parentNode;
+            var p2 = porteurDe(e2);
             if (!p2 || p2.parentNode !== parent) continue;
             if (porteurs.indexOf(p2) === -1 && restants.indexOf(p2) === -1) restants.push(p2);
         }
@@ -1237,9 +1321,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            contient aussi le nom, l'email, les consentements. Un appendChild
            renverrait toute la cascade apres eux. On prend donc comme repere
            l'element qui suivait le dernier champ de la cascade. */
-        var dernier = sequence[0], idx = -1;
+        var dernier = sequence[0];
         for (var m = 0; m < parent.childNodes.length; m++) {
-            if (sequence.indexOf(parent.childNodes[m]) !== -1) { idx = m; dernier = parent.childNodes[m]; }
+            if (sequence.indexOf(parent.childNodes[m]) !== -1) dernier = parent.childNodes[m];
         }
         var repere = dernier ? dernier.nextSibling : null;
 

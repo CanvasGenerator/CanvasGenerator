@@ -318,6 +318,57 @@ test('Ordre IFA : la langue passe avant la specialite [REGRESSION]', (d, run) =>
         'ordre des champs');
 });
 
+/* Le markup REEL de la candidature : campus et niveau cote a cote dans un
+   `.cnd-row`, les quatre champs de cascade enfants directs du formulaire. */
+const LAYOUT_DEUX_SECTIONS = [['Email', 0], ['Campus', 1, 'row'], ['StudyLevel', 1, 'row'],
+                              ['Speciality', 1], ['Rhythm', 1], ['Language', 1],
+                              ['Rentree', 1], ['Consentements', 0]];
+
+test('Ordre IFA applique meme quand les champs ne sont pas freres [REGRESSION]', (d, run) => {
+    /* `appliquerOrdre` exigeait que TOUS les porteurs partagent un parent, et
+       s'alignait sur celui du premier trouve — le campus, dans son `.cnd-row`.
+       Les quatre champs de cascade, enfants du formulaire, etaient donc
+       ecartes : il ne restait qu'un porteur et la fonction sortait sans rien
+       faire. « Langue avant specialite » n'a jamais eu lieu sur une vraie page.
+
+       On reordonne desormais PAR SECTION. */
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const o = d.ordre();
+    const iL = o.indexOf('Language'), iS = o.indexOf('Speciality');
+    if (iL === -1 || iS === -1) throw new Error(`champs introuvables : ${o.join(' > ')}`);
+    if (iL > iS) throw new Error(`la langue reste apres la specialite : ${o.join(' > ')}`);
+    if (o[0] !== 'Email') throw new Error(`Email n'est plus premier : ${o.join(' > ')}`);
+}, LAYOUT_DEUX_SECTIONS);
+
+/* Une seule section, mais le niveau y est place AVANT le campus dans le HTML :
+   c'est le reordonnancement qui doit les remettre dans l'ordre demande. */
+const LAYOUT_NIVEAU_DABORD = [['Email', 0], ['StudyLevel', 1, 'bloc'], ['Campus', 1, 'bloc'],
+                              ['Speciality', 1, 'bloc'], ['Consentements', 0]];
+
+test('Le niveau nomme StudyLevel est reconnu par l ordre [REGRESSION]', (d, run) => {
+    /* NOM_DOM ne connaissait que `Niveau` et `Level`. Tous les formulaires EDH
+       postent `StudyLevel` : le niveau n'etait donc jamais retrouve ici, il
+       restait hors du reordonnancement et gardait sa place — devant le campus,
+       alors que la config demande le campus en premier. */
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('bloc'), ['Campus', 'StudyLevel', 'Speciality'],
+         'le campus doit passer devant le niveau');
+}, LAYOUT_NIVEAU_DABORD);
+
+test('Une section n est jamais traversee : chaque champ reste chez lui', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const section = d.ordreSection('row');
+    if (section.length !== 2) {
+        throw new Error(`la section a change de taille : ${JSON.stringify(section)}`);
+    }
+    if (d.ordre().indexOf('Campus') !== -1) {
+        throw new Error('le campus a quitte sa section pour le formulaire');
+    }
+}, LAYOUT_DEUX_SECTIONS);
+
 test('Un champ absent de la config garde sa place, il ne passe pas en tete [REGRESSION]', (d, run) => {
     run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
         { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
