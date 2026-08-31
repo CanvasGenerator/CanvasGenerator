@@ -50,13 +50,38 @@ function creerDom(layout) {
         };
     }
 
+    /* Sections intermediaires. Un troisieme element dans une ligne de layout
+       place le porteur dans un SOUS-CONTENEUR partage, au lieu du formulaire.
+
+       Ce n'est pas un raffinement : sur la vraie candidature, le campus et le
+       niveau vivent dans un `.cnd-row` a deux colonnes, tandis que specialite,
+       rythme, langue et rentree sont enfants directs du `<form>`. Un gabarit
+       PLAT laissait donc passer un `appliquerOrdre` qui abandonnait des que les
+       porteurs ne partageaient pas tous le meme parent. */
+    const sections = {};
+    function sectionDe(nom) {
+        if (!nom) return parent;
+        if (!sections[nom]) {
+            const sec = {
+                _nom: '(' + nom + ')', style: {}, parentNode: parent, nextSibling: null,
+                childNodes: [], classList: creerClassList([]),
+                appendChild: parent.appendChild, insertBefore: parent.insertBefore,
+                _sync: parent._sync,
+            };
+            sections[nom] = sec;
+            parent.childNodes.push(sec);
+        }
+        return sections[nom];
+    }
+
     const champs = {};
-    for (const [nom, estCascade] of layout) {
+    for (const [nom, estCascade, section] of layout) {
+        const hote = sectionDe(section);
         const porteur = {
-            _nom: nom, style: {}, parentNode: parent, nextSibling: null,
+            _nom: nom, style: {}, parentNode: hote, nextSibling: null,
             classList: creerClassList(estCascade ? ['hidden'] : []),
         };
-        parent.childNodes.push(porteur);
+        hote.childNodes.push(porteur);
         if (estCascade) {
             const el = {
                 tagName: 'SELECT', name: nom, value: '', options: [], style: {}, disabled: false,
@@ -103,6 +128,9 @@ function creerDom(layout) {
         emettre: (type) => (ecouteurs[type] || []).forEach((fn) => fn()),
         nbEcouteurs: (type) => (ecouteurs[type] || []).length,
         ordre: () => parent.childNodes.map((n) => n._nom),
+        /* L'ordre DANS une section : c'est la que se joue « langue avant
+           specialite » quand les champs ne sont pas tous freres. */
+        ordreSection: (nom) => (sections[nom] ? sections[nom].childNodes.map((n) => n._nom) : null),
         options: (nom) => (champs[nom] ? champs[nom].options.map((o) => o.textContent) : null),
         requis: (nom) => Boolean(champs[nom]) && champs[nom].hasAttribute('required'),
         visible: (nom) => Boolean(champs[nom]) &&
@@ -110,13 +138,18 @@ function creerDom(layout) {
             !champs[nom].parentNode.classList.contains('hidden'),
         reset() {
             parent.childNodes.length = 0;
-            for (const [nom, estCascade] of layout) {
+            Object.values(sections).forEach((sec) => { sec.childNodes.length = 0; });
+            const vues = new Set();
+            for (const [nom, estCascade, section] of layout) {
+                const hote = sectionDe(section);
+                if (section && !vues.has(section)) { vues.add(section); }
                 const p = champs[nom] ? champs[nom].parentNode
                                       : { _nom: nom, style: {}, classList: creerClassList([]) };
-                p._nom = nom; p.style.display = ''; p.parentNode = parent;
+                p._nom = nom; p.style.display = ''; p.parentNode = hote;
                 if (p.classList) p.classList.toggle('hidden', Boolean(estCascade));
-                parent.childNodes.push(p);
+                hote.childNodes.push(p);
             }
+            Object.values(sections).forEach((sec) => sec._sync.call(sec));
             parent._sync();
             Object.values(champs).forEach((e) => {
                 if (e.options) e.options.length = 0;
