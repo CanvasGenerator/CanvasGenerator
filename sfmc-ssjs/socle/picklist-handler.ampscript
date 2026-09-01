@@ -1186,6 +1186,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return conditionsRemplies(regle.conditions);
     }
 
+    /** Minuscules sans exploser sur null/undefined. */
+    function Lowercase_(v) { return String(v == null ? '' : v).toLowerCase(); }
+
     /** Les options d'un <select>, PLACEHOLDER EXCLU. */
     function optionsReelles(el) {
         var out = [];
@@ -2587,6 +2590,25 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                     wrap.appendChild(corps);
                     zoneDates.appendChild(wrap);
                 });
+
+                /* ---- IMMERSION : UNE SEULE DATE, DONC AUCUN CHOIX ---------
+                   Le contrat veut une seule Summit Event Instance par ecole
+                   pour l'immersion — verifie le 02/09, les dix existent. Le
+                   candidat n'a donc rien a choisir : on masque le bloc date,
+                   sans toucher au bouton radio, qui reste dans le <form> et
+                   part au CRM. Meme regle que la cascade : une seule valeur se
+                   POSE, elle ne se PROPOSE pas.
+
+                   Volontairement limite a l'immersion. Sur une JPO ou un
+                   atelier, voir la date reste utile meme quand il n'y en a
+                   qu'une : c'est une information, pas une question. */
+                var typeEvt = champ('TypeEvenement');
+                if (liste.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
+                    var porteurDates = zoneDates.closest
+                        ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
+                        : zoneDates.parentNode;
+                    if (porteurDates && porteurDates.style) porteurDates.style.display = 'none';
+                }
 
             } else if (elInst && elInst.tagName === 'SELECT') {
                 remplir('InstanceId', liste, valeur('InstanceId'));
