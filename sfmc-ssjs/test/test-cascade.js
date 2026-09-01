@@ -126,7 +126,11 @@ test('visible=jamais masque le champ meme avec plusieurs valeurs', (d, run) => {
 });
 
 test('visible=niveau respecte le seuil (rythme EFAP a partir de Bac+3)', (d, run) => {
-    const c = cfg({ champs: { Speciality: { visible: 'toujours', niveauMin: 0 },
+    /* Specialite mise a `jamais` EXPRES : depuis le 31/08, un champ progressif
+       attend que TOUS ses precedents soient remplis, et la specialite precede
+       le rythme. Un champ que la matrice masque ne bloque pas — c'est ce qui
+       permet d'isoler ici la seule regle testee, le seuil de niveau. */
+    const c = cfg({ champs: { Speciality: { visible: 'jamais', niveauMin: 0 },
                               Rhythm: { visible: 'niveau', niveauMin: 4 },
                               Language: { visible: 'toujours', niveauMin: 0 } } });
     run(c, { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
@@ -289,8 +293,8 @@ test('Sans conditions, rien ne change [REGRESSION]', (d, run) => {
    direction artistique. Aucun autre test ne croisait un seuil de niveau avec
    une condition — c'est la combinaison, pas chaque moitie, qui pouvait casser. */
 const cfgCumul = (conds) => cfg({ champs: {
-    Speciality: { visible: 'toujours', niveauMin: 0 },
-    Rhythm:     { visible: 'toujours', niveauMin: 0 },
+    Speciality: { visible: 'jamais', niveauMin: 0 },
+    Rhythm:     { visible: 'jamais', niveauMin: 0 },
     Language:   { visible: 'niveau', niveauMin: 4, conditions: conds },
 } });
 
@@ -307,6 +311,27 @@ test('Cumul seuil + condition : le seuil seul ne suffit pas', (d, run) => {
 test('Cumul seuil + condition : la condition seule ne suffit pas', (d, run) => {
     run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
     if (d.visible('Language')) throw new Error('Language propose sous le seuil de niveau');
+});
+
+/* ---- Mode progressif --------------------------------------------------- */
+/* La regle du 31/08 : un champ progressif n'apparait que si TOUS ceux qui le
+   precedent sont renseignes. Avant, le code ne testait que le niveau — la
+   langue s'affichait donc avec une specialite vide, et proposait des langues
+   qui n'existaient pour aucune specialite atteignable. */
+test('Progressif : un champ reste masque tant qu\'un precedent est vide', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (!d.visible('Speciality')) throw new Error('Speciality masquee alors que campus et niveau sont poses');
+    if (d.visible('Language')) throw new Error('Language proposee alors que la specialite est vide');
+});
+
+test('Progressif : le champ apparait des que ses precedents sont remplis', (d, run) => {
+    /* Comm laisse DEUX langues possibles a Bac+3 sur ce jeu d essai : sans quoi
+       la regle « une seule valeur » masquerait la langue pour une autre raison
+       que celle qu'on teste. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Terminale;Bac obtenu' });
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (!d.visible('Language')) throw new Error("l'ordre de l'ecole n'est pas respecte : la langue precede la specialite chez IFA");
 });
 
 /* ---- Ordre d'affichage ------------------------------------------------- */
@@ -412,9 +437,31 @@ test('Le PTAT se resout sur le couple programme x rentree', (d, run) => {
     egal(d.champs.PTAT_Id.value, 't-p2-2026', 'PTAT resolu');
 });
 
-test('Un couple programme x rentree inexistant laisse le PTAT vide', (d, run) => {
-    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Rentree: 'T2027', Programme: 'p2' });
-    egal(d.champs.PTAT_Id.value, '', 'PTAT pour un couple absent');
+/* Le candidat ne CHOISIT plus de programme : « Programme souhaite » est le
+   resultat de la cascade, jamais une question. Regle du 31/08. L'ancien test
+   de cette place presupposait un choix explicite du candidat — un scenario que
+   plus rien ne peut produire. */
+test('Le programme n\'est JAMAIS propose, meme avec plusieurs valeurs', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    if (d.visible('Programme')) throw new Error('Programme propose au candidat');
+});
+
+test('Un programme unique est pose d\'office : c\'est lui qui porte le PTAT', (d, run) => {
+    /* La specialite suffit a pincer un seul programme : rythme, langue et
+       rentree en decoulent, chacun a valeur unique. C'est le cas nominal de la
+       candidature — 132 combinaisons sur 133 chez EFAP. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Speciality: 'Luxe' });
+    egal(d.champs.Programme.value, 'p3', 'programme deduit');
+    egal(d.champs.PTAT_Id.value, 't-p3-2027', 'PTAT deduit du programme');
+});
+
+test('Plusieurs programmes possibles : aucun n\'est pose, le PTAT reste vide', (d, run) => {
+    /* On ne devine pas a la place du candidat sur un champ qu'il ne voit pas.
+       Le PTAT vide se lit au journal du socle (PTAT:absent), la ou une valeur
+       inventee serait passee inapercue. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    egal(d.champs.Programme.value, '', 'aucun programme pose');
+    egal(d.champs.PTAT_Id.value, '', 'PTAT vide faute de programme deduit');
 });
 
 /* ---- Robustesse -------------------------------------------------------- */

@@ -1153,6 +1153,96 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return conditionsRemplies(regle.conditions);
     }
 
+    /** Les options d'un <select>, PLACEHOLDER EXCLU. */
+    function optionsReelles(el) {
+        var out = [];
+        if (el && el.options) {
+            for (var i = 0; i < el.options.length; i++) {
+                if (el.options[i].value !== '') out.push(el.options[i]);
+            }
+        }
+        return out;
+    }
+
+    /**
+     * Tous les champs qui PRECEDENT celui-ci dans l'ordre de l'ecole
+     * sont-ils renseignes ?
+     *
+     * C'est la regle du mode progressif, et elle etait FAUSSE : le code ne
+     * testait que `sel.level`. La langue s'affichait donc alors que la
+     * specialite, qui la precede et la restreint, etait encore vide — on
+     * proposait des langues qui n'existaient pour aucune specialite atteignable.
+     * Constate sur les six formulaires.
+     *
+     * L'ordre de reference est celui de l'ecole (`CFG.ordre`), pas un ordre
+     * grave ici : IFA Paris demande la langue AVANT la specialite, et le
+     * « precedent » n'y designe donc pas les memes champs qu'ailleurs.
+     *
+     * Deux cas ne bloquent JAMAIS, sans quoi le formulaire serait sans issue :
+     *   - un champ que la matrice masque (`visible: jamais`, seuil de niveau
+     *     non atteint) : il ne sera jamais rempli, il ne peut pas etre exige ;
+     *   - une liste sans aucune option reelle : plus rien n'est atteignable a
+     *     ce niveau, exiger un choix impossible fermerait la porte.
+     * Un champ masque parce qu'il n'a QU'UNE valeur ne pose pas de probleme :
+     * cette valeur lui est posee d'office, il compte donc pour rempli.
+     */
+    function precedentsRemplis(nomDom) {
+        if (!CFG || !CFG.ordre) return true;
+        var ordre = String(CFG.ordre).split(',');
+        for (var i = 0; i < ordre.length; i++) {
+            var nom = nomDomDeCle(String(ordre[i]).replace(/^\s+|\s+$/g, ''));
+            if (!nom) continue;
+            if (nom === nomDom) return true;         // on a atteint le champ lui-meme
+            if (!autorise(nom)) continue;
+            var el = champ(nom);
+            if (el.tagName === 'SELECT' && !optionsReelles(el).length) continue;
+            if (!el.value) return false;
+        }
+        return true;
+    }
+
+    /** Des noms DOM tries selon l'ordre de l'ecole. */
+    function ordonner(noms) {
+        if (!CFG || !CFG.ordre) return noms;
+        var rang = {}, ordre = String(CFG.ordre).split(',');
+        for (var i = 0; i < ordre.length; i++) {
+            var nom = nomDomDeCle(String(ordre[i]).replace(/^\s+|\s+$/g, ''));
+            if (nom) rang[nom] = i;
+        }
+        return noms.slice().sort(function (a, b) {
+            var ra = rang[a] === undefined ? 99 : rang[a];
+            var rb = rang[b] === undefined ? 99 : rang[b];
+            return ra - rb;
+        });
+    }
+
+    /**
+     * Les trois regles d'affichage d'un champ de cascade, au meme endroit pour
+     * tout le monde : la matrice, le mode progressif, la valeur unique.
+     * Rend la visibilite decidee.
+     */
+    function reglesAffichage(nom, progressif, poserSiUnique) {
+        var el = champ(nom);
+        if (!el) return false;
+        var reelles = optionsReelles(el);
+        var visible = autorise(nom);
+        if (visible && progressif && !precedentsRemplis(nom)) visible = false;
+        if (visible && reelles.length <= 1) visible = false;
+        /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
+           dans le formulaire, donc elle part au CRM. Sans cela le placeholder
+           restait selectionne et le champ partait vide.
+
+           `poserSiUnique` a false INTERDIT cette pose. Le rythme et la langue
+           s'en passent — personne n'a jamais choisi autre chose — mais la
+           rentree et le programme, si : quand un choix explicite du candidat
+           vient d'etre invalide par la cascade, lui en substituer un autre
+           d'office reviendrait a le candidater sur un programme qu'il n'a pas
+           demande. On laisse vide, le champ reste affiche, il rechoisit. */
+        if (reelles.length === 1 && poserSiUnique !== false) el.value = reelles[0].value;
+        afficher(nom, visible);
+        return visible;
+    }
+
     /**
      * Conditions CROISEES, en plus de l'axe unique de la matrice.
      *
@@ -1230,6 +1320,18 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         speciality: ['Speciality'], rhythm: ['Rhythm'], language: ['Language'],
         rentree: ['Rentree'], programme: ['Programme']
     };
+
+    /** Le nom DOM d'une cle de configuration, ou null si le formulaire ne
+        porte pas ce champ. On passe par la table plutot que par
+        `el.getAttribute('name')` : nos <select> portent une PROPRIETE name,
+        pas forcement un ATTRIBUT name, et `autorise(null)` autorisait tout. */
+    function nomDomDeCle(cle) {
+        var noms = NOM_DOM[cle] || [cle];
+        for (var i = 0; i < noms.length; i++) {
+            if (champ(noms[i])) return noms[i];
+        }
+        return null;
+    }
 
     /** Le champ d'une cle de configuration, quel que soit son nom DOM. */
     function champDeCle(cle) {
@@ -1498,40 +1600,16 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            Le champ EFAP est le contre-exemple du point 2 : sa configuration
            porte progressif=false, tous les champs sont donc proposes d'emblee. */
         var progressif = !CFG || CFG.progressif !== false;
-        var conditionnels = ['Speciality', 'Rhythm', 'Language'];
 
+        /* Traites DANS L'ORDRE DE L'ECOLE, et non dans un ordre grave ici.
+           `reglesAffichage` pose la valeur des champs a option unique ; si on
+           evaluait la specialite avant la langue chez IFA Paris — qui demande
+           la langue d'abord — le « precedent » de la specialite n'aurait pas
+           encore recu sa valeur d'office, et la specialite resterait masquee
+           un tour de trop. */
+        var conditionnels = ordonner(['Speciality', 'Rhythm', 'Language']);
         for (var c = 0; c < conditionnels.length; c++) {
-            var nom = conditionnels[c];
-            var el  = champ(nom);
-            if (!el) continue;
-
-            /* HORS placeholder. `remplir` conserve l'<option value=""> du
-               formulaire : compter `options.length` revenait a voir deux
-               choix la ou il n'y en a qu'un, et la regle « une seule valeur »
-               ne se declenchait jamais sur une vraie page. */
-            var reelles = [];
-            if (el.options) {
-                for (var k = 0; k < el.options.length; k++) {
-                    if (el.options[k].value !== '') reelles.push(el.options[k]);
-                }
-            }
-
-            var visible = autorise(nom);
-
-            if (visible && progressif) {
-                // en mode progressif, le champ n'apparait qu'une fois le niveau pose
-                if (!sel.level) visible = false;
-            }
-            // une seule option reelle : valeur transmise, champ masque
-            if (visible && reelles.length <= 1) visible = false;
-
-            /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
-               dans le formulaire, donc elle part au CRM. Sans cela le
-               placeholder restait selectionne et le champ partait vide — le
-               contraire de ce que demande le contrat. */
-            if (reelles.length === 1) el.value = reelles[0].value;
-
-            afficher(nom, visible);
+            reglesAffichage(conditionnels[c], progressif);
         }
 
         // Langue par defaut (IFA Paris : francais) si rien n'est encore choisi
@@ -1555,7 +1633,14 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             termes.push({ value: t.termId, label: libelle ? libelle.label : t.termId });
         });
         var rentree = valeur('Rentree');
+        var rentreeChoisie = rentree;
         remplir('Rentree', termes, rentree, true);
+        /* Memes regles que les autres champs de la cascade — la rentree y
+           echappait, et le programme aussi. Deux consequences, vues sur une
+           vraie candidature du 31/08 : ils s'affichaient avant leurs
+           precedents, et surtout une rentree UNIQUE n'etait jamais posee. Elle
+           restait sur le placeholder, donc le PTAT ne se resolvait pas. */
+        reglesAffichage('Rentree', progressif, !rentreeChoisie);
         rentree = valeur('Rentree');
 
         /* ---- LA LISTE DES PROGRAMMES VIENT DES PROGRAMMES ----------------
@@ -1581,6 +1666,29 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
         var programme = valeur('Programme');
         remplir('Programme', progs, programme, true);
+        /* ---- LE PROGRAMME NE SE DEMANDE JAMAIS ---------------------------
+           « Programme souhaite » n'est PAS un champ a remplir : c'est le
+           resultat de la cascade. On le masque donc toujours, meme quand il
+           reste plusieurs valeurs — regle du 31/08. Le <select> demeure dans le
+           formulaire, sa valeur part au CRM et sert a deduire le PTAT.
+
+           Mesure faite avant d'ecrire ceci, sur les donnees reelles d'EFAP :
+           sur 133 combinaisons completes (campus x niveau x specialite x
+           rythme x langue x rentree), UNE SEULE laisse plusieurs programmes —
+           et c'est un trou de donnees, trois programmes Bac+4 sans
+           `Speciality__c`. Masquer ne coute donc rien : le cursus est deduit
+           132 fois sur 133.
+
+           Pas de garde « ne pas remplacer un choix explicite » ici, contrairement
+           a la rentree : un champ que personne ne voit ne porte aucun choix
+           humain. S'y abstenir de poser la valeur unique parce qu'une valeur
+           precedente vient d'etre invalidee ferait perdre le PTAT en silence. */
+        var elProg = champ('Programme');
+        if (elProg) {
+            var reellesProg = optionsReelles(elProg);
+            if (reellesProg.length === 1) elProg.value = reellesProg[0].value;
+            afficher('Programme', false);
+        }
         programme = valeur('Programme');
 
         /* ---- LE PTAT, DEDUIT ET NON DEMANDE ------------------------------
