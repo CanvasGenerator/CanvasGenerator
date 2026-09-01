@@ -31,6 +31,10 @@ export default function (editor, categories) {
     const TRANS = {
         fr: {
             dateChoix:   'Choisissez votre date',
+            /* Campus sans date : avertissement rendu en CSS pur (::before),
+               sans modification du socle. */
+            noDate:      "Aucune date n'est disponible pour ce campus. "
+                         + "L'inscription est impossible : merci de choisir un autre campus.",
             ateliers:    'Au programme',
             title:       "Demande d'immersion",
             subtitle:    "Vivez une journée dans notre école. Laissez-nous vos coordonnées, notre équipe vous recontacte.",
@@ -59,6 +63,8 @@ export default function (editor, categories) {
         },
         en: {
             dateChoix:   'Choose your date',
+            noDate:      'No date is available for this campus. '
+                         + 'Registration is not possible: please choose another campus.',
             ateliers:    'Programme',
             title:       'Immersion request',
             subtitle:    'Spend a day at our school. Leave us your details and our team will contact you.',
@@ -185,6 +191,26 @@ export default function (editor, categories) {
    option n'apprend rien. */
 .imf-dates-field:has(.imf-dates:empty),
 .imf-ateliers-field:has(.imf-ateliers:empty) { display: none; }
+
+/* Campus sans aucune date. Tant qu'aucun campus n'est choisi, la regle
+   ci-dessus masque le bloc — il n'y a rien a annoncer. Des qu'un campus EST
+   choisi (select required, donc :valid) et que le socle n'a rendu aucune
+   date, on avertit et on neutralise l'envoi. Le ::before ne compte pas dans
+   :empty, donc aucune modification du socle n'est necessaire. */
+.imf-card:has(.imf-campus:valid) .imf-dates-field:has(.imf-dates:empty) {
+    display: flex;
+}
+.imf-card:has(.imf-campus:valid) .imf-dates:empty::before {
+    content: "${t.noDate}";
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #c00; border-radius: 8px;
+    background: #fff5f5; color: #c00;
+    font-size: 13px; line-height: 1.45;
+}
+.imf-card:has(.imf-campus:valid):has(.imf-dates:empty) .imf-submit {
+    background: #888; cursor: not-allowed; pointer-events: none;
+}
 
 .imf-phone-prefix-wrap {
     position: relative;
