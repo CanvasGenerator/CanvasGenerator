@@ -575,15 +575,24 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            REMPLACE un blocage R1 pose par une autre ligne. */
                         SET @sfStatus = "blocked"
                         SET @sfBlockRule = "r2"
-                        SET @sfBlockMsg = "Votre precedente candidature a ce programme a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine. Pour toute question, veuillez contacter le service des admissions."
+                        SET @sfBlockMsg = "Votre précédente candidature à ce programme a fait l'objet d'une décision défavorable. Une nouvelle candidature au même programme n'est pas possible avant l'année prochaine. Pour toute question, veuillez contacter le service des admissions."
                     ELSEIF Empty(@sfBlockMsg) THEN
                         SET @sfStatus = "blocked"
                         SET @sfBlockRule = "r1"
-                        SET @sfBlockMsg = "Vous avez deja une candidature en cours pour ce programme. Nous vous invitons a contacter le service des admissions du campus auquel vous souhaitez candidater."
+                        SET @sfBlockMsg = "Vous avez déjà une candidature en cours pour ce programme. Nous vous invitons à contacter le service des admissions du campus auquel vous souhaitez candidater."
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
                     SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                    /* ⚠ SANS CECI LE CANDIDAT NE VOIT RIEN DE JUSTE. Le
+                       formulaire lit le commentaire « socle erreur: » et en
+                       fait son message (shared/envoi-socle.js, puis alert).
+                       Faute de le renseigner, un blocage rendait `ok:false`
+                       avec un message VIDE, et le candidat recevait « Une
+                       erreur est survenue, veuillez reessayer » — soit
+                       exactement l'inverse de ce qu'il faut lui dire : il ne
+                       doit PAS reessayer, il doit contacter les admissions. */
+                    SET @sfErrorMsg = @sfBlockMsg
                     /* ⚠ SANS CETTE LIGNE, UN BLOCAGE NE LAISSE AUCUNE TRACE.
                        Tout ce qui suit — y compris « 99 - fin » — vit dans le
                        garde-fou `IF @sfStatus != "blocked"`. Le journal
