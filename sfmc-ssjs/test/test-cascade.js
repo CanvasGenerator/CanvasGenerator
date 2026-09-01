@@ -31,6 +31,15 @@ const PROGRAMMES = [
       speciality: 'Luxe', rhythm: 'PT', language: 'EN' },
     { id: 'p4', name: 'Lille A1', campus: 'EFAP LILLE', level: 'Terminale',
       speciality: 'Comm', rhythm: 'FT', language: 'FR' },
+    /* Le couple qui a casse la candidature EFAP le 01/09 : meme campus, meme
+       niveau, l'un SANS specialite. `distinct` ignorant les valeurs vides, la
+       specialite paraissait unique et etait posee d'office — ce qui eliminait
+       justement le programme qui n'en a pas. Niveau a part pour ne pas
+       perturber les autres cas. */
+    { id: 'p5', name: 'Master FR', campus: 'EFAP PARIS', level: 'Bac+5',
+      speciality: '', rhythm: 'FT', language: 'FR' },
+    { id: 'p6', name: 'Master EN', campus: 'EFAP PARIS', level: 'Bac+5',
+      speciality: 'Luxe', rhythm: 'FT', language: 'EN' },
 ];
 
 const BASE = {
@@ -39,7 +48,9 @@ const BASE = {
     programs: PROGRAMMES,
     ptats: [{ ptatId: 't-p2-2026', programId: 'p2', termId: 'T2026' },
             { ptatId: 't-p1-2026', programId: 'p1', termId: 'T2026' },
-            { ptatId: 't-p3-2027', programId: 'p3', termId: 'T2027' }],
+            { ptatId: 't-p3-2027', programId: 'p3', termId: 'T2027' },
+            { ptatId: 't-p5-2026', programId: 'p5', termId: 'T2026' },
+            { ptatId: 't-p6-2026', programId: 'p6', termId: 'T2026' }],
     terms: [{ value: 'T2026', label: 'Rentree 2026' }, { value: 'T2027', label: 'Rentree 2027' }],
     instances: [], appointments: [],
     picklists: { StudyLevel: [
@@ -311,6 +322,35 @@ test('Cumul seuil + condition : le seuil seul ne suffit pas', (d, run) => {
 test('Cumul seuil + condition : la condition seule ne suffit pas', (d, run) => {
     run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
     if (d.visible('Language')) throw new Error('Language propose sous le seuil de niveau');
+});
+
+/* ---- Valeur unique : seulement si tout le monde la porte ---------------- */
+/* [REGRESSION] Candidature EFAP, 01/09. Paris + « BAC obtenu ou Prepa » laissait
+   deux programmes, l'un sans specialite. La specialite de l'autre etait posee
+   d'office, ce qui ecartait le premier ; la liste des langues tombait alors a
+   « EN » seul, le FR choisi par le candidat etait ECRASE par EN, et plus aucun
+   programme ne survivait — ni rentree, ni PTAT. */
+test('Un critere que tous les programmes ne portent pas n\'est PAS pose d\'office', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+5' });
+    egal(d.champs.Speciality.value, '', 'specialite posee alors qu un programme n en a aucune');
+});
+
+test('Le choix de langue survit et designe le bon programme [REGRESSION]', (d, run) => {
+    /* DEUX passes, comme dans le navigateur : la premiere sur campus+niveau,
+       la seconde apres que le candidat a choisi sa langue. Le bug ne se voyait
+       qu'a la seconde — la premiere posait la specialite, la seconde la relisait
+       depuis le DOM et eliminait le programme FR. Un test en une seule passe
+       passait donc meme avec le bug en place : verifie en sabotant le
+       garde-fou. */
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+5' });
+    d.champs.Language.value = 'FR';
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg() }) },
+        document: d.document,
+    });
+    egal(d.champs.Language.value, 'FR', 'la langue choisie a ete ecrasee');
+    egal(d.champs.Programme.value, 'p5', 'programme deduit de la langue');
+    egal(d.champs.PTAT_Id.value, 't-p5-2026', 'PTAT resolu');
 });
 
 /* ---- Mode progressif --------------------------------------------------- */
