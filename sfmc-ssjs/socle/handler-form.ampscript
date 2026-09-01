@@ -583,7 +583,32 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
-                    SET @journal = Concat(@journal, " BLOQUE:", @sfBlockRule, ":", @nCand, "candidature(s)")
+                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                    /* ⚠ SANS CETTE LIGNE, UN BLOCAGE NE LAISSE AUCUNE TRACE.
+                       Tout ce qui suit — y compris « 99 - fin » — vit dans le
+                       garde-fou `IF @sfStatus != "blocked"`. Le journal
+                       s'arretait donc net apres « 20 - campagne resolue », et
+                       une candidature legitimement bloquee etait indiscernable
+                       d'une page morte entre l'etape 20 et l'etape 25. Le
+                       marqueur BLOQUE: n'existait que dans le commentaire HTML
+                       de la reponse, que personne ne conserve.
+                       Constate le 01/09 sur une soumission reelle. */
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "21 - candidature bloquee",
+                            "Statut", "BLOQUE",
+                            "Objet", @OBJ_APPLICATION,
+                            "RecordId", Field(Row(@candRows, 1), "Id"),
+                            "Detail", Concat(@nCand, " candidature(s) sur le PTAT ", @ptatId, " — ", @sfBlockMsg),
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
                 ENDIF
             ENDIF
         ENDIF
