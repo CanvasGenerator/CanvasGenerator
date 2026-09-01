@@ -398,6 +398,33 @@ try {
         return out;
     }
 
+    /**
+     * Peut-on poser d'office la valeur unique d'un critere ?
+     *
+     * OUI seulement si TOUS les programmes encore en lice la portent. Sinon
+     * poser revient a eliminer ceux qui n'ont rien dans ce champ, car `filtrer`
+     * exige l'egalite et un programme sans valeur echoue au critere.
+     *
+     * ⚠ LE BUG QUE CECI CORRIGE, releve le 01/09 sur la candidature EFAP.
+     * A Paris, « BAC obtenu ou Prepa » laisse deux programmes :
+     *     Annee 1 FR -> speciality ""        language FR
+     *     Annee 1 EN -> speciality "Luxury…"  language EN
+     * `distinct` IGNORE les valeurs vides : la specialite semblait donc n'avoir
+     * qu'une seule valeur, elle etait posee d'office, et cette pose ECARTAIT le
+     * programme FR. Consequence en cascade : la liste des langues tombait a
+     * « EN » seul, le choix FR du candidat etait ECRASE par EN, puis plus aucun
+     * programme ne survivait — ni rentree, ni PTAT. Le candidat voyait ses
+     * champs se vider sans comprendre.
+     *
+     * On ne pose donc plus : le critere reste simplement non applique, les deux
+     * programmes restent en lice, et la LANGUE choisie fait le tri. */
+    function poserValeurUnique(rows, prop) {
+        for (var i = 0; i < rows.length; i++) {
+            if (!rows[i][prop]) return false;
+        }
+        return true;
+    }
+
     /** Une cellule multipicklist "a;b;c" contient-elle la valeur attendue ? */
     /**
      * Les deux cotes du CRM n'ecrivent pas les niveaux pareil :
@@ -964,11 +991,18 @@ try {
             language:   valeur('Language')
         };
 
+        /* Le vivier de chaque liste est retenu, pas seulement ses valeurs :
+           `poserValeurUnique` a besoin de savoir si TOUS les programmes encore
+           en lice portent bien le critere. Cf. son commentaire. */
+        var vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
+        var vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
+        var vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
+
         // chaque liste ne propose que ce qui reste possible en amont
         remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level, true);
-        remplir('Speciality', distinct(filtrer({ campus: sel.campus, level: sel.level }), 'speciality'), sel.speciality, true);
-        remplir('Rhythm',     distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality }), 'rhythm'), sel.rhythm, true);
-        remplir('Language',   distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm }), 'language'), sel.language, true);
+        remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
+        remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
+        remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
@@ -987,9 +1021,14 @@ try {
            la langue d'abord — le « precedent » de la specialite n'aurait pas
            encore recu sa valeur d'office, et la specialite resterait masquee
            un tour de trop. */
+        var VIVIERS = { Speciality: [vivierSpec, 'speciality'],
+                        Rhythm:     [vivierRyth, 'rhythm'],
+                        Language:   [vivierLang, 'language'] };
+
         var conditionnels = ordonner(['Speciality', 'Rhythm', 'Language']);
         for (var c = 0; c < conditionnels.length; c++) {
-            reglesAffichage(conditionnels[c], progressif);
+            var v = VIVIERS[conditionnels[c]];
+            reglesAffichage(conditionnels[c], progressif, poserValeurUnique(v[0], v[1]));
         }
 
         // Langue par defaut (IFA Paris : francais) si rien n'est encore choisi
