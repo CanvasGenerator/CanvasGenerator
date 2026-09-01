@@ -52,9 +52,7 @@ export default function (editor, categories) {
             rgpdLink:    'ici',
             submit:      'Envoyer ma demande',
             sending:     'Envoi en cours...',
-            successTitle: name => `Merci, ${name} !`,
-            successMsg:  email =>
-                `Votre demande d'immersion a bien été enregistrée.<br>Un accusé de réception vous a été envoyé à <strong>${email}</strong>. Notre responsable développement vous contactera très prochainement par téléphone.`,
+            successTitle: 'Demande envoyée',
             errRequired: 'Ce champ est requis.',
             errEmail:    'Format e-mail invalide.',
             errEmailDom: 'Veuillez utiliser une adresse valide.',
@@ -82,9 +80,7 @@ export default function (editor, categories) {
             rgpdLink:    'here',
             submit:      'Send my request',
             sending:     'Sending...',
-            successTitle: name => `Thank you, ${name}!`,
-            successMsg:  email =>
-                `Your immersion request has been registered.<br>A confirmation has been sent to <strong>${email}</strong>. Our development manager will contact you shortly by phone.`,
+            successTitle: 'Request sent',
             errRequired: 'This field is required.',
             errEmail:    'Invalid email format.',
             errEmailDom: 'Please use a valid email address.',
@@ -297,7 +293,6 @@ export default function (editor, categories) {
 .imf-submit:disabled { background: #888; cursor: not-allowed; }
 .imf-success { display: none; padding: 16px 0 8px; text-align: center; }
 .imf-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
-.imf-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0; }
 .imf-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;
@@ -318,9 +313,8 @@ export default function (editor, categories) {
 
     <!-- Confirmation (masquée initialement) -->
     <div class="imf-success">
-        <div style="font-size:40px;margin-bottom:10px;">✅</div>
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
         <h3 class="imf-success-title"></h3>
-        <p class="imf-success-msg"></p>
     </div>
 
     <!-- Formulaire -->
@@ -645,11 +639,8 @@ ${socleReadSnippet({ formType: 'immersion', eventType: 'Immersion' })}
                         const successEl = card.querySelector('.imf-success');
                         if (successEl) {
                             successEl.style.display = 'block';
-                            const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
                             const titleS = successEl.querySelector('.imf-success-title');
-                            const msgS   = successEl.querySelector('.imf-success-msg');
-                            if (titleS) titleS.textContent = t.successTitle(name);
-                            if (msgS)   msgS.innerHTML     = t.successMsg(data.EmailAddress || '');
+                            if (titleS) titleS.textContent = t.successTitle;
                         }
                     } else {
                         if (btn) { btn.disabled = false; btn.textContent = t.submit; }
