@@ -132,6 +132,7 @@ VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @cana
 VAR @utmCampus, @consent, @dateCookies
 VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId, @campusSel
 VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve, @cpEmail, @cpPhone, @cpId
+VAR @cpcMail, @cpcTel, @cpcRows, @cpcRow, @nCpcMail, @nCpcTel, @nCpc, @k, @majs
 VAR @isEvent, @instanceId, @extId, @regId, @appts, @apptRows, @nA, @apptType
 VAR @zone, @cleCampagne, @campActif, @typeEvt, @mode, @langue, @typeForm
 VAR @sfStatus, @sfErrorMsg, @journal
@@ -1567,6 +1568,40 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @journal = Concat(@journal, " CP:phone-cree")
             ENDIF
 
+            /* ---- CONSENTEMENTS DEJA POSES, LUS UNE SEULE FOIS -------------
+               UN SEUL enregistrement par canal, et non un de plus a chaque
+               soumission. Le compte de recette en portait 12 pour 3
+               soumissions : les doublons rendent la preuve RGPD illisible,
+               puisque plus rien ne dit lequel fait foi.
+
+               ⚠ REVIREMENT DU 31/08, ET IL FAUT LE DIRE. Le commentaire
+               precedent affirmait l'objet CREATE-ONLY : « aucun update n'y
+               passe », mesure du 26/08. C'EST FAUX AUJOURD'HUI — verifie a la
+               main sur un consentement du compte de recette : `Status__c` mis
+               a Opt-out, RELU a Opt-out, puis remis a Opt-in. Soit un droit a
+               change cote CRM, soit la mesure d'alors confondait le refus de
+               l'update avec une autre erreur de la page.
+
+               Deux lectures suffisent pour les cinq canaux — une par point de
+               contact — au lieu d'une par canal. On retrouve ensuite le bon
+               enregistrement en parcourant le rowset sur `Channel__c` : un
+               filtre a deux conditions sur cet objet n'a jamais ete eprouve
+               ici, et une forme de requete non eprouvee tue la page. */
+            SET @nCpcMail = 0
+            IF NOT Empty(@cpEmail) THEN
+                SET @cpcMail = RetrieveSalesforceObjects("ContactPointConsent",
+                    "Id,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "ContactPointId", "=", @cpEmail)
+                SET @nCpcMail = RowCount(@cpcMail)
+            ENDIF
+            SET @nCpcTel = 0
+            IF NOT Empty(@cpPhone) THEN
+                SET @cpcTel = RetrieveSalesforceObjects("ContactPointConsent",
+                    "Id,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "ContactPointId", "=", @cpPhone)
+                SET @nCpcTel = RowCount(@cpcTel)
+            ENDIF
+
             FOR @i = 1 TO 5 DO
                 IF @i == 1 THEN
                     SET @canalParam = "HasOptedInEmail"
@@ -1595,9 +1630,27 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     /* Le point de contact a viser depend du canal. */
                     IF @canalValue == "Phone" OR @canalValue == "SMS" OR @canalValue == "WhatsApp" THEN
                         SET @cpId = @cpPhone
+                        SET @cpcRows = @cpcTel
+                        SET @nCpc = @nCpcTel
                     ELSE
                         SET @cpId = @cpEmail
+                        SET @cpcRows = @cpcMail
+                        SET @nCpc = @nCpcMail
                     ENDIF
+
+                    /* Ce canal a-t-il deja son consentement ? Premiere ligne
+                       qui porte le canal : si des doublons anterieurs existent,
+                       on en tient un et on laisse les autres tranquilles — ce
+                       socle ne sait pas supprimer, le menage se fait cote CRM. */
+                    SET @cpcId = ""
+                    FOR @k = 1 TO @nCpc DO
+                        IF Empty(@cpcId) THEN
+                            IF Field(Row(@cpcRows, @k), "Channel__c") == @canalValue THEN
+                                SET @cpcRow = Row(@cpcRows, @k)
+                                SET @cpcId  = Field(@cpcRow, "Id")
+                            ENDIF
+                        ENDIF
+                    NEXT @k
 
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
@@ -1619,33 +1672,84 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         /* Aucun point de contact : on ne peut rien ecrire.
                            On le journalise au lieu de tuer la page. */
                         SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-contactpoint")
+                    ELSEIF NOT Empty(@cpcId) THEN
+                        /* ---- LE CANAL A DEJA SON CONSENTEMENT : ON LE MET
+                           A JOUR, ON N'EN CREE PAS UN AUTRE ----------------
+                           Un enregistrement par canal, quatre en tout, quel que
+                           soit le nombre de soumissions. C'est la regle voulue
+                           par la maitrise d'ouvrage le 31/08, et elle remplace
+                           le « un enregistrement par soumission » du 26/08.
+
+                           On n'ecrit QUE ce qui differe. Une re-soumission a
+                           l'identique — le cas courant — ne declenche donc
+                           AUCUN update : elle coute une lecture, deja faite
+                           avant la boucle, et rien de plus. Un consentement
+                           inchange qu'on reecrit n'est pas une preuve plus
+                           solide, c'est juste une ligne de plus.
+
+                           Ce qui peut legitimement changer d'une fois sur
+                           l'autre : le statut, si la personne s'etait
+                           desabonnee puis re-consent, et le texte legal
+                           accepte, si le formulaire a change de version.
+
+                           ⚠ On ne touche NI Channel__c NI ContactPointId :
+                           ce couple est l'identite de l'enregistrement. Ni
+                           Name, qui porte l'horodatage de la premiere preuve —
+                           la date de POSE du consentement, qu'une mise a jour
+                           ne doit pas effacer.
+
+                           ⚠⚠ UN SEUL CHAMP EST MODIFIABLE : `Status__c`.
+                           `PrivacyConsentStatus`, `GDPR_Status__c` et
+                           `Legal_Texte_Accepted__c` sont REFUSES en update et
+                           TUENT LA PAGE — mesure du 31/08, champ par champ, sur
+                           un consentement du compte de recette. La note du
+                           26/08 disait l'objet entierement create-only ; elle
+                           avait raison pour ces trois-la, et tort pour
+                           `Status__c`, qui passe et persiste (mis a Opt-out,
+                           relu Opt-out, remis a Opt-in).
+
+                           Consequence a connaitre : si ces trois champs
+                           divergent, on ne peut pas les corriger. On les
+                           JOURNALISE — un `-fige` visible vaut mieux qu'une
+                           preuve RGPD fausse et muette. Les debloquer est une
+                           question de droits cote CRM, pas de code. */
+                        SET @majs = "0"
+                        IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
+                            SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                "Status__c", "Opt-in")
+                            SET @majs = "1"
+                        ENDIF
+                        IF @majs == "1" THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-maj")
+                        ELSE
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")
+                        ENDIF
+
+                        /* Divergences que le connecteur nous interdit de
+                           reparer. Signalees, jamais corrigees en silence. */
+                        IF Field(@cpcRow, "PrivacyConsentStatus") != "OptIn" THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue,
+                                "-PrivacyConsentStatus-fige(", Field(@cpcRow, "PrivacyConsentStatus"), ")")
+                        ENDIF
+                        IF Field(@cpcRow, "GDPR_Status__c") != "Marketing active" THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue,
+                                "-GDPR-fige(", Field(@cpcRow, "GDPR_Status__c"), ")")
+                        ENDIF
+                        /* Le texte legal accepte a change de version depuis la
+                           pose du consentement, et on ne peut pas l'ecrire. La
+                           preuve conservee reste celle de la PREMIERE
+                           acceptation : a arbitrer avec le juridique, car la
+                           seule autre issue serait un second enregistrement —
+                           donc le doublon qu'on vient justement de supprimer. */
+                        IF Field(@cpcRow, "Legal_Texte_Accepted__c") != @preuve THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-texte-fige")
+                        ENDIF
                     ELSE
-                        /* UN ENREGISTREMENT PAR SOUMISSION, decision du
-                           2026-08-26. On ne cherche plus s'il en existe deja un
-                           pour ce couple point de contact x canal : on en cree
-                           un a chaque fois.
-
-                           Pourquoi : l'objet est CREATE-ONLY pour le
-                           connecteur. Aucun update n'y passe — ni
-                           PrivacyConsentStatus, ni Status__c, ni
-                           Legal_Texte_Accepted__c, ni CaptureSource, ni
-                           GDPR_Status__c — et pas seulement sur nos
-                           enregistrements : refuses aussi sur un consentement
-                           cree par le CRM. Mesure champ par champ avec
-                           LPB_TST_Sonde_Ecriture, qui accepte par ailleurs un
-                           update d'Account : ce ne sont donc ni les droits
-                           generaux ni la sonde.
-
-                           Le socle tentait ces updates. Comme ce chemin n'etait
-                           atteint que si un consentement existait DEJA pour ce
-                           canal, la page mourait a la deuxieme soumission d'une
-                           meme personne, jamais a la premiere.
-
-                           Creer plutot que modifier convient d'ailleurs mieux a
-                           l'objet : un consentement est une trace datee, pas un
-                           etat qu'on rectifie. Une personne desabonnee qui
-                           re-consent produit une nouvelle trace, et c'est le
-                           comportement attendu.
+                        /* ---- PREMIER CONSENTEMENT POUR CE CANAL -----------
+                           Seul chemin qui CREE. On n'y passe que si le canal
+                           n'a encore aucun enregistrement pour ce point de
+                           contact ; sinon c'est la branche de mise a jour
+                           ci-dessus qui a joue.
 
                            ⚠ `Name` est REQUIS sur cet objet, et son absence
                            etait un BUG : le socle ne l'envoyait pas, donc aucun
@@ -1655,21 +1759,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            Salesforce et l'envoyer fait echouer l'insert. Deux
                            objets voisins, deux regles opposees.
 
-                           GDPR_Status__c : ECRIT depuis le 2026-08-26.
-                           Le champ etait laissé vide faute de reference — j'y
-                           avais mis "OptIn" par analogie, une valeur de
-                           picklist inventee qui tuait la page. La sonde d'etat
-                           a releve les vraies valeurs dans les donnees :
-                           "Marketing active", "To delete", "To reactivate".
-                           C'est la premiere qui correspond a un opt-in de
-                           formulaire, et l'ecriture est verifiee sur l'org.
-
-                           ⚠ Opt_In_Date__c est marque ✅ dans les onglets mais
-                           ⛔ dans l'en-tete du contrat (« poses par flow, VR
-                           SANS bypass — ne pas les ecrire »). Contradiction
-                           interne au document : on suit l'en-tete, plus recent
-                           et plus explicite. A faire trancher. */
-                        /* ⚠ Legal_Texte_Accepted__c est REQUIS : sans lui
+                           ⚠ Legal_Texte_Accepted__c est REQUIS : sans lui
                            l'insert echoue. @preuve vaut au minimum "[v1]",
                            donc il n'est jamais vide.
 
@@ -1699,8 +1789,13 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "CaptureSource",           "SFMC CloudPage",
                                 "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
+                        /* Marqueur de CREATION. Il etait pose hors du IF, donc
+                           aussi sur le cas sans point de contact, qui venait
+                           deja de journaliser son echec : « CPC:Email » suivait
+                           « CPC:Email-sans-contactpoint » et laissait croire a
+                           une reussite. */
+                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
                     ENDIF
-                    SET @journal = Concat(@journal, " CPC:", @canalValue)
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
