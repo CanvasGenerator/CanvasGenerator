@@ -66,6 +66,10 @@ import { socleReadSnippet } from './socle-read-snippet.js';
         fr: {
             campus:      'Campus',
             dateChoix:   'Choisissez votre date',
+            /* Campus sans date : message d'avertissement rendu en CSS pur
+               (content d'un ::before), donc sans toucher au socle. */
+            noDate:      "Aucune date n'est disponible pour ce campus. "
+                         + "L'inscription est impossible : merci de choisir un autre campus.",
             ateliers:    'Au programme',
             youAre:      'Vous êtes',
             lastName:    'Nom',
@@ -96,6 +100,8 @@ import { socleReadSnippet } from './socle-read-snippet.js';
         en: {
             campus:      'Campus',
             dateChoix:   'Choose your date',
+            noDate:      'No date is available for this campus. '
+                         + 'Registration is not possible: please choose another campus.',
             ateliers:    'Programme',
             youAre:      'You are',
             lastName:    'Last name',
@@ -333,6 +339,40 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
    compris, plutot que de laisser un intitule orphelin. */
 .jpo-dates-field:has(.jpo-dates:empty),
 .jpo-ateliers-field:has(.jpo-ateliers:empty) { display: none; }
+
+/* ── Campus sans aucune date ──────────────────────────────────────────────
+   Tant qu'aucun campus n'est choisi, la regle ci-dessus masque le bloc : c'est
+   le bon comportement, il n'y a rien a annoncer. Des qu'un campus EST choisi
+   (le select est required, donc :valid) et que le socle n'a rendu aucune
+   date, on remonte un avertissement et on neutralise l'envoi.
+
+   Tout tient en CSS : le message passe par un ::before, qui ne compte pas dans
+   :empty — la zone reste donc vide aux yeux du selecteur, et le socle n'a pas
+   a etre modifie.
+
+   Sans ca, l'etudiant remplissait tout, soumettait, et recevait apres coup
+   « Inscription evenement sans InstanceId : aucune date choisie » — alors que
+   le compte personnel et les consentements avaient deja ete crees. */
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates-field:has(.jpo-dates:empty) {
+    display: flex;
+}
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates:empty::before {
+    content: "${t.noDate}";
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #c00;
+    border-radius: 8px;
+    background: #fff5f5;
+    color: #c00;
+    font-size: 13px;
+    line-height: 1.45;
+}
+/* pointer-events: none suffit a bloquer le clic sans toucher au JS. */
+.jpo-card:has(.jpo-campus-select:valid):has(.jpo-dates:empty) .jpo-submit {
+    background: #888;
+    cursor: not-allowed;
+    pointer-events: none;
+}
 
 .jpo-event-card {
     display: none;
