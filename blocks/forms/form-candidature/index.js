@@ -52,9 +52,7 @@ export default function (editor, categories) {
             rgpdLink:    'ici',
             submit:      'Je candidate',
             sending:     'Envoi en cours...',
-            successTitle: name => `Merci, ${name} !`,
-            successMsg:  email =>
-                `Votre candidature a bien été enregistrée.<br>Consultez votre boîte mail : un e-mail vient d'être envoyé à <strong>${email}</strong> pour activer votre compte et accéder au portail candidature.`,
+            successTitle: 'Candidature envoyée',
             errRequired: 'Ce champ est requis.',
             errEmail:    'Format e-mail invalide.',
             errEmailDom: 'Veuillez utiliser une adresse valide.',
@@ -82,9 +80,7 @@ export default function (editor, categories) {
             rgpdLink:    'here',
             submit:      'Apply now',
             sending:     'Sending...',
-            successTitle: name => `Thank you, ${name}!`,
-            successMsg:  email =>
-                `Your application has been registered.<br>Please check your inbox: an email has just been sent to <strong>${email}</strong> to activate your account and access the application portal.`,
+            successTitle: 'Application sent',
             errRequired: 'This field is required.',
             errEmail:    'Invalid email format.',
             errEmailDom: 'Please use a valid email address.',
@@ -245,7 +241,6 @@ export default function (editor, categories) {
 .cnd-submit:disabled { background: #888; cursor: not-allowed; }
 .cnd-success { display: none; padding: 16px 0 8px; text-align: center; }
 .cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
-.cnd-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0; }
 .cnd-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;
@@ -266,9 +261,8 @@ export default function (editor, categories) {
 
     <!-- Confirmation (masquée initialement) -->
     <div class="cnd-success">
-        <div style="font-size:40px;margin-bottom:10px;">📧</div>
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
         <h3 class="cnd-success-title"></h3>
-        <p class="cnd-success-msg"></p>
     </div>
 
     <!-- Formulaire -->
@@ -625,11 +619,8 @@ ${socleReadSnippet({ formType: 'candidature' })}
                         const successEl = card.querySelector('.cnd-success');
                         if (successEl) {
                             successEl.style.display = 'block';
-                            const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
                             const titleS = successEl.querySelector('.cnd-success-title');
-                            const msgS   = successEl.querySelector('.cnd-success-msg');
-                            if (titleS) titleS.textContent = t.successTitle(name);
-                            if (msgS)   msgS.innerHTML     = t.successMsg(data.EmailAddress || '');
+                            if (titleS) titleS.textContent = t.successTitle;
                         }
                     } else {
                         if (btn) { btn.disabled = false; btn.textContent = t.submit; }

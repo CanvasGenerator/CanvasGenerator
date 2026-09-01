@@ -93,9 +93,7 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             errPhone:    'Numéro invalide (ex: 06 12 34 56 78).',
             errGeneric:  'Une erreur est survenue, veuillez réessayer.',
             sending:     'Envoi en cours...',
-            successThanks:   name => `Merci, ${name} !`,
-            successConfirm:  (date, campus, email) =>
-                `Votre inscription du <strong>${date}</strong> sur le campus de <strong>${campus}</strong> a bien été enregistrée.<br>Un e-mail de confirmation sera envoyé à <strong>${email}</strong>.`,
+            successThanks:   'Demande envoyée',
         },
         en: {
             campus:      'Campus',
@@ -125,9 +123,7 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             errPhone:    'Invalid number (e.g. 07 12 34 56 78).',
             errGeneric:  'An error occurred, please try again.',
             sending:     'Sending...',
-            successThanks:   name => `Thank you, ${name}!`,
-            successConfirm:  (date, campus, email) =>
-                `Your registration on <strong>${date}</strong> at the <strong>${campus}</strong> campus has been confirmed.<br>A confirmation email will be sent to <strong>${email}</strong>.`,
+            successThanks:   'Request sent',
         }
     };
 
@@ -694,12 +690,6 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     color: var(--brand-text, #1a1a1a);
 }
 
-.jpo-success p {
-    font-size: 13px;
-    color: var(--brand-muted, #6b7280);
-    margin: 0;
-}
-
 .jpo-spinner {
     display: inline-block;
     width: 14px;
@@ -778,9 +768,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     <div class="jpo-pointer"></div>
 
     <div class="jpo-success">
-        <div style="font-size:36px;margin-bottom:10px;">✅</div>
+        <div style="font-size:36px;margin-bottom:10px;">✔️</div>
         <h3 class="jpo-success-thanks"></h3>
-        <p class="jpo-success-msg"></p>
     </div>
 
     <div class="jpo-form-zone">
@@ -1054,11 +1043,8 @@ ${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
         });
         if (success) {
             success.style.display = 'block';
-            const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
             const thanks = success.querySelector('.jpo-success-thanks');
-            const msg    = success.querySelector('.jpo-success-msg');
-            if (thanks) thanks.textContent = t.successThanks(name);
-            if (msg)    msg.innerHTML      = t.successConfirm(data.EventDate || '—', data.Campus || '—', data.EmailAddress || '');
+            if (thanks) thanks.textContent = t.successThanks;
         }
     }
 
