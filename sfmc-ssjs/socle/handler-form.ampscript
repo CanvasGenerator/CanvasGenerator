@@ -1559,9 +1559,29 @@ IF IndexOf(@submitted, "true") > 0 THEN
            ==================================================================== */
         IF NOT Empty(@paId) THEN
 
-            SET @preuve = Concat("[v1]")
-            IF NOT Empty(@legalText)   THEN SET @preuve = Concat(@preuve, " — ", @legalText) ENDIF
-            IF NOT Empty(@legalFooter) THEN SET @preuve = Concat(@preuve, " — ", @legalFooter) ENDIF
+            /* ---- LA PREUVE : LE TEXTE LEGAL, ET RIEN D'AUTRE ---------------
+               Le texte accepte, puis le texte de pied de page, separes par un
+               tiret. Plus de prefixe « [v1] » : il ne versionnait rien — aucun
+               [v2] n'a jamais existe — et occupait la tete du champ, la ou on
+               lit la phrase reellement acceptee.
+
+               ⚠ CE PREFIXE FAISAIT OFFICE DE FILET. `Legal_Texte_Accepted__c`
+               est REQUIS a la creation : avec « [v1] » en dur, la preuve
+               n'etait jamais vide et l'insert passait toujours. Sans lui, un
+               formulaire qui ne poste pas son texte legal produit une preuve
+               vide et TUE la page a l'insert. D'ou le garde-fou plus bas : pas
+               de texte, pas de consentement ecrit — et une ligne au journal.
+               Un consentement sans trace de ce qui a ete accepte ne vaudrait
+               de toute facon rien devant la CNIL. */
+            SET @preuve = ""
+            IF NOT Empty(@legalText) THEN SET @preuve = @legalText ENDIF
+            IF NOT Empty(@legalFooter) THEN
+                IF Empty(@preuve) THEN
+                    SET @preuve = @legalFooter
+                ELSE
+                    SET @preuve = Concat(@preuve, " — ", @legalFooter)
+                ENDIF
+            ENDIF
 
             /* ---- POINTS DE CONTACT : RESOLUS, SINON CREES -----------------
                Resolus UNE FOIS pour les 5 canaux : l'e-mail sert au canal Email
@@ -1781,8 +1801,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            acceptation : a arbitrer avec le juridique, car la
                            seule autre issue serait un second enregistrement —
                            donc le doublon qu'on vient justement de supprimer. */
-                        IF Field(@cpcRow, "Legal_Texte_Accepted__c") != @preuve THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-texte-fige")
+                        IF NOT Empty(@preuve) THEN
+                            IF Field(@cpcRow, "Legal_Texte_Accepted__c") != @preuve THEN
+                                SET @journal = Concat(@journal, " CPC:", @canalValue, "-texte-fige")
+                            ENDIF
                         ENDIF
                     ELSE
                         /* ---- PREMIER CONSENTEMENT POUR CE CANAL -----------
@@ -1800,12 +1822,21 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            objets voisins, deux regles opposees.
 
                            ⚠ Legal_Texte_Accepted__c est REQUIS : sans lui
-                           l'insert echoue. @preuve vaut au minimum "[v1]",
-                           donc il n'est jamais vide.
+                           l'insert ECHOUE et la page meurt. @preuve peut
+                           desormais etre vide — le prefixe "[v1]" qui le
+                           garantissait a ete retire le 31/08 — d'ou le test
+                           qui precede la creation.
 
                            BusinessBrandId : voir @ECRIRE_MARQUE_CONSENT en
                            tete de fichier. */
-                        IF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                        IF Empty(@preuve) THEN
+                            /* Ni LegalTexteAccepted ni LegalTexteFooter dans le
+                               POST : on ne sait pas ce que la personne a
+                               accepte. On n'ecrit donc PAS un consentement dont
+                               la preuve serait vide, et on le dit au journal —
+                               plutot que de tuer la page sur un champ requis. */
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-texte-legal")
+                        ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
@@ -1829,12 +1860,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "CaptureSource",           "SFMC CloudPage",
                                 "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
-                        /* Marqueur de CREATION. Il etait pose hors du IF, donc
-                           aussi sur le cas sans point de contact, qui venait
-                           deja de journaliser son echec : « CPC:Email » suivait
-                           « CPC:Email-sans-contactpoint » et laissait croire a
-                           une reussite. */
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                        /* Marqueur de CREATION, pose SEULEMENT si un
+                           enregistrement est reellement ne — @cpcId ne vaut
+                           quelque chose que si CreateSalesforceObject a rendu
+                           un Id. Il etait pose hors du IF, donc aussi sur les
+                           cas d'echec : « CPC:Email-sans-texte-legal » etait
+                           suivi de « CPC:Email-cree », qui disait l'inverse. */
+                        IF NOT Empty(@cpcId) THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                        ENDIF
                     ENDIF
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
