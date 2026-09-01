@@ -409,34 +409,71 @@ Verifie sur l'org : un contact ayant une candidature sur un PTAT est bloque
 (R1), un e-mail inconnu passe. La lecture ne tue pas la page, ce qui autorise
 `@REGLES_ACTIVES = "true"`.
 
-#### Ou vit le refus : PAS dans Status
+#### La valeur qui declenche R2 : `Rejected`, cherchee dans DEUX champs
 
-Le value set de `Status`, releve le 2026-08-24, ne contient QUE des etapes
-d'avancement, et aucune valeur de refus — ni active ni inactive :
+**Tranche par le metier le 2026-09-01.** Cette page a porte successivement
+trois versions de cette regle ; celle-ci est la bonne, les deux precedentes
+sont rappelees plus bas pour que personne ne refasse le chemin.
 
-> Application in Progress · Application Submitted · Application Fee Paid ·
-> Initial Application Review · Interview & Jury Scheduling · Interview & Jury
-> Scheduled · Secondary Application Review · Application Complete ·
-> Withdrawn / Abandoned
+Le refus est **`Rejected`**, et il est cherche **a la fois** dans
+`FinalDecision__c` et dans `Status`.
 
-Le refus vit dans **`FinalDecision__c`**, value set « Jury Recommendation » :
+| Champ | Value set | Presence de `Rejected` |
+|---|---|---|
+| `FinalDecision__c` | << Jury Recommendation >> : Admitted . **Rejected** . Absent_Interview . Pending . Enrolled | oui - **7 des 321** candidatures de la recette |
+| `Status` | << Application Status >>, cf. ci-dessous | **non** - ni active, ni inactive |
 
-> Admitted · **Rejected** · Absent_Interview · Pending · Enrolled
+Value set de `Status`, releve sur la capture du 2026-09-01 :
 
-Comparaison **exacte** en minuscules, pas en sous-chaine : le value set est
-ferme et court.
+> **ACTIVES** - Application in Progress (defaut) . Application Submitted .
+> Application Fee Paid . Initial Application Review . Interview & Jury
+> Scheduling . Interview & Jury Scheduled . Secondary Application Review .
+> Application Complete . Withdrawn / Abandoned
+>
+> **INACTIVES** - 1st review non compliant . 2nd review non compliant .
+> Processing . In Review . Ready For Decision . Application Decision .
+> Canceled . Enrolled . Enrollment Failed
+
+**Pourquoi lire les deux.** Une lecture ne peut pas casser la page,
+contrairement a une ecriture : le seul cout d'un champ qui reste vide est
+qu'il ne dit rien. En echange, la regle ne peut plus devenir muette selon le
+champ que le CRM alimente - et le projet en a deja fait les frais, R2 s'etant
+appuyee sur un champ que l'on croyait rempli.
+
+Comparaison **exacte** en minuscules, pas en sous-chaine : les deux value sets
+sont fermes et courts.
+
+#### Verdict, par cas
 
 | Cas | Verdict | Regle |
 |---|---|---|
-| `FinalDecision__c = Rejected` | bloque | R2, decision defavorable |
-| `Status = Withdrawn / Abandoned` | **autorise** | le candidat a renonce, il peut revenir |
-| candidature en cours | bloque | R1 |
-| `Admitted` | bloque | R1 — message imparfait, decision correcte |
-| `Absent_Interview` | bloque | R1 — un constat d'absence n'est pas une decision |
+| `FinalDecision__c = Rejected` **ou** `Status = Rejected` | bloque | R2, decision defavorable |
+| tout autre statut, **y compris `Withdrawn / Abandoned`** | bloque | R1, candidature en cours |
+| statut vide | bloque | R1 |
+| aucune candidature sur ce PTAT | **autorise** | rien a opposer |
 
-`FinalDecision__c` est vide sur les 285 candidatures de la recette : les
-branches ont donc ete verifiees en simulation, la lecture du champ l'ayant ete
-sur les donnees reelles.
+Le statut ne sert qu'a **choisir le message**, jamais a decider du blocage :
+toute candidature deja posee sur le couple personne x PTAT bloque la suivante.
+S'il y en a plusieurs, **R2 l'emporte** sur R1.
+
+`Withdrawn / Abandoned` faisait exception jusqu'au 2026-09-01 - un dossier
+abandonne laissait passer, au motif que le candidat avait renonce et pouvait
+revenir. Le metier a tranche l'inverse.
+
+#### Historique de cette regle - a ne pas refaire
+
+| Date | Critere R2 | Pourquoi abandonne |
+|---|---|---|
+| 2026-08-24 | `FinalDecision__c = Rejected` seul | croyait `Status` sans valeur de refus |
+| 2026-09-01 (matin) | `Status = Canceled` | correction metier, puis revoquee le jour meme |
+| **2026-09-01 (retenu)** | **`Rejected` sur les deux champs** | - |
+
+#### Reserve de recette
+
+Aucune des 321 candidatures de l'extract ne porte `Status = Rejected` ni
+`Status = Canceled` ; 7 portent `FinalDecision__c = Rejected`. La branche R2
+est donc verifiee sur donnee reelle **par le champ decision**, et en simulation
+par le statut.
 
 > ⚠ Deux remarques a remonter au CRM. Les donnees portent des valeurs de
 > `Status` DESACTIVEES dans le value set (`Processing`, vu sur des candidatures

@@ -45,9 +45,7 @@ export default function (editor, categories) {
             rgpdLink:       'ici',
             submit:         'Je télécharge la brochure',
             sending:        'Envoi en cours...',
-            successTitle:   name => `Merci, ${name} !`,
-            successMsg:     email => `Votre demande a été enregistrée. Vos documents seront envoyés à <strong>${email}</strong>.`,
-            successListTitle: 'Vous trouverez vos documents ci-dessous au format PDF :',
+            successTitle:   'Demande envoyée',
             errRequired:    'Ce champ est requis.',
             errEmail:       'Format e-mail invalide.',
             errEmailDom:    'Veuillez utiliser une adresse valide.',
@@ -77,28 +75,12 @@ export default function (editor, categories) {
             rgpdLink:       'here',
             submit:         'Download brochure',
             sending:        'Sending...',
-            successTitle:   name => `Thank you, ${name}!`,
-            successMsg:     email => `Your request has been registered. Your documents will be sent to <strong>${email}</strong>.`,
-            successListTitle: 'Your documents are available below in PDF format:',
+            successTitle:   'Request sent',
             errRequired:    'This field is required.',
             errEmail:       'Invalid email format.',
             errEmailDom:    'Please use a valid email address.',
             errPhone:       'Invalid number (e.g. 07 12 34 56 78).',
             errGeneric:     'An error occurred, please try again.',
-        }
-    };
-
-    /* ── Données de test : brochures par campus × niveau ────────────── */
-    const BROCHURES = {
-        paris: {
-            'bac+2': ['Brochure Bachelor 1re année (Paris)', 'Brochure BTS Communication (Paris)'],
-            'bac+3': ['Brochure Bachelor 3e année (Paris)', 'Brochure Communication Publique (Paris)'],
-            'bac+5': ['Brochure MBA Communication (Paris)', 'Brochure MBA Marketing Digital (Paris)']
-        },
-        lille: {
-            'bac+2': ['Brochure Bachelor 1re année (Lille)'],
-            'bac+3': ['Brochure Bachelor 3e année (Lille)'],
-            'bac+5': ['Brochure MBA Communication (Lille)']
         }
     };
 
@@ -253,12 +235,6 @@ export default function (editor, categories) {
 .brf-submit:disabled { background: #888; cursor: not-allowed; }
 .brf-success { display: none; padding: 16px 0 8px; text-align: center; }
 .brf-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
-.brf-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0 0 16px; }
-.brf-brochure-list { text-align: left; background: #fafafa; border-radius: 4px; padding: 14px 18px; }
-.brf-brochure-list p { font-size: 12px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
-.brf-brochure-list ul { margin: 0; padding-left: 16px; }
-.brf-brochure-list li { margin-bottom: 6px; }
-.brf-brochure-list a { font-size: 13px; color: #1a56db; }
 .brf-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;
@@ -279,13 +255,8 @@ export default function (editor, categories) {
 
     <!-- Confirmation (masquée initialement) -->
     <div class="brf-success">
-        <div style="font-size:40px;margin-bottom:10px;">✅</div>
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
         <h3 class="brf-success-title"></h3>
-        <p class="brf-success-msg"></p>
-        <div class="brf-brochure-list">
-            <p class="brf-brochure-list-title">${t.successListTitle}</p>
-            <ul class="brf-brochure-links"></ul>
-        </div>
     </div>
 
     <!-- Formulaire -->
@@ -666,19 +637,7 @@ ${socleReadSnippet({ formType: 'brochure' })}
                         if (successEl) {
                             successEl.style.display = 'block';
                             const titleS = successEl.querySelector('.brf-success-title');
-                            const msgS   = successEl.querySelector('.brf-success-msg');
-                            const listEl = successEl.querySelector('.brf-brochure-links');
-                            const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-                            if (titleS) titleS.textContent = t.successTitle(name);
-                            if (msgS)   msgS.innerHTML     = t.successMsg(data.EmailAddress || '');
-                            if (listEl) {
-                                const campusBrochures = (BROCHURES[data.Campus] || {})[data.StudyLevel] || [
-                                    'Brochure générale ' + (data.Campus || 'école')
-                                ];
-                                listEl.innerHTML = campusBrochures
-                                    .map(title => `<li><a href="#" onclick="return false;">${title} (PDF)</a></li>`)
-                                    .join('');
-                            }
+                            if (titleS) titleS.textContent = t.successTitle;
                         }
                     } else {
                         if (btn) { btn.disabled = false; btn.textContent = t.submit; }

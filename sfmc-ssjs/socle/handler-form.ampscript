@@ -91,7 +91,7 @@ SET @ECRIRE_IDENTITE = "true"
    La regle est desormais ACTIVE : les trois noms restants existent, donc la
    lecture ne peut plus tuer la page. */
 VAR @REGLES_ACTIVES, @OBJ_APPLICATION, @F_APP_PERSON, @F_APP_PTAT, @F_APP_STATUS
-VAR @F_APP_DECISION, @VAL_REFUSE, @VAL_ABANDON
+VAR @F_APP_DECISION, @VAL_REFUSE
 SET @REGLES_ACTIVES  = "true"
 SET @OBJ_APPLICATION = "IndividualApplication"
 SET @F_APP_PERSON    = "ContactId"
@@ -99,30 +99,70 @@ SET @F_APP_PTAT      = "ProgramTermApplnTimelineId"
 SET @F_APP_STATUS    = "Status"
 SET @F_APP_DECISION  = "FinalDecision__c"
 
-/* ---- OU VIT LE REFUS ------------------------------------------------------
-   PAS dans `Status`. Son value set, releve le 2026-08-24, ne contient QUE des
-   etapes d'avancement : Application in Progress, Application Submitted,
-   Application Fee Paid, Initial Application Review, Interview & Jury
-   Scheduling / Scheduled, Secondary Application Review, Application Complete,
-   Withdrawn / Abandoned. Aucune valeur de refus, ni active ni inactive.
+/* ---- LA VALEUR QUI DECLENCHE R2 : `Rejected` ------------------------------
+   Tranche par le metier le 2026-09-01. Le refus est `Rejected`, et non
+   `Canceled` comme l'etape precedente l'avait retenu.
 
-   Le refus vit dans `FinalDecision__c`, value set « Jury Recommendation » :
-       Admitted · Rejected · Absent_Interview · Pending · Enrolled
+   ⚠ ELLE EST CHERCHEE DANS LES DEUX CHAMPS, et c'est deliberé :
 
-   Comparaison EXACTE en minuscules, pas en sous-chaine : le value set est
-   ferme et court, une sous-chaine n'apporterait que des faux positifs.
+     `FinalDecision__c`  value set « Jury Recommendation » :
+                         Admitted · **Rejected** · Absent_Interview ·
+                         Pending · Enrolled
+                         → 7 des 321 candidatures de la recette la portent.
+
+     `Status`            value set « Application Status », releve sur la
+                         capture du 2026-09-01 :
+                         ACTIVES   Application in Progress (defaut) ·
+                                   Application Submitted · Application Fee
+                                   Paid · Initial Application Review ·
+                                   Interview & Jury Scheduling · Interview &
+                                   Jury Scheduled · Secondary Application
+                                   Review · Application Complete ·
+                                   Withdrawn / Abandoned
+                         INACTIVES 1st / 2nd review non compliant ·
+                                   Processing · In Review · Ready For
+                                   Decision · Application Decision ·
+                                   Canceled · Enrolled · Enrollment Failed
+                         → `Rejected` N'Y FIGURE PAS, ni active ni inactive.
+
+   Lire les deux ne coute qu'une comparaison et retire le seul risque qui
+   compte ici : celui d'une regle muette. Le projet en a deja fait les frais —
+   R2 s'appuyait sur `FinalDecision__c` a une epoque ou l'on croyait le champ
+   alimente, et n'a jamais pu se declencher. Une LECTURE ne peut pas casser la
+   page, contrairement a une ecriture : le seul cout d'un champ qui reste vide
+   est qu'il ne dit rien.
+
+   Comparaison EXACTE en minuscules, pas en sous-chaine : les deux value sets
+   sont fermes et courts, une sous-chaine n'apporterait que des faux positifs.
 
    `Absent_Interview` n'est PAS traite comme un refus : c'est un constat
-   d'absence, qui peut preceder une decision mais n'en est pas une. */
+   d'absence, qui peut preceder une decision mais n'en est pas une. Il tombe
+   donc sur R1, comme tout le reste. */
 SET @VAL_REFUSE      = "rejected"
 
-/* Un dossier ABANDONNE ne doit pas bloquer une nouvelle candidature : le
-   candidat a renonce, il a le droit de revenir. Sans cette exception, R1
-   bloquait sur n'importe quelle candidature existante, abandon compris. */
-SET @VAL_ABANDON     = "withdrawn / abandoned"
+/* ---- AUCUNE AUTRE EXCEPTION ----------------------------------------------
+   Le statut ne sert qu'a CHOISIR LE MESSAGE, pas a decider du blocage : toute
+   candidature deja posee sur le couple personne x PTAT bloque la suivante.
+   `Rejected` donne R2, tout le reste donne R1 — statut vide compris.
 
-VAR @sfBlockMsg, @candContactId, @candRows, @nCand, @candStatut, @candDecision
+   `Withdrawn / Abandoned` faisait exception jusqu'au 2026-09-01 : un dossier
+   abandonne laissait passer, au motif que le candidat avait renonce et pouvait
+   revenir. Le metier a tranche l'inverse — il repasse par les admissions,
+   comme les autres. */
+
+/* ---- QUELLE REGLE A BLOQUE -----------------------------------------------
+   R1 et R2 n'ont pas le meme message, et le visiteur ne voit que le message.
+   `@sfBlockMsg` etait pose ici depuis l'origine mais n'etait EMIS nulle part :
+   la reponse portait `statut=blocked` et rien d'autre, si bien que le front
+   tombait sur sa branche d'echec et affichait « le CRM a refuse l'ecriture »
+   — un message technique, a un candidat, pour un refus parfaitement normal.
+
+   On emet donc le MOTIF (`r1` / `r2`), et le front porte la formulation
+   exacte du cadrage, accents compris : AMPscript ne sort pas d'accent sur ce
+   projet, et le message client en comporte. */
+VAR @sfBlockMsg, @sfBlockRule, @candContactId, @candRows, @nCand, @candStatut, @candDecision
 SET @sfBlockMsg = ""
+SET @sfBlockRule = ""
 
 VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
@@ -529,22 +569,22 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     SET @candStatut   = Lowercase(Field(Row(@candRows,@i), @F_APP_STATUS))
                     SET @candDecision = Lowercase(Field(Row(@candRows,@i), @F_APP_DECISION))
 
-                    IF @candDecision == @VAL_REFUSE THEN
+                    IF @candDecision == @VAL_REFUSE OR @candStatut == @VAL_REFUSE THEN
                         /* R2 en premier : un refus est plus contraignant qu'un
-                           dossier en cours, et son message differe. */
+                           dossier en cours, et son message differe. Sans
+                           condition d'ecrasement, volontairement : un refus
+                           REMPLACE un blocage R1 pose par une autre ligne. */
                         SET @sfStatus = "blocked"
-                        SET @sfBlockMsg = "Votre precedente candidature a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine."
-                    ELSEIF @candStatut == @VAL_ABANDON THEN
-                        /* Abandon : on ne bloque pas, et on ne remplace pas un
-                           blocage deja pose par une autre candidature. */
-                        SET @journal = Concat(@journal, " CAND:abandon-ignore")
+                        SET @sfBlockRule = "r2"
+                        SET @sfBlockMsg = "Votre precedente candidature a ce programme a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine. Pour toute question, veuillez contacter le service des admissions."
                     ELSEIF Empty(@sfBlockMsg) THEN
                         SET @sfStatus = "blocked"
+                        SET @sfBlockRule = "r1"
                         SET @sfBlockMsg = "Vous avez deja une candidature en cours pour ce programme. Nous vous invitons a contacter le service des admissions du campus auquel vous souhaitez candidater."
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
-                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                    SET @journal = Concat(@journal, " BLOQUE:", @sfBlockRule, ":", @nCand, "candidature(s)")
                 ENDIF
             ENDIF
         ENDIF
@@ -2267,4 +2307,7 @@ ENDIF
 <!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% journal=%%=v(@journal)=%% -->
 %%[ IF NOT Empty(@sfErrorMsg) THEN ]%%
 <!-- socle erreur: %%=v(@sfErrorMsg)=%% -->
+%%[ ENDIF ]%%
+%%[ IF NOT Empty(@sfBlockRule) THEN ]%%
+<!-- socle blocage: motif=%%=v(@sfBlockRule)=%% -->
 %%[ ENDIF ]%%
