@@ -418,6 +418,12 @@ try {
      *
      * On ne pose donc plus : le critere reste simplement non applique, les deux
      * programmes restent en lice, et la LANGUE choisie fait le tri. */
+    /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
+       optionnels par nature : le candidat peut les renseigner ou non, donc ils
+       ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
+       chaque passe de cascade, juste avant l'application des regles. */
+    var OPTIONNELS = {};
+
     function poserValeurUnique(rows, prop) {
         for (var i = 0; i < rows.length; i++) {
             if (!rows[i][prop]) return false;
@@ -603,6 +609,10 @@ try {
             if (!autorise(nom)) continue;
             var el = champ(nom);
             if (el.tagName === 'SELECT' && !optionsReelles(el).length) continue;
+            /* Optionnel : tous les programmes en lice ne le portent pas, donc
+               le laisser vide est un choix valide et non un formulaire
+               incomplet. L'exiger fermait la porte. */
+            if (OPTIONNELS[nom] && !el.value) continue;
             if (!el.value) return false;
         }
         return true;
@@ -632,9 +642,14 @@ try {
         var el = champ(nom);
         if (!el) return false;
         var reelles = optionsReelles(el);
+        /* « Une seule valeur » ne justifie de MASQUER que si on la POSE. Sinon
+           le champ devient une impasse : invisible, vide, et impossible a
+           remplir — tout ce qui le suit reste bloque en mode progressif.
+           36 combinaisons de BRASSART etaient dans ce cas, mesure du 02/09. */
+        var uniquePosable = (reelles.length === 1 && poserSiUnique !== false);
         var visible = autorise(nom);
         if (visible && progressif && !precedentsRemplis(nom)) visible = false;
-        if (visible && reelles.length <= 1) visible = false;
+        if (visible && (reelles.length === 0 || uniquePosable)) visible = false;
         /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
            dans le formulaire, donc elle part au CRM. Sans cela le placeholder
            restait selectionne et le champ partait vide.
@@ -645,7 +660,7 @@ try {
            vient d'etre invalide par la cascade, lui en substituer un autre
            d'office reviendrait a le candidater sur un programme qu'il n'a pas
            demande. On laisse vide, le champ reste affiche, il rechoisit. */
-        if (reelles.length === 1 && poserSiUnique !== false) el.value = reelles[0].value;
+        if (uniquePosable) el.value = reelles[0].value;
         afficher(nom, visible);
         return visible;
     }
@@ -1024,6 +1039,11 @@ try {
         var VIVIERS = { Speciality: [vivierSpec, 'speciality'],
                         Rhythm:     [vivierRyth, 'rhythm'],
                         Language:   [vivierLang, 'language'] };
+
+        OPTIONNELS = {};
+        for (var nomV in VIVIERS) {
+            OPTIONNELS[nomV] = !poserValeurUnique(VIVIERS[nomV][0], VIVIERS[nomV][1]);
+        }
 
         var conditionnels = ordonner(['Speciality', 'Rhythm', 'Language']);
         for (var c = 0; c < conditionnels.length; c++) {
