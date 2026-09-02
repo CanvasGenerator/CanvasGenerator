@@ -1257,6 +1257,25 @@ try {
      */
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
+
+        /* ---- IMMERSION : L'INSTANCE EST CELLE DE L'ECOLE ------------------
+           Le contrat dit « une Summit Event Instance par ecole » pour
+           l'immersion, et c'est vrai : les dix existent. Mais le CRM les
+           rattache a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
+           NANTES — alors que le filtre ci-dessous compare au campus CHOISI.
+           Un candidat EFAP qui prend PARIS ne verrait donc aucune date, et ne
+           pourrait pas s'inscrire, alors que l'immersion de son ecole existe.
+
+           Quand il n'y a qu'UNE instance pour toute l'ecole, on la retient donc
+           quel que soit le campus : c'est un evenement d'ecole, pas de campus.
+
+           La garde « exactement une » est essentielle. Des qu'une ecole en aura
+           plusieurs, sur des villes differentes, le campus redeviendra un
+           critere legitime et ce raccourci s'effacera de lui-meme. */
+        var typeEvt = champ('TypeEvenement');
+        if (toutes.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
+            return toutes;
+        }
         /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
            auparavant toutes les dates de l'ecole, tous campus confondus : le
            visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
