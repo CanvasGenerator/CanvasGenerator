@@ -43,7 +43,8 @@ const DE = {
     config: 'LPB_Config_Formulaires',
     campus: 'LPB_Mapping_Campus',
     campagnes: 'LPB_Mapping_Campagnes',
-    niveaux: 'LPB_Mapping_Niveaux'
+    niveaux: 'LPB_Mapping_Niveaux',
+    indicatifs: 'LPB_Mapping_Indicatifs'
 };
 
 const args = process.argv.slice(2);

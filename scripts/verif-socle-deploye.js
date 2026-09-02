@@ -47,6 +47,10 @@ const MARQUEURS = [
     { texte: "['EDH STUDENT',   20]", quoi: 'ordre de « Vous etes »' },
     { texte: "['BAC OBTENU', 50]",    quoi: 'ordre du niveau d etudes' },
     { texte: 'Lookup("LPB_Mapping_Ecoles", "Libelle"', quoi: 'lecture du libelle de marque' },
+    { texte: 'function cleDeTri', quoi: 'indicatifs par ordre alphabetique de pays' },
+    { texte: 'LPB_Mapping_Indicatifs', quoi: 'lecture de la DE des longueurs de telephone' },
+    { texte: 'function erreurLongueurTel', quoi: 'controle de longueur du telephone' },
+    { texte: 'erreursTelephone(form)', quoi: '  et son refus a la soumission' },
 ];
 
 const args = process.argv.slice(2);
