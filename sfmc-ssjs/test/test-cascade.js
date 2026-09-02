@@ -651,9 +651,11 @@ test('Marque inconnue : le libelle Salesforce est conserve', () => {
 
 test('Niveau d etudes : ordre pedagogique, pas celui du value set', () => {
     const d = jouerAffichage({ StudyLevel: NIVEAUX_CRM });
+    /* « BAC+1 » du value set s affiche « Bac+1 » depuis le retour du 02/09 :
+       le CRM garde ses capitales, l ecran ne les montre plus. */
     egal(d.options('StudyLevel'),
-         ['Collège', 'Seconde', 'Première', 'Terminale', 'BAC obtenu ou Prépa',
-          'BAC+1', 'BAC+2', 'BAC+3', 'BAC+4', 'BAC+5 et +', 'Autres'],
+         ['Collège', 'Seconde', 'Première', 'Terminale', 'Bac obtenu ou Prépa',
+          'Bac+1', 'Bac+2', 'Bac+3', 'Bac+4', 'Bac+5 et +', 'Autres'],
          'niveaux d etudes');
 }, LAYOUT_AFFICHAGE);
 
@@ -689,10 +691,92 @@ test('Les deux conventions de casse du CRM se classent pareil [REGRESSION]', () 
         { value: 'bac+2',      label: 'bac+2' },
         { value: 'Bac obtenu', label: 'Bac obtenu' },
     ] });
+    /* Les libelles ressortent dans la casse d affichage (retour du 02/09) :
+       ce test regarde l ORDRE, pas la casse — `COLLÈGE` reste bien en tete. */
     egal(d.options('StudyLevel'),
-         ['COLLÈGE', 'Bac obtenu', 'bac+2', 'Bac+5/+', 'Autre'],
+         ['Collège', 'Bac obtenu', 'Bac+2', 'Bac+5/+', 'Autre'],
          'niveaux de l autre referentiel');
 }, LAYOUT_AFFICHAGE);
+
+/* ---- Casse des libelles (retour client du 02/09) ----------------------
+   « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre en
+   minuscule). » Le CRM stocke « EFAP PARIS », « BAC+1 », « COLLEGE » : ses
+   valeurs ne bougent pas, seul l'ecran change. Chaque test verifie donc les
+   deux moities — le texte lu ET la `value` postee. */
+
+const LAYOUT_CASSE = [['Email', 0], ['Campus', 1], ['Country', 1],
+                      ['StudyLevel', 1], ['Consentements', 0]];
+
+function jouerCasse(surcharge) {
+    const dom = creerDom(LAYOUT_CASSE);
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg() }, surcharge) },
+        document: dom.document,
+    });
+    return dom;
+}
+
+test('Campus : les capitales du CRM ne sortent plus a l ecran', () => {
+    const d = jouerCasse({ campus: [
+        { value: 'EFAP PARIS',               label: 'EFAP PARIS' },
+        { value: 'BRASSART AIX-EN-PROVENCE', label: 'BRASSART AIX-EN-PROVENCE' },
+    ] });
+    /* « Aix-en-Provence » et non « Aix-En-Provence » : la particule redescend
+       des qu elle n ouvre pas le libelle. */
+    egal(d.options('Campus'), ['Brassart Aix-en-Provence', 'Efap Paris'],
+         'libelles de campus');
+    egal(valeurs(d, 'Campus'), ['BRASSART AIX-EN-PROVENCE', 'EFAP PARIS'],
+         'values postees au socle d ecriture');
+}, LAYOUT_CASSE);
+
+test('Pays : une majuscule par mot, les particules exceptees', () => {
+    const d = jouerCasse({ picklists: { Country: [
+        { value: 'FR', label: 'FRANCE' },
+        { value: 'CI', label: "CÔTE D'IVOIRE" },
+        { value: 'GB', label: 'Royaume-Uni' },
+    ] } });
+    egal(d.options('Country'), ["Côte d'Ivoire", 'France', 'Royaume-Uni'],
+         'libelles de pays');
+}, LAYOUT_CASSE);
+
+test('Niveau : casse de PHRASE, pas de titre anglais', () => {
+    /* Une majuscule par mot donnerait « Bac Obtenu Ou Prepa » : un titre, pas
+       une phrase francaise. Le niveau, « vous etes » et les programmes ne
+       prennent donc que leur premiere lettre. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'BAC OBTENU OU PRÉPA', label: 'BAC OBTENU OU PRÉPA' },
+    ] } });
+    egal(d.options('StudyLevel'), ['Bac obtenu ou prépa'], 'niveau en casse de phrase');
+    egal(valeurs(d, 'StudyLevel'), ['BAC OBTENU OU PRÉPA'], 'value du niveau intacte');
+}, LAYOUT_CASSE);
+
+test('Sigles et codes gardent leurs capitales', () => {
+    /* « Bep », « Mba » ou « Lille a1 » seraient des fautes, pas des
+       corrections : un sigle n a pas de premiere lettre a mettre en
+       majuscule, et « A1 » est un code de programme. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'BEP',           label: 'BEP' },
+        { value: 'MBA MARKETING', label: 'MBA MARKETING' },
+        { value: 'Lille A1',      label: 'Lille A1' },
+    ] } });
+    const lus = d.options('StudyLevel');
+    for (const attendu of ['BEP', 'MBA marketing', 'Lille A1']) {
+        if (!lus.includes(attendu)) {
+            throw new Error(`« ${attendu} » abime : ${JSON.stringify(lus)}`);
+        }
+    }
+}, LAYOUT_CASSE);
+
+test('Un libelle deja ecrit a la main n est pas retouche', () => {
+    /* La regle ne vise que les CAPITALES du CRM. « Bac obtenu », saisi
+       correctement, doit ressortir identique — sinon on corrige du texte qui
+       n a rien demande. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'Bac obtenu', label: 'Bac obtenu' },
+        { value: 'Terminale',  label: 'Terminale' },
+    ] } });
+    egal(d.options('StudyLevel'), ['Terminale', 'Bac obtenu'], 'libelles intacts');
+}, LAYOUT_CASSE);
 
 test('La liste de la cascade est triee aussi, sous le nom « Niveau »', () => {
     /* Le niveau porte trois noms de champ selon le formulaire. Ici c'est la

@@ -440,6 +440,113 @@ try {
         return String(gabarit[langue] || gabarit.fr).replace('{marque}', m);
     }
 
+    /* ═══════════════════════════════════════════════════════════════════
+       CASSE DES LIBELLES — retour client du 02/09
+       « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre
+       en minuscule). »
+
+       Le CRM stocke ses valeurs en CAPITALES : "EFAP PARIS", "BRASSART
+       AIX-EN-PROVENCE", "COLLEGE", "BAC+5 et +". Elles arrivaient telles
+       quelles dans les listes deroulantes.
+
+       ⚠ Seul le TEXTE AFFICHE change. La `value` de l'option reste la valeur
+       Salesforce d'origine : c'est elle qui repart au socle d'ecriture, et la
+       reecrire casserait toutes les ecritures. Meme raison que pour la
+       traduction, juste en dessous.
+
+       Deux natures de libelles, donc deux casses — la meme coupure que dans
+       `trier` plus bas :
+         - NOMS PROPRES (campus, pays, indicatifs) : chaque mot prend sa
+           majuscule, « EFAP PARIS » → « Efap Paris » ;
+         - PHRASES (niveau d'etudes, « vous etes », programmes, ateliers) :
+           seule la premiere lettre, « BAC OBTENU OU PREPA » → « Bac obtenu
+           ou prepa ». Une majuscule par mot y ferait un titre anglais.
+
+       Trois garde-fous, parce qu'une regle appliquee betement abime autant
+       qu'elle repare :
+         - un mot qui porte DEJA une minuscule n'est pas touche : « Bac
+           obtenu », « Aix-en-Provence » ont ete ecrits a la main, on ne va
+           pas les redresser ;
+         - les sigles de diplomes restent en capitales — « BEP », « MBA »
+           n'ont pas de premiere lettre a mettre en majuscule, et une ou deux
+           lettres sont un code, jamais un mot : « Lille A1 » reste tel quel ;
+         - les particules redescendent en minuscules quand elles ne
+           commencent pas le libelle : « Aix-en-Provence », et non
+           « Aix-En-Provence ».
+    */
+    var SIGLES = {
+        BEP: 1, CAP: 1, BTS: 1, BUT: 1, DUT: 1, IUT: 1, MBA: 1, BBA: 1, MSC: 1,
+        CPGE: 1, MANAA: 1, DNMADE: 1, DNA: 1, DNSEP: 1, DCG: 1, DSCG: 1,
+        PASS: 1, LAS: 1
+    };
+    var PARTICULES = {
+        DE: 1, DU: 1, DES: 1, LE: 1, LA: 1, LES: 1, EN: 1, ET: 1, OU: 1,
+        SUR: 1, SOUS: 1, AU: 1, AUX: 1, D: 1, L: 1, LEZ: 1
+    };
+
+    /* Un « mot » garde ses chiffres et son `+` : « BAC+5 » ne doit pas se
+       couper en « BAC » et « 5 », sinon le `+5` ferait perdre la majuscule. */
+    var RE_MOT     = /[0-9A-Za-zÀ-ÿ+]+/g;
+    var RE_MAJUSC  = /[A-ZÀ-ÖØ-Þ]/;
+    var RE_MINUSC  = /[a-zß-öø-ÿ]/;
+    var RE_LETTRE  = /[A-Za-zÀ-ÿ]/;
+
+    /** Un mot ecrit tout en capitales — le seul cas qu'on se permet de refaire. */
+    function toutEnCapitales(mot) {
+        return RE_MAJUSC.test(mot) && !RE_MINUSC.test(mot);
+    }
+
+    /**
+     * Une ou deux lettres en capitales : un CODE, pas un mot.
+     *
+     * « Lille A1 » nomme un vrai programme du CRM, et le passer a la casse des
+     * phrases donnait « Lille a1 » — un identifiant abime. La regle vaut aussi
+     * pour « MS », « RH », « ES » : aucun d'eux n'a de premiere lettre a mettre
+     * en majuscule. Les chiffres ne comptent pas, sinon « BAC+5 » (3 lettres)
+     * passerait pour un code.
+     */
+    function estCode(mot) {
+        return mot.replace(/[^A-Za-zÀ-ÿ]/g, '').length <= 2;
+    }
+
+    /**
+     * Le libelle, remis dans une casse lisible.
+     * `nomPropre` : une majuscule par mot (campus, pays) plutot que la seule
+     * premiere lettre (niveaux, phrases).
+     */
+    function casseLisible(texte, nomPropre) {
+        var brut = String(texte === null || texte === undefined ? '' : texte);
+        var premier = true;
+
+        var sortie = brut.replace(RE_MOT, function (mot) {
+            var debut = premier;
+            premier = false;
+            if (!toutEnCapitales(mot)) return mot;
+            var bas = mot.toLowerCase();
+            /* Les particules PASSENT AVANT les codes : « en », « d », « ou »
+               tiennent en deux lettres et seraient prises pour des sigles,
+               laissant « Aix-EN-Provence » et « Bac obtenu OU prepa ». */
+            if (!debut && PARTICULES[mot]) return bas;
+            if (SIGLES[mot] || estCode(mot)) return mot;
+            if (!nomPropre) return bas;
+            return bas.charAt(0).toUpperCase() + bas.substring(1);
+        });
+
+        if (nomPropre) return sortie;
+
+        /* Phrase : la premiere lettre du libelle, ou qu'elle soit — « +33 » et
+           « 3e » commencent par un chiffre, la majuscule tombe sur la lettre
+           qui suit. Deja capitale (sigle en tete) : on n'y touche pas. */
+        var i = sortie.search(RE_LETTRE);
+        if (i === -1) return sortie;
+        return sortie.substring(0, i) + sortie.charAt(i).toUpperCase() + sortie.substring(i + 1);
+    }
+
+    /** Les listes dont les valeurs sont des noms propres, pas des phrases. */
+    function estNomPropre(name) {
+        return name === 'Campus' || name === 'Country' || name === 'Indicatif';
+    }
+
     /**
      * Le libelle a AFFICHER pour une option.
      *
@@ -462,10 +569,14 @@ try {
         if (surMesure) return surMesure;
 
         var brut = option.label || option.value;
-        if (langue !== 'en') return brut;
+        var propre = estNomPropre(name);
+        /* La casse s'applique APRES le dictionnaire : celui-ci est indexe sur
+           le libelle BRUT du CRM, chercher « Paris » quand la DE connait
+           « PARIS » ne trouverait plus rien. */
+        if (langue !== 'en') return casseLisible(brut, propre);
         var dico = D && D.traductions;
-        if (!dico) return brut;
-        return dico[brut] || brut;
+        if (!dico) return casseLisible(brut, propre);
+        return casseLisible(dico[brut] || brut, propre);
     }
 
     /**
@@ -1541,7 +1652,7 @@ try {
             var h = plage(a.debut, a.fin);
             /* Plus de mention « (obligatoire) » : la liste ne contient plus
                que ceux-la, la repeter sur chaque ligne n'apprend rien. */
-            txt.textContent = a.label + (h ? ' — ' + h : '');
+            txt.textContent = casseLisible(a.label, false) + (h ? ' — ' + h : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);
@@ -2686,7 +2797,8 @@ try {
 
                     var quand = document.createElement('strong');
                     quand.className = 'socle-instance-date';
-                    quand.textContent = dateLongue(inst.date) || inst.label || inst.value;
+                    quand.textContent = dateLongue(inst.date)
+                        || casseLisible(inst.label || inst.value, false);
                     gauche.appendChild(quand);
 
                     var detail = [];
@@ -2707,7 +2819,8 @@ try {
                     if (conf) {
                         var droite = document.createElement('span');
                         droite.className = 'socle-instance-conf';
-                        droite.textContent = conf.label + (conf.heure ? ' : ' + conf.heure : '');
+                        droite.textContent = casseLisible(conf.label, false)
+                            + (conf.heure ? ' : ' + conf.heure : '');
                         corps.appendChild(droite);
                     }
 
