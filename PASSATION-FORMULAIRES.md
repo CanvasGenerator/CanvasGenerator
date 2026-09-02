@@ -217,6 +217,43 @@ Les deux conditions croisées (CREAD brochure, BRASSART rythme) sont
 hors candidature, et donne les quatre à toutes les écoles sur la candidature,
 sans restriction de spécialité ni de niveau.
 
+### Affichage des picklists — retours client du 02/09
+
+Trois retours « Toutes les écoles » sur `Vous êtes` et `Niveau d'études`. Tous
+les trois sont traités **à l'affichage**, dans le JS du socle
+(`picklist-handler.ssjs`, bloc « RÈGLES D'AFFICHAGE ») :
+
+| Retour | Où | Effet |
+|---|---|---|
+| Supprimer `Jury` | table `MASQUE` | la valeur n'est plus **proposée** ; elle reste dans le value set et sert côté CRM |
+| `Étudiant dans une école du groupe` → `Étudiant <marque>` | table `MARQUE` | libellé seul ; `<marque>` = `LPB_Mapping_Ecoles.Libelle` |
+| Ordre `Vous êtes` puis `Niveau d'études` | table `RANG` | tri par rang métier, le value set n'en propose aucun |
+
+> ⚠ **Aucune valeur n'est écrite en dur.** Le value set Salesforce reste la
+> seule source : une règle qui ne retrouve pas sa valeur dans ce que le CRM a
+> renvoyé ne fait rien, et une valeur **inconnue** de la table `RANG` reste
+> affichée (rang 500, avant `Autres`) au lieu de disparaître en silence.
+> La `value` postée au socle d'écriture n'est jamais touchée — même contrat que
+> le dictionnaire de traduction.
+
+Ordre demandé pour le niveau d'études : collège, seconde, première, terminale,
+bac obtenu, bac+1 → bac+5, **CAP**, **BEP**, autre. CAP et BEP **ne sont pas
+dans le value set** de l'org : leur rang est posé pour qu'un ajout côté CRM
+suffise, sans rouvrir le socle. Tant qu'ils n'y sont pas, ils n'affichent rien.
+
+`RANG.StudyLevel` est **indépendant** de `option.ordre` (DE
+`LPB_Mapping_Niveaux`), lu par `ordreNiveauChoisi()` : ce dernier est un
+**seuil** métier (« spécialité à partir de bac+3 ») sur une échelle qui ne
+couvre que 6 niveaux. S'en servir pour l'affichage mettrait collège, seconde,
+première, bac obtenu et autres à égalité sur 0.
+
+Nouvelle dépendance : le socle lit `LPB_Mapping_Ecoles.Libelle`. Libellé vide =
+le libellé Salesforce d'origine est conservé — dégradé, pas cassé, et
+`npm run dump:socle` le signale désormais en ATTENTION.
+
+Tests : `sfmc-ssjs/test/test-cascade.js`, section « Règles d'affichage »
+(8 cas, sur les valeurs réelles des value sets de l'org).
+
 ### Événements
 
 - Dates filtrées **par campus**, fenêtre « prochaine date + 15 jours ».

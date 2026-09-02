@@ -142,6 +142,11 @@ function tableau(lignes, cols, entetes) {
                 anomalie('ATTENTION', `MARQUE — « ${e} » sans BusinessBrandId : la marque ne ` +
                     'sera pas écrite sur le Person Account.');
             }
+            if (!String(l.libelle || '').trim()) {
+                anomalie('ATTENTION', `AFFICHAGE — « ${e} » sans Libellé : « Vous êtes » ` +
+                    'affichera « Étudiant dans une école du groupe » au lieu de ' +
+                    '« Étudiant <marque> ». Dégradé, pas cassé.');
+            }
             if (!estVrai(l.actif)) {
                 anomalie('ATTENTION', `« ${e} » est à Actif=false : cascade désactivée, le ` +
                     'formulaire sortira vide (panne silencieuse, voulue).');
