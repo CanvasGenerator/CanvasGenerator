@@ -417,7 +417,20 @@ try {
      * champs se vider sans comprendre.
      *
      * On ne pose donc plus : le critere reste simplement non applique, les deux
-     * programmes restent en lice, et la LANGUE choisie fait le tri. */
+     * programmes restent en lice, et la LANGUE choisie fait le tri.
+     *
+     * ⚠ CONTREPARTIE ASSUMEE, mesuree le 02/09. Le champ reste MASQUE (regle du
+     * contrat : une seule valeur = aucun choix), donc le candidat ne peut pas
+     * trancher lui-meme. Sur BRASSART, 30 des 195 combinaisons campus x niveau
+     * n'offrent alors plus aucun champ pour affiner, et repartent sans PTAT :
+     * la soumission passe, mais ni rentree ni regles de blocage.
+     *
+     * C'est le moindre mal. L'ancien comportement produisait un PTAT — celui
+     * d'un programme que le candidat n'avait PAS demande. Mieux vaut pas de
+     * reponse qu'une mauvaise reponse silencieuse.
+     *
+     * La vraie correction n'est pas ici : `Speciality__c` est vide sur ces
+     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules. */
     /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
        optionnels par nature : le candidat peut les renseigner ou non, donc ils
        ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
@@ -645,14 +658,17 @@ try {
         var el = champ(nom);
         if (!el) return false;
         var reelles = optionsReelles(el);
-        /* « Une seule valeur » ne justifie de MASQUER que si on la POSE. Sinon
-           le champ devient une impasse : invisible, vide, et impossible a
-           remplir — tout ce qui le suit reste bloque en mode progressif.
-           36 combinaisons de BRASSART etaient dans ce cas, mesure du 02/09. */
+        /* UNE SEULE VALEUR = AUCUN CHOIX : le champ est masque, qu'on puisse
+           poser la valeur ou non. Regle du contrat, reaffirmee le 02/09.
+
+           J'avais tente de laisser visible le cas ou la valeur n'est pas
+           posable, pour que le candidat puisse trancher lui-meme. Ecarte : ca
+           faisait apparaitre des champs la ou l'ecole n'en veut pas. La
+           contrepartie est assumee et documentee sous `poserValeurUnique`. */
         var uniquePosable = (reelles.length === 1 && poserSiUnique !== false);
         var visible = autorise(nom);
         if (visible && progressif && !precedentsRemplis(nom)) visible = false;
-        if (visible && (reelles.length === 0 || uniquePosable)) visible = false;
+        if (visible && reelles.length <= 1) visible = false;
         /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
            dans le formulaire, donc elle part au CRM. Sans cela le placeholder
            restait selectionne et le champ partait vide.
