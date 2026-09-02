@@ -527,7 +527,7 @@ ENDIF
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
-VAR @replLibelle, @garderType, @sansDate, @dBorne
+VAR @replLibelle, @garderType, @estImmersion, @dBorne
 SET @typeEvt     = RequestParameter("TypeEvenement")
 /* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
    formulaire. Sans elle, une page evenement ouverte normalement n'affichait
@@ -548,10 +548,10 @@ IF NOT Empty(@typeEvt) THEN
        Le filtre « a partir d'aujourd'hui » n'a donc aucun sens ici — et c'est
        lui qui ecartait les onze instances d'immersion, toutes datees du
        18/08/2026. On croyait a un probleme de type ; c'etait la date. */
-    SET @sansDate = "false"
+    SET @estImmersion = "false"
     SET @dBorne = @d0
     IF Lowercase(@typeEvt) == "immersion" THEN
-        SET @sansDate = "true"
+        SET @estImmersion = "true"
         /* Une borne basse plutot qu'aucun filtre : RetrieveSalesforceObjects
            exige un critere, et une date plancher n'exclut rien. */
         SET @dBorne = "1900-01-01"
@@ -597,7 +597,7 @@ IF NOT Empty(@typeEvt) THEN
 
        AUTRES TYPES : le type reste le critere, il est fiable sur les JPO,
        ateliers et stages, et bien plus sur qu'une correspondance de texte. */
-    IF @sansDate == "true" THEN
+    IF @estImmersion == "true" THEN
         SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
             "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
             "summit__Instance_Start_Date__c", ">=", @dBorne)
@@ -648,7 +648,18 @@ IF NOT Empty(@typeEvt) THEN
            AND (Length(@prefixUp) == 0
            OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
            OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1)) THEN
-            IF Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
+            /* `summit__Open_Registration__c` vaut false sur les ONZE instances
+               d'immersion. Sur une JPO ce drapeau ferme les inscriptions et
+               doit etre respecte ; sur l'immersion, la maitrise d'ouvrage a
+               tranche le 02/09 : il ne bloque pas.
+
+               ⚠ CE N'EST PAS SANS CONSEQUENCE, et c'est ecrit ici pour que
+               personne ne le decouvre en production : le socle creera des
+               Summit Event Registration sur des instances marquees fermees.
+               Si ce drapeau redevient un signal metier sur l'immersion, c'est
+               cette ligne qu'il faut retirer. */
+            IF @estImmersion == "true"
+               OR Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
                 /* DateDiff sur une date VIDE tue la page, et l'immersion
                    BRASSART en doublon n'en porte aucune. */
                 SET @delta = 0
@@ -656,7 +667,7 @@ IF NOT Empty(@typeEvt) THEN
                     SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
                 ENDIF
 
-                IF @sansDate == "true" OR @delta >= 0 THEN
+                IF @estImmersion == "true" OR @delta >= 0 THEN
                     /* Le nom du campus vient de la DE quand `campusNameFor__c`
                        est vide, ce qui est le cas general. Sans lui, le libelle
                        ne dirait pas OU la date a lieu — et le JS ne pourrait
