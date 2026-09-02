@@ -527,6 +527,7 @@ ENDIF
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
+VAR @replLibelle, @garderType
 SET @typeEvt     = RequestParameter("TypeEvenement")
 /* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
    formulaire. Sans elle, une page evenement ouverte normalement n'affichait
@@ -563,10 +564,38 @@ IF NOT Empty(@typeEvt) THEN
        qu'on ne connait pas encore. On ramene tout le futur du type demande
        (169 instances au total sur l'org, le volume n'est pas un sujet). */
     SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
+        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
         "summit__Instance_Start_Date__c", ">=", @d0,
         "eventType__c",          "=",  @typeEvt)
     SET @n = RowCount(@rows)
+
+    /* ---- REPLI SUR LE LIBELLE DE L'EVENEMENT --------------------------
+       `eventType__c` est du TEXTE LIBRE, et il est vide sur 98 des 189
+       instances de l'org — dont les dix journees d'immersion, une par ecole.
+       Une immersion existait donc pour chaque ecole sans qu'aucun formulaire
+       ne puisse la voir : le filtre ci-dessus ne ramenait rien, et la
+       soumission echouait sur « InstanceId non specifie ».
+
+       Quand le type ne rend RIEN, on relit sans lui et on retient les
+       instances dont le LIBELLE de l'evenement contient le type demande —
+       « Journee d'immersion BRASSART 26-27 » pour « Immersion ». Le libelle
+       est renseigne partout, lui.
+
+       Deliberement un REPLI et non un remplacement : le type reste la source
+       normale, plus sure qu'une correspondance de texte. Le jour ou le CRM
+       renseignera ces instances, la premiere requete rendra des lignes et ce
+       chemin s'eteindra de lui-meme, sans qu'on ait a y revenir.
+
+       Ne peut pas se faire cote navigateur : le filtre est POSE ICI, les
+       instances non typees n'atteignent jamais le JS. */
+    SET @replLibelle = "false"
+    IF @n == 0 THEN
+        SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+            "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
+            "summit__Instance_Start_Date__c", ">=", @d0)
+        SET @n = RowCount(@rows)
+        SET @replLibelle = "true"
+    ENDIF
     SET @sepI = ""
     SET @evtIndex = ";"
 
@@ -590,9 +619,20 @@ IF NOT Empty(@typeEvt) THEN
         SET @cName = Field(@row, "campusNameFor__c")
         SET @instCampusId = Field(@row, "Campus__c")
 
-        IF Length(@prefixUp) == 0
+        /* En repli, le type ne filtre plus rien : c'est le libelle qui
+           decide. Hors repli, @garderType vaut toujours vrai. */
+        SET @garderType = "true"
+        IF @replLibelle == "true" THEN
+            SET @garderType = "false"
+            IF IndexOf(Lowercase(Field(@row, "summit__Event_Name__c")), Lowercase(@typeEvt)) > 0 THEN
+                SET @garderType = "true"
+            ENDIF
+        ENDIF
+
+        IF @garderType == "true"
+           AND (Length(@prefixUp) == 0
            OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
-           OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1) THEN
+           OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1)) THEN
             IF Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
                 SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
 
