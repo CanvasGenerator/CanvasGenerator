@@ -579,6 +579,12 @@ try {
         return conditionsRemplies(regle.conditions);
     }
 
+    /** Le formulaire courant est-il une immersion ? */
+    function estImmersion() {
+        var t = champ('TypeEvenement');
+        return Boolean(t) && Lowercase_(t.value) === 'immersion';
+    }
+
     /** Minuscules sans exploser sur null/undefined. */
     function Lowercase_(v) { return String(v == null ? '' : v).toLowerCase(); }
 
@@ -1258,24 +1264,18 @@ try {
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
 
-        /* ---- IMMERSION : L'INSTANCE EST CELLE DE L'ECOLE ------------------
-           Le contrat dit « une Summit Event Instance par ecole » pour
-           l'immersion, et c'est vrai : les dix existent. Mais le CRM les
-           rattache a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
-           NANTES — alors que le filtre ci-dessous compare au campus CHOISI.
-           Un candidat EFAP qui prend PARIS ne verrait donc aucune date, et ne
-           pourrait pas s'inscrire, alors que l'immersion de son ecole existe.
+        /* ---- IMMERSION : PAS DE DATE, PAS DE CAMPUS, PAS DE CHOIX --------
+           L'immersion n'est pas un evenement date : l'ecole en a UNE, elle sert
+           de rattachement a l'inscription Summit, et le candidat n'a rien a
+           selectionner. Ni la fenetre de 15 jours ni le filtre par campus n'ont
+           donc de sens ici.
 
-           Quand il n'y a qu'UNE instance pour toute l'ecole, on la retient donc
-           quel que soit le campus : c'est un evenement d'ecole, pas de campus.
-
-           La garde « exactement une » est essentielle. Des qu'une ecole en aura
-           plusieurs, sur des villes differentes, le campus redeviendra un
-           critere legitime et ce raccourci s'effacera de lui-meme. */
-        var typeEvt = champ('TypeEvenement');
-        if (toutes.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
-            return toutes;
-        }
+           Le campus, en particulier, aurait tout casse : le CRM rattache chaque
+           instance a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
+           NANTES — alors qu'un candidat EFAP choisit souvent PARIS. Il n'aurait
+           vu aucune date et n'aurait pas pu s'inscrire, alors que l'immersion de
+           son ecole existe. */
+        if (estImmersion()) return toutes;
         /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
            auparavant toutes les dates de l'ecole, tous campus confondus : le
            visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
@@ -2052,19 +2052,15 @@ try {
                     zoneDates.appendChild(wrap);
                 });
 
-                /* ---- IMMERSION : UNE SEULE DATE, DONC AUCUN CHOIX ---------
-                   Le contrat veut une seule Summit Event Instance par ecole
-                   pour l'immersion — verifie le 02/09, les dix existent. Le
-                   candidat n'a donc rien a choisir : on masque le bloc date,
-                   sans toucher au bouton radio, qui reste dans le <form> et
-                   part au CRM. Meme regle que la cascade : une seule valeur se
-                   POSE, elle ne se PROPOSE pas.
+                /* ---- IMMERSION : LE BLOC DATE N'EXISTE PAS ---------------
+                   La notion de date n'a pas cours sur l'immersion : l'instance
+                   de l'ecole est cochee d'office et le bloc reste masque, quel
+                   que soit le nombre d'instances. Le bouton radio demeure dans
+                   le <form>, donc InstanceId part au CRM.
 
                    Volontairement limite a l'immersion. Sur une JPO ou un
-                   atelier, voir la date reste utile meme quand il n'y en a
-                   qu'une : c'est une information, pas une question. */
-                var typeEvt = champ('TypeEvenement');
-                if (liste.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
+                   atelier, la date est une information utile, meme unique. */
+                if (estImmersion()) {
                     var porteurDates = zoneDates.closest
                         ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
                         : zoneDates.parentNode;
