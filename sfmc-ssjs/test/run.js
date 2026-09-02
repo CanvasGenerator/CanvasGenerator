@@ -9,6 +9,8 @@ const etapes = [
     ['Import des blocs',         ['test-modules.js']],
     ['Inliner',                  ['test-inliner.js']],
     ['Cascade navigateur',       ['test-cascade.js']],
+    ['Longueur du telephone',    ['test-telephone.js']],
+    ['Recherche indicatif',      ['test-recherche-indicatif.js']],
     ['Sous-evenements',          ['test-ateliers.js']],
     ['Champs requis',            ['test-requis.js']],
     ['Envoi au socle',           ['test-envoi.js']],

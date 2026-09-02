@@ -113,6 +113,12 @@ export default function (editor, categories) {
 .brf-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
 .brf-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .brf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule. Elle existe pour que le niveau
+   d'études et le campus ne soient pas FRERES : le socle réordonne les champs
+   qui partagent un parent, et les laisse intacts sinon. min-width:0 parce
+   qu'une cellule de grille refuse sinon de descendre sous la largeur de son
+   contenu, et un <select> à libellés longs élargirait la colonne. */
+.brf-col { min-width: 0; }
 .brf-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .brf-row .brf-field { margin-bottom: 0; }
 .brf-field.hidden { display: none; }
@@ -328,25 +334,69 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
             </div>
         </div>
 
-        <!-- Niveau d'études / Campus -->
-        <div class="brf-row">
-            <div class="brf-field">
-                <label class="brf-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="brf-sel-wrap">
-                    <select class="brf-select brf-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
-                </div>
-                <span class="brf-err-msg">${t.errRequired}</span>
+        <!-- Pays de résidence — position 6 de l'Excel des champs visibles :
+             juste après le téléphone, avant le niveau d'études. Ce champ ne
+             figure PAS dans la table NOM_DOM du socle, qui ne réordonne que
+             campus, niveau, spécialité, rythme, langue, rentrée et programme :
+             sa place ici est donc définitive, page publiée comprise. -->
+        <div class="brf-field">
+            <label class="brf-label">${t.country}<span class="req">*</span></label>
+            <div class="brf-sel-wrap">
+                <select class="brf-select" name="Country" required>
+                    ${countryOptions}
+                </select>
             </div>
-            <div class="brf-field">
-                <label class="brf-label">${t.campus}<span class="req">*</span></label>
-                <div class="brf-sel-wrap">
-                    <select class="brf-select lp-campus-select" name="Campus" required>
-                        ${campusOptions}
-                    </select>
+            <span class="brf-err-msg">${t.errRequired}</span>
+        </div>
+
+        <!-- Niveau d'études / Campus — positions 7 et 8 de l'Excel.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .brf-col. NE PAS LES REMETTRE FRERES
+             DANS LE .brf-row.
+
+             Sur la page publiée, le socle exécute appliquerOrdre() et
+             réordonne le DOM par-dessus l'ordre écrit ici, selon OrdreChamps
+             de l'école — qui vaut « campus,niveau,... » pour les dix écoles.
+             Deux .brf-field frères dans le .brf-row formaient un groupe de
+             deux porteurs, et le campus repassait donc devant le niveau :
+             l'ordre était correct dans le builder et faux en ligne, le
+             symptôme le plus coûteux à diagnostiquer.
+
+             reordonner() sort quand un groupe compte moins de deux porteurs,
+             et ne fait JAMAIS traverser une section à un champ. Un conteneur
+             par champ donne donc deux groupes d'un seul porteur : le socle
+             les laisse tous deux intacts, et l'ordre du gabarit est celui qui
+             s'affiche. Couvert par le test « Brochure : un champ seul dans sa
+             section n est pas deplace » (sfmc-ssjs/test/test-cascade.js).
+
+             Le .brf-col est une cellule de la grille : la mise en page à deux
+             colonnes est inchangée.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module —
+             l'erreur remonte alors sur le mot suivant, jamais sur la cause. -->
+        <div class="brf-row">
+            <div class="brf-col">
+                <div class="brf-field">
+                    <label class="brf-label">${t.studyLevel}<span class="req">*</span></label>
+                    <div class="brf-sel-wrap">
+                        <select class="brf-select brf-niveau" name="StudyLevel" required>
+                            ${studyLevelOptions}
+                        </select>
+                    </div>
+                    <span class="brf-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="brf-err-msg">${t.errRequired}</span>
+            </div>
+            <div class="brf-col">
+                <div class="brf-field">
+                    <label class="brf-label">${t.campus}<span class="req">*</span></label>
+                    <div class="brf-sel-wrap">
+                        <select class="brf-select lp-campus-select" name="Campus" required>
+                            ${campusOptions}
+                        </select>
+                    </div>
+                    <span class="brf-err-msg">${t.errRequired}</span>
+                </div>
             </div>
         </div>
 
@@ -378,17 +428,6 @@ ${buildHiddenFields({ formName: 'Telechargement_Brochure', formType: 'brochure',
                     <option value="">${t.programmePh}</option>
                 </select>
             </div>
-        </div>
-
-        <!-- Pays de résidence -->
-        <div class="brf-field">
-            <label class="brf-label">${t.country}<span class="req">*</span></label>
-            <div class="brf-sel-wrap">
-                <select class="brf-select" name="Country" required>
-                    ${countryOptions}
-                </select>
-            </div>
-            <span class="brf-err-msg">${t.errRequired}</span>
         </div>
 
         <!-- Champs conditionnels parent (facultatifs) -->

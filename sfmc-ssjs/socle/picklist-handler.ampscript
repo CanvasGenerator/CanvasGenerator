@@ -42,6 +42,7 @@ VAR @formTypePage, @ord
 VAR @condRows, @condRow, @i9, @condSpec, @condRyth, @condLang
 VAR @chpRows, @chp, @cfgCampusV
 VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
+VAR @indRows, @nInd, @indRow, @jsLongTel, @sepL, @nbMin, @nbMax, @indVal
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
 VAR @evtIndex, @evtRows, @nEvt, @e
 
@@ -296,6 +297,52 @@ IF Length(@dur) > 0 THEN
         ENDIF
     NEXT @i
 ENDIF
+
+/* ---- 2bis. Longueur de numero attendue, par indicatif -------------------
+   Retour client du 02/09 : « en fonction de l'indicatif renseigne, le nombre
+   de chiffres attendus n'est pas bloque ».
+
+   POURQUOI UNE DE ET PAS UNE TABLE DANS LE CODE. Le value set de l'org ne
+   porte QUE le code (`33`) et un libelle (`+33 (France)`) : la longueur
+   attendue n'existe nulle part cote CRM. Elle doit donc vivre quelque part, et
+   `LPB_Mapping_Indicatifs` la met la ou le metier peut la corriger sans
+   redeploiement — meme choix que LPB_Mapping_Niveaux. Une longueur fausse
+   BLOQUE un candidat reel, sans trace : il faut pouvoir la rectifier en une
+   minute, pas en une livraison.
+
+   Colonnes : Indicatif (cle) · Pays · NbMin · NbMax · Actif
+   Amorce fournie dans LPB_Mapping_Indicatifs.csv — 13 pays seulement, ceux
+   dont la longueur est certaine. Tout indicatif ABSENT de la DE reste
+   permissif (le controle generique 7-14 s'applique), ce qui est le bon defaut :
+   ne pas savoir ne doit jamais bloquer.
+
+   ⚠⚠ LA DE DOIT EXISTER AVANT DE DEPLOYER CE BLOC. `LookupRows` sur une DE
+   absente TUE LA PAGE — AMPscript n'a pas de try/catch, et il n'existe aucun
+   test d'existence prealable. Meme piege que LPB_Config_Champs_Ecole, deja
+   signale dans PASSATION-FORMULAIRES.md. `npm run dump:socle` refuse
+   desormais si elle manque : le lancer avant tout deploiement. */
+SET @jsLongTel = ""
+SET @sepL      = ""
+SET @indRows   = LookupRows("LPB_Mapping_Indicatifs", "Actif", "true")
+SET @nInd      = RowCount(@indRows)
+
+FOR @i = 1 TO @nInd DO
+    SET @indRow = Row(@indRows, @i)
+    SET @indVal = Field(@indRow, "Indicatif")
+    SET @nbMin  = Field(@indRow, "NbMin")
+    SET @nbMax  = Field(@indRow, "NbMax")
+
+    /* Une ligne incomplete est IGNOREE, pas emise a moitie : `min:` sans
+       valeur produirait un objet JavaScript invalide, donc un SOCLE_DATA
+       illisible — et la cascade entiere tomberait avec lui. */
+    IF NOT Empty(@indVal) AND NOT Empty(@nbMin) AND NOT Empty(@nbMax) THEN
+        SET @jsLongTel = Concat(@jsLongTel, @sepL, "'",
+            Replace(Replace(@indVal, "\", "\\"), "'", "\'"), "':{min:", @nbMin,
+            ",max:", @nbMax, ",pays:'",
+            Replace(Replace(Field(@indRow, "Pays"), "\", "\\"), "'", "\'"), "'}")
+        SET @sepL = ","
+    ENDIF
+NEXT @i
 
 /* ---- 3. Niveau d'etudes -> Account.Academic_Level_List__c -------------- */
 SET @dur = ""
@@ -827,6 +874,9 @@ window.SOCLE_DATA = {
         "VousEtes":   [%%=v(@jsQui)=%%]
     },
     "traductions": {%%=v(@jsDico)=%%},
+    /* Longueurs de numero attendues, par indicatif. Objet VIDE = aucun
+       controle par pays, le generique 7-14 reste seul en vigueur. */
+    "longueursTel": {%%=v(@jsLongTel)=%%},
     "campus":   [%%=v(@jsCampus)=%%],
     "programs": [%%=v(@jsProgs)=%%],
     "ptats":    [%%=v(@jsPtats)=%%],
@@ -898,6 +948,13 @@ window.SOCLE_DATA = {
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsCountry,"}")),1)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Indicatif</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsIndicatif,"}")),1)=%%</b></td></tr>
+    %%[ /* Longueurs de telephone : le NOMBRE DE REGLES ACTIVES lues dans
+           LPB_Mapping_Indicatifs. A 0, la DE est vide ou toutes ses lignes sont
+           a Actif=false, et aucun controle par pays ne s'applique — le
+           generique 7-14 reste seul. C'est la ligne a regarder en premier quand
+           « ca ne bloque pas ». */ ]%%
+    <tr><td style="padding:5px 12px">Longueurs t&eacute;l&eacute;phone (DE)</td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=RowCount(@indRows)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Niveau d'&eacute;tudes</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsLevel,"}")),1)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Vous &ecirc;tes</td>
@@ -1147,6 +1204,113 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return String(gabarit[langue] || gabarit.fr).replace('{marque}', m);
     }
 
+    /* ═══════════════════════════════════════════════════════════════════
+       CASSE DES LIBELLES — retour client du 02/09
+       « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre
+       en minuscule). »
+
+       Le CRM stocke ses valeurs en CAPITALES : "EFAP PARIS", "BRASSART
+       AIX-EN-PROVENCE", "COLLEGE", "BAC+5 et +". Elles arrivaient telles
+       quelles dans les listes deroulantes.
+
+       ⚠ Seul le TEXTE AFFICHE change. La `value` de l'option reste la valeur
+       Salesforce d'origine : c'est elle qui repart au socle d'ecriture, et la
+       reecrire casserait toutes les ecritures. Meme raison que pour la
+       traduction, juste en dessous.
+
+       Deux natures de libelles, donc deux casses — la meme coupure que dans
+       `trier` plus bas :
+         - NOMS PROPRES (campus, pays, indicatifs) : chaque mot prend sa
+           majuscule, « EFAP PARIS » → « Efap Paris » ;
+         - PHRASES (niveau d'etudes, « vous etes », programmes, ateliers) :
+           seule la premiere lettre, « BAC OBTENU OU PREPA » → « Bac obtenu
+           ou prepa ». Une majuscule par mot y ferait un titre anglais.
+
+       Trois garde-fous, parce qu'une regle appliquee betement abime autant
+       qu'elle repare :
+         - un mot qui porte DEJA une minuscule n'est pas touche : « Bac
+           obtenu », « Aix-en-Provence » ont ete ecrits a la main, on ne va
+           pas les redresser ;
+         - les sigles de diplomes restent en capitales — « BEP », « MBA »
+           n'ont pas de premiere lettre a mettre en majuscule, et une ou deux
+           lettres sont un code, jamais un mot : « Lille A1 » reste tel quel ;
+         - les particules redescendent en minuscules quand elles ne
+           commencent pas le libelle : « Aix-en-Provence », et non
+           « Aix-En-Provence ».
+    */
+    var SIGLES = {
+        BEP: 1, CAP: 1, BTS: 1, BUT: 1, DUT: 1, IUT: 1, MBA: 1, BBA: 1, MSC: 1,
+        CPGE: 1, MANAA: 1, DNMADE: 1, DNA: 1, DNSEP: 1, DCG: 1, DSCG: 1,
+        PASS: 1, LAS: 1
+    };
+    var PARTICULES = {
+        DE: 1, DU: 1, DES: 1, LE: 1, LA: 1, LES: 1, EN: 1, ET: 1, OU: 1,
+        SUR: 1, SOUS: 1, AU: 1, AUX: 1, D: 1, L: 1, LEZ: 1
+    };
+
+    /* Un « mot » garde ses chiffres et son `+` : « BAC+5 » ne doit pas se
+       couper en « BAC » et « 5 », sinon le `+5` ferait perdre la majuscule. */
+    var RE_MOT     = /[0-9A-Za-zÀ-ÿ+]+/g;
+    var RE_MAJUSC  = /[A-ZÀ-ÖØ-Þ]/;
+    var RE_MINUSC  = /[a-zß-öø-ÿ]/;
+    var RE_LETTRE  = /[A-Za-zÀ-ÿ]/;
+
+    /** Un mot ecrit tout en capitales — le seul cas qu'on se permet de refaire. */
+    function toutEnCapitales(mot) {
+        return RE_MAJUSC.test(mot) && !RE_MINUSC.test(mot);
+    }
+
+    /**
+     * Une ou deux lettres en capitales : un CODE, pas un mot.
+     *
+     * « Lille A1 » nomme un vrai programme du CRM, et le passer a la casse des
+     * phrases donnait « Lille a1 » — un identifiant abime. La regle vaut aussi
+     * pour « MS », « RH », « ES » : aucun d'eux n'a de premiere lettre a mettre
+     * en majuscule. Les chiffres ne comptent pas, sinon « BAC+5 » (3 lettres)
+     * passerait pour un code.
+     */
+    function estCode(mot) {
+        return mot.replace(/[^A-Za-zÀ-ÿ]/g, '').length <= 2;
+    }
+
+    /**
+     * Le libelle, remis dans une casse lisible.
+     * `nomPropre` : une majuscule par mot (campus, pays) plutot que la seule
+     * premiere lettre (niveaux, phrases).
+     */
+    function casseLisible(texte, nomPropre) {
+        var brut = String(texte === null || texte === undefined ? '' : texte);
+        var premier = true;
+
+        var sortie = brut.replace(RE_MOT, function (mot) {
+            var debut = premier;
+            premier = false;
+            if (!toutEnCapitales(mot)) return mot;
+            var bas = mot.toLowerCase();
+            /* Les particules PASSENT AVANT les codes : « en », « d », « ou »
+               tiennent en deux lettres et seraient prises pour des sigles,
+               laissant « Aix-EN-Provence » et « Bac obtenu OU prepa ». */
+            if (!debut && PARTICULES[mot]) return bas;
+            if (SIGLES[mot] || estCode(mot)) return mot;
+            if (!nomPropre) return bas;
+            return bas.charAt(0).toUpperCase() + bas.substring(1);
+        });
+
+        if (nomPropre) return sortie;
+
+        /* Phrase : la premiere lettre du libelle, ou qu'elle soit — « +33 » et
+           « 3e » commencent par un chiffre, la majuscule tombe sur la lettre
+           qui suit. Deja capitale (sigle en tete) : on n'y touche pas. */
+        var i = sortie.search(RE_LETTRE);
+        if (i === -1) return sortie;
+        return sortie.substring(0, i) + sortie.charAt(i).toUpperCase() + sortie.substring(i + 1);
+    }
+
+    /** Les listes dont les valeurs sont des noms propres, pas des phrases. */
+    function estNomPropre(name) {
+        return name === 'Campus' || name === 'Country' || name === 'Indicatif';
+    }
+
     /**
      * Le libelle a AFFICHER pour une option.
      *
@@ -1169,10 +1333,37 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (surMesure) return surMesure;
 
         var brut = option.label || option.value;
-        if (langue !== 'en') return brut;
+        var propre = estNomPropre(name);
+        /* La casse s'applique APRES le dictionnaire : celui-ci est indexe sur
+           le libelle BRUT du CRM, chercher « Paris » quand la DE connait
+           « PARIS » ne trouverait plus rien. */
+        if (langue !== 'en') return casseLisible(brut, propre);
         var dico = D && D.traductions;
-        if (!dico) return brut;
-        return dico[brut] || brut;
+        if (!dico) return casseLisible(brut, propre);
+        return casseLisible(dico[brut] || brut, propre);
+    }
+
+    /**
+     * Le texte sur lequel une option est CLASSEE — pas toujours celui qu'elle
+     * affiche.
+     *
+     * Les indicatifs s'affichent `+34 (Espagne)`, `+596 (Martinique)`. Trier ce
+     * libelle tel quel classerait par le CHIFFRE, puisqu'il est en tete : +1,
+     * +212, +33... c'est-a-dire l'ancien tri numerique sous un autre nom, et
+     * pas du tout ce que demande le retour client du 02/09 (« par ordre
+     * alphabetique »). On classe donc sur le nom de PAYS, entre parentheses.
+     *
+     * Sans parentheses — libelle d'une autre forme, ou value set modifie — on
+     * retombe sur le libelle entier. Mal classe au pire, jamais perdu.
+     */
+    function cleDeTri(name, option, langue) {
+        var texte = libelleAffiche(option, langue, name);
+        if (name !== 'Indicatif') return texte;
+
+        var ouvre = String(texte).indexOf('(');
+        var ferme = String(texte).lastIndexOf(')');
+        if (ouvre === -1 || ferme <= ouvre + 1) return texte;
+        return String(texte).substring(ouvre + 1, ferme);
     }
 
     /**
@@ -1182,14 +1373,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      * n'est ni alphabetique ni numerique : les 201 indicatifs arrivent par
      * exemple en 992, 379, 387, 243... Illisible dans un <select>.
      *
-     * Trois tris, parce que trois natures de donnees :
-     *   - Indicatif : NUMERIQUE. Un tri alphabetique mettrait 1 avant 212,
-     *     mais aussi 33 apres 212 ; on compare donc les nombres.
-     *   - Pays et campus : ALPHABETIQUE, avec localeCompare pour que Egypte
-     *     passe avant Emirats et Etats-Unis, ce qu'un tri par code ne fait pas.
-     *   - « Vous etes » et niveau d'etudes : ORDRE METIER, ni l'un ni l'autre
-     *     (cf. la table RANG plus haut). L'alphabet detruirait le parcours
-     *     scolaire, et le value set n'a jamais eu d'ordre a proposer.
+     * Deux tris, parce que deux natures de donnees :
+     *   - Pays, campus et INDICATIFS : ALPHABETIQUE sur ce que le visiteur
+     *     lit, avec localeCompare pour qu'Egypte passe avant Emirats et
+     *     Etats-Unis, ce qu'un tri par code ne fait pas.
+     *   - « Vous etes » et niveau d'etudes : ORDRE METIER, ni alphabetique ni
+     *     numerique (cf. la table RANG plus haut). L'alphabet detruirait le
+     *     parcours scolaire, et le value set n'a jamais eu d'ordre a proposer.
      *
      * Les listes de la CASCADE (Niveau, Speciality, Rhythm...) ne sont pas
      * triees ici : elles sortent des programmes, pas d'un value set.
@@ -1197,18 +1387,6 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     function trier(name, options) {
         if (!options || options.length < 2) return options;
         var copie = options.slice();
-
-        if (name === 'Indicatif') {
-            copie.sort(function (a, b) {
-                var na = parseInt(a.value, 10);
-                var nb = parseInt(b.value, 10);
-                if (isNaN(na) && isNaN(nb)) return 0;
-                if (isNaN(na)) return 1;
-                if (isNaN(nb)) return -1;
-                return na - nb;
-            });
-            return copie;
-        }
 
         if (RANG[name]) {
             /* Tri STABLE : deux valeurs de meme rang — deux inconnues de la
@@ -1225,15 +1403,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             return ordonnees;
         }
 
-        if (name === 'Country' || name === 'Campus') {
+        if (name === 'Country' || name === 'Campus' || name === 'Indicatif') {
             // Tri sur le libelle AFFICHE, et dans la locale de la page : une
             // liste anglaise triee selon l'alphabet francais serait desordonnee
             // pour le lecteur.
             var lg = langueAffichage();
             var loc = lg === 'en' ? 'en' : 'fr';
             copie.sort(function (a, b) {
-                var la = libelleAffiche(a, lg, name);
-                var lb = libelleAffiche(b, lg, name);
+                var la = cleDeTri(name, a, lg);
+                var lb = cleDeTri(name, b, lg);
                 return String(la).localeCompare(String(lb), loc, { sensitivity: 'base' });
             });
             return copie;
@@ -1808,6 +1986,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     for (var nom in D.picklists) {
         if (D.picklists.hasOwnProperty(nom)) remplir(nom, D.picklists[nom], valeur(nom));
     }
+    /* APRES le remplissage : le champ de recherche se construit a partir des
+       <option> reellement presentes. Le faire avant ne verrait que les 7
+       options statiques du builder. */
+    brancherRechercheIndicatif();
     remplir('Campus', D.campus, valeur('Campus'));
     preselectionnerCampus();
     appliquerCampus();
@@ -2377,7 +2559,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             var h = plage(a.debut, a.fin);
             /* Plus de mention « (obligatoire) » : la liste ne contient plus
                que ceux-la, la repeter sur chaque ligne n'apprend rien. */
-            txt.textContent = a.label + (h ? ' — ' + h : '');
+            txt.textContent = casseLisible(a.label, false) + (h ? ' — ' + h : '');
 
             wrap.appendChild(box);
             wrap.appendChild(txt);
@@ -2697,7 +2879,18 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         /* Motif absent : une page publiee avant que le socle d'ecriture ne
            l'emette. R1 est le cas de loin le plus frequent, et son message ne
            prejuge d'aucune decision de jury — c'est le defaut le moins faux. */
-        var lignes = MESSAGES_BLOCAGE[motif] || MESSAGES_BLOCAGE.r1;
+        montrerMessage(form, MESSAGES_BLOCAGE[motif] || MESSAGES_BLOCAGE.r1);
+    }
+
+    /**
+     * Affiche des lignes libres dans le meme encart.
+     *
+     * Extrait de `montrerBlocage` pour servir aussi aux refus de SAISIE — un
+     * numero de telephone au mauvais format, par exemple. Meme encart a dessein
+     * : le candidat a un seul endroit a lire, et il est deja style, place
+     * au-dessus du bouton et annonce aux lecteurs d'ecran.
+     */
+    function montrerMessage(form, lignes) {
         var zone = encartBlocage(form);
 
         while (zone.firstChild) zone.removeChild(zone.firstChild);
@@ -2770,6 +2963,570 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
              + "Le detail est dans LPB_Log_Soumissions, derniere ligne du RunId.";
     }
 
+    /* ========================================================================
+     *  RECHERCHE DANS LA LISTE DES INDICATIFS
+     * ------------------------------------------------------------------------
+     *  Retour client du 02/09 : « permettre a l'utilisateur de trouver le bon
+     *  indicatif en tapant un chiffre (ex : +34) ou en tapant des lettres
+     *  (ex : ES) ».
+     *
+     *  Un <select> natif ne sait pas faire : le navigateur ne compare qu'au
+     *  DEBUT du texte de l'option, et nos libelles commencent par le chiffre —
+     *  taper « ES » ne trouve donc jamais « +34 (Espagne) ». Avec 201 pays, la
+     *  liste deroulante seule est inutilisable.
+     *
+     *  --- Ce qui est ajoute, et ce qui ne change pas ------------------------
+     *  On AJOUTE un champ de saisie par-dessus. Le <select> reste dans le
+     *  formulaire, garde son `name` et reste la seule source de la valeur
+     *  postee : `IndicatifPick__c` continue de recevoir « 33 », et le socle
+     *  d'ecriture ne voit aucune difference. Choisir dans la liste filtree ne
+     *  fait qu'ecrire dans le <select>, puis emettre `change` pour que tout ce
+     *  qui l'ecoute — le controle de longueur du telephone — reagisse.
+     *
+     *  ⚠ Le <select> est masque VISUELLEMENT, pas retire du flux ni mis en
+     *  `display:none`. Il reste focusable : si un jour `required` lui est pose,
+     *  le navigateur pourra y mettre le focus. Un `display:none` sur un champ
+     *  requis fait echouer la soumission avec « an invalid form control is not
+     *  focusable », sans rien montrer au visiteur.
+     * ====================================================================== */
+
+    /** Cle de recherche : majuscules, sans accent, sans espaces parasites. */
+    function cleRecherche(v) {
+        var s = String(v === null || v === undefined ? '' : v)
+                    .replace(/^\s+|\s+$/g, '').toUpperCase();
+        var avec = 'ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ';
+        var sans = 'AAAAAACEEEEIIIINOOOOOUUUUY';
+        var out = '';
+        for (var i = 0; i < s.length; i++) {
+            var p = avec.indexOf(s.charAt(i));
+            out += (p === -1) ? s.charAt(i) : sans.charAt(p);
+        }
+        return out;
+    }
+
+    /**
+     * Le nom de pays d'un libelle `+34 (Espagne)`. Vide si la forme differe.
+     * Meme extraction que cleDeTri, pour que la recherche porte exactement sur
+     * ce qui a servi a trier — sinon l'ordre des resultats serait incoherent.
+     */
+    function paysDuLibelle(texte) {
+        var o = String(texte).indexOf('(');
+        var f = String(texte).lastIndexOf(')');
+        if (o === -1 || f <= o + 1) return '';
+        return String(texte).substring(o + 1, f);
+    }
+
+    /**
+     * Score de correspondance : plus petit = plus pertinent, -1 = exclu.
+     *
+     *   0  le CODE est EXACTEMENT la saisie    « 1 »  -> +1 (Canada / USA)
+     *   1  le CODE commence par la saisie      « 34 » -> +34 · « 1 » -> +1876
+     *   2  le PAYS commence par la saisie      « ES » -> Espagne
+     *   3  le PAYS contient la saisie          « pagn » -> Espagne
+     *
+     * ⚠ L'EXACT doit primer sur le PREFIXE, sinon taper « 1 » enterre
+     * « +1 (Canada / USA) » sous les treize indicatifs caribeens en +1xxx —
+     * mesure faite sur les 201 valeurs de l'org, la Jamaique sortait premiere.
+     * Meme piege avec « 33 » face a « +33x » s'il en apparaissait un.
+     *
+     * Les chiffres ne cherchent QUE dans le code, et les lettres QUE dans le
+     * pays : « 1 » ne doit pas remonter les pays contenant un « 1 » nulle part,
+     * et « ES » ne doit pas remonter un code.
+     *
+     * ⚠ « ES » trouve Espagne parce que le PAYS commence par ES, PAS parce que
+     * c'est le code ISO — ces codes ne figurent nulle part dans les donnees de
+     * l'org. « DE » ne trouvera donc jamais l'Allemagne. Y remedier demanderait
+     * une colonne ISO dans LPB_Mapping_Indicatifs.
+     */
+    function scoreIndicatif(saisie, code, pays) {
+        if (!saisie) return 4;                       // saisie vide : tout s'affiche
+        var q = cleRecherche(saisie).replace(/^\+/, '').replace(/\s+/g, '');
+        if (!q) return 4;
+
+        if (/^[0-9]+$/.test(q)) {
+            var c = String(code);
+            if (c === q) return 0;
+            return c.indexOf(q) === 0 ? 1 : -1;
+        }
+
+        var p = cleRecherche(pays);
+        if (!p) return -1;
+        if (p.indexOf(q) === 0) return 2;
+
+        /* « CONTIENT » seulement a partir de 3 lettres. Sur deux lettres la
+           recherche est presque toujours une abreviation, et le « contient »
+           n'apporte que du bruit : « DE » remontait 11 pays — Bangladesh,
+           Barbade, Finlande, Grenade... — dont aucun n'etait l'Allemagne.
+           Mesure sur les 201 valeurs de l'org. */
+        if (q.length >= 3 && p.indexOf(q) !== -1) return 3;
+        return -1;
+    }
+
+    /** Construit le champ de recherche par-dessus le <select> des indicatifs. */
+    function brancherRechercheIndicatif() {
+        var select = document.querySelector('select[name="Indicatif"]');
+        if (!select || select.__socleCombo) return;
+
+        /* Sous ~20 pays, la liste deroulante native suffit et reste plus
+           familiere — surtout sur mobile, ou elle ouvre le selecteur du
+           systeme. On n'ajoute donc le champ de recherche que quand la liste
+           devient reellement difficile a parcourir. C'est aussi ce qui evite
+           de degrader l'apercu du builder, qui n'a que 7 options statiques. */
+        var options = select.options || [];
+        if (options.length < 20) return;
+
+        select.__socleCombo = true;
+
+        /* -- Inventaire, une fois : on ne relit pas le DOM a chaque frappe. */
+        var entrees = [];
+        for (var i = 0; i < options.length; i++) {
+            var o = options[i];
+            if (!o.value) continue;                  // placeholder eventuel
+            entrees.push({
+                value: o.value,
+                texte: o.textContent || o.value,
+                pays: paysDuLibelle(o.textContent || ''),
+                i: entrees.length
+            });
+        }
+        if (!entrees.length) return;
+
+        /* ⚠ ON N'AJOUTE AUCUN CONTENEUR. Premiere version : un <div> insere
+           entre `.xxx-phone-prefix-wrap` et le <select>. Le conteneur est un
+           FLEX de 112px de large, et le <select> son enfant `flex:1` — glisser
+           un div au milieu lui retirait sa taille : bloc blanc a cote du champ
+           et libelle tronque (« +34 (Espagn »). Constate sur capture le 02/09.
+
+           On met donc la saisie A LA PLACE du <select>, dans le meme flex et
+           avec les MEMES classes : elle herite de la hauteur, du fond, de la
+           police et du chevron `::after` deja dessines par l'ecole. Rien n'est
+           restyle ici — chaque ecole a sa maquette, une bordure ecrite dans le
+           socle jurerait sur les dix. */
+        var hote = select.closest
+            ? (select.closest('.jpo-phone-prefix-wrap') || select.closest('.brf-phone-prefix-wrap')
+               || select.closest('.cnd-phone-prefix-wrap') || select.closest('.imf-phone-prefix-wrap')
+               || select.closest('.pc-phone-prefix-wrap') || select.closest('.wbc-phone-prefix-wrap')
+               || select.parentNode)
+            : select.parentNode;
+        hote = hote || select.parentNode;
+
+        /* Les six conteneurs du builder sont deja `position:relative` ; ce
+           filet ne sert qu'a un gabarit d'ecole qui ne le serait pas — sans
+           lui la liste se positionnerait par rapport a la page. */
+        try {
+            var calc = window.getComputedStyle ? window.getComputedStyle(hote) : null;
+            if (calc && calc.position === 'static') hote.style.position = 'relative';
+        } catch (eStyle) {}
+
+        var saisie = document.createElement('input');
+        saisie.type = 'text';
+        saisie.setAttribute('autocomplete', 'off');
+        saisie.setAttribute('role', 'combobox');
+        saisie.setAttribute('aria-expanded', 'false');
+        saisie.setAttribute('aria-autocomplete', 'list');
+        saisie.setAttribute('aria-label', select.getAttribute('aria-label') || 'Indicatif pays');
+        saisie.placeholder = langueAffichage() === 'en' ? 'Code or country' : 'Indicatif ou pays';
+        /* Le champ HERITE de l'apparence du <select> : chaque ecole a sa
+           maquette, et une bordure ecrite ici jurerait sur les dix. On recopie
+           donc les classes du select plutot que d'inventer un style. */
+        /* Les memes classes que le <select>, PUIS son rendu calcule. */
+        saisie.className = select.className;
+        saisie.setAttribute('data-socle', 'combo-indicatif');
+
+        var liste = document.createElement('ul');
+        liste.setAttribute('role', 'listbox');
+        /* `right:auto` et une largeur propre : le conteneur ne fait que 112px,
+           s'y aligner rendrait « +1268 (Antigua-et-Barbuda) » illisible. */
+        liste.style.cssText = 'position:absolute;z-index:9999;left:0;right:auto;top:100%;'
+            + 'margin:2px 0 0;padding:4px 0;list-style:none;max-height:260px;overflow-y:auto;'
+            + 'background:#fff;border:1px solid #cfcfe0;border-radius:6px;'
+            + 'box-shadow:0 6px 18px rgba(0,0,0,.14);display:none;'
+            + 'font-size:13px;line-height:1.4;color:#12123a;text-align:left;'
+            + 'min-width:250px;white-space:nowrap';
+
+        /* La saisie prend la PLACE du <select> dans le flex ; la liste se
+           rattache au conteneur, deja positionne. */
+        select.parentNode.insertBefore(saisie, select);
+        hote.appendChild(liste);
+
+        /* ---- LA SEULE CHOSE A NEUTRALISER : LA LARGEUR INTRINSEQUE -------
+           ⚠ AUCUNE COULEUR, AUCUNE BORDURE, AUCUNE POLICE N'EST ECRITE ICI.
+           La classe du <select> porte tout le style de l'ecole et de la
+           variante — JPO en champs blancs sur carte beige, `stage` en
+           indicatif transparent, brochure avec son propre jeu. Le socle n'a
+           rien a en dire : une valeur ecrite ici jurerait forcement sur l'une
+           des dix maquettes.
+
+           DEUX TENTATIVES RATEES, gardees ici pour qu'on ne les refasse pas :
+
+             1. La classe seule. Insuffisant, mais pas pour une raison de
+                couleur : un <input> a une LARGEUR INTRINSEQUE (celle de son
+                attribut `size`, 20 caracteres par defaut) la ou un <select>
+                n'en a pas. Le conteneur flex etant en `min-width: auto`, il
+                s'elargit pour contenir cette largeur — l'indicatif mangeait
+                la place du numero.
+
+             2. Recopier le style CALCULE du <select>. Pire : cela reposait
+                aussi `height`, `padding` et `box-sizing` en dur, donc cela
+                MODIFIAIT la mise en page au lieu de la respecter. Constate le
+                02/09 — l'indicatif prenait les deux tiers de la ligne.
+
+           La cause etait donc unique et purement dimensionnelle. `size = 1`
+           ramene la largeur intrinseque a presque rien, et le champ se
+           comporte enfin comme le <select> qu'il remplace. */
+        saisie.size = 1;
+        saisie.style.flex = '1';
+        saisie.style.minWidth = '0';
+        saisie.style.width = '100%';
+        /* `border-box` parce que la classe pose un `padding` horizontal : en
+           `content-box`, `width:100%` plus ce padding deborderait du
+           conteneur. Ce n'est pas un choix d'apparence, c'est ce qui fait
+           tenir la boite dans la place du <select>. */
+        saisie.style.boxSizing = 'border-box';
+        /* Le libelle le plus long — « +1268 (Antigua-et-Barbuda) » — depasse
+           la largeur du conteneur. Le <select> le tronquait deja sans le dire ;
+           on le tronque proprement, et l'infobulle donne le nom entier. */
+        saisie.style.textOverflow = 'ellipsis';
+
+        /* Masque VISUELLEMENT, toujours focusable — voir l'avertissement plus
+           haut. `pointer-events:none` pour qu'un clic traverse vers la saisie.
+           ⚠ Pas de `display:none` : le navigateur ne peut pas mettre le focus
+           sur un champ ainsi masque, et si `required` lui etait pose un jour la
+           soumission echouerait sans rien afficher. */
+        select.style.cssText = 'position:absolute;opacity:0;pointer-events:none;'
+            + 'width:1px;height:1px;padding:0;margin:0;border:0;overflow:hidden;left:0;top:0';
+
+        var actif = -1;      // index dans la liste RENDUE, pas dans `entrees`
+        var rendues = [];
+
+        function libelleDe(v) {
+            for (var k = 0; k < entrees.length; k++) if (entrees[k].value === v) return entrees[k].texte;
+            return '';
+        }
+
+        function refleterSelection() {
+            var texte = libelleDe(select.value);
+            saisie.value = texte;
+            /* Le conteneur ne fait que 112px : l'infobulle donne le libelle
+               entier quand il est tronque a l'ecran. */
+            if (texte) saisie.title = texte; else saisie.removeAttribute('title');
+        }
+
+        function fermer() {
+            liste.style.display = 'none';
+            saisie.setAttribute('aria-expanded', 'false');
+            actif = -1;
+        }
+
+        function choisir(entree) {
+            select.value = entree.value;
+            refleterSelection();
+            fermer();
+            /* `change` et non une fonction appelee en direct : le controle de
+               longueur du telephone, et tout futur ecouteur, se branchent sur
+               l'evenement. Emettre l'evenement les sert tous. */
+            try {
+                var ev = document.createEvent('HTMLEvents');
+                ev.initEvent('change', true, false);
+                select.dispatchEvent(ev);
+            } catch (e) {}
+        }
+
+        function marquerActif() {
+            var enfants = liste.childNodes;
+            for (var k = 0; k < enfants.length; k++) {
+                var estActif = (k === actif);
+                enfants[k].style.background = estActif ? '#eef0ff' : '';
+                if (enfants[k].setAttribute) enfants[k].setAttribute('aria-selected', String(estActif));
+            }
+            if (actif >= 0 && enfants[actif] && enfants[actif].scrollIntoView) {
+                try { enfants[actif].scrollIntoView({ block: 'nearest' }); } catch (e) {}
+            }
+        }
+
+        function rendre(q) {
+            var trouvees = [];
+            for (var k = 0; k < entrees.length; k++) {
+                var s = scoreIndicatif(q, entrees[k].value, entrees[k].pays);
+                if (s !== -1) trouvees.push({ e: entrees[k], s: s });
+            }
+            /* Tri STABLE par pertinence : a score egal, on garde l'ordre
+               alphabetique du <select>, deja etabli par `trier`. */
+            trouvees.sort(function (a, b) { return (a.s - b.s) || (a.e.i - b.e.i); });
+
+            while (liste.firstChild) liste.removeChild(liste.firstChild);
+            rendues = [];
+
+            if (!trouvees.length) {
+                var vide = document.createElement('li');
+                vide.textContent = langueAffichage() === 'en' ? 'No match' : 'Aucun résultat';
+                vide.style.cssText = 'padding:8px 12px;color:#777';
+                liste.appendChild(vide);
+                liste.style.display = 'block';
+                saisie.setAttribute('aria-expanded', 'true');
+                actif = -1;
+                return;
+            }
+
+            /* Plafond d'affichage : 201 <li> a chaque frappe rament sur mobile,
+               et personne ne lit au-dela. La recherche, elle, porte bien sur
+               les 201. */
+            var max = Math.min(trouvees.length, 60);
+            for (var j = 0; j < max; j++) {
+                var e = trouvees[j].e;
+                var li = document.createElement('li');
+                li.textContent = e.texte;
+                li.setAttribute('role', 'option');
+                li.style.cssText = 'padding:7px 12px;cursor:pointer;white-space:nowrap';
+                (function (entree, el) {
+                    /* `mousedown` et non `click` : le `blur` de la saisie part
+                       avant le click et fermerait la liste, si bien qu'un clic
+                       ne selectionnait jamais rien. */
+                    el.addEventListener('mousedown', function (ev) {
+                        ev.preventDefault();
+                        choisir(entree);
+                    });
+                    el.addEventListener('mouseenter', function () {
+                        actif = rendues.indexOf(entree);
+                        marquerActif();
+                    });
+                })(e, li);
+                liste.appendChild(li);
+                rendues.push(e);
+            }
+            liste.style.display = 'block';
+            saisie.setAttribute('aria-expanded', 'true');
+            actif = 0;
+            marquerActif();
+        }
+
+        /* ---- LA SAISIE NE VAUT QUE POUR FILTRER -------------------------
+           Exigence du 02/09 : « il tape juste pour filtrer », et « aucune
+           saisie n'est enregistree dans le champ indicatif ».
+
+           Deux garanties, et la premiere suffirait :
+
+           1. STRUCTURELLE. Cette saisie n'a PAS d'attribut `name`, et la
+              soumission ignore tout champ qui n'en a pas (`if (!c.name)
+              continue;`). Ce qui est tape ne peut donc PAS partir au CRM. La
+              valeur postee vient du <select>, qui ne peut contenir qu'une
+              valeur du value set — un <select> ne se saisit pas.
+
+           2. VISUELLE, celle qui manquait. Sans elle, taper « abcdef » apres
+              avoir choisi Maroc laissait « abcdef » a l'ecran : le candidat
+              croyait avoir saisi un indicatif, alors que « 212 » restait
+              retenu. La donnee etait juste, l'affichage mentait.
+
+           On reaffiche donc TOUJOURS la selection reelle des que le champ
+           n'est plus en train d'etre filtre : sortie du champ, Entree, Echap.
+           Aucun texte libre ne survit a la perte du focus. */
+        saisie.addEventListener('input', function () { rendre(saisie.value); });
+
+        /* Au focus : on garde le pays choisi affiche ET on le presELECTIONNE,
+           donc la premiere frappe le remplace. Le candidat voit son choix
+           courant, et filtrer reste immediat — pas besoin de vider le champ. */
+        saisie.addEventListener('focus', function () {
+            refleterSelection();
+            try { saisie.select(); } catch (eSel) {}
+            rendre('');
+        });
+
+        saisie.addEventListener('blur', function () {
+            /* Differe : le `blur` part AVANT le clic sur un <li>, et fermer
+               tout de suite empecherait toute selection a la souris. */
+            setTimeout(function () { fermer(); refleterSelection(); }, 120);
+        });
+
+        saisie.addEventListener('keydown', function (ev) {
+            var k = ev.keyCode || ev.which;
+            if (k === 40 || k === 38) {              // bas / haut
+                ev.preventDefault();
+                if (liste.style.display === 'none') { rendre(saisie.value); return; }
+                if (!rendues.length) return;
+                actif = (k === 40)
+                    ? (actif + 1) % rendues.length
+                    : (actif <= 0 ? rendues.length - 1 : actif - 1);
+                marquerActif();
+            } else if (k === 13) {                   // entree
+                ev.preventDefault();                 // ne jamais soumettre depuis ce champ
+                if (liste.style.display !== 'none' && actif >= 0 && rendues[actif]) {
+                    choisir(rendues[actif]);
+                } else {
+                    /* Entree sans resultat retenu : on ne garde pas la saisie
+                       a l'ecran, on revient au choix en vigueur. */
+                    fermer();
+                    refleterSelection();
+                }
+            } else if (k === 27) {                   // echap
+                fermer();
+                refleterSelection();
+            }
+        });
+
+        /* Le <select> peut encore etre change par ailleurs — un repli, ou une
+           prochaine regle. La saisie doit alors suivre, sans quoi les deux
+           afficheraient des pays differents. */
+        select.addEventListener('change', refleterSelection);
+
+        refleterSelection();
+    }
+
+    /* ========================================================================
+     *  LONGUEUR DU NUMERO ATTENDUE SELON L'INDICATIF
+     * ------------------------------------------------------------------------
+     *  Retour client du 02/09 : « en fonction de l'indicatif renseigne, le
+     *  nombre de chiffres attendus n'est pas bloque (ce qui peut favoriser des
+     *  erreurs de saisie) ».
+     *
+     *  ⚠ POURQUOI ICI, ET PAS DANS LES BLOCS. Les six formulaires portent deja
+     *  une `validatePhone` — mais elle est INERTE en page publiee : le JS de
+     *  `blocks/forms/**` s'attache via `component:mount`, donc dans le builder
+     *  seulement (cf. PASSATION-FORMULAIRES.md §1.1). Le seul JS qui tourne en
+     *  production est celui du socle. Corriger les six copies n'aurait ameliore
+     *  que l'apercu du builder.
+     *
+     *  La longueur vient de `SOCLE_DATA.longueursTel`, publie depuis la DE
+     *  `LPB_Mapping_Indicatifs` : rien en dur ici, et le metier corrige une
+     *  longueur fausse sans redeploiement.
+     * ====================================================================== */
+
+    /**
+     * L'indicatif choisi POUR CE CHAMP.
+     *
+     * On cherche dans l'enveloppe telephone du champ, pas dans la page : les
+     * formulaires evenement portent DEUX numeros — celui du parent et celui de
+     * l'enfant — et prendre le premier `[name="Indicatif"]` venu validerait le
+     * numero de l'enfant contre le pays du parent.
+     */
+    function indicatifDe(input) {
+        var portee = null;
+        if (input && input.closest) {
+            portee = input.closest('.jpo-phone-wrap') || input.closest('.brf-phone-wrap')
+                  || input.closest('.cnd-phone-wrap') || input.closest('.imf-phone-wrap')
+                  || input.closest('.pc-phone-wrap')  || input.closest('.wbc-phone-wrap');
+        }
+        var sel = (portee || document).querySelector('[name="Indicatif"]');
+        return sel ? String(sel.value || '').replace(/^\+/, '') : '';
+    }
+
+    /**
+     * Message d'erreur pour un champ telephone, ou '' s'il est acceptable.
+     *
+     * Ne bloque JAMAIS quand on ne sait pas : indicatif absent de la DE, socle
+     * sans table, ligne incomplete. C'est la doctrine deja ecrite dans le
+     * handler d'ecriture — « un candidat legitime bloque par erreur est un lead
+     * perdu, sans trace et sans recours ». Ignorer la longueur d'un pays ne
+     * doit pas fermer la porte a ses candidats.
+     */
+    /* Bornes du SOCLE MINIMAL, appliquees a TOUS les pays.
+       15 est le maximum d'un numero E.164, indicatif compris. Le plancher a 5
+       laisse passer les plans de numerotation les plus courts sans laisser
+       passer une saisie manifestement incomplete. Ces bornes ne remplacent
+       pas la regle par pays : elles la precedent. */
+    var TEL_MIN_CHIFFRES = 5;
+    var TEL_MAX_CHIFFRES = 15;
+
+    function erreurLongueurTel(input) {
+        if (!input) return '';
+        var brut = String(input.value == null ? '' : input.value);
+        if (!brut) return '';                    // champ vide : c'est `required` qui parle
+
+        var lgBase = langueAffichage();
+
+        /* ---- SOCLE MINIMAL, quel que soit le pays -----------------------
+           ⚠ CORRECTIF DU 02/09. Je croyais ce filet deja pose : les six
+           formulaires portent bien un controle `/^[0-9]{7,14}$/`... mais dans
+           `blocks/forms/**`, donc INERTE en page publiee (§1.1). En
+           production il n'existait AUCUNE validation du telephone : des
+           LETTRES passaient et le formulaire partait. Constate par la recette
+           sur un pays absent de la DE.
+
+           Ce n'est donc pas un ajout de confort, c'est le comblement d'un
+           trou : sans lui, tout indicatif absent de la DE — 188 sur 201 —
+           n'est controle par rien du tout. */
+        var sansPlus = brut.replace(/^\s*\+/, '');
+        if (/[^0-9\s.\-()]/.test(sansPlus)) {
+            return lgBase === 'en'
+                ? 'The phone number may contain digits only.'
+                : 'Le numéro de téléphone ne doit contenir que des chiffres.';
+        }
+
+        var tousChiffres = brut.replace(/[^0-9]/g, '');
+        if (tousChiffres.length < TEL_MIN_CHIFFRES || tousChiffres.length > TEL_MAX_CHIFFRES) {
+            return lgBase === 'en'
+                ? 'The phone number must have between ' + TEL_MIN_CHIFFRES + ' and '
+                    + TEL_MAX_CHIFFRES + ' digits.'
+                : 'Le numéro de téléphone doit comporter entre ' + TEL_MIN_CHIFFRES
+                    + ' et ' + TEL_MAX_CHIFFRES + ' chiffres.';
+        }
+
+        /* ---- REGLE PAR PAYS, si la DE la connait ------------------------ */
+        var table = D && D.longueursTel;
+        if (!table) return '';
+
+        var ind = indicatifDe(input);
+        if (!ind || !Object.prototype.hasOwnProperty.call(table, ind)) return '';
+
+        var regle = table[ind];
+        var min = Number(regle && regle.min), max = Number(regle && regle.max);
+        if (!min || !max) return '';
+
+        /* Le 0 de tete est un prefixe NATIONAL : « 06 12 34 56 78 » et
+           « 6 12 34 56 78 » sont le meme numero. On le retire avant de compter,
+           sinon un numero francais saisi de la facon la plus courante ferait 10
+           chiffres au lieu de 9 et serait refuse — le controle rejetterait
+           precisement la saisie normale.
+
+           On retire aussi l'indicatif si le visiteur l'a retape dans le champ
+           (« +33 6 12... ») : le socle d'ecriture le fait deja avant d'envoyer,
+           refuser ici serait incoherent avec ce qu'il accepte. */
+        var chiffres = brut.replace(/[^0-9]/g, '');
+        if (chiffres.length > ind.length && chiffres.indexOf(ind) === 0) {
+            chiffres = chiffres.substring(ind.length);
+        }
+        chiffres = chiffres.replace(/^0/, '');
+
+        if (chiffres.length >= min && chiffres.length <= max) return '';
+
+        var lg = langueAffichage();
+        var pays = (regle && regle.pays) ? ' (' + regle.pays + ')' : '';
+        if (lg === 'en') {
+            return 'For +' + ind + pays + ', the phone number must have '
+                 + (min === max ? min : min + ' to ' + max) + ' digits.';
+        }
+        return 'Pour +' + ind + pays + ', le numéro de téléphone doit comporter '
+             + (min === max ? min : min + ' à ' + max) + ' chiffres.';
+    }
+
+    /**
+     * Verifie TOUS les champs telephone du formulaire.
+     *
+     * Un champ MASQUE n'est pas verifie : le telephone de l'enfant n'apparait
+     * que sur certains formulaires evenement, et exiger un format sur un champ
+     * invisible fermerait la porte sans rien montrer.
+     */
+    function erreursTelephone(form) {
+        var out = [];
+        var tels = form.querySelectorAll('input[name="MobilePhone"], input[name="ChildPhone"]');
+        for (var i = 0; i < tels.length; i++) {
+            if (!estVisible(tels[i])) continue;
+            var msg = erreurLongueurTel(tels[i]);
+            if (msg) out.push({ champ: tels[i], message: msg });
+        }
+        return out;
+    }
+
+    /** Visible A L'ECRAN, pas seulement present dans le DOM. */
+    function estVisible(el) {
+        var n = el;
+        while (n && n.nodeType === 1) {
+            if (n.classList && n.classList.contains('hidden')) return false;
+            if (n.style && n.style.display === 'none') return false;
+            n = n.parentNode;
+        }
+        return true;
+    }
+
     function brancherSoumission(form) {
         if (form.__socleBranche) return;
         form.__socleBranche = true;
@@ -2782,6 +3539,20 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             /* Le navigateur a deja valide : l'evenement n'arrive pas autrement. */
             if (typeof window.fetch !== 'function') return;   // repli : POST natif
             ev.preventDefault();
+
+            /* ---- LONGUEUR DU NUMERO ---------------------------------------
+               Avant TOUT le reste : c'est une erreur de saisie, on la corrige
+               sur place plutot que de creer un prospect avec un numero
+               injoignable. Place avant la desactivation du bouton, sinon le
+               candidat se retrouverait devant un bouton mort. */
+            var mauvaisTels = erreursTelephone(form);
+            if (mauvaisTels.length) {
+                var lignes = [];
+                for (var t = 0; t < mauvaisTels.length; t++) lignes.push(mauvaisTels[t].message);
+                montrerMessage(form, lignes);
+                try { mauvaisTels[0].champ.focus(); } catch (eFocus) {}
+                return;
+            }
 
             var bouton = form.querySelector('button[type="submit"], input[type="submit"]');
             var libelle = bouton ? bouton.innerHTML : '';
@@ -2933,7 +3704,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
                     var quand = document.createElement('strong');
                     quand.className = 'socle-instance-date';
-                    quand.textContent = dateLongue(inst.date) || inst.label || inst.value;
+                    quand.textContent = dateLongue(inst.date)
+                        || casseLisible(inst.label || inst.value, false);
                     gauche.appendChild(quand);
 
                     var detail = [];
@@ -2954,7 +3726,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                     if (conf) {
                         var droite = document.createElement('span');
                         droite.className = 'socle-instance-conf';
-                        droite.textContent = conf.label + (conf.heure ? ' : ' + conf.heure : '');
+                        droite.textContent = casseLisible(conf.label, false)
+                            + (conf.heure ? ' : ' + conf.heure : '');
                         corps.appendChild(droite);
                     }
 
@@ -3005,5 +3778,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 })();
 %%=v(@cascadeFerme)=%%
 <!-- ===== fin JS DE CASCADE ===== -->
+
+
+
 
 

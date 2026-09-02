@@ -462,6 +462,82 @@ test('Le niveau nomme StudyLevel est reconnu par l ordre [REGRESSION]', (d, run)
          'le campus doit passer devant le niveau');
 }, LAYOUT_NIVEAU_DABORD);
 
+/* Le markup REEL de la brochure depuis le 02/09 : le niveau d'etudes et le
+   campus ont CHACUN son `.brf-col`, donc chacun son parent. C'est ce qui les
+   soustrait au reordonnancement du socle. */
+const LAYOUT_BROCHURE_COLONNES = [['Email', 0], ['StudyLevel', 1, 'colA'],
+                                  ['Campus', 1, 'colB'], ['Speciality', 1],
+                                  ['Consentements', 0]];
+
+test('Brochure : un champ seul dans sa section n est pas deplace [REGRESSION]', (d, run) => {
+    /* L'Excel des champs visibles veut le niveau d'etudes AVANT le campus sur
+       la brochure. `OrdreChamps` dit `campus,niveau` pour les dix ecoles, et il
+       n'y a qu'UNE valeur par ecole pour les six formulaires : la brochure ne
+       pouvait pas obtenir son ordre par la configuration.
+
+       Le gabarit ne pouvait rien non plus tant que les deux champs etaient
+       freres dans le `.brf-row` : ils formaient un groupe de deux porteurs et
+       `reordonner()` remettait le campus devant. Ordre juste dans le builder,
+       faux en ligne.
+
+       Un conteneur par champ donne deux groupes d'un seul porteur, et
+       `reordonner()` sort sur `porteurs.length < 2`. L'ordre du gabarit tient
+       donc, MEME avec un `ordre` qui demande l'inverse — c'est exactement ce
+       que ce test verifie : la config reclame le campus en premier, et le
+       niveau reste devant.
+
+       Le test jumeau juste au-dessus, « Le niveau nomme StudyLevel est reconnu
+       par l ordre », joue la MEME config sur un gabarit ou les deux champs
+       partagent une section : le campus y passe devant. Les deux ensemble
+       prouvent que c'est bien le cloisonnement, et lui seul, qui protege
+       l'ordre de la brochure.
+
+       Aucun champ ne doit donc avoir traverse sa colonne. */
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('colA'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+    egal(d.ordreSection('colB'), ['Campus'], 'le campus doit rester seul dans sa colonne');
+}, LAYOUT_BROCHURE_COLONNES);
+
+/* La candidature veut l'ordre INVERSE de la brochure — campus puis niveau —
+   et ses quatre champs de cascade restent freres du formulaire, parce que leur
+   ordre relatif, lui, est une regle metier que le socle doit pouvoir appliquer
+   par ecole. */
+const LAYOUT_CANDIDATURE_COLONNES = [['Email', 0], ['Campus', 1, 'colA'],
+                                     ['StudyLevel', 1, 'colB'], ['Speciality', 1],
+                                     ['Rhythm', 1], ['Language', 1], ['Rentree', 1],
+                                     ['Consentements', 0]];
+
+test('Candidature : colonnes cloisonnees, cascade toujours reordonnable', (d, run) => {
+    /* Le cloisonnement ne doit PAS s'etendre a la cascade. IFA Paris demande la
+       langue avant la specialite : si les quatre champs cessaient d'etre
+       freres, le socle ne pourrait plus les echanger et la regle tomberait
+       silencieusement. Ce test verifie les deux moities a la fois — le couple
+       campus/niveau fige, la cascade encore mobile. */
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('colA'), ['Campus'], 'le campus doit rester seul dans sa colonne');
+    egal(d.ordreSection('colB'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+    const o = d.ordre();
+    const iL = o.indexOf('Language'), iS = o.indexOf('Speciality');
+    if (iL === -1 || iS === -1) throw new Error(`cascade introuvable : ${o.join(' > ')}`);
+    if (iL > iS) throw new Error(`la regle IFA est perdue, la langue reste apres la specialite : ${o.join(' > ')}`);
+}, LAYOUT_CANDIDATURE_COLONNES);
+
+/* Les formulaires evenement : le campus vit HORS du formulaire, dans
+   .jpo-campus-zone, et le niveau est seul dans son .jpo-col. Deux parents
+   distincts, donc deux groupes d'un porteur. */
+const LAYOUT_EVENEMENT = [['Campus', 1, 'zoneCampus'], ['Email', 0],
+                          ['StudyLevel', 1, 'colNiveau'], ['Speciality', 1],
+                          ['Consentements', 0]];
+
+test('Evenement : le campus hors formulaire ne remonte pas devant le niveau', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('zoneCampus'), ['Campus'], 'le campus doit rester dans sa zone');
+    egal(d.ordreSection('colNiveau'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+}, LAYOUT_EVENEMENT);
+
 test('Une section n est jamais traversee : chaque champ reste chez lui', (d, run) => {
     run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
         { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
@@ -651,7 +727,8 @@ test('Campus masque ET valeur unique : la valeur est posee [REGRESSION]', (d, jo
    EDH, qui dit `StudyLevel`. C'est donc bien la table RANG du socle qui decide
    de ce que le candidat lit. */
 const LAYOUT_AFFICHAGE = [['Email', 0], ['Campus', 1], ['VousEtes', 1],
-                          ['StudyLevel', 1], ['Speciality', 1], ['Consentements', 0]];
+                          ['StudyLevel', 1], ['Indicatif', 1], ['Speciality', 1],
+                          ['Consentements', 0]];
 
 /* Les valeurs REELLES des value sets de l'org (cf. REFERENCE-API-ORG.md),
    dans un ordre volontairement melange : un value set sort dans l'ordre de
@@ -730,9 +807,11 @@ test('Marque inconnue : le libelle Salesforce est conserve', () => {
 
 test('Niveau d etudes : ordre pedagogique, pas celui du value set', () => {
     const d = jouerAffichage({ StudyLevel: NIVEAUX_CRM });
+    /* « BAC+1 » du value set s affiche « Bac+1 » depuis le retour du 02/09 :
+       le CRM garde ses capitales, l ecran ne les montre plus. */
     egal(d.options('StudyLevel'),
-         ['Collège', 'Seconde', 'Première', 'Terminale', 'BAC obtenu ou Prépa',
-          'BAC+1', 'BAC+2', 'BAC+3', 'BAC+4', 'BAC+5 et +', 'Autres'],
+         ['Collège', 'Seconde', 'Première', 'Terminale', 'Bac obtenu ou Prépa',
+          'Bac+1', 'Bac+2', 'Bac+3', 'Bac+4', 'Bac+5 et +', 'Autres'],
          'niveaux d etudes');
 }, LAYOUT_AFFICHAGE);
 
@@ -768,10 +847,92 @@ test('Les deux conventions de casse du CRM se classent pareil [REGRESSION]', () 
         { value: 'bac+2',      label: 'bac+2' },
         { value: 'Bac obtenu', label: 'Bac obtenu' },
     ] });
+    /* Les libelles ressortent dans la casse d affichage (retour du 02/09) :
+       ce test regarde l ORDRE, pas la casse — `COLLÈGE` reste bien en tete. */
     egal(d.options('StudyLevel'),
-         ['COLLÈGE', 'Bac obtenu', 'bac+2', 'Bac+5/+', 'Autre'],
+         ['Collège', 'Bac obtenu', 'Bac+2', 'Bac+5/+', 'Autre'],
          'niveaux de l autre referentiel');
 }, LAYOUT_AFFICHAGE);
+
+/* ---- Casse des libelles (retour client du 02/09) ----------------------
+   « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre en
+   minuscule). » Le CRM stocke « EFAP PARIS », « BAC+1 », « COLLEGE » : ses
+   valeurs ne bougent pas, seul l'ecran change. Chaque test verifie donc les
+   deux moities — le texte lu ET la `value` postee. */
+
+const LAYOUT_CASSE = [['Email', 0], ['Campus', 1], ['Country', 1],
+                      ['StudyLevel', 1], ['Consentements', 0]];
+
+function jouerCasse(surcharge) {
+    const dom = creerDom(LAYOUT_CASSE);
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg() }, surcharge) },
+        document: dom.document,
+    });
+    return dom;
+}
+
+test('Campus : les capitales du CRM ne sortent plus a l ecran', () => {
+    const d = jouerCasse({ campus: [
+        { value: 'EFAP PARIS',               label: 'EFAP PARIS' },
+        { value: 'BRASSART AIX-EN-PROVENCE', label: 'BRASSART AIX-EN-PROVENCE' },
+    ] });
+    /* « Aix-en-Provence » et non « Aix-En-Provence » : la particule redescend
+       des qu elle n ouvre pas le libelle. */
+    egal(d.options('Campus'), ['Brassart Aix-en-Provence', 'Efap Paris'],
+         'libelles de campus');
+    egal(valeurs(d, 'Campus'), ['BRASSART AIX-EN-PROVENCE', 'EFAP PARIS'],
+         'values postees au socle d ecriture');
+}, LAYOUT_CASSE);
+
+test('Pays : une majuscule par mot, les particules exceptees', () => {
+    const d = jouerCasse({ picklists: { Country: [
+        { value: 'FR', label: 'FRANCE' },
+        { value: 'CI', label: "CÔTE D'IVOIRE" },
+        { value: 'GB', label: 'Royaume-Uni' },
+    ] } });
+    egal(d.options('Country'), ["Côte d'Ivoire", 'France', 'Royaume-Uni'],
+         'libelles de pays');
+}, LAYOUT_CASSE);
+
+test('Niveau : casse de PHRASE, pas de titre anglais', () => {
+    /* Une majuscule par mot donnerait « Bac Obtenu Ou Prepa » : un titre, pas
+       une phrase francaise. Le niveau, « vous etes » et les programmes ne
+       prennent donc que leur premiere lettre. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'BAC OBTENU OU PRÉPA', label: 'BAC OBTENU OU PRÉPA' },
+    ] } });
+    egal(d.options('StudyLevel'), ['Bac obtenu ou prépa'], 'niveau en casse de phrase');
+    egal(valeurs(d, 'StudyLevel'), ['BAC OBTENU OU PRÉPA'], 'value du niveau intacte');
+}, LAYOUT_CASSE);
+
+test('Sigles et codes gardent leurs capitales', () => {
+    /* « Bep », « Mba » ou « Lille a1 » seraient des fautes, pas des
+       corrections : un sigle n a pas de premiere lettre a mettre en
+       majuscule, et « A1 » est un code de programme. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'BEP',           label: 'BEP' },
+        { value: 'MBA MARKETING', label: 'MBA MARKETING' },
+        { value: 'Lille A1',      label: 'Lille A1' },
+    ] } });
+    const lus = d.options('StudyLevel');
+    for (const attendu of ['BEP', 'MBA marketing', 'Lille A1']) {
+        if (!lus.includes(attendu)) {
+            throw new Error(`« ${attendu} » abime : ${JSON.stringify(lus)}`);
+        }
+    }
+}, LAYOUT_CASSE);
+
+test('Un libelle deja ecrit a la main n est pas retouche', () => {
+    /* La regle ne vise que les CAPITALES du CRM. « Bac obtenu », saisi
+       correctement, doit ressortir identique — sinon on corrige du texte qui
+       n a rien demande. */
+    const d = jouerCasse({ picklists: { StudyLevel: [
+        { value: 'Bac obtenu', label: 'Bac obtenu' },
+        { value: 'Terminale',  label: 'Terminale' },
+    ] } });
+    egal(d.options('StudyLevel'), ['Terminale', 'Bac obtenu'], 'libelles intacts');
+}, LAYOUT_CASSE);
 
 test('La liste de la cascade est triee aussi, sous le nom « Niveau »', () => {
     /* Le niveau porte trois noms de champ selon le formulaire. Ici c'est la
@@ -801,6 +962,50 @@ test('La liste de la cascade est triee aussi, sous le nom « Niveau »', () => {
     egal(dom.options('Niveau'), ['Terminale', 'Bac obtenu', 'Bac+3', 'Bac+5/+'],
          'niveaux de la cascade');
 }, LAYOUT);
+
+test('Indicatifs classes par PAYS, pas par le chiffre en tete [REGRESSION]', () => {
+    /* Retour client du 02/09 : « afficher les valeurs par ordre alphabetique ».
+       Le libelle du value set commence par le chiffre — `+34 (Espagne)` — donc
+       un tri sur le libelle brut reproduirait l'ancien tri numerique sans que
+       personne ne s'en apercoive : la liste SEMBLERAIT triee.
+
+       Les indicatifs ci-dessous sont pris tels quels dans LPB_Dico_Traductions
+       et choisis pour que les deux tris divergent : par chiffre on aurait
+       +33, +34, +212, +596 ; par pays, Espagne, France, Maroc, Martinique. */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '596', label: '+596 (Martinique)' },
+        { value: '33',  label: '+33 (France)' },
+        { value: '212', label: '+212 (Maroc)' },
+        { value: '34',  label: '+34 (Espagne)' },
+    ] });
+    egal(d.options('Indicatif'),
+         ['+34 (Espagne)', '+33 (France)', '+212 (Maroc)', '+596 (Martinique)'],
+         'indicatifs par ordre alphabetique de pays');
+}, LAYOUT_AFFICHAGE);
+
+test('Indicatifs : accents et articles suivent la locale', () => {
+    /* localeCompare, et non une comparaison de codes : sinon Egypte passerait
+       APRES Emirats et Etats-Unis (E accentue > E simple en Unicode brut). */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '971', label: '+971 (Emirats arabes unis)' },
+        { value: '1',   label: '+1 (Etats-Unis)' },
+        { value: '20',  label: '+20 (Égypte)' },
+    ] });
+    egal(d.options('Indicatif'),
+         ['+20 (Égypte)', '+971 (Emirats arabes unis)', '+1 (Etats-Unis)'],
+         'accents classes comme dans un dictionnaire');
+}, LAYOUT_AFFICHAGE);
+
+test('Indicatif sans parentheses : garde son libelle, ne disparait pas', () => {
+    /* Filet : si le value set change de forme, on classe sur le libelle
+       entier plutot que de rendre une chaine vide — qui remonterait toutes
+       ces options en tete. */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '33', label: '+33 (France)' },
+        { value: '99', label: 'Autre' },
+    ] });
+    egal(d.options('Indicatif'), ['Autre', '+33 (France)'], 'libelle atypique conserve');
+}, LAYOUT_AFFICHAGE);
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
