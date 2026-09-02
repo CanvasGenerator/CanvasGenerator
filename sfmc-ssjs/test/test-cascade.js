@@ -80,6 +80,17 @@ const LAYOUT_SPECIALITE_SEULE = [['Email', 0], ['Campus', 1], ['Niveau', 1],
 const LAYOUT_STUDYLEVEL = [['Email', 0], ['Campus', 1], ['StudyLevel', 1],
                            ['Speciality', 1], ['Consentements', 0]];
 
+/* La candidature se reconnait a son `TypeFormulaire`, et elle seule restreint
+   la liste des niveaux aux programmes reellement ouverts. */
+/* `StudyLevel`, comme les six formulaires EDH — et non `Niveau`, que seul
+   form-salesforce-core emploie. La distinction n'est pas cosmetique : sur un
+   champ nomme `Niveau`, la ligne historique `remplir('Niveau', ...)` filtre
+   deja la liste par campus, quel que soit le type de formulaire. */
+const LAYOUT_CANDIDATURE = [['Email', 0], ['TypeFormulaire', 1], ['Campus', 1],
+                            ['StudyLevel', 1], ['Speciality', 1], ['Rhythm', 1],
+                            ['Language', 1], ['Rentree', 1], ['Programme', 1],
+                            ['Consentements', 0]];
+
 /* « Vous etes » ne fait pas partie de la cascade, mais une condition croisee
    peut s'y referer : c'est le cas de la specialite de la brochure CREAD. */
 const LAYOUT_AVEC_CONTACT = [['Email', 0], ['Campus', 1], ['Niveau', 1],
@@ -323,6 +334,35 @@ test('Cumul seuil + condition : la condition seule ne suffit pas', (d, run) => {
     run(cfgCumul('Campus=EFAP PARIS'), { Campus: 'EFAP PARIS', Niveau: 'Terminale' });
     if (d.visible('Language')) throw new Error('Language propose sous le seuil de niveau');
 });
+
+/* ---- Niveaux restreints aux programmes ouverts -------------------------- */
+/* Proposer un niveau sans programme mene a une cascade vide, sans explication.
+   A EFAP AIX, six niveaux sur les treize du referentiel ont un programme. */
+test('Candidature : seuls les niveaux ayant un programme sont proposes', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP LILLE' });
+    egal(d.options('StudyLevel'), ['Terminale'], 'niveaux ouverts a Lille');
+}, LAYOUT_CANDIDATURE);
+
+test('Candidature : la graphie ACCOUNT est conservee, pas celle des programmes', (d, run) => {
+    /* Les programmes disent « Bac obtenu », Account attend « BAC obtenu ou
+       Prepa ». C'est la valeur ACCOUNT qui doit partir : le formulaire ecrit
+       dans Account.Academic_Level_List__c, et une valeur hors value set y est
+       rejetee en silence. Le jeu d'essai reproduit l'ecart via canonNiveau. */
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS' });
+    const niveaux = d.options('StudyLevel');
+    if (niveaux.indexOf('Bac+5') >= 0) {
+        throw new Error('un niveau absent du referentiel Account est propose : ' + niveaux.join(','));
+    }
+    if (!niveaux.length) throw new Error('liste videe alors que des programmes existent');
+}, LAYOUT_CANDIDATURE);
+
+test('Hors candidature, la liste des niveaux n\'est pas restreinte', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'brochure', Campus: 'EFAP LILLE' });
+    /* Le referentiel complet reste propose : seule la candidature restreint. */
+    if (d.options('StudyLevel').length <= 1) {
+        throw new Error('la brochure a ete restreinte alors qu elle ne doit pas l etre');
+    }
+}, LAYOUT_CANDIDATURE);
 
 /* ---- Valeur unique : seulement si tout le monde la porte ---------------- */
 /* [REGRESSION] Candidature EFAP, 01/09. Paris + « BAC obtenu ou Prepa » laissait

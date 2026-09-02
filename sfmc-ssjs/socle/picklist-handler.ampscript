@@ -1654,6 +1654,52 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
         // chaque liste ne propose que ce qui reste possible en amont
         remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level, true);
+
+        /* ---- NIVEAUX : CEUX QUI ONT UN PROGRAMME, ET EUX SEULS ------------
+           En candidature, proposer un niveau sans programme mene a une cascade
+           vide sans explication : a EFAP AIX, « BAC+5 et + » ou « Collège »
+           etaient offerts alors que le campus n'ouvre que six niveaux sur les
+           treize du referentiel.
+
+           ⚠ ON NE REMPLIT PAS AVEC LES VALEURS DES PROGRAMMES. Les deux objets
+           n'ecrivent pas les niveaux pareil — `Bac obtenu` cote LearningProgram,
+           `BAC obtenu ou Prépa` cote Account — et c'est la graphie ACCOUNT que
+           le formulaire poste dans `Academic_Level_List__c`. Prendre celle des
+           programmes enverrait au CRM une valeur hors value set, donc rejetee
+           en silence.
+
+           On garde donc le referentiel Account comme source des options, et on
+           s'en sert juste pour RESTREINDRE : `canonNiveau` rapproche les deux
+           graphies, exactement comme pour le filtrage.
+
+           Repli si le rapprochement ne rend rien (donnee inattendue) : on laisse
+           la liste complete. Un formulaire trop large reste remplissable, un
+           formulaire vide ne l'est pas.
+
+           Limite a la CANDIDATURE : c'est la que les programmes sont deja
+           restreints a ceux qui ont un PTAT, donc que la liste a du sens. */
+        var typeForm = champ('TypeFormulaire');
+        if (typeForm && Lowercase_(typeForm.value) === 'candidature') {
+            var nomNiveau = nomDomDeCle('niveau');
+            var refsNiveau = (D.picklists && D.picklists.StudyLevel) || [];
+            if (nomNiveau && refsNiveau.length) {
+                var offerts = {};
+                distinct(filtrer({ campus: sel.campus }), 'level').forEach(function (o) {
+                    offerts[canonNiveau(o.value)] = true;
+                });
+                var niveauxOuverts = refsNiveau.filter(function (o) {
+                    return offerts[canonNiveau(o.value)];
+                });
+                if (niveauxOuverts.length) {
+                    remplir(nomNiveau, niveauxOuverts, sel.level, true);
+                    /* Le niveau retenu vient peut-etre de disparaitre avec le
+                       changement de campus. On relit AVANT que les filtres qui
+                       suivent s'en servent, sinon toute la passe travaille sur
+                       un niveau que le formulaire ne porte plus. */
+                    sel.level = valeur(nomNiveau);
+                }
+            }
+        }
         remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
         remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
         remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
