@@ -117,6 +117,11 @@ export default function (editor, categories) {
 .imf-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
 .imf-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .imf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule : elle existe pour que le niveau
+   d'études et le campus ne soient pas FRERES, le socle ne réordonnant que les
+   champs qui partagent un parent. min-width:0 parce qu'une cellule de grille
+   refuse sinon de descendre sous la largeur de son contenu. */
+.imf-col { min-width: 0; }
 .imf-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .imf-row .imf-field { margin-bottom: 0; }
 .imf-field.hidden { display: none; }
@@ -376,24 +381,46 @@ ${hidden}
         </div>
 
         <!-- Niveau d'études / Campus -->
+        <!-- Niveau d'études / Campus — positions 5 et 6 de l'Excel des champs
+             visibles : le niveau AVANT le campus, comme la brochure et à
+             l'inverse de la candidature.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .imf-col. NE PAS LES REMETTRE FRERES
+             DANS LE .imf-row.
+
+             Le socle réordonne les champs qui PARTAGENT un parent, selon
+             OrdreChamps de l'école — qui vaut « campus,niveau,... » pour les
+             dix écoles. Deux .imf-field frères formaient un groupe de deux, et
+             le campus repassait donc devant le niveau sur la page publiée,
+             alors que le builder montrait le bon ordre.
+
+             Un conteneur par champ donne deux groupes d'un seul porteur, que
+             le socle laisse intacts.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module. -->
         <div class="imf-row">
-            <div class="imf-field">
-                <label class="imf-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="imf-sel-wrap">
-                    <select class="imf-select imf-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
+            <div class="imf-col">
+                <div class="imf-field">
+                    <label class="imf-label">${t.studyLevel}<span class="req">*</span></label>
+                    <div class="imf-sel-wrap">
+                        <select class="imf-select imf-niveau" name="StudyLevel" required>
+                            ${studyLevelOptions}
+                        </select>
+                    </div>
+                    <span class="imf-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="imf-err-msg">${t.errRequired}</span>
             </div>
-            <div class="imf-field">
-                <label class="imf-label">${t.campus}<span class="req">*</span></label>
-                <div class="imf-sel-wrap">
-                    <select class="imf-select imf-campus lp-campus-select" name="Campus" required>
-                        ${campusOptions}
-                    </select>
+            <div class="imf-col">
+                <div class="imf-field">
+                    <label class="imf-label">${t.campus}<span class="req">*</span></label>
+                    <div class="imf-sel-wrap">
+                        <select class="imf-select imf-campus lp-campus-select" name="Campus" required>
+                            ${campusOptions}
+                        </select>
+                    </div>
+                    <span class="imf-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="imf-err-msg">${t.errRequired}</span>
             </div>
         </div>
 

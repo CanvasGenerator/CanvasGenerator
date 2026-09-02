@@ -382,6 +382,82 @@ test('Le niveau nomme StudyLevel est reconnu par l ordre [REGRESSION]', (d, run)
          'le campus doit passer devant le niveau');
 }, LAYOUT_NIVEAU_DABORD);
 
+/* Le markup REEL de la brochure depuis le 02/09 : le niveau d'etudes et le
+   campus ont CHACUN son `.brf-col`, donc chacun son parent. C'est ce qui les
+   soustrait au reordonnancement du socle. */
+const LAYOUT_BROCHURE_COLONNES = [['Email', 0], ['StudyLevel', 1, 'colA'],
+                                  ['Campus', 1, 'colB'], ['Speciality', 1],
+                                  ['Consentements', 0]];
+
+test('Brochure : un champ seul dans sa section n est pas deplace [REGRESSION]', (d, run) => {
+    /* L'Excel des champs visibles veut le niveau d'etudes AVANT le campus sur
+       la brochure. `OrdreChamps` dit `campus,niveau` pour les dix ecoles, et il
+       n'y a qu'UNE valeur par ecole pour les six formulaires : la brochure ne
+       pouvait pas obtenir son ordre par la configuration.
+
+       Le gabarit ne pouvait rien non plus tant que les deux champs etaient
+       freres dans le `.brf-row` : ils formaient un groupe de deux porteurs et
+       `reordonner()` remettait le campus devant. Ordre juste dans le builder,
+       faux en ligne.
+
+       Un conteneur par champ donne deux groupes d'un seul porteur, et
+       `reordonner()` sort sur `porteurs.length < 2`. L'ordre du gabarit tient
+       donc, MEME avec un `ordre` qui demande l'inverse — c'est exactement ce
+       que ce test verifie : la config reclame le campus en premier, et le
+       niveau reste devant.
+
+       Le test jumeau juste au-dessus, « Le niveau nomme StudyLevel est reconnu
+       par l ordre », joue la MEME config sur un gabarit ou les deux champs
+       partagent une section : le campus y passe devant. Les deux ensemble
+       prouvent que c'est bien le cloisonnement, et lui seul, qui protege
+       l'ordre de la brochure.
+
+       Aucun champ ne doit donc avoir traverse sa colonne. */
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('colA'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+    egal(d.ordreSection('colB'), ['Campus'], 'le campus doit rester seul dans sa colonne');
+}, LAYOUT_BROCHURE_COLONNES);
+
+/* La candidature veut l'ordre INVERSE de la brochure — campus puis niveau —
+   et ses quatre champs de cascade restent freres du formulaire, parce que leur
+   ordre relatif, lui, est une regle metier que le socle doit pouvoir appliquer
+   par ecole. */
+const LAYOUT_CANDIDATURE_COLONNES = [['Email', 0], ['Campus', 1, 'colA'],
+                                     ['StudyLevel', 1, 'colB'], ['Speciality', 1],
+                                     ['Rhythm', 1], ['Language', 1], ['Rentree', 1],
+                                     ['Consentements', 0]];
+
+test('Candidature : colonnes cloisonnees, cascade toujours reordonnable', (d, run) => {
+    /* Le cloisonnement ne doit PAS s'etendre a la cascade. IFA Paris demande la
+       langue avant la specialite : si les quatre champs cessaient d'etre
+       freres, le socle ne pourrait plus les echanger et la regle tomberait
+       silencieusement. Ce test verifie les deux moities a la fois — le couple
+       campus/niveau fige, la cascade encore mobile. */
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('colA'), ['Campus'], 'le campus doit rester seul dans sa colonne');
+    egal(d.ordreSection('colB'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+    const o = d.ordre();
+    const iL = o.indexOf('Language'), iS = o.indexOf('Speciality');
+    if (iL === -1 || iS === -1) throw new Error(`cascade introuvable : ${o.join(' > ')}`);
+    if (iL > iS) throw new Error(`la regle IFA est perdue, la langue reste apres la specialite : ${o.join(' > ')}`);
+}, LAYOUT_CANDIDATURE_COLONNES);
+
+/* Les formulaires evenement : le campus vit HORS du formulaire, dans
+   .jpo-campus-zone, et le niveau est seul dans son .jpo-col. Deux parents
+   distincts, donc deux groupes d'un porteur. */
+const LAYOUT_EVENEMENT = [['Campus', 1, 'zoneCampus'], ['Email', 0],
+                          ['StudyLevel', 1, 'colNiveau'], ['Speciality', 1],
+                          ['Consentements', 0]];
+
+test('Evenement : le campus hors formulaire ne remonte pas devant le niveau', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,speciality,rhythm,language,rentree' }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    egal(d.ordreSection('zoneCampus'), ['Campus'], 'le campus doit rester dans sa zone');
+    egal(d.ordreSection('colNiveau'), ['StudyLevel'], 'le niveau doit rester seul dans sa colonne');
+}, LAYOUT_EVENEMENT);
+
 test('Une section n est jamais traversee : chaque champ reste chez lui', (d, run) => {
     run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }),
         { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
