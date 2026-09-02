@@ -254,6 +254,60 @@ le libellé Salesforce d'origine est conservé — dégradé, pas cassé, et
 Tests : `sfmc-ssjs/test/test-cascade.js`, section « Règles d'affichage »
 (8 cas, sur les valeurs réelles des value sets de l'org).
 
+### Indicatif et téléphone — retours client du 02/09
+
+**Indicatifs par ordre alphabétique.** Le tri portait sur le nombre. Il porte
+désormais sur le nom de **pays**, extrait des parenthèses du libellé.
+
+> ⚠ Le libellé du value set commence par le chiffre — `+34 (Espagne)`. Trier ce
+> libellé tel quel reproduit l'ancien tri numérique, et la liste **semble**
+> triée. C'est pourquoi `cleDeTri()` existe, et pourquoi deux tests
+> l'attaquent avec des indicatifs dont les deux tris divergent.
+
+**Longueur du numéro selon l'indicatif.** Nouvelle DE `LPB_Mapping_Indicatifs` :
+
+| Colonne | Rôle |
+|---|---|
+| `Indicatif` | clé — la **valeur** du value set, `33` et non `+33` |
+| `Pays` | lisibilité pour le métier, et reprise dans le message d'erreur |
+| `NbMin` · `NbMax` | nombre de chiffres du numéro national, sans l'indicatif et **sans le 0 de tête** |
+| `Actif` | `false` désactive la ligne — un pays douteux se neutralise sans la supprimer |
+
+Amorce : `sfmc-ssjs/socle/LPB_Mapping_Indicatifs.csv`, **13 pays seulement**,
+ceux dont la longueur est certaine. Les 188 autres restent **permissifs** — le
+contrôle générique 7-14 s'applique.
+
+> ⚠⚠ **La DE doit exister AVANT de déployer le socle.** `LookupRows` sur une DE
+> absente tue la page, et il n'existe aucun test d'existence préalable en
+> AMPscript. Même piège que `LPB_Config_Champs_Ecole` (§1.3 du même document).
+> `npm run dump:socle` sort désormais en **BLOQUANT** si elle manque : le
+> lancer avant tout déploiement.
+
+Deux règles qui protègent les candidats, et qui sont testées comme telles :
+
+- **Pays absent de la DE = on ne bloque pas.** Ne pas connaître la longueur d'un
+  pays ne doit pas fermer la porte à ses candidats. Même doctrine que le
+  handler d'écriture : « un candidat légitime bloqué par erreur est un lead
+  perdu, sans trace et sans recours ».
+- **Le 0 de tête est retiré avant de compter.** Sans cela, `06 12 34 56 78`
+  ferait 10 chiffres contre 9 attendus, et le contrôle refuserait exactement la
+  saisie la plus courante en France. L'indicatif retapé dans le champ
+  (`+33 6 12…`) est également toléré — le socle d'écriture le retire déjà.
+
+**Pourquoi la validation vit dans le socle et non dans les blocs.** Les six
+formulaires portent chacun une `validatePhone`, et toutes les six sont
+**inertes en page publiée** (§1.1). Y ajouter la règle n'aurait amélioré que
+l'aperçu du builder. Le socle intercepte `submit`, refuse d'envoyer et affiche
+le message dans l'encart déjà utilisé par les règles de blocage candidature.
+
+Tests : `sfmc-ssjs/test/test-telephone.js` (7 cas, sur la fonction réelle
+extraite du socle) et 3 cas d'ordre alphabétique dans `test-cascade.js`.
+
+**Reste à faire côté SFMC** : rechercher un indicatif en tapant `+34` ou `ES`
+n'est **pas** livré — un `<select>` natif ne cherche que sur le début du texte,
+il faut le remplacer par un champ de saisie filtrant. Les libellés s'y prêtent
+(`+34 (Espagne)` : « 34 » et « ES » matchent tous deux), la donnée est prête.
+
 ### Événements
 
 - Dates filtrées **par campus**, fenêtre « prochaine date + 15 jours ».

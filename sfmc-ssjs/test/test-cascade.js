@@ -571,7 +571,8 @@ test('Campus masque ET valeur unique : la valeur est posee [REGRESSION]', (d, jo
    EDH, qui dit `StudyLevel`. C'est donc bien la table RANG du socle qui decide
    de ce que le candidat lit. */
 const LAYOUT_AFFICHAGE = [['Email', 0], ['Campus', 1], ['VousEtes', 1],
-                          ['StudyLevel', 1], ['Speciality', 1], ['Consentements', 0]];
+                          ['StudyLevel', 1], ['Indicatif', 1], ['Speciality', 1],
+                          ['Consentements', 0]];
 
 /* Les valeurs REELLES des value sets de l'org (cf. REFERENCE-API-ORG.md),
    dans un ordre volontairement melange : un value set sort dans l'ordre de
@@ -721,6 +722,50 @@ test('La liste de la cascade est triee aussi, sous le nom « Niveau »', () => {
     egal(dom.options('Niveau'), ['Terminale', 'Bac obtenu', 'Bac+3', 'Bac+5/+'],
          'niveaux de la cascade');
 }, LAYOUT);
+
+test('Indicatifs classes par PAYS, pas par le chiffre en tete [REGRESSION]', () => {
+    /* Retour client du 02/09 : « afficher les valeurs par ordre alphabetique ».
+       Le libelle du value set commence par le chiffre — `+34 (Espagne)` — donc
+       un tri sur le libelle brut reproduirait l'ancien tri numerique sans que
+       personne ne s'en apercoive : la liste SEMBLERAIT triee.
+
+       Les indicatifs ci-dessous sont pris tels quels dans LPB_Dico_Traductions
+       et choisis pour que les deux tris divergent : par chiffre on aurait
+       +33, +34, +212, +596 ; par pays, Espagne, France, Maroc, Martinique. */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '596', label: '+596 (Martinique)' },
+        { value: '33',  label: '+33 (France)' },
+        { value: '212', label: '+212 (Maroc)' },
+        { value: '34',  label: '+34 (Espagne)' },
+    ] });
+    egal(d.options('Indicatif'),
+         ['+34 (Espagne)', '+33 (France)', '+212 (Maroc)', '+596 (Martinique)'],
+         'indicatifs par ordre alphabetique de pays');
+}, LAYOUT_AFFICHAGE);
+
+test('Indicatifs : accents et articles suivent la locale', () => {
+    /* localeCompare, et non une comparaison de codes : sinon Egypte passerait
+       APRES Emirats et Etats-Unis (E accentue > E simple en Unicode brut). */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '971', label: '+971 (Emirats arabes unis)' },
+        { value: '1',   label: '+1 (Etats-Unis)' },
+        { value: '20',  label: '+20 (Égypte)' },
+    ] });
+    egal(d.options('Indicatif'),
+         ['+20 (Égypte)', '+971 (Emirats arabes unis)', '+1 (Etats-Unis)'],
+         'accents classes comme dans un dictionnaire');
+}, LAYOUT_AFFICHAGE);
+
+test('Indicatif sans parentheses : garde son libelle, ne disparait pas', () => {
+    /* Filet : si le value set change de forme, on classe sur le libelle
+       entier plutot que de rendre une chaine vide — qui remonterait toutes
+       ces options en tete. */
+    const d = jouerAffichage({ Indicatif: [
+        { value: '33', label: '+33 (France)' },
+        { value: '99', label: 'Autre' },
+    ] });
+    egal(d.options('Indicatif'), ['Autre', '+33 (France)'], 'libelle atypique conserve');
+}, LAYOUT_AFFICHAGE);
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
