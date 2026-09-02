@@ -166,7 +166,7 @@ SET @sfBlockRule = ""
 
 VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
-VAR @speciality, @specRows, @programme, @progRows, @progRow
+VAR @speciality, @specRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
 VAR @utmCampus, @consent, @dateCookies
@@ -299,7 +299,6 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @formType   = Lowercase(RequestParameter("TypeFormulaire"))
     SET @ptatId     = RequestParameter("PTAT_Id")
     SET @speciality = RequestParameter("Speciality")
-    SET @programme  = RequestParameter("Programme")
     SET @campaignId = RequestParameter("CampaignId")
     SET @brandId    = RequestParameter("BusinessBrandId")
     SET @legalText  = RequestParameter("LegalTexteAccepted")
@@ -576,15 +575,49 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            REMPLACE un blocage R1 pose par une autre ligne. */
                         SET @sfStatus = "blocked"
                         SET @sfBlockRule = "r2"
-                        SET @sfBlockMsg = "Votre precedente candidature a ce programme a fait l'objet d'une decision defavorable. Une nouvelle candidature au meme programme n'est pas possible avant l'annee prochaine. Pour toute question, veuillez contacter le service des admissions."
+                        SET @sfBlockMsg = "Votre précédente candidature à ce programme a fait l'objet d'une décision défavorable. Une nouvelle candidature au même programme n'est pas possible avant l'année prochaine. Pour toute question, veuillez contacter le service des admissions."
                     ELSEIF Empty(@sfBlockMsg) THEN
                         SET @sfStatus = "blocked"
                         SET @sfBlockRule = "r1"
-                        SET @sfBlockMsg = "Vous avez deja une candidature en cours pour ce programme. Nous vous invitons a contacter le service des admissions du campus auquel vous souhaitez candidater."
+                        SET @sfBlockMsg = "Vous avez déjà une candidature en cours pour ce programme. Nous vous invitons à contacter le service des admissions du campus auquel vous souhaitez candidater."
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
-                    SET @journal = Concat(@journal, " BLOQUE:", @sfBlockRule, ":", @nCand, "candidature(s)")
+                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                    /* ⚠ SANS CECI LE CANDIDAT NE VOIT RIEN DE JUSTE. Le
+                       formulaire lit le commentaire « socle erreur: » et en
+                       fait son message (shared/envoi-socle.js, puis alert).
+                       Faute de le renseigner, un blocage rendait `ok:false`
+                       avec un message VIDE, et le candidat recevait « Une
+                       erreur est survenue, veuillez reessayer » — soit
+                       exactement l'inverse de ce qu'il faut lui dire : il ne
+                       doit PAS reessayer, il doit contacter les admissions. */
+                    SET @sfErrorMsg = @sfBlockMsg
+                    /* ⚠ SANS CETTE LIGNE, UN BLOCAGE NE LAISSE AUCUNE TRACE.
+                       Tout ce qui suit — y compris « 99 - fin » — vit dans le
+                       garde-fou `IF @sfStatus != "blocked"`. Le journal
+                       s'arretait donc net apres « 20 - campagne resolue », et
+                       une candidature legitimement bloquee etait indiscernable
+                       d'une page morte entre l'etape 20 et l'etape 25. Le
+                       marqueur BLOQUE: n'existait que dans le commentaire HTML
+                       de la reponse, que personne ne conserve.
+                       Constate le 01/09 sur une soumission reelle. */
+                    IF @LOG_ACTIF == "true" THEN
+                        SET @logOrdre = Add(@logOrdre, 1)
+                        InsertData("LPB_Log_Soumissions",
+                            "RowId", Concat(@runId, "-", @logOrdre),
+                            "RunId", @runId,
+                            "Ordre", @logOrdre,
+                            "Horodatage", Now(),
+                            "Etape", "21 - candidature bloquee",
+                            "Statut", "BLOQUE",
+                            "Objet", @OBJ_APPLICATION,
+                            "RecordId", Field(Row(@candRows, 1), "Id"),
+                            "Detail", Concat(@nCand, " candidature(s) sur le PTAT ", @ptatId, " — ", @sfBlockMsg),
+                            "Email", @email,
+                            "Ecole", @ecole,
+                            "FormType", @formType)
+                    ENDIF
                 ENDIF
             ENDIF
         ENDIF
@@ -1383,23 +1416,21 @@ IF IndexOf(@submitted, "true") > 0 THEN
         IF NOT Empty(@paId) THEN
             IF @formType == "candidature" THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Application_Requested__c", "true")
-                /* Le PTAT est la SEULE trace de la rentree choisie : aucun
-                   champ de rentree n'existe sur Account, et un PTAT designe
-                   exactement un couple programme x rentree. S'il part vide, la
-                   rentree est perdue — d'ou le journal, dans les deux cas.
-                   Sans lui, un PTAT manquant etait parfaitement silencieux et
-                   ne se voyait qu'en relisant le compte.
+                /* ---- NI PTAT_Id__c NI LearningProgram_Id__c ---------------
+                   Ces deux ecritures ont existe ici, et elles n'ont JAMAIS
+                   rien ecrit : sans droit de modification, l'API Salesforce
+                   ignore le champ en silence et rend un succes. Verifie le
+                   31/08 (temoin `Speciality__c` ecrit et relu au meme moment),
+                   corrobore par zero compte de l'org portant l'un des deux.
+                   Retirees le 01/09 : ces champs sont alimentes cote CRM par
+                   un flow, ce n'est pas au socle de les poser.
 
-                   ⚠ ET CETTE ECRITURE NE PASSE PAS. Voir le controle de
-                   verite plus bas : `PTAT_Id__c` accepte l'update et laisse le
-                   champ vide. Le code est conserve tel quel — il redeviendra
-                   utile le jour ou le droit sera ouvert — mais il ne faut PAS
-                   croire ce qu'il a l'air de faire. */
-                IF NOT Empty(@ptatId) THEN
-                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "PTAT_Id__c", @ptatId)
-                ELSE
-                    SET @journal = Concat(@journal, " PTAT:absent(rentree-perdue)")
-                ENDIF
+                   Ce que le socle ecrit sur Account se limite donc aux champs
+                   qui lui appartiennent. RYTHME, LANGUE D'ENSEIGNEMENT et
+                   RENTREE n'y figurent pas et n'ont pas a y figurer : ils sont
+                   portes par le PROGRAMME et le PTAT, que le CRM rattache lui
+                   meme a la candidature. `LPB_TST_Sonde_Compte` les relit a
+                   cette source pour la recette. */
             ELSE
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Application_Requested__c", "false")
             ENDIF
@@ -1411,13 +1442,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                dont les 62 valeurs sont celles de
                `LearningProgram.Speciality__c`, d'ou le socle tire la liste.
 
-               ⚠ CORRIGE LE 31/08 : la specialite n'est PAS le programme, et
-               le champ programme existe bien — `LearningProgram_Id__c`. Il
-               avait ete manque parce qu'on cherchait `Program__c`,
-               `Programme__c`, `LearningProgram__c` ou `DesiredProgram__c`, nom
-               par nom. Les 271 champs de l'objet se listent d'un coup via
-               `EntityParticle` (cf. le bloc PROGRAMME plus bas) : c'est la
-               methode, pas la devinette.
+               ⚠ La specialite n'est PAS le programme. Le champ programme
+               existe bien sur Account — `LearningProgram_Id__c` — mais le
+               socle ne l'ecrit PAS : voir le bloc du drapeau candidature
+               ci-dessus. La specialite, elle, s'ecrit et se relit.
 
                ⚠ CETTE ECRITURE N'EXISTAIT PAS. Le <select Speciality> etait
                bien affiche sur les six formulaires, mais sa valeur n'etait
@@ -1440,77 +1468,6 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
             ENDIF
 
-            /* ---- PROGRAMME — L'ID DU CURSUS RETENU PAR LA CASCADE ---------
-               `<select name="Programme">` porte des Id de `LearningProgram` en
-               valeur d'option (picklist-handler, « progs »), et Account a un
-               champ pour les recevoir : `LearningProgram_Id__c`, du TEXTE, pas
-               un lookup — verifie inscriptible le 31/08 par sonde d'ecriture.
-
-               ⚠ CETTE ECRITURE N'EXISTAIT PAS, comme la specialite avant elle.
-               Le programme etait affiche, choisi, poste... et lu par personne.
-
-               Ce qu'il porte va plus loin que lui-meme : RYTHME et LANGUE
-               D'ENSEIGNEMENT n'ont aucun champ d'accueil sur Account, et n'en
-               ont pas besoin. Ce sont des criteres de filtrage, pas des
-               reponses : ils ne servent qu'a reduire la cascade jusqu'au
-               programme, qui les porte tous les deux (`Rhythm__c`,
-               `InstructionLanguage__c` sur LearningProgram). Ecrire cet Id,
-               c'est donc conserver les trois. Avec le PTAT au-dessus pour la
-               rentree, la cascade entiere devient relisible depuis le compte.
-
-               Meme prudence que pour la specialite : ON NE FAIT PAS CONFIANCE
-               AU POST. Un Id inexistant ou malforme peut venir de n'importe
-               qui ; on verifie que le programme existe avant d'ecrire. */
-            IF NOT Empty(@programme) THEN
-                SET @progRows = RetrieveSalesforceObjects("LearningProgram", "Id",
-                    "Id", "=", @programme)
-                IF RowCount(@progRows) > 0 THEN
-                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "LearningProgram_Id__c", @programme)
-                ELSE
-                    SET @journal = Concat(@journal, " PROG:ignore(", @programme, ")")
-                ENDIF
-            ENDIF
-
-            /* ---- CONTROLE DE VERITE : ON RELIT CE QU'ON VIENT D'ECRIRE ----
-               ⚠ UN UPDATE SALESFORCE PEUT ETRE ACCEPTE ET N'ECRIRE RIEN.
-               Sans droit de modification sur un champ, l'API n'echoue pas :
-               elle IGNORE le champ, en silence, et rend un succes. C'est le
-               cas de `PTAT_Id__c` et `LearningProgram_Id__c` sur cette org —
-               mesure du 31/08, temoin `Speciality__c` ecrit et relu au meme
-               moment sur le meme compte pour ecarter tout doute.
-
-               Consequence : l'ecriture du PTAT ci-dessus n'a JAMAIS rien
-               ecrit, depuis toujours, et personne ne pouvait le voir. La
-               rentree n'a jamais ete conservee.
-
-               On relit donc les deux champs en UNE lecture et on journalise
-               ce qu'ils valent VRAIMENT. Un `-refuse` au journal ne se corrige
-               pas dans ce fichier : il faut ouvrir le droit d'ecriture a
-               l'utilisateur d'integration, ou renoncer a ces deux champs.
-               Leur vrai foyer est de toute facon `IndividualApplication`
-               (`StudyMode__c`, `InstructionLanguage__c`, `AcademicTerm`,
-               `ProgramTermApplnTimelineId`), pose par Flow Builder. */
-            IF NOT Empty(@ptatId) OR NOT Empty(@programme) THEN
-                SET @progRows = RetrieveSalesforceObjects("Account",
-                    "Id,PTAT_Id__c,LearningProgram_Id__c", "Id", "=", @paId)
-                IF RowCount(@progRows) > 0 THEN
-                    SET @progRow = Row(@progRows, 1)
-                    IF NOT Empty(@ptatId) THEN
-                        IF Empty(Field(@progRow, "PTAT_Id__c")) THEN
-                            SET @journal = Concat(@journal, " PTAT:refuse-silencieux(", @ptatId, ")")
-                        ELSE
-                            SET @journal = Concat(@journal, " PTAT:", @ptatId)
-                        ENDIF
-                    ENDIF
-                    IF NOT Empty(@programme) THEN
-                        IF Empty(Field(@progRow, "LearningProgram_Id__c")) THEN
-                            SET @journal = Concat(@journal, " PROG:refuse-silencieux(", @programme, ")")
-                        ELSE
-                            SET @journal = Concat(@journal, " PROG:", @programme)
-                        ENDIF
-                    ENDIF
-                ENDIF
-            ENDIF
             IF @LOG_ACTIF == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
@@ -1559,9 +1516,29 @@ IF IndexOf(@submitted, "true") > 0 THEN
            ==================================================================== */
         IF NOT Empty(@paId) THEN
 
-            SET @preuve = Concat("[v1]")
-            IF NOT Empty(@legalText)   THEN SET @preuve = Concat(@preuve, " — ", @legalText) ENDIF
-            IF NOT Empty(@legalFooter) THEN SET @preuve = Concat(@preuve, " — ", @legalFooter) ENDIF
+            /* ---- LA PREUVE : LE TEXTE LEGAL, ET RIEN D'AUTRE ---------------
+               Le texte accepte, puis le texte de pied de page, separes par un
+               tiret. Plus de prefixe « [v1] » : il ne versionnait rien — aucun
+               [v2] n'a jamais existe — et occupait la tete du champ, la ou on
+               lit la phrase reellement acceptee.
+
+               ⚠ CE PREFIXE FAISAIT OFFICE DE FILET. `Legal_Texte_Accepted__c`
+               est REQUIS a la creation : avec « [v1] » en dur, la preuve
+               n'etait jamais vide et l'insert passait toujours. Sans lui, un
+               formulaire qui ne poste pas son texte legal produit une preuve
+               vide et TUE la page a l'insert. D'ou le garde-fou plus bas : pas
+               de texte, pas de consentement ecrit — et une ligne au journal.
+               Un consentement sans trace de ce qui a ete accepte ne vaudrait
+               de toute facon rien devant la CNIL. */
+            SET @preuve = ""
+            IF NOT Empty(@legalText) THEN SET @preuve = @legalText ENDIF
+            IF NOT Empty(@legalFooter) THEN
+                IF Empty(@preuve) THEN
+                    SET @preuve = @legalFooter
+                ELSE
+                    SET @preuve = Concat(@preuve, " — ", @legalFooter)
+                ENDIF
+            ENDIF
 
             /* ---- POINTS DE CONTACT : RESOLUS, SINON CREES -----------------
                Resolus UNE FOIS pour les 5 canaux : l'e-mail sert au canal Email
@@ -1781,8 +1758,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            acceptation : a arbitrer avec le juridique, car la
                            seule autre issue serait un second enregistrement —
                            donc le doublon qu'on vient justement de supprimer. */
-                        IF Field(@cpcRow, "Legal_Texte_Accepted__c") != @preuve THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-texte-fige")
+                        IF NOT Empty(@preuve) THEN
+                            IF Field(@cpcRow, "Legal_Texte_Accepted__c") != @preuve THEN
+                                SET @journal = Concat(@journal, " CPC:", @canalValue, "-texte-fige")
+                            ENDIF
                         ENDIF
                     ELSE
                         /* ---- PREMIER CONSENTEMENT POUR CE CANAL -----------
@@ -1800,12 +1779,21 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            objets voisins, deux regles opposees.
 
                            ⚠ Legal_Texte_Accepted__c est REQUIS : sans lui
-                           l'insert echoue. @preuve vaut au minimum "[v1]",
-                           donc il n'est jamais vide.
+                           l'insert ECHOUE et la page meurt. @preuve peut
+                           desormais etre vide — le prefixe "[v1]" qui le
+                           garantissait a ete retire le 31/08 — d'ou le test
+                           qui precede la creation.
 
                            BusinessBrandId : voir @ECRIRE_MARQUE_CONSENT en
                            tete de fichier. */
-                        IF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                        IF Empty(@preuve) THEN
+                            /* Ni LegalTexteAccepted ni LegalTexteFooter dans le
+                               POST : on ne sait pas ce que la personne a
+                               accepte. On n'ecrit donc PAS un consentement dont
+                               la preuve serait vide, et on le dit au journal —
+                               plutot que de tuer la page sur un champ requis. */
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-texte-legal")
+                        ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
@@ -1829,12 +1817,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "CaptureSource",           "SFMC CloudPage",
                                 "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
-                        /* Marqueur de CREATION. Il etait pose hors du IF, donc
-                           aussi sur le cas sans point de contact, qui venait
-                           deja de journaliser son echec : « CPC:Email » suivait
-                           « CPC:Email-sans-contactpoint » et laissait croire a
-                           une reussite. */
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                        /* Marqueur de CREATION, pose SEULEMENT si un
+                           enregistrement est reellement ne — @cpcId ne vaut
+                           quelque chose que si CreateSalesforceObject a rendu
+                           un Id. Il etait pose hors du IF, donc aussi sur les
+                           cas d'echec : « CPC:Email-sans-texte-legal » etait
+                           suivi de « CPC:Email-cree », qui disait l'inverse. */
+                        IF NOT Empty(@cpcId) THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                        ENDIF
                     ENDIF
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)

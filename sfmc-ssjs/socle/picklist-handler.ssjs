@@ -398,6 +398,52 @@ try {
         return out;
     }
 
+    /**
+     * Peut-on poser d'office la valeur unique d'un critere ?
+     *
+     * OUI seulement si TOUS les programmes encore en lice la portent. Sinon
+     * poser revient a eliminer ceux qui n'ont rien dans ce champ, car `filtrer`
+     * exige l'egalite et un programme sans valeur echoue au critere.
+     *
+     * ⚠ LE BUG QUE CECI CORRIGE, releve le 01/09 sur la candidature EFAP.
+     * A Paris, « BAC obtenu ou Prepa » laisse deux programmes :
+     *     Annee 1 FR -> speciality ""        language FR
+     *     Annee 1 EN -> speciality "Luxury…"  language EN
+     * `distinct` IGNORE les valeurs vides : la specialite semblait donc n'avoir
+     * qu'une seule valeur, elle etait posee d'office, et cette pose ECARTAIT le
+     * programme FR. Consequence en cascade : la liste des langues tombait a
+     * « EN » seul, le choix FR du candidat etait ECRASE par EN, puis plus aucun
+     * programme ne survivait — ni rentree, ni PTAT. Le candidat voyait ses
+     * champs se vider sans comprendre.
+     *
+     * On ne pose donc plus : le critere reste simplement non applique, les deux
+     * programmes restent en lice, et la LANGUE choisie fait le tri.
+     *
+     * ⚠ CONTREPARTIE ASSUMEE, mesuree le 02/09. Le champ reste MASQUE (regle du
+     * contrat : une seule valeur = aucun choix), donc le candidat ne peut pas
+     * trancher lui-meme. Sur BRASSART, 30 des 195 combinaisons campus x niveau
+     * n'offrent alors plus aucun champ pour affiner, et repartent sans PTAT :
+     * la soumission passe, mais ni rentree ni regles de blocage.
+     *
+     * C'est le moindre mal. L'ancien comportement produisait un PTAT — celui
+     * d'un programme que le candidat n'avait PAS demande. Mieux vaut pas de
+     * reponse qu'une mauvaise reponse silencieuse.
+     *
+     * La vraie correction n'est pas ici : `Speciality__c` est vide sur ces
+     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules. */
+    /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
+       optionnels par nature : le candidat peut les renseigner ou non, donc ils
+       ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
+       chaque passe de cascade, juste avant l'application des regles. */
+    var OPTIONNELS = {};
+
+    function poserValeurUnique(rows, prop) {
+        for (var i = 0; i < rows.length; i++) {
+            if (!rows[i][prop]) return false;
+        }
+        return true;
+    }
+
     /** Une cellule multipicklist "a;b;c" contient-elle la valeur attendue ? */
     /**
      * Les deux cotes du CRM n'ecrivent pas les niveaux pareil :
@@ -533,6 +579,15 @@ try {
         return conditionsRemplies(regle.conditions);
     }
 
+    /** Le formulaire courant est-il une immersion ? */
+    function estImmersion() {
+        var t = champ('TypeEvenement');
+        return Boolean(t) && Lowercase_(t.value) === 'immersion';
+    }
+
+    /** Minuscules sans exploser sur null/undefined. */
+    function Lowercase_(v) { return String(v == null ? '' : v).toLowerCase(); }
+
     /** Les options d'un <select>, PLACEHOLDER EXCLU. */
     function optionsReelles(el) {
         var out = [];
@@ -576,6 +631,10 @@ try {
             if (!autorise(nom)) continue;
             var el = champ(nom);
             if (el.tagName === 'SELECT' && !optionsReelles(el).length) continue;
+            /* Optionnel : tous les programmes en lice ne le portent pas, donc
+               le laisser vide est un choix valide et non un formulaire
+               incomplet. L'exiger fermait la porte. */
+            if (OPTIONNELS[nom] && !el.value) continue;
             if (!el.value) return false;
         }
         return true;
@@ -605,6 +664,14 @@ try {
         var el = champ(nom);
         if (!el) return false;
         var reelles = optionsReelles(el);
+        /* UNE SEULE VALEUR = AUCUN CHOIX : le champ est masque, qu'on puisse
+           poser la valeur ou non. Regle du contrat, reaffirmee le 02/09.
+
+           J'avais tente de laisser visible le cas ou la valeur n'est pas
+           posable, pour que le candidat puisse trancher lui-meme. Ecarte : ca
+           faisait apparaitre des champs la ou l'ecole n'en veut pas. La
+           contrepartie est assumee et documentee sous `poserValeurUnique`. */
+        var uniquePosable = (reelles.length === 1 && poserSiUnique !== false);
         var visible = autorise(nom);
         if (visible && progressif && !precedentsRemplis(nom)) visible = false;
         if (visible && reelles.length <= 1) visible = false;
@@ -618,7 +685,7 @@ try {
            vient d'etre invalide par la cascade, lui en substituer un autre
            d'office reviendrait a le candidater sur un programme qu'il n'a pas
            demande. On laisse vide, le champ reste affiche, il rechoisit. */
-        if (reelles.length === 1 && poserSiUnique !== false) el.value = reelles[0].value;
+        if (uniquePosable) el.value = reelles[0].value;
         afficher(nom, visible);
         return visible;
     }
@@ -964,11 +1031,64 @@ try {
             language:   valeur('Language')
         };
 
+        /* Le vivier de chaque liste est retenu, pas seulement ses valeurs :
+           `poserValeurUnique` a besoin de savoir si TOUS les programmes encore
+           en lice portent bien le critere. Cf. son commentaire. */
+        var vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
+        var vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
+        var vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
+
         // chaque liste ne propose que ce qui reste possible en amont
         remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level, true);
-        remplir('Speciality', distinct(filtrer({ campus: sel.campus, level: sel.level }), 'speciality'), sel.speciality, true);
-        remplir('Rhythm',     distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality }), 'rhythm'), sel.rhythm, true);
-        remplir('Language',   distinct(filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm }), 'language'), sel.language, true);
+
+        /* ---- NIVEAUX : CEUX QUI ONT UN PROGRAMME, ET EUX SEULS ------------
+           En candidature, proposer un niveau sans programme mene a une cascade
+           vide sans explication : a EFAP AIX, « BAC+5 et + » ou « Collège »
+           etaient offerts alors que le campus n'ouvre que six niveaux sur les
+           treize du referentiel.
+
+           ⚠ ON NE REMPLIT PAS AVEC LES VALEURS DES PROGRAMMES. Les deux objets
+           n'ecrivent pas les niveaux pareil — `Bac obtenu` cote LearningProgram,
+           `BAC obtenu ou Prépa` cote Account — et c'est la graphie ACCOUNT que
+           le formulaire poste dans `Academic_Level_List__c`. Prendre celle des
+           programmes enverrait au CRM une valeur hors value set, donc rejetee
+           en silence.
+
+           On garde donc le referentiel Account comme source des options, et on
+           s'en sert juste pour RESTREINDRE : `canonNiveau` rapproche les deux
+           graphies, exactement comme pour le filtrage.
+
+           Repli si le rapprochement ne rend rien (donnee inattendue) : on laisse
+           la liste complete. Un formulaire trop large reste remplissable, un
+           formulaire vide ne l'est pas.
+
+           Limite a la CANDIDATURE : c'est la que les programmes sont deja
+           restreints a ceux qui ont un PTAT, donc que la liste a du sens. */
+        var typeForm = champ('TypeFormulaire');
+        if (typeForm && Lowercase_(typeForm.value) === 'candidature') {
+            var nomNiveau = nomDomDeCle('niveau');
+            var refsNiveau = (D.picklists && D.picklists.StudyLevel) || [];
+            if (nomNiveau && refsNiveau.length) {
+                var offerts = {};
+                distinct(filtrer({ campus: sel.campus }), 'level').forEach(function (o) {
+                    offerts[canonNiveau(o.value)] = true;
+                });
+                var niveauxOuverts = refsNiveau.filter(function (o) {
+                    return offerts[canonNiveau(o.value)];
+                });
+                if (niveauxOuverts.length) {
+                    remplir(nomNiveau, niveauxOuverts, sel.level, true);
+                    /* Le niveau retenu vient peut-etre de disparaitre avec le
+                       changement de campus. On relit AVANT que les filtres qui
+                       suivent s'en servent, sinon toute la passe travaille sur
+                       un niveau que le formulaire ne porte plus. */
+                    sel.level = valeur(nomNiveau);
+                }
+            }
+        }
+        remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
+        remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
+        remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
@@ -987,9 +1107,19 @@ try {
            la langue d'abord — le « precedent » de la specialite n'aurait pas
            encore recu sa valeur d'office, et la specialite resterait masquee
            un tour de trop. */
+        var VIVIERS = { Speciality: [vivierSpec, 'speciality'],
+                        Rhythm:     [vivierRyth, 'rhythm'],
+                        Language:   [vivierLang, 'language'] };
+
+        OPTIONNELS = {};
+        for (var nomV in VIVIERS) {
+            OPTIONNELS[nomV] = !poserValeurUnique(VIVIERS[nomV][0], VIVIERS[nomV][1]);
+        }
+
         var conditionnels = ordonner(['Speciality', 'Rhythm', 'Language']);
         for (var c = 0; c < conditionnels.length; c++) {
-            reglesAffichage(conditionnels[c], progressif);
+            var v = VIVIERS[conditionnels[c]];
+            reglesAffichage(conditionnels[c], progressif, poserValeurUnique(v[0], v[1]));
         }
 
         // Langue par defaut (IFA Paris : francais) si rien n'est encore choisi
@@ -1133,6 +1263,19 @@ try {
      */
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
+
+        /* ---- IMMERSION : PAS DE DATE, PAS DE CAMPUS, PAS DE CHOIX --------
+           L'immersion n'est pas un evenement date : l'ecole en a UNE, elle sert
+           de rattachement a l'inscription Summit, et le candidat n'a rien a
+           selectionner. Ni la fenetre de 15 jours ni le filtre par campus n'ont
+           donc de sens ici.
+
+           Le campus, en particulier, aurait tout casse : le CRM rattache chaque
+           instance a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
+           NANTES — alors qu'un candidat EFAP choisit souvent PARIS. Il n'aurait
+           vu aucune date et n'aurait pas pu s'inscrire, alors que l'immersion de
+           son ecole existe. */
+        if (estImmersion()) return toutes;
         /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
            auparavant toutes les dates de l'ecole, tous campus confondus : le
            visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
@@ -1908,6 +2051,21 @@ try {
                     wrap.appendChild(corps);
                     zoneDates.appendChild(wrap);
                 });
+
+                /* ---- IMMERSION : LE BLOC DATE N'EXISTE PAS ---------------
+                   La notion de date n'a pas cours sur l'immersion : l'instance
+                   de l'ecole est cochee d'office et le bloc reste masque, quel
+                   que soit le nombre d'instances. Le bouton radio demeure dans
+                   le <form>, donc InstanceId part au CRM.
+
+                   Volontairement limite a l'immersion. Sur une JPO ou un
+                   atelier, la date est une information utile, meme unique. */
+                if (estImmersion()) {
+                    var porteurDates = zoneDates.closest
+                        ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
+                        : zoneDates.parentNode;
+                    if (porteurDates && porteurDates.style) porteurDates.style.display = 'none';
+                }
 
             } else if (elInst && elInst.tagName === 'SELECT') {
                 remplir('InstanceId', liste, valeur('InstanceId'));
