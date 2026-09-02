@@ -3084,7 +3084,36 @@ try {
         function rendreDates() {
             var liste = datesPour(elCampus ? elCampus.value : '');
 
-            if (zoneDates) {
+            if (zoneDates && estImmersion()) {
+                /* ---- IMMERSION : UN CHAMP CACHE, PAS UN CHOIX -------------
+                   L'immersion n'est pas un evenement date : l'ecole en a une,
+                   elle sert de rattachement a l'inscription Summit, et le
+                   candidat n'a rien a selectionner. On pose donc un
+                   `<input type="hidden">`, pas un bouton radio masque.
+
+                   La difference n'est pas cosmetique. Un radio `required` dans
+                   un conteneur en display:none est un piege connu : si rien
+                   n'est coche, le navigateur refuse la soumission ET ne peut
+                   pas montrer le champ fautif — le formulaire se bloque sans
+                   rien dire. Le champ cache n'a pas cet etat.
+
+                   La zone reste vide de tout libelle : aucune date affichee,
+                   conformement au contrat. */
+                zoneDates.innerHTML = '';
+                var instImm = liste[0];
+                if (instImm) {
+                    var cache = document.createElement('input');
+                    cache.type = 'hidden';
+                    cache.name = 'InstanceId';
+                    cache.value = instImm.value;
+                    zoneDates.appendChild(cache);
+                }
+                var porteurImm = zoneDates.closest
+                    ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
+                    : zoneDates.parentNode;
+                if (porteurImm && porteurImm.style) porteurImm.style.display = 'none';
+
+            } else if (zoneDates) {
                 zoneDates.innerHTML = '';
                 liste.forEach(function (inst, i) {
                     var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
@@ -3202,20 +3231,6 @@ try {
                     zoneDates.appendChild(wrap);
                 });
 
-                /* ---- IMMERSION : LE BLOC DATE N'EXISTE PAS ---------------
-                   La notion de date n'a pas cours sur l'immersion : l'instance
-                   de l'ecole est cochee d'office et le bloc reste masque, quel
-                   que soit le nombre d'instances. Le bouton radio demeure dans
-                   le <form>, donc InstanceId part au CRM.
-
-                   Volontairement limite a l'immersion. Sur une JPO ou un
-                   atelier, la date est une information utile, meme unique. */
-                if (estImmersion()) {
-                    var porteurDates = zoneDates.closest
-                        ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
-                        : zoneDates.parentNode;
-                    if (porteurDates && porteurDates.style) porteurDates.style.display = 'none';
-                }
 
             } else if (elInst && elInst.tagName === 'SELECT') {
                 remplir('InstanceId', liste, valeur('InstanceId'));
