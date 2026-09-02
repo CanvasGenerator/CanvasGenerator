@@ -254,6 +254,56 @@ le libellé Salesforce d'origine est conservé — dégradé, pas cassé, et
 Tests : `sfmc-ssjs/test/test-cascade.js`, section « Règles d'affichage »
 (8 cas, sur les valeurs réelles des value sets de l'org).
 
+### Casse des libellés — retour client du 02/09
+
+« Ne rien écrire en lettres majuscules (ex : les campus doivent être en
+minuscule). » Le CRM stocke ses valeurs en capitales — `EFAP PARIS`,
+`BRASSART AIX-EN-PROVENCE`, `COLLÈGE`, `BAC+1` — et elles arrivaient telles
+quelles dans les listes déroulantes.
+
+Traité **à l'affichage**, dans `casseLisible()` (`picklist-handler.ssjs`), le
+seul endroit qui écrit le texte d'une option : `libelleAffiche()` pour tous les
+`<select>` (campus, pays, indicatif, niveau, « vous êtes », spécialité,
+programme, rentrée), plus les libellés d'ateliers et de dates d'événement.
+
+> ⚠ La `value` de l'option **ne bouge pas** : c'est la valeur Salesforce
+> d'origine, celle que le socle d'écriture attend. Même contrat que le
+> dictionnaire de traduction, et les tests vérifient les deux moitiés.
+
+Deux natures de libellés, donc deux casses — la même coupure que dans
+`trier()` :
+
+| Nature | Champs | Résultat |
+|---|---|---|
+| Noms propres | `Campus` · `Country` · `Indicatif` | une majuscule par mot — `EFAP PARIS` → `Efap Paris` |
+| Phrases | tout le reste | la première lettre seule — `BAC OBTENU OU PRÉPA` → `Bac obtenu ou prépa` |
+
+Une majuscule par mot appliquée partout donnerait `Bac Obtenu Ou Prépa` : un
+titre anglais, pas une phrase française.
+
+Trois garde-fous, parce qu'une règle appliquée bêtement abîme autant qu'elle
+répare :
+
+- **un mot qui porte déjà une minuscule n'est pas touché** — `Bac obtenu`,
+  `Aix-en-Provence` ont été écrits à la main ;
+- **sigles et codes gardent leurs capitales** — table `SIGLES` (BEP, CAP, MBA,
+  BTS…), et une ou deux lettres sont un code, jamais un mot : `Lille A1` est un
+  vrai nom de programme, `Lille a1` serait un identifiant abîmé ;
+- **les particules redescendent** quand elles n'ouvrent pas le libellé, sinon
+  `Aix-En-Provence` et `Bac obtenu OU prépa`. Elles passent **avant** le test
+  des codes : `en`, `d`, `ou` tiennent en deux lettres.
+
+Côté générateur, `MasterTemplate/Components/NosCampus` forçait aussi les
+capitales sur les noms de campus (`.toUpperCase()`) : le nom part désormais tel
+qu'il est saisi. Aucun autre bloc ne transforme une valeur récupérée — les
+`text-transform: uppercase` restants sont du **design** (titres, boutons,
+libellés de champs) et n'ont pas été touchés.
+
+Tests : `sfmc-ssjs/test/test-cascade.js`, section « Casse des libellés »
+(5 cas : campus composé, pays, phrase, sigles et codes, libellé déjà correct).
+Après toute retouche : `node scripts/sync-cascade-js.js`, le JS de cascade
+vivant en double dans le `.ampscript`.
+
 ### Indicatif et téléphone — retours client du 02/09
 
 **Indicatifs par ordre alphabétique.** Le tri portait sur le nombre. Il porte
