@@ -444,6 +444,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     margin-bottom: 12px;
 }
 
+/* Conteneur d'isolement, un seul champ dedans. Il n'a aucun effet visuel : il
+   existe pour que le niveau d'études ne partage son parent avec aucun autre
+   champ de la cascade, le socle ne réordonnant que les champs frères. */
+.jpo-col {
+    min-width: 0;
+}
+
 .jpo-field.hidden {
     display: none !important;
 }
@@ -805,37 +812,26 @@ ${hidden}
              refuse la soumission. EventDate ci-dessus ne porte qu'un texte
              d'affichage.
 
-             Les conteneurs eux-memes sont plus bas, juste avant le bouton. -->
+             Le choix de la date OUVRE le formulaire : c'est la position 2 de
+             l'Excel des champs visibles, juste apres le campus. Il ne peut pas
+             remonter plus haut, le campus vivant au-dessus du <form>. Les
+             sous-evenements, eux, restent en bas. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
 ${showVousEtes ? `
-        <div class="jpo-row">
-            <div class="jpo-field">
-                <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
-                <div class="jpo-sel-wrap">
-                    <select class="jpo-select" name="VousEtes" required>
-                        ${contactTypeOptions}
-                    </select>
-                </div>
-                <span class="jpo-err-msg">${t.errRequired}</span>
-            </div>
-            <div class="jpo-field">
-                <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="jpo-sel-wrap">
-                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
-                </div>
-                <span class="jpo-err-msg">${t.errRequired}</span>
-            </div>
-        </div>` : `
+        <!-- « Mon profil » dans l'Excel, position 3. Seul sur sa ligne : le
+             niveau d'etudes qui l'accompagnait est descendu en position 8. -->
         <div class="jpo-field">
-            <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
+            <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
             <div class="jpo-sel-wrap">
-                <select class="jpo-select jpo-niveau" name="StudyLevel" required>
-                    ${studyLevelOptions}
+                <select class="jpo-select" name="VousEtes" required>
+                    ${contactTypeOptions}
                 </select>
             </div>
             <span class="jpo-err-msg">${t.errRequired}</span>
-        </div>`}
+        </div>` : ''}
 
         <div class="jpo-row">
             <div class="jpo-field">
@@ -873,6 +869,28 @@ ${showVousEtes ? `
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="jpo-err-msg">${t.errPhone}</span>
+            </div>
+        </div>
+
+        <!-- Niveau d'études — position 8 de l'Excel des champs visibles, juste
+             apres le telephone. Il accompagnait « Vous etes » en haut du
+             formulaire, ce que le fichier ne demande pas.
+
+             ⚠ DANS SON PROPRE .jpo-col, ET SEUL DEDANS. Le socle ne reordonne
+             que les champs qui PARTAGENT un parent et laisse intact tout
+             groupe d'un seul champ : ce conteneur rend la place ecrite ici
+             definitive, page publiee comprise. Le campus, lui, vit au-dessus
+             du <form> dans .jpo-campus-zone — autre parent, donc aucun risque
+             qu'il repasse devant. -->
+        <div class="jpo-col">
+            <div class="jpo-field">
+                <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
+                <div class="jpo-sel-wrap">
+                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
+                        ${studyLevelOptions}
+                    </select>
+                </div>
+                <span class="jpo-err-msg">${t.errRequired}</span>
             </div>
         </div>
 
@@ -922,16 +940,12 @@ ${showChild ? `
             <span class="jpo-err-msg">${t.errPhone}</span>
         </div>` : ''}
 
-        <!-- DATES ET SOUS-EVENEMENTS, EN BAS — arbitrage du 30/08.
-             Ils etaient juste sous le campus, donc avant meme que le visiteur
-             ait donne son nom : on lui demandait de choisir un creneau avant de
-             savoir s'il irait au bout. Ils ferment desormais le formulaire,
-             juste avant le consentement et le bouton. -->
-        <div class="jpo-field jpo-dates-field">
-            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
-            <div class="jpo-dates" data-socle="instances"></div>
-        </div>
-
+        <!-- SOUS-EVENEMENTS, EN BAS. L'arbitrage du 30/08 avait descendu ici
+             les dates ET les sous-evenements, pour ne pas faire choisir un
+             creneau avant meme que le visiteur ait donne son nom. L'Excel des
+             champs visibles place la date en position 2 : cet arbitrage est
+             leve pour LA DATE seule, qui ouvre desormais le formulaire. Les
+             sous-evenements, absents du fichier, gardent leur place ici. -->
         <div class="jpo-field jpo-ateliers-field">
             <label class="jpo-label">${t.ateliers}</label>
             <div class="jpo-ateliers" data-socle="appointments"></div>

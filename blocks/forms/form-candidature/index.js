@@ -117,6 +117,11 @@ export default function (editor, categories) {
 .cnd-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
 .cnd-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule : elle existe pour que le campus
+   et le niveau d'études ne soient pas FRERES, le socle ne réordonnant que les
+   champs qui partagent un parent. min-width:0 parce qu'une cellule de grille
+   refuse sinon de descendre sous la largeur de son contenu. */
+.cnd-col { min-width: 0; }
 .cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .cnd-row .cnd-field { margin-bottom: 0; }
 .cnd-field.hidden { display: none; }
@@ -328,25 +333,53 @@ ${hidden}
             </div>
         </div>
 
-        <!-- Niveau d'études / Campus -->
+        <!-- Campus / Niveau d'études — positions 5 et 6 de l'Excel des champs
+             visibles, dans cet ordre : le campus AVANT le niveau, l'inverse de
+             la brochure.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .cnd-col. NE PAS LES REMETTRE FRERES
+             DANS LE .cnd-row.
+
+             Le socle réordonne les champs qui PARTAGENT un parent, selon
+             OrdreChamps de l'école, et laisse intact tout groupe d'un seul
+             champ. Deux .cnd-field frères formaient un groupe de deux, donc
+             leur ordre venait de la configuration et non de ce gabarit : il
+             pouvait différer entre le builder et la page publiée.
+
+             Un conteneur par champ rend l'ordre écrit ici définitif.
+
+             ⚠ NE PAS FAIRE PAREIL sur Spécialité / Rythme / Langue / Rentrée
+             juste en dessous : ces quatre-là DOIVENT rester frères. Leur ordre
+             relatif est une règle métier que le socle applique par école — IFA
+             Paris demande la langue AVANT la spécialité, parce qu'on ne peut
+             pas proposer une spécialité avant de savoir dans quelle langue
+             elle est enseignée. Les cloisonner figerait cet ordre et casserait
+             la règle.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module. -->
         <div class="cnd-row">
-            <div class="cnd-field">
-                <label class="cnd-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="cnd-sel-wrap">
-                    <select class="cnd-select cnd-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">${t.campus}<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
+                            ${campusOptions}
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="cnd-err-msg">${t.errRequired}</span>
             </div>
-            <div class="cnd-field">
-                <label class="cnd-label">${t.campus}<span class="req">*</span></label>
-                <div class="cnd-sel-wrap">
-                    <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
-                        ${campusOptions}
-                    </select>
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">${t.studyLevel}<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-niveau" name="StudyLevel" required>
+                            ${studyLevelOptions}
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="cnd-err-msg">${t.errRequired}</span>
             </div>
         </div>
 
