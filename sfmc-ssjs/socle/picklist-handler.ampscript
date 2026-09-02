@@ -527,7 +527,7 @@ ENDIF
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
-VAR @replLibelle, @garderType
+VAR @replLibelle, @garderType, @sansDate, @dBorne
 SET @typeEvt     = RequestParameter("TypeEvenement")
 /* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
    formulaire. Sans elle, une page evenement ouverte normalement n'affichait
@@ -539,6 +539,23 @@ SET @evtParent   = ""
 IF NOT Empty(@typeEvt) THEN
 
     SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
+
+    /* ---- L'IMMERSION N'A PAS DE DATE ---------------------------------
+       Contrairement a une JPO ou un atelier, une journee d'immersion ne se
+       choisit pas dans un calendrier : l'ecole en a UNE, elle sert de
+       rattachement a l'inscription, et le candidat n'a rien a selectionner.
+
+       Le filtre « a partir d'aujourd'hui » n'a donc aucun sens ici — et c'est
+       lui qui ecartait les onze instances d'immersion, toutes datees du
+       18/08/2026. On croyait a un probleme de type ; c'etait la date. */
+    SET @sansDate = "false"
+    SET @dBorne = @d0
+    IF Lowercase(@typeEvt) == "immersion" THEN
+        SET @sansDate = "true"
+        /* Une borne basse plutot qu'aucun filtre : RetrieveSalesforceObjects
+           exige un critere, et une date plancher n'exclut rien. */
+        SET @dBorne = "1900-01-01"
+    ENDIF
 
     /* ---- LES CAMPUS DE L'ECOLE, PAR LEUR Id DE COMPTE -------------------
        `Campus__c` sur l'instance est un LOOKUP vers un Account de type ecole
@@ -563,39 +580,37 @@ IF NOT Empty(@typeEvt) THEN
     /* Pas de borne haute cote Salesforce : elle depend de la prochaine date,
        qu'on ne connait pas encore. On ramene tout le futur du type demande
        (169 instances au total sur l'org, le volume n'est pas un sujet). */
-    SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
-        "summit__Instance_Start_Date__c", ">=", @d0,
-        "eventType__c",          "=",  @typeEvt)
-    SET @n = RowCount(@rows)
+    /* ---- QUEL CRITERE POUR RETROUVER LES INSTANCES ? --------------------
+       `eventType__c` est du TEXTE LIBRE, et il est VIDE sur 98 des 189
+       instances de l'org — dont les onze journees d'immersion, une par ecole.
+       On ne peut donc pas s'y fier partout.
 
-    /* ---- REPLI SUR LE LIBELLE DE L'EVENEMENT --------------------------
-       `eventType__c` est du TEXTE LIBRE, et il est vide sur 98 des 189
-       instances de l'org — dont les dix journees d'immersion, une par ecole.
-       Une immersion existait donc pour chaque ecole sans qu'aucun formulaire
-       ne puisse la voir : le filtre ci-dessus ne ramenait rien, et la
-       soumission echouait sur « InstanceId non specifie ».
+       IMMERSION : on ignore le type et on retient les instances dont le
+       LIBELLE de l'evenement porte « immersion ». Il couvre les deux graphies
+       presentes — « Journee d'immersion EFAP 26-27 » et « Immersion 3W 26-27 »
+       — la ou le type n'en couvre qu'une.
 
-       Quand le type ne rend RIEN, on relit sans lui et on retient les
-       instances dont le LIBELLE de l'evenement contient le type demande —
-       « Journee d'immersion BRASSART 26-27 » pour « Immersion ». Le libelle
-       est renseigne partout, lui.
+       ⚠ UN REPLI CONDITIONNE AU NOMBRE DE LIGNES NE MARCHE PAS, et c'est
+       l'erreur que j'ai faite d'abord : le comptage porte sur TOUTE l'org, pas
+       sur l'ecole. Les cinq instances 3WA typees suffisaient a le neutraliser
+       pour les neuf autres ecoles.
 
-       Deliberement un REPLI et non un remplacement : le type reste la source
-       normale, plus sure qu'une correspondance de texte. Le jour ou le CRM
-       renseignera ces instances, la premiere requete rendra des lignes et ce
-       chemin s'eteindra de lui-meme, sans qu'on ait a y revenir.
-
-       Ne peut pas se faire cote navigateur : le filtre est POSE ICI, les
-       instances non typees n'atteignent jamais le JS. */
-    SET @replLibelle = "false"
-    IF @n == 0 THEN
+       AUTRES TYPES : le type reste le critere, il est fiable sur les JPO,
+       ateliers et stages, et bien plus sur qu'une correspondance de texte. */
+    IF @sansDate == "true" THEN
         SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
             "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
-            "summit__Instance_Start_Date__c", ">=", @d0)
-        SET @n = RowCount(@rows)
+            "summit__Instance_Start_Date__c", ">=", @dBorne)
         SET @replLibelle = "true"
+    ELSE
+        SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+            "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
+            "eventType__c",          "=",  @typeEvt,
+            "summit__Instance_Start_Date__c", ">=", @dBorne)
+        SET @replLibelle = "false"
     ENDIF
+    SET @n = RowCount(@rows)
+
     SET @sepI = ""
     SET @evtIndex = ";"
 
@@ -634,9 +649,14 @@ IF NOT Empty(@typeEvt) THEN
            OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
            OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1)) THEN
             IF Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
-                SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
+                /* DateDiff sur une date VIDE tue la page, et l'immersion
+                   BRASSART en doublon n'en porte aucune. */
+                SET @delta = 0
+                IF NOT Empty(Field(@row, "summit__Instance_Start_Date__c")) THEN
+                    SET @delta = DateDiff(Now(), Field(@row, "summit__Instance_Start_Date__c"), "D")
+                ENDIF
 
-                IF @delta >= 0 THEN
+                IF @sansDate == "true" OR @delta >= 0 THEN
                     /* Le nom du campus vient de la DE quand `campusNameFor__c`
                        est vide, ce qui est le cas general. Sans lui, le libelle
                        ne dirait pas OU la date a lieu — et le JS ne pourrait
@@ -1237,6 +1257,12 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (regle.visible === 'jamais') return false;
         if (regle.visible === 'niveau' && ordreNiveauChoisi() < Number(regle.niveauMin || 0)) return false;
         return conditionsRemplies(regle.conditions);
+    }
+
+    /** Le formulaire courant est-il une immersion ? */
+    function estImmersion() {
+        var t = champ('TypeEvenement');
+        return Boolean(t) && Lowercase_(t.value) === 'immersion';
     }
 
     /** Minuscules sans exploser sur null/undefined. */
@@ -1918,24 +1944,18 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
 
-        /* ---- IMMERSION : L'INSTANCE EST CELLE DE L'ECOLE ------------------
-           Le contrat dit « une Summit Event Instance par ecole » pour
-           l'immersion, et c'est vrai : les dix existent. Mais le CRM les
-           rattache a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
-           NANTES — alors que le filtre ci-dessous compare au campus CHOISI.
-           Un candidat EFAP qui prend PARIS ne verrait donc aucune date, et ne
-           pourrait pas s'inscrire, alors que l'immersion de son ecole existe.
+        /* ---- IMMERSION : PAS DE DATE, PAS DE CAMPUS, PAS DE CHOIX --------
+           L'immersion n'est pas un evenement date : l'ecole en a UNE, elle sert
+           de rattachement a l'inscription Summit, et le candidat n'a rien a
+           selectionner. Ni la fenetre de 15 jours ni le filtre par campus n'ont
+           donc de sens ici.
 
-           Quand il n'y a qu'UNE instance pour toute l'ecole, on la retient donc
-           quel que soit le campus : c'est un evenement d'ecole, pas de campus.
-
-           La garde « exactement une » est essentielle. Des qu'une ecole en aura
-           plusieurs, sur des villes differentes, le campus redeviendra un
-           critere legitime et ce raccourci s'effacera de lui-meme. */
-        var typeEvt = champ('TypeEvenement');
-        if (toutes.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
-            return toutes;
-        }
+           Le campus, en particulier, aurait tout casse : le CRM rattache chaque
+           instance a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
+           NANTES — alors qu'un candidat EFAP choisit souvent PARIS. Il n'aurait
+           vu aucune date et n'aurait pas pu s'inscrire, alors que l'immersion de
+           son ecole existe. */
+        if (estImmersion()) return toutes;
         /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
            auparavant toutes les dates de l'ecole, tous campus confondus : le
            visiteur voyait des JPO de villes ou il n'ira jamais, et la fenetre
@@ -2712,19 +2732,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                     zoneDates.appendChild(wrap);
                 });
 
-                /* ---- IMMERSION : UNE SEULE DATE, DONC AUCUN CHOIX ---------
-                   Le contrat veut une seule Summit Event Instance par ecole
-                   pour l'immersion — verifie le 02/09, les dix existent. Le
-                   candidat n'a donc rien a choisir : on masque le bloc date,
-                   sans toucher au bouton radio, qui reste dans le <form> et
-                   part au CRM. Meme regle que la cascade : une seule valeur se
-                   POSE, elle ne se PROPOSE pas.
+                /* ---- IMMERSION : LE BLOC DATE N'EXISTE PAS ---------------
+                   La notion de date n'a pas cours sur l'immersion : l'instance
+                   de l'ecole est cochee d'office et le bloc reste masque, quel
+                   que soit le nombre d'instances. Le bouton radio demeure dans
+                   le <form>, donc InstanceId part au CRM.
 
                    Volontairement limite a l'immersion. Sur une JPO ou un
-                   atelier, voir la date reste utile meme quand il n'y en a
-                   qu'une : c'est une information, pas une question. */
-                var typeEvt = champ('TypeEvenement');
-                if (liste.length === 1 && typeEvt && Lowercase_(typeEvt.value) === 'immersion') {
+                   atelier, la date est une information utile, meme unique. */
+                if (estImmersion()) {
                     var porteurDates = zoneDates.closest
                         ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
                         : zoneDates.parentNode;
