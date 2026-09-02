@@ -262,6 +262,184 @@ try {
         } catch (e) { return 'fr'; }
     }
 
+    /* ========================================================================
+     *  REGLES D'AFFICHAGE DES VALEURS DE PICKLIST
+     *  Retours client « Toutes les ecoles » du 2026-09-02.
+     * ------------------------------------------------------------------------
+     *  Trois regles, et toutes les trois PUREMENT VISUELLES. Aucune ne cree,
+     *  ne renomme ni ne reordonne quoi que ce soit cote CRM :
+     *
+     *    - le value set Salesforce reste la SEULE source des valeurs. Aucune
+     *      option n'est ajoutee ici ; une regle qui ne retrouve pas sa valeur
+     *      dans ce que le CRM a renvoye ne fait simplement rien.
+     *    - la `value` postee au socle d'ecriture n'est JAMAIS touchee, pas plus
+     *      que par le dictionnaire de traduction (meme raison : une valeur hors
+     *      picklist est rejetee par l'org sans message).
+     *
+     *  1. MASQUE — valeurs que le formulaire ne propose plus.
+     *  2. RANG   — ordre d'affichage demande, la ou celui du value set (ordre
+     *              de creation cote org) n'a aucun sens pour un candidat.
+     *  3. MARQUE — libelle qui nomme l'ecole de la page.
+     * ====================================================================== */
+
+    /**
+     * Cle de comparaison d'une valeur CRM : majuscules, accents otes, espaces
+     * normalises.
+     *
+     * Necessaire, parce que les deux cotes du CRM n'ecrivent pas les memes
+     * valeurs pareil — `Collège` / `COLLÈGE`, `BAC obtenu ou Prépa` /
+     * `Bac obtenu` (cf. canonNiveau plus bas, meme constat). Une egalite
+     * litterale raterait la moitie des valeurs, et la panne serait DOUCE : la
+     * liste s'afficherait simplement dans le mauvais ordre, sans erreur.
+     */
+    function cle(v) {
+        var s = String(v === null || v === undefined ? '' : v)
+                    .replace(/^\s+|\s+$/g, '').replace(/\s+/g, ' ').toUpperCase();
+        var avec = 'ÀÁÂÃÄÅÇÈÉÊËÌÍÎÏÑÒÓÔÕÖÙÚÛÜÝ';
+        var sans = 'AAAAAACEEEEIIIINOOOOOUUUUY';
+        var out = '';
+        for (var i = 0; i < s.length; i++) {
+            var p = avec.indexOf(s.charAt(i));
+            out += (p === -1) ? s.charAt(i) : sans.charAt(p);
+        }
+        return out;
+    }
+
+    /* -- 1. Valeurs masquees, par champ -------------------------------------
+       « Jury » existe dans PersonAccountType__c et sert cote CRM : on ne la
+       retire donc pas du value set, on cesse seulement de la PROPOSER sur les
+       landing pages. Un membre de jury n'est pas un prospect. */
+    var MASQUE = {
+        VousEtes: ['JURY']
+    };
+
+    function masquee(name, option) {
+        var liste = MASQUE[name];
+        if (!liste) return false;
+        // Value ET label : selon les orgs, « Jury » est l'un, l'autre, ou les deux.
+        var kv = cle(option.value), kl = cle(option.label);
+        for (var i = 0; i < liste.length; i++) {
+            if (liste[i] === kv || liste[i] === kl) return true;
+        }
+        return false;
+    }
+
+    /** Ote d'une liste les valeurs que ce champ ne doit plus proposer. */
+    function exclure(name, options) {
+        if (!options || !MASQUE[name]) return options;
+        var out = [];
+        for (var i = 0; i < options.length; i++) {
+            if (!masquee(name, options[i])) out.push(options[i]);
+        }
+        return out;
+    }
+
+    /* -- 2. Ordre d'affichage demande, champ par champ ----------------------
+       Une entree = [cle de valeur CRM, rang]. La cle est comparee d'abord a
+       l'IDENTIQUE sur toute la table, puis en PREFIXE : c'est ce qui fait
+       tenir `BAC+5`, `BAC+5 et +` et `BAC+5/+` sur une seule ligne, et
+       `Autre` avec `Autres`, sans enumerer les variantes des deux
+       referentiels.
+
+       Rangs espaces de 10 : intercaler une valeur que le CRM ajouterait
+       demain ne demande pas de renumeroter la table.
+
+       Une valeur absente de la table prend RANG_INCONNU : elle reste
+       AFFICHEE, apres les valeurs classees et avant « Autre », dans l'ordre
+       du value set. Une nouvelle valeur CRM apparait donc toujours — mal
+       placee au pire, jamais perdue. C'est le contraire d'une liste en dur,
+       qui l'aurait fait disparaitre en silence. */
+    var RANG_INCONNU = 500;
+
+    var RANG = {
+        /* « Vous etes » : Etudiant, Etudiant <marque>, Parent, Reconversion.
+           `EDH Student` est le « Etudiant dans une ecole du groupe » du CRM,
+           celui que la regle 3 renomme en « Etudiant <marque> ». */
+        VousEtes: [
+            ['STUDENT',       10],
+            ['EDH STUDENT',   20],
+            ['PARENT',        30],
+            ['CAREER CHANGE', 40]
+        ],
+
+        /* Niveau d'etudes : l'ordre PEDAGOGIQUE, celui d'un parcours scolaire.
+           Le value set, lui, sort dans l'ordre de creation cote org, et
+           l'alphabet serait pire encore — il mettrait Bac+1 avant College et
+           Seconde apres Premiere.
+
+           ⚠ Ce rang est INDEPENDANT de `option.ordre` (DE
+           LPB_Mapping_Niveaux), lu par ordreNiveauChoisi() : celui-la est un
+           SEUIL metier (« specialite a partir de bac+3 »), sur une echelle qui
+           ne couvre que 6 niveaux. S'en servir pour l'affichage renverrait
+           College, Seconde, Premiere, Bac obtenu et Autres a egalite sur 0.
+
+           CAP et BEP ne sont pas dans le value set aujourd'hui. Leur rang est
+           pose pour qu'ils tombent au bon endroit le jour ou le CRM les
+           ajoute ; tant qu'il ne les renvoie pas, ces deux lignes n'affichent
+           rien du tout. */
+        StudyLevel: [
+            ['COLLEGE',    10],
+            ['SECONDE',    20],
+            ['PREMIERE',   30],
+            ['TERMINALE',  40],
+            ['BAC OBTENU', 50],
+            ['BAC+1',      60],
+            ['BAC+2',      70],
+            ['BAC+3',      80],
+            ['BAC+4',      90],
+            ['BAC+5',     100],
+            ['CAP',       110],
+            ['BEP',       120],
+            ['AUTRE',     900]
+        ]
+    };
+
+    /* Le niveau d'etudes porte TROIS noms de champ selon le formulaire —
+       `StudyLevel` sur les six formulaires EDH, `Niveau` sur
+       form-salesforce-core, `Level` en repli. Meme trio que dans
+       ordreNiveauChoisi() et dans la table de la cascade. Sans ces deux
+       alias, un formulaire garderait l'ordre du value set alors que le
+       retour client dit « toutes les ecoles » — et la liste de la CASCADE,
+       remplie sous le nom `Niveau`, ne serait jamais triee. */
+    RANG.Niveau = RANG.StudyLevel;
+    RANG.Level  = RANG.StudyLevel;
+
+    function rang(name, option) {
+        var table = RANG[name];
+        if (!table) return RANG_INCONNU;
+        var k = cle(option.value), i;
+        // Passe 1 : egalite exacte, sur TOUTE la table avant d'essayer les
+        // prefixes — sinon `BAC+5` capterait une eventuelle valeur `BAC+5 ans`
+        // avant que sa propre ligne ait ete vue.
+        for (i = 0; i < table.length; i++) if (table[i][0] === k) return table[i][1];
+        for (i = 0; i < table.length; i++) if (k.indexOf(table[i][0]) === 0) return table[i][1];
+        return RANG_INCONNU;
+    }
+
+    /* -- 3. Libelles qui nomment la marque de la page -----------------------
+       Retour client : « Etudiant dans une ecole du groupe » ne parle a
+       personne sur une page EFAP ; on veut y lire « Etudiant EFAP ».
+
+       Un gabarit par langue, `{marque}` remplace par SOCLE_DATA.marque —
+       colonne `Libelle` de LPB_Mapping_Ecoles, cote serveur. Marque inconnue
+       (page hors mapping, ecole absente du HTML) : on garde le libelle
+       Salesforce. Le « si possible » du retour client tient donc tout seul. */
+    var MARQUE = {
+        VousEtes: {
+            'EDH STUDENT': { fr: 'Étudiant {marque}', en: '{marque} student' }
+        }
+    };
+
+    function libelleMarque(name, option, langue) {
+        var parChamp = MARQUE[name];
+        if (!parChamp) return '';
+        var gabarit = parChamp[cle(option.value)];
+        if (!gabarit) return '';
+        var m = (D && D.marque) ? String(D.marque).replace(/^\s+|\s+$/g, '') : '';
+        if (!m) return '';
+        return String(gabarit[langue] || gabarit.fr).replace('{marque}', m);
+    }
+
     /**
      * Le libelle a AFFICHER pour une option.
      *
@@ -273,8 +451,16 @@ try {
      * equivalent dans SOCLE_DATA.traductions, alimente depuis la DE
      * LPB_Dico_Traductions. Pas d'entree, ou anglais vide : on garde le
      * francais, ce qui est degrade mais jamais casse.
+     *
+     * Le gabarit de marque passe AVANT le dictionnaire : « Etudiant EFAP » est
+     * deja dans la langue de la page, et le faire traduire ensuite chercherait
+     * une entree de dico qui n'existe pas — pour rien, la marque etant un nom
+     * propre.
      */
-    function libelleAffiche(option, langue) {
+    function libelleAffiche(option, langue, name) {
+        var surMesure = libelleMarque(name, option, langue);
+        if (surMesure) return surMesure;
+
         var brut = option.label || option.value;
         if (langue !== 'en') return brut;
         var dico = D && D.traductions;
@@ -289,16 +475,17 @@ try {
      * n'est ni alphabetique ni numerique : les 201 indicatifs arrivent par
      * exemple en 992, 379, 387, 243... Illisible dans un <select>.
      *
-     * Deux tris, parce que deux natures de donnees :
+     * Trois tris, parce que trois natures de donnees :
      *   - Indicatif : NUMERIQUE. Un tri alphabetique mettrait 1 avant 212,
      *     mais aussi 33 apres 212 ; on compare donc les nombres.
-     *   - le reste  : ALPHABETIQUE, avec localeCompare pour que Egypte passe
-     *     avant Emirats et Etats-Unis, ce qu'un tri par code ne fait pas.
+     *   - Pays et campus : ALPHABETIQUE, avec localeCompare pour que Egypte
+     *     passe avant Emirats et Etats-Unis, ce qu'un tri par code ne fait pas.
+     *   - « Vous etes » et niveau d'etudes : ORDRE METIER, ni l'un ni l'autre
+     *     (cf. la table RANG plus haut). L'alphabet detruirait le parcours
+     *     scolaire, et le value set n'a jamais eu d'ordre a proposer.
      *
-     * Les niveaux d'etudes ne sont volontairement PAS tries : leur ordre
-     * naturel est pedagogique (College, Seconde, Premiere, Terminale...) et
-     * l'alphabet le detruirait. Le socle a deja son propre classement pour
-     * eux, via `ordre`.
+     * Les listes de la CASCADE (Niveau, Speciality, Rhythm...) ne sont pas
+     * triees ici : elles sortent des programmes, pas d'un value set.
      */
     function trier(name, options) {
         if (!options || options.length < 2) return options;
@@ -316,6 +503,21 @@ try {
             return copie;
         }
 
+        if (RANG[name]) {
+            /* Tri STABLE : deux valeurs de meme rang — deux inconnues de la
+               table — gardent leur ordre de value set. `Array.sort` n'est
+               garanti stable que depuis ES2019 ; on decore avec l'index
+               d'origine plutot que de parier sur le moteur du visiteur. */
+            var dec = [];
+            for (var i = 0; i < copie.length; i++) {
+                dec.push({ o: copie[i], i: i, r: rang(name, copie[i]) });
+            }
+            dec.sort(function (a, b) { return (a.r - b.r) || (a.i - b.i); });
+            var ordonnees = [];
+            for (var j = 0; j < dec.length; j++) ordonnees.push(dec[j].o);
+            return ordonnees;
+        }
+
         if (name === 'Country' || name === 'Campus') {
             // Tri sur le libelle AFFICHE, et dans la locale de la page : une
             // liste anglaise triee selon l'alphabet francais serait desordonnee
@@ -323,8 +525,8 @@ try {
             var lg = langueAffichage();
             var loc = lg === 'en' ? 'en' : 'fr';
             copie.sort(function (a, b) {
-                var la = libelleAffiche(a, lg);
-                var lb = libelleAffiche(b, lg);
+                var la = libelleAffiche(a, lg, name);
+                var lb = libelleAffiche(b, lg, name);
                 return String(la).localeCompare(String(lb), loc, { sensitivity: 'base' });
             });
             return copie;
@@ -337,6 +539,12 @@ try {
     function remplir(name, options, valeurCourante, viderSiVide) {
         var el = champ(name);
         if (!el || el.tagName !== 'SELECT') return null;
+
+        /* Masquage AVANT la garde de liste vide : si le CRM ne renvoyait que
+           des valeurs masquees, la liste devient vide ici et la garde
+           ci-dessous laisse en place les options statiques du builder — le
+           champ obligatoire n'est jamais vide. */
+        options = exclure(name, options);
 
         // Salesforce n'a rien renvoye pour cette liste : on NE TOUCHE PAS au
         // <select>. Les options statiques deja presentes (baked par le builder)
@@ -368,7 +576,7 @@ try {
             var o = document.createElement('option');
             // La valeur reste celle du CRM ; seul le texte est traduit.
             o.value = options[i].value;
-            o.textContent = libelleAffiche(options[i], langue);
+            o.textContent = libelleAffiche(options[i], langue, name);
             if (valeurCourante && options[i].value === valeurCourante) o.selected = true;
             el.appendChild(o);
         }

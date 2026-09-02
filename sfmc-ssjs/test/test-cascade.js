@@ -560,6 +560,168 @@ test('Campus masque ET valeur unique : la valeur est posee [REGRESSION]', (d, jo
     }
 }, LAYOUT_STUDYLEVEL);
 
+/* ---- Regles d'affichage des picklists (retours client 2026-09-02) ------
+   Trois retours « Toutes les ecoles » sur « Vous etes » et « Niveau
+   d'etudes ». Tous les trois se jouent A L'AFFICHAGE : le value set
+   Salesforce reste la seule source des valeurs, et la `value` postee au
+   socle d'ecriture ne bouge pas. Les tests verifient les deux moities. */
+
+/* Ces deux champs se remplissent depuis le VALUE SET, pas depuis la cascade :
+   `remplir('Niveau', ...)` ne trouve aucun champ de ce nom sur un formulaire
+   EDH, qui dit `StudyLevel`. C'est donc bien la table RANG du socle qui decide
+   de ce que le candidat lit. */
+const LAYOUT_AFFICHAGE = [['Email', 0], ['Campus', 1], ['VousEtes', 1],
+                          ['StudyLevel', 1], ['Speciality', 1], ['Consentements', 0]];
+
+/* Les valeurs REELLES des value sets de l'org (cf. REFERENCE-API-ORG.md),
+   dans un ordre volontairement melange : un value set sort dans l'ordre de
+   creation cote org, jamais trie. */
+const QUI_CRM = [
+    { value: 'Jury',          label: 'Jury' },
+    { value: 'Parent',        label: 'Parent' },
+    { value: 'Career Change', label: 'Reconversion Professionnelle' },
+    { value: 'EDH Student',   label: 'Etudiant dans une école du groupe' },
+    { value: 'Student',       label: 'Etudiant' },
+];
+
+const NIVEAUX_CRM = [
+    { value: 'BAC+3',               label: 'BAC+3' },
+    { value: 'Autres',              label: 'Autres' },
+    { value: 'Terminale',           label: 'Terminale' },
+    { value: 'BAC+1',               label: 'BAC+1' },
+    { value: 'BAC obtenu ou Prépa', label: 'BAC obtenu ou Prépa' },
+    { value: 'BAC+2',               label: 'BAC+2' },
+    { value: 'Collège',             label: 'Collège' },
+    { value: 'Seconde',             label: 'Seconde' },
+    { value: 'BAC+5 et +',          label: 'BAC+5 et +' },
+    { value: 'Première',            label: 'Première' },
+    { value: 'BAC+4',               label: 'BAC+4' },
+];
+
+/** Joue le socle sur un value set donne et rend le DOM obtenu. */
+function jouerAffichage(picklists, marque = 'EFAP') {
+    const dom = creerDom(LAYOUT_AFFICHAGE);
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { marque, picklists, config: cfg() }) },
+        document: dom.document,
+    });
+    return dom;
+}
+
+/** Les `value` reellement postees, dans l'ordre d'affichage. */
+const valeurs = (dom, nom) => dom.champs[nom].options.map((o) => o.value);
+
+test('« Jury » n est plus propose au candidat', () => {
+    /* La valeur existe toujours dans PersonAccountType__c et sert cote CRM :
+       on cesse de la proposer, on ne la retire pas du value set. */
+    const d = jouerAffichage({ VousEtes: QUI_CRM });
+    if (d.options('VousEtes').some((l) => /jury/i.test(l))) {
+        throw new Error('Jury propose : ' + JSON.stringify(d.options('VousEtes')));
+    }
+    if (valeurs(d, 'VousEtes').includes('Jury')) throw new Error('Jury encore postable');
+}, LAYOUT_AFFICHAGE);
+
+test('« Vous etes » : ordre Etudiant, Etudiant <marque>, Parent, Reconversion', () => {
+    const d = jouerAffichage({ VousEtes: QUI_CRM });
+    egal(d.options('VousEtes'),
+         ['Etudiant', 'Étudiant EFAP', 'Parent', 'Reconversion Professionnelle'],
+         'libelles de « Vous etes »');
+}, LAYOUT_AFFICHAGE);
+
+test('Le libelle prend la marque, la value reste celle du CRM', () => {
+    /* Le coeur du contrat : traduire une `value` la ferait rejeter par l'org,
+       sans message d'erreur. Seul le texte visible change. */
+    const d = jouerAffichage({ VousEtes: QUI_CRM }, 'ICART');
+    if (!d.options('VousEtes').includes('Étudiant ICART')) {
+        throw new Error('marque absente du libelle : ' + JSON.stringify(d.options('VousEtes')));
+    }
+    egal(valeurs(d, 'VousEtes'), ['Student', 'EDH Student', 'Parent', 'Career Change'],
+         'values postees au socle d ecriture');
+}, LAYOUT_AFFICHAGE);
+
+test('Marque inconnue : le libelle Salesforce est conserve', () => {
+    /* Le retour client dit « si possible ». Une page hors LPB_Mapping_Ecoles
+       ne doit afficher ni « Etudiant » tout court, ni « Etudiant undefined ». */
+    const d = jouerAffichage({ VousEtes: QUI_CRM }, '');
+    egal(d.options('VousEtes'),
+         ['Etudiant', 'Etudiant dans une école du groupe', 'Parent', 'Reconversion Professionnelle'],
+         'libelles sans marque connue');
+}, LAYOUT_AFFICHAGE);
+
+test('Niveau d etudes : ordre pedagogique, pas celui du value set', () => {
+    const d = jouerAffichage({ StudyLevel: NIVEAUX_CRM });
+    egal(d.options('StudyLevel'),
+         ['Collège', 'Seconde', 'Première', 'Terminale', 'BAC obtenu ou Prépa',
+          'BAC+1', 'BAC+2', 'BAC+3', 'BAC+4', 'BAC+5 et +', 'Autres'],
+         'niveaux d etudes');
+}, LAYOUT_AFFICHAGE);
+
+test('CAP et BEP tombent a leur place le jour ou le CRM les ajoute', () => {
+    /* Le retour client les demande ; ils ne sont pas dans le value set
+       aujourd hui. Leur rang est pose pour que l ajout cote CRM suffise, sans
+       rouvrir le socle. */
+    const d = jouerAffichage({ StudyLevel: NIVEAUX_CRM.concat(
+        [{ value: 'BEP', label: 'BEP' }, { value: 'CAP', label: 'CAP' }]) });
+    egal(d.options('StudyLevel').slice(-3), ['CAP', 'BEP', 'Autres'],
+         'CAP et BEP apres bac+5, avant Autres');
+}, LAYOUT_AFFICHAGE);
+
+test('Une valeur inconnue de la table reste affichee, avant « Autres »', () => {
+    /* Le contraire d une liste en dur, qui l aurait fait disparaitre en
+       silence : une valeur ajoutee cote CRM est mal placee au pire. */
+    const d = jouerAffichage({ StudyLevel: NIVEAUX_CRM.concat(
+        [{ value: 'Doctorat', label: 'Doctorat' }]) });
+    egal(d.options('StudyLevel').slice(-2), ['Doctorat', 'Autres'],
+         'valeur inconnue conservee');
+}, LAYOUT_AFFICHAGE);
+
+test('Les deux conventions de casse du CRM se classent pareil [REGRESSION]', () => {
+    /* `Account.Academic_Level_List__c` dit `BAC obtenu ou Prépa`, celui des
+       programmes `Bac obtenu` — c est deja ce qui avait fait rendre 0
+       programme au filtre de niveau (cf. canonNiveau). Un tri comparant les
+       valeurs a l identique se tromperait pareil, mais sans erreur visible :
+       la liste sortirait simplement dans le desordre. */
+    const d = jouerAffichage({ StudyLevel: [
+        { value: 'Bac+5/+',    label: 'Bac+5/+' },
+        { value: 'Autre',      label: 'Autre' },
+        { value: 'COLLÈGE',    label: 'COLLÈGE' },
+        { value: 'bac+2',      label: 'bac+2' },
+        { value: 'Bac obtenu', label: 'Bac obtenu' },
+    ] });
+    egal(d.options('StudyLevel'),
+         ['COLLÈGE', 'Bac obtenu', 'bac+2', 'Bac+5/+', 'Autre'],
+         'niveaux de l autre referentiel');
+}, LAYOUT_AFFICHAGE);
+
+test('La liste de la cascade est triee aussi, sous le nom « Niveau »', () => {
+    /* Le niveau porte trois noms de champ selon le formulaire. Ici c'est la
+       CASCADE qui remplit la liste, depuis les programmes — donc depuis
+       `LearningProgram.Academic_Level_List__c`, l'autre referentiel — et sous
+       le nom `Niveau`. Sans les alias RANG.Niveau / RANG.Level, cette liste
+       garderait l'ordre des programmes.
+
+       Les programmes sont volontairement ranges du plus haut niveau au plus
+       bas : sans tri, `distinct()` rendrait Bac+5/+ en premier. */
+    const dom = creerDom(LAYOUT);
+    dom.champs.Campus.value = 'EFAP PARIS';
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP',
+            programs: [
+                { id: 'x1', name: 'M2', campus: 'EFAP PARIS', level: 'Bac+5/+',
+                  speciality: 'Comm', rhythm: 'FT', language: 'FR' },
+                { id: 'x2', name: 'L3', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'FT', language: 'FR' },
+                { id: 'x3', name: 'A1', campus: 'EFAP PARIS', level: 'Terminale;Bac obtenu',
+                  speciality: 'Comm', rhythm: 'FT', language: 'FR' },
+            ],
+            config: cfg() }) },
+        document: dom.document,
+    });
+    egal(dom.options('Niveau'), ['Terminale', 'Bac obtenu', 'Bac+3', 'Bac+5/+'],
+         'niveaux de la cascade');
+}, LAYOUT);
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
     echecs.forEach((e) => console.error('  ✗ ' + e + '\n'));

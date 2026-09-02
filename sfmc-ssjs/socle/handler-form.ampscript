@@ -255,6 +255,42 @@ SET @INTERACTION_ACTIVE = "true"
 VAR @ECRIRE_MARQUE_CONSENT
 SET @ECRIRE_MARQUE_CONSENT = "false"
 
+/* ---- DATE DE DERNIER ENGAGEMENT MARKETING SUR LE CONSENTEMENT -----------
+   Retour client du 02/09 : le consentement doit porter la date d'engagement.
+
+   ⚠ DEUX CHAMPS PORTENT LE MEME LIBELLE sur ContactPointConsent — releve dans
+   l'Object Manager de l'org, capture du 02/09 :
+
+     LastMarketingEngagementDate__c        Date/heure      4 / 4227 remplis
+     Last_Marketing_Engagement_Date__c     Date        4 143 / 4227 remplis
+
+   TRANCHE LE 02/09 : on ecrit le PREMIER, le Date/heure. C'est celui que
+   nomme le retour client, et le choix a ete reconfirme apres avoir montre les
+   deux. Le second reste celui que l'historique du CRM a rempli — l'ajouter
+   serait une decision CRM, pas technique, et personne ne l'a demandee.
+
+   Ne pas les confondre en relisant : meme libelle, deux types. C'est parce
+   que la cible est Date/HEURE que le format porte l'heure ; sur le second,
+   `yyyy-MM-dd` suffirait.
+
+   ⚠ FORMAT. `Now()` BRUT est REFUSE sur un champ date par le connecteur :
+   AMPscript rend une date localisee (`9/2/2026 6:04:17 AM`), le connecteur
+   veut `yyyy-MM-dd HH:mm:ss`. Mesure LPB_TST_Sonde_Date : brut refuse,
+   `yyyy-MM-dd` accepte, `yyyy-MM-dd HH:mm:ss` accepte. Le champ vise etant
+   Date/heure, on envoie la forme longue.
+
+   Le drapeau, comme pour la marque : sur cet objet un champ refuse fait
+   echouer TOUT l'insert, et AMPscript n'a pas de try/catch — la page meurt a
+   chaque soumission des 6 formulaires. C'est ce qui s'est produit le 27/08
+   avec BusinessBrandId. Repasser a "false" retablit donc l'etat anterieur en
+   un mot, sans redeploiement de code a rediger.
+
+   A verifier a la premiere soumission apres deploiement : LPB_Log_Soumissions,
+   etape « 60 - consentement ». Pas de ligne = le champ est refuse. */
+VAR @ECRIRE_DATE_ENGAGEMENT, @dateEngagement
+SET @ECRIRE_DATE_ENGAGEMENT = "true"
+SET @dateEngagement = FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")
+
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
@@ -1805,7 +1841,34 @@ IF IndexOf(@submitted, "true") > 0 THEN
 
                            BusinessBrandId : voir @ECRIRE_MARQUE_CONSENT en
                            tete de fichier. */
-                        IF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                        IF @ECRIRE_DATE_ENGAGEMENT == "true" THEN
+                            IF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                                SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
+                                    "ContactPointId",          @cpId,
+                                    "Channel__c",              @canalValue,
+                                    "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                      " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                    "PrivacyConsentStatus",    "OptIn",
+                                    "Status__c",               "Opt-in",
+                                    "GDPR_Status__c",          "Marketing active",
+                                    "CaptureSource",           "SFMC CloudPage",
+                                    "Legal_Texte_Accepted__c", @preuve,
+                                    "BusinessBrandId",         @brandId,
+                                    "LastMarketingEngagementDate__c", @dateEngagement)
+                            ELSE
+                                SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                                    "ContactPointId",          @cpId,
+                                    "Channel__c",              @canalValue,
+                                    "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                      " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                    "PrivacyConsentStatus",    "OptIn",
+                                    "Status__c",               "Opt-in",
+                                    "GDPR_Status__c",          "Marketing active",
+                                    "CaptureSource",           "SFMC CloudPage",
+                                    "Legal_Texte_Accepted__c", @preuve,
+                                    "LastMarketingEngagementDate__c", @dateEngagement)
+                            ENDIF
+                        ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
