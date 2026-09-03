@@ -374,8 +374,70 @@ affichés. Le socle pose et retire `required` **en même temps** qu'il montre ou
 masque un champ — un `required` sur un champ masqué bloquerait la soumission sans
 rien afficher.
 
-Le socle intercepte, poste en `fetch`, lit le bilan, remplace le formulaire par
-un écran de succès (message par famille). Le POST natif reste le repli.
+Le socle intercepte, poste en `fetch`, lit le bilan, et **ajoute un encart de
+message au-dessus du bouton**. Le POST natif reste le repli.
+
+### L'encart de message — retour client du 03/09
+
+**Le formulaire ne disparaît plus.** Jusqu'au 03/09, une confirmation masquait la
+zone de formulaire, les titres et toute la fratrie de la carte, puis ouvrait
+l'écran `.xxx-success`. Désormais **rien n'est masqué** : le formulaire reste
+affiché avec ses valeurs, le bouton redevient cliquable, et un renvoi refait le
+même POST.
+
+Un encart unique, `[data-socle="message"]`, posé avant `.xxx-submit-wrap`, avec
+quatre tons :
+
+| Ton | Couleur | Cas |
+|---|---|---|
+| `succes` | vert | écriture faite — message par famille |
+| `r1` | orange | candidature déjà en cours sur ce programme |
+| `r2` | rouge | décision défavorable rendue |
+| `erreur` | rouge | refus de saisie (longueur de numéro) |
+
+Un seul élément, réécrit à chaque tentative : deux encarts distincts finiraient
+empilés dès qu'un visiteur confirme puis retombe sur un blocage.
+
+> L'écran `.xxx-success` **n'est plus jamais ouvert**. Il reste dans le HTML
+> publié, à son `display:none` d'origine — c'est ce qui rend le correctif
+> applicable **sans republier les pages en ligne**, seul le bloc socle est à
+> redéployer.
+
+### CTA « Télécharger la brochure » — retour client du 03/09
+
+Sur la famille `brochure`, un bouton s'ajoute sous la confirmation. Il n'apparaît
+**que** si une URL est disponible : un CTA vers une brochure absente serait pire
+que pas de CTA.
+
+⚠ **La DE n'existe pas encore (état au 04/09).** Le socle de lecture ne publie
+donc pas `brochures`, tout le bloc reste inerte, et la confirmation s'affiche
+sans bouton. Le front est prêt : il s'allume sans retouche le jour où la DE
+arrive. Reste à faire côté lecture — remplir `SOCLE_DATA.brochures` depuis la DE,
+sur le modèle de `longueursTel` / `LPB_Mapping_Indicatifs`.
+
+```js
+SOCLE_DATA.brochures = [
+  { url: "https://...", libelle: "...",     // libellé facultatif
+    programme: "...", specialite: "...",    // critères, tous facultatifs
+    campus: "...",    niveau: "..." },
+]
+```
+
+Une ligne ne retient **que les critères qu'elle renseigne** : sans aucun critère
+elle est la brochure par défaut de l'école, avec `programme` elle ne sert que ce
+programme. Le socle garde la ligne correspondante **la plus précise** — celle qui
+contraint le plus de critères — ce qui laisse cohabiter un défaut et des
+brochures par programme **sans ordre imposé dans la DE**. À précision égale, la
+première ligne gagne.
+
+Cette forme est volontairement plus large que le besoin connu : on ne sait pas
+encore si la DE sera par école, par programme ou par campus, et les trois se
+décrivent ainsi sans toucher au socle.
+
+Les critères se comparent aux champs `Programme`, `Speciality`, `Campus`,
+`StudyLevel` du formulaire, en minuscules. Le lien s'ouvre dans un nouvel onglet
+(`target="_blank"` + `rel="noopener noreferrer"`) : l'attribut `download` est
+ignoré en cross-origin, et le PDF est hébergé ailleurs que la CloudPage.
 
 Deux pièges déjà rencontrés :
 - **`submitted` posté deux fois** (champ caché + ajout du script) →

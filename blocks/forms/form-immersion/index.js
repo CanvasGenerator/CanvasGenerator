@@ -20,6 +20,7 @@ import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { validerEtRevelerRequis } from '../shared/champs-requis.js';
 import { soumettre } from '../shared/envoi-socle.js';
+import { montrerSucces, effacerMessage } from '../shared/message-confirmation.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -52,7 +53,13 @@ export default function (editor, categories) {
             rgpdLink:    'ici',
             submit:      'Envoyer ma demande',
             sending:     'Envoi en cours...',
-            successTitle: 'Demande envoyée',
+            /* Le texte du socle, au mot pres : c'est lui que le visiteur lit
+               sur une page publiee. Un apercu qui dirait autre chose ferait
+               valider en recette un message qui n'existe nulle part. */
+            successTitle: 'Votre demande de participation est confirmée !',
+            successMsg:  'Notre équipe des admissions vous contactera '
+                       + 'prochainement par téléphone afin de convenir '
+                       + 'd\'une date.',
             errRequired: 'Ce champ est requis.',
             errEmail:    'Format e-mail invalide.',
             errEmailDom: 'Veuillez utiliser une adresse valide.',
@@ -80,7 +87,9 @@ export default function (editor, categories) {
             rgpdLink:    'here',
             submit:      'Send my request',
             sending:     'Sending...',
-            successTitle: 'Request sent',
+            successTitle: 'Your request to attend is confirmed!',
+            successMsg:  'Our admissions team will contact you shortly by '
+                       + 'phone to arrange a date.',
             errRequired: 'This field is required.',
             errEmail:    'Invalid email format.',
             errEmailDom: 'Please use a valid email address.',
@@ -708,24 +717,25 @@ ${socleReadSnippet({ formType: 'immersion', eventType: 'Immersion' })}
                dans le builder — ou aucun socle ne tourne. Le formulaire se
                poste a lui-meme : le socle est inclus dans la page.
                Voir shared/envoi-socle.js. */
+            effacerMessage(form);
+
             soumettre(data, form.ownerDocument)
                 .then(res => {
+                    /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris.
+                       Il ne l'etait pas jusqu'au 03/09, et c'etait sans
+                       consequence : la confirmation emportait le formulaire
+                       entier, bouton compris. Maintenant que le formulaire
+                       RESTE, un bouton fige sur « Envoi... » serait la seule
+                       chose cassee de l'ecran, et interdirait le renvoi. */
+                    if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                     if (res.ok) {
-                        form.style.display = 'none';
-                        const card    = form.closest('.imf-card');
-                        const titleEl = card.querySelector('.imf-title');
-                        const subEl   = card.querySelector('.imf-subtitle');
-                        if (titleEl) titleEl.style.display = 'none';
-                        if (subEl)   subEl.style.display   = 'none';
-
-                        const successEl = card.querySelector('.imf-success');
-                        if (successEl) {
-                            successEl.style.display = 'block';
-                            const titleS = successEl.querySelector('.imf-success-title');
-                            if (titleS) titleS.textContent = t.successTitle;
-                        }
+                        /* Retour du 03/09 : rien ne disparait. Le message
+                           s'ajoute au-dessus du bouton, le formulaire garde
+                           ses valeurs, et l'ecran `.imf-success` n'est plus
+                           ouvert du tout — meme comportement que le socle sur
+                           une page publiee. */
+                        montrerSucces(form, t.successTitle, t.successMsg);
                     } else {
-                        if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                         /* Le message du socle plutot qu'un « une erreur est
                            survenue » : c'est lui qui nomme le champ refuse. */
                         alert(res.message || t.errGeneric);
