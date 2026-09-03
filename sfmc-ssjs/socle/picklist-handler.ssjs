@@ -838,6 +838,26 @@ try {
      * sinon "Terminale;Bac obtenu" deviendrait une option unique que personne
      * ne peut choisir, et les deux niveaux reels disparaitraient du menu.
      */
+    /**
+     * Le libelle que le CRM donne a une valeur de picklist, s'il en a un.
+     *
+     * Les listes de la cascade viennent des PROGRAMMES, qui ne portent que la
+     * valeur d'API — « Full-Time », « FR », « Editing & Post-Production ». Le
+     * socle publie les libelles lus dans PicklistValueInfo, et c'est eux qu'on
+     * affiche : « Temps plein », « Francais », « Montage Post-Production ».
+     *
+     * Repli sur la valeur d'API quand le CRM n'a pas de libelle — c'est le cas
+     * de plusieurs specialites, dont « International Art Market », identique
+     * dans les deux langues.
+     *
+     * ⚠ Seul le LIBELLE change. La `value` reste la valeur d'API : c'est elle
+     * qui part au CRM, et « Temps plein » dans Rhythm__c serait rejete en
+     * silence, comme « fr » l'aurait ete dans PreferredLangage__c. */
+    function libelleCrm(prop, valeur) {
+        var table = D && D.libelles && D.libelles[prop];
+        return (table && table[valeur]) || '';
+    }
+
     function distinct(rows, prop) {
         var vus = {}, out = [];
         for (var i = 0; i < rows.length; i++) {
@@ -848,7 +868,7 @@ try {
                 var v = parts[j].replace(/^\s+|\s+$/g, '');
                 if (!v || vus[v]) continue;
                 vus[v] = true;
-                out.push({ value: v, label: v });
+                out.push({ value: v, label: libelleCrm(prop, v) || v });
             }
         }
         return out;
@@ -1130,7 +1150,30 @@ try {
         var uniquePosable = (reelles.length === 1 && poserSiUnique !== false);
         var visible = autorise(nom);
         if (visible && progressif && !precedentsRemplis(nom)) visible = false;
-        if (visible && reelles.length <= 1) visible = false;
+
+        /* « Une seule valeur = aucun choix, donc champ masque » ne vaut que
+           pour les ecoles en mode PROGRESSIF. Une ecole qui a choisi
+           `Progressif=false` demande a montrer tous ses champs : les masquer un
+           a un au fil des choix du candidat va contre cette intention, et EFAP
+           a demande le 03/09 a les voir tous, valeur unique comprise.
+
+           La valeur unique est posee dans les deux cas — c'est la regle du
+           contrat, et elle ne depend pas de l'affichage. Le candidat voit donc
+           un champ deja rempli, qu'il n'a pas a toucher.
+
+           Zero option reste masque partout : il n'y a rien a montrer. */
+        if (visible && reelles.length === 0) visible = false;
+        if (visible && progressif && reelles.length === 1) visible = false;
+
+        /* Champ AFFICHE avec une seule option : on la pose, meme si tous les
+           programmes ne la portent pas. La garde `poserSiUnique` protege du
+           choix silencieux — elle n'a plus lieu d'etre quand le candidat VOIT
+           le champ et peut le vider. Demande du 03/09 pour la candidature
+           EFAP : « la valeur unique doit etre selectionnee automatiquement ».
+
+           La garde reste entiere sur un champ MASQUE : c'est la qu'elle
+           evitait d'eliminer en douce les programmes sans valeur. */
+        if (visible && reelles.length === 1) el.value = reelles[0].value;
         /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
            dans le formulaire, donc elle part au CRM. Sans cela le placeholder
            restait selectionne et le champ partait vide.
@@ -2060,6 +2103,7 @@ try {
            relit donc a la source. */
         var camp = form.querySelector('[name="utm_campus"]');
         if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+
     }
 
     /* ---- LE MESSAGE DE CONFIRMATION, REDUIT A UNE LIGNE ----------------
