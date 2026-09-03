@@ -13,6 +13,7 @@ import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
 import { validerEtRevelerRequis } from '../shared/champs-requis.js';
 import { soumettre } from '../shared/envoi-socle.js';
+import { montrerSucces, effacerMessage } from '../shared/message-confirmation.js';
 import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
 import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
 import { socleReadSnippet } from '../shared/socle-read-snippet.js';
@@ -45,7 +46,17 @@ export default function (editor, categories) {
             rgpdLink:       'ici',
             submit:         'Je télécharge la brochure',
             sending:        'Envoi en cours...',
-            successTitle:   'Demande envoyée',
+            /* Le texte du socle, au mot pres : c'est lui que le visiteur lit
+               sur une page publiee. Un apercu qui dirait autre chose ferait
+               valider en recette un message qui n'existe nulle part. */
+            successTitle:   'Votre brochure est prête !',
+            successMsg:     'Vous pouvez dès maintenant la télécharger. '
+                          + 'Elle vous a également été envoyée par email.',
+            /* Le CTA du retour du 03/09. Sur une page publiee, l'URL vient de
+               la DE via `SOCLE_DATA.brochures` ; ici, dans le builder, il n'y a
+               pas de socle — le bouton est rendu avec une URL de demonstration
+               pour que la maquette montre l'ecran complet. */
+            ctaBrochure:    'Télécharger la brochure',
             errRequired:    'Ce champ est requis.',
             errEmail:       'Format e-mail invalide.',
             errEmailDom:    'Veuillez utiliser une adresse valide.',
@@ -75,7 +86,10 @@ export default function (editor, categories) {
             rgpdLink:       'here',
             submit:         'Download brochure',
             sending:        'Sending...',
-            successTitle:   'Request sent',
+            successTitle:   'Your brochure is ready!',
+            successMsg:     'You can download it right now. It has also been '
+                          + 'sent to you by email.',
+            ctaBrochure:    'Download the brochure',
             errRequired:    'This field is required.',
             errEmail:       'Invalid email format.',
             errEmailDom:    'Please use a valid email address.',
@@ -503,6 +517,30 @@ ${socleReadSnippet({ formType: 'brochure' })}
         if (span) span.classList.remove('show');
     }
 
+    /* ── LE CTA « TÉLÉCHARGER LA BROCHURE » DANS L'APERÇU ──────────────
+     *
+     * Retour client du 03/09 : le lien de téléchargement doit apparaître dans
+     * la confirmation, juste après la soumission.
+     *
+     * ⚠ CE CODE NE SERT QU'À L'APERÇU DU BUILDER. Sur une page publiée, ce
+     * fichier n'est pas chargé — le JS des blocs s'attache via
+     * `component:mount`, donc dans le canvas GrapesJS seulement (cf.
+     * PASSATION-FORMULAIRES.md §1.1). C'est le socle qui pose le vrai CTA, et
+     * il en tire l'URL de `SOCLE_DATA.brochures`, alimenté par une Data
+     * Extension.
+     *
+     * Cette DE N'EXISTE PAS ENCORE (état au 04/09). En attendant, l'aperçu
+     * affiche le bouton avec une URL de démonstration, pour que la maquette
+     * montre l'écran complet ; la page publiée, elle, affichera simplement le
+     * message sans bouton tant que la DE n'est pas là.
+     *
+     * `res.statut === 'simule'` est ce qui distingue les deux : `soumettre()`
+     * ne rend ce statut que lorsqu'aucun socle ne tourne. */
+    function ctaDeDemo(res, t) {
+        if (res.statut !== 'simule') return null;
+        return { libelle: t.ctaBrochure, href: '#' };
+    }
+
     function initBrfForm(form) {
         if (!form || form.dataset.brfInit) return;
         form.dataset.brfInit = '1';
@@ -662,24 +700,27 @@ ${socleReadSnippet({ formType: 'brochure' })}
                dans le builder — ou aucun socle ne tourne. Le formulaire se
                poste a lui-meme : le socle est inclus dans la page.
                Voir shared/envoi-socle.js. */
+            effacerMessage(form);
+
             soumettre(data, form.ownerDocument)
                 .then(res => {
+                    /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris.
+                       Il ne l'etait pas jusqu'au 03/09, et c'etait sans
+                       consequence : la confirmation emportait le formulaire
+                       entier, bouton compris. Maintenant que le formulaire
+                       RESTE, un bouton fige sur « Envoi... » serait la seule
+                       chose cassee de l'ecran, et interdirait le renvoi. */
+                    if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                     if (res.ok) {
-                        /* Confirmation */
-                        form.style.display = 'none';
-                        const titleEl = form.closest('.brf-card').querySelector('.brf-title');
-                        const subEl   = form.closest('.brf-card').querySelector('.brf-subtitle');
-                        if (titleEl) titleEl.style.display = 'none';
-                        if (subEl)   subEl.style.display   = 'none';
-
-                        const successEl  = form.closest('.brf-card').querySelector('.brf-success');
-                        if (successEl) {
-                            successEl.style.display = 'block';
-                            const titleS = successEl.querySelector('.brf-success-title');
-                            if (titleS) titleS.textContent = t.successTitle;
-                        }
+                        /* Retour du 03/09 : rien ne disparait. Le message
+                           s'ajoute au-dessus du bouton, le formulaire garde
+                           ses valeurs, et l'ecran `.brf-success` n'est plus
+                           ouvert du tout — meme comportement que le socle sur
+                           une page publiee. Sa liste de brochures « (PDF) »,
+                           aux liens morts, disparait donc avec lui. */
+                        montrerSucces(form, t.successTitle, t.successMsg,
+                                      ctaDeDemo(res, t));
                     } else {
-                        if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                         /* Le message du socle plutot qu'un « une erreur est
                            survenue » : c'est lui qui nomme le champ refuse. */
                         alert(res.message || t.errGeneric);

@@ -12,6 +12,7 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
+import { montrerMessage, effacerMessage } from '../shared/message-confirmation.js';
 
 export default function (editor, categories) {
 
@@ -426,20 +427,21 @@ export default function (editor, categories) {
         return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 900));
     }
 
-    function showConfirmation(doc, data, t) {
-        const form    = doc.querySelector('.pc-form');
-        const success = doc.querySelector('.pc-success');
-        const title   = doc.querySelector('.pc-title');
-        const sub     = doc.querySelector('.pc-subtitle');
-        if (form)  form.style.display  = 'none';
-        if (title) title.style.display = 'none';
-        if (sub)   sub.style.display   = 'none';
-        if (success) {
-            success.style.display = 'block';
-            const msgEl = success.querySelector('.pc-success-msg');
-            const name  = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-            if (msgEl) msgEl.innerHTML = t.successMsg(name, data.Campus || '—', data.EmailAddress || '');
-        }
+    /* Retour client du 2026-09-03 : le formulaire ne disparaît plus. Le message
+     * s'ajoute au-dessus du bouton, l'écran `.pc-success` n'est plus ouvert, et
+     * le formulaire garde ses valeurs — même traitement que les six
+     * formulaires branchés au socle.
+     *
+     * ⚠ Ce bloc N'ÉCRIT PAS au CRM : le socle ne branche que `.jpo-form,
+     * .brf-form, .cnd-form, .imf-form`. Il n'y a donc rien à aligner côté page
+     * publiée, seulement l'aperçu du builder — mais c'est lui qu'on montre en
+     * recette. Le récapitulatif reste rendu en HTML : il met le campus et
+     * l'e-mail en avant, et l'aplatir en texte appauvrirait le message. */
+    function showConfirmation(data, t, form) {
+        const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
+        montrerMessage(form, [
+            { html: t.successMsg(name, data.Campus || '—', data.EmailAddress || '') },
+        ], 'succes');
     }
 
     function initPcForm(form, doc) {
@@ -503,7 +505,12 @@ export default function (editor, categories) {
             if (!ok) return;
 
             const btn = form.querySelector('.pc-submit');
+            /* Le libelle d'origine est releve AVANT d'etre remplace par le
+               spinner : le formulaire restant affiche apres la confirmation,
+               il faut pouvoir le rendre au visiteur. */
+            const originalLabel = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.innerHTML = `<span class="pc-spinner"></span>${t.sending}`; }
+            effacerMessage(form);
 
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
@@ -525,10 +532,13 @@ export default function (editor, categories) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
 
             handleSubmit(data).then(res => {
+                /* Le bouton est rendu DANS TOUS LES CAS, succes compris :
+                   le formulaire reste affiche, un bouton fige sur
+                   « Envoi... » serait la seule chose cassee de l'ecran. */
+                if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
                 if (res.ok) {
-                    showConfirmation(doc, data, t);
+                    showConfirmation(data, t, form);
                 } else {
-                    if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                     alert(t.errGeneric);
                 }
             });
