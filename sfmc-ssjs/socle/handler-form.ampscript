@@ -166,7 +166,7 @@ SET @sfBlockRule = ""
 
 VAR @submitted, @email, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
-VAR @speciality, @specRows
+VAR @speciality, @specRows, @progRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
 VAR @utmCampus, @consent, @dateCookies
@@ -252,6 +252,24 @@ SET @INTERACTION_ACTIVE = "true"
    et que la cause est un changement d'org, pas une decision de conception. Le
    jour ou la sonde redit que le champ passe, un mot suffit a le remettre.
    Sans lui, la marque reste deductible du compte parent. */
+/* ---- DATE DU DERNIER ENGAGEMENT MARKETING ---------------------------------
+   Le CRM ouvre en ce moment le droit d'ecriture sur ce champ. En attendant, le
+   socle NE L'ENVOIE PAS : un champ refuse a la creation ferait echouer l'insert
+   du consentement, donc perdre la preuve RGPD de la soumission entiere.
+
+   ⚠ DEUX GRAPHIES EXISTENT, ET UNE SEULE REPOND AUJOURD'HUI. La maitrise
+   d'ouvrage designe `LastMarketingEngagementDate__c`, retenu ici. Mesure du
+   02/09 : cette graphie est REFUSEE EN LECTURE par le connecteur, alors que
+   `Last_Marketing_Engagement_Date__c` (avec underscores) se lit et porte 4143
+   consentements. A trancher avec le CRM en meme temps que le droit d'ecriture :
+   si c'est la seconde qui doit vivre, c'est le nom du champ ci-dessous qu'il
+   faut corriger, pas ce drapeau.
+
+   Passer a "true" le jour ou le droit est ouvert, puis RELIRE le champ : sur
+   cette org, un ecrit accepte n'est pas un ecrit fait. */
+VAR @ECRIRE_DATE_ENGAGEMENT
+SET @ECRIRE_DATE_ENGAGEMENT = "false"
+
 VAR @ECRIRE_MARQUE_CONSENT
 SET @ECRIRE_MARQUE_CONSENT = "true"
 
@@ -405,7 +423,31 @@ IF IndexOf(@submitted, "true") > 0 THEN
 
        Si le campus est absent de la DE, `Ecole__c` reste vide : le prospect est
        cree sans ecole rattachee. Degrade, pas bloquant. */
-    SET @campusSel   = RequestParameter("Campus")
+    /* Le campus arrive sous `CampusChoisi`, un nom sans homonyme — voir
+       `miroirCampus` dans le handler de listes. Repli sur `Campus` pour les
+       pages publiees avant ce correctif. */
+    SET @campusSel   = RequestParameter("CampusChoisi")
+    IF Empty(@campusSel) THEN SET @campusSel = RequestParameter("Campus") ENDIF
+
+    /* ⚠ REQUESTPARAMETER IGNORE LA CASSE ET FUSIONNE. Les formulaires portent
+       DEUX champs nommes « campus » a la casse pres : le `<select name="Campus">`
+       et un champ cache de tracking `name="campus"`, vide. AMPscript rend donc
+       « EFAP PARIS, » — la valeur, une virgule, et le vide.
+
+       Consequence, mesuree le 03/09 sur 141 soumissions reelles : la recherche
+       dans LPB_Mapping_Campus echouait sur TOUTES, et `Ecole__c` restait vide
+       partout. Le journal le disait depuis le debut — « campus=EFAP PARIS,
+       ecoleAcc= » — mais la virgule se lisait comme une ponctuation.
+
+       Mes essais par URL ne montraient rien : ils n'envoyaient que `Campus`.
+
+       On ne garde donc que le premier segment. Aucun campus ne contient de
+       virgule — verifie sur les 47 de la table. La correction de fond est de
+       renommer le champ de tracking, mais cette garde protege les six
+       formulaires sans toucher a leur code. */
+    IF IndexOf(@campusSel, ",") > 0 THEN
+        SET @campusSel = Trim(Substring(@campusSel, 1, Subtract(IndexOf(@campusSel, ","), 1)))
+    ENDIF
     SET @schoolAccId = ""
 
     IF NOT Empty(@campusSel) THEN
@@ -1304,10 +1346,11 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "ClientID__c",            @clientId)
 
             ELSEIF Empty(@typeForm) THEN
-                SET @paId = CreateSalesforceObject("Account", 14,
+                SET @paId = CreateSalesforceObject("Account", 15,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
                     "Ecole__c",               @schoolAccId,
+                    "PTAT_Id__c",             @ptatId,
                     "PreferredLangage__c",    @langue,
                     "PersonEmail",            @email,
                     "LastName",               @lastName,
@@ -1321,11 +1364,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "ClientID__c",            @clientId)
 
             ELSE
-                SET @paId = CreateSalesforceObject("Account", 15,
+                SET @paId = CreateSalesforceObject("Account", 16,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
                     "FormType__c",            @typeForm,
                     "Ecole__c",               @schoolAccId,
+                    "PTAT_Id__c",             @ptatId,
                     "PreferredLangage__c",    @langue,
                     "PersonEmail",            @email,
                     "LastName",               @lastName,
@@ -1436,6 +1480,33 @@ IF IndexOf(@submitted, "true") > 0 THEN
         IF NOT Empty(@paId) THEN
             IF @formType == "candidature" THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Application_Requested__c", "true")
+
+                /* ---- PTAT : LE COUPLE PROGRAMME x RENTREE ------------------
+                   Le PTAT est la SEULE trace de la rentree choisie — aucun
+                   champ de rentree n'existe sur Account — et il designe aussi
+                   le programme, ce qui rend `LearningProgram_Id__c` inutile.
+
+                   Ecrit a la CREATION (voir plus haut) et retente ici pour un
+                   compte deja connu, dont la candidature arrive apres coup.
+
+                   ⚠ RELIRE POUR CONCLURE. Le 03/09 encore, l'update de ce
+                   champ est ACCEPTE et n'ecrit rien : sans droit de
+                   modification, l'API ignore le champ en silence. Le droit est
+                   en cours d'ouverture cote CRM ; d'ici la, le journal dit ce
+                   que le champ vaut REELLEMENT plutot que ce qu'on a tente. */
+                IF NOT Empty(@ptatId) THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "PTAT_Id__c", @ptatId)
+                    SET @progRows = RetrieveSalesforceObjects("Account", "Id,PTAT_Id__c", "Id", "=", @paId)
+                    IF RowCount(@progRows) > 0 THEN
+                        IF Empty(Field(Row(@progRows, 1), "PTAT_Id__c")) THEN
+                            SET @journal = Concat(@journal, " PTAT:refuse-silencieux(", @ptatId, ")")
+                        ELSE
+                            SET @journal = Concat(@journal, " PTAT:", @ptatId)
+                        ENDIF
+                    ENDIF
+                ELSE
+                    SET @journal = Concat(@journal, " PTAT:absent(rentree-perdue)")
+                ENDIF
                 /* ---- NI PTAT_Id__c NI LearningProgram_Id__c ---------------
                    Ces deux ecritures ont existe ici, et elles n'ont JAMAIS
                    rien ecrit : sans droit de modification, l'API Salesforce
@@ -1776,10 +1847,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             SET @journal = Concat(@journal, " CPC:", @canalValue,
                                 "-PrivacyConsentStatus-fige(", Field(@cpcRow, "PrivacyConsentStatus"), ")")
                         ENDIF
-                        IF Field(@cpcRow, "GDPR_Status__c") != "Marketing active" THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue,
-                                "-GDPR-fige(", Field(@cpcRow, "GDPR_Status__c"), ")")
-                        ENDIF
+                        /* Plus d'alerte sur GDPR_Status__c : le CRM le remplit
+                           lui-meme, le socle ne l'envoie plus, et le marqueur
+                           `-GDPR-fige()` sonnait donc a chaque re-soumission
+                           pour une divergence qui n'en est pas une. */
                         /* Le texte legal accepte a change de version depuis la
                            pose du consentement, et on ne peut pas l'ecrire. La
                            preuve conservee reste celle de la PREMIERE
@@ -1821,20 +1892,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                la preuve serait vide, et on le dit au journal —
                                plutot que de tuer la page sur un champ requis. */
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-texte-legal")
-                        ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
-                                "ContactPointId",          @cpId,
-                                "Channel__c",              @canalValue,
-                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
-                                "PrivacyConsentStatus",    "OptIn",
-                                "Status__c",               "Opt-in",
-                                "GDPR_Status__c",          "Marketing active",
-                                "CaptureSource",           "SFMC CloudPage",
-                                "Legal_Texte_Accepted__c", @preuve,
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "BusinessBrandId",         @brandId)
-                        ELSE
+                        ELSEIF @ECRIRE_DATE_ENGAGEMENT == "true" AND @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                            /* Prete, mais inactive : voir @ECRIRE_DATE_ENGAGEMENT
+                               en tete de fichier. */
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
@@ -1842,10 +1902,32 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                                                   " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
-                                "GDPR_Status__c",          "Marketing active",
                                 "CaptureSource",           "SFMC CloudPage",
                                 "Legal_Texte_Accepted__c", @preuve,
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage)
+                                "LastMarketingEngagementDate__c", @itHorodatage,
+                                "BusinessBrandId",         @brandId)
+
+                        ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "Legal_Texte_Accepted__c", @preuve,
+                                "BusinessBrandId",         @brandId)
+                        ELSE
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 7,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
                         /* Marqueur de CREATION, pose SEULEMENT si un
                            enregistrement est reellement ne — @cpcId ne vaut
