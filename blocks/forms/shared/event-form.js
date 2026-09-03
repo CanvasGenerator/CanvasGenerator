@@ -18,6 +18,7 @@ import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
 import { validerEtRevelerRequis } from './champs-requis.js';
 import { soumettre } from './envoi-socle.js';
+import { montrerSucces, effacerMessage } from './message-confirmation.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
 import { brancherCascadeProgramme } from './cascade-programme.js';
 import { socleReadSnippet } from './socle-read-snippet.js';
@@ -96,7 +97,13 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             errPhone:    'Numéro invalide (ex: 06 12 34 56 78).',
             errGeneric:  'Une erreur est survenue, veuillez réessayer.',
             sending:     'Envoi en cours...',
-            successThanks:   'Demande envoyée',
+            /* Le texte du socle, au mot pres : c'est lui que le visiteur lit
+               sur une page publiee. Un apercu qui dirait autre chose ferait
+               valider en recette un message qui n'existe nulle part. */
+            successThanks:   'Votre inscription est confirmée !',
+            successMsg:      'Merci pour votre inscription à notre événement. '
+                           + 'Vous recevrez toutes les informations pratiques '
+                           + 'par email.',
         },
         en: {
             campus:      'Campus',
@@ -126,7 +133,9 @@ import { socleReadSnippet } from './socle-read-snippet.js';
             errPhone:    'Invalid number (e.g. 07 12 34 56 78).',
             errGeneric:  'An error occurred, please try again.',
             sending:     'Sending...',
-            successThanks:   'Request sent',
+            successThanks:   'Your registration is confirmed!',
+            successMsg:      'Thank you for registering for our event. You '
+                           + 'will receive all practical information by email.',
         }
     };
 
@@ -1108,22 +1117,21 @@ ${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
         return soumettre(data, doc);
     }
 
-    function showConfirmation(card, data, t) {
-        const success  = card.querySelector('.jpo-success');
-        /* Tout ce qui n'est pas l'écran de succès disparaît. Masquer la seule
-         * `.jpo-form-zone` laissait `.jpo-campus-zone` — la liste des campus et
-         * le rappel de date — affichée SOUS la confirmation : elle en est la
-         * sœur, pas la descendante. Même correctif que dans le socle, qui est
-         * le seul à s'exécuter sur une page publiée. */
-        Array.prototype.forEach.call(card.children, (enfant) => {
-            if (enfant === success || enfant.contains(success)) return;
-            enfant.style.display = 'none';
-        });
-        if (success) {
-            success.style.display = 'block';
-            const thanks = success.querySelector('.jpo-success-thanks');
-            if (thanks) thanks.textContent = t.successThanks;
-        }
+    /* Retour client du 2026-09-03 : PLUS RIEN NE DISPARAÎT.
+     *
+     * Ce que faisait cette fonction, et pourquoi ça tombe. Elle énumérait les
+     * enfants de la carte pour tous les masquer sauf l'écran de succès — un
+     * balayage né du correctif du 31/08, quand `.jpo-campus-zone` restait
+     * affichée sous la confirmation parce qu'elle est SŒUR de la zone de
+     * formulaire, pas sa descendante. Nommer un sélecteur de plus n'aurait
+     * fait que reculer le problème au bloc suivant.
+     *
+     * Ne plus rien masquer règle ce fil définitivement : il n'y a plus de
+     * fratrie à rattraper. Le message s'ajoute au-dessus du bouton, le
+     * formulaire garde ses valeurs, et `.jpo-success` n'est plus jamais
+     * ouvert — exactement ce que fait le socle sur une page publiée. */
+    function showConfirmation(form, t) {
+        montrerSucces(form, t.successThanks, t.successMsg);
     }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -1370,11 +1378,19 @@ export function attachEventFormLogic(editor) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
+            effacerMessage(form);
+
             handleSubmit(data, form.ownerDocument).then(res => {
+                /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris. Il
+                   ne l'etait pas jusqu'au 03/09, et c'etait sans consequence :
+                   la confirmation emportait la carte entiere, bouton compris.
+                   Maintenant que le formulaire RESTE, un bouton fige sur
+                   « Envoi... » serait la seule chose cassee de l'ecran, et
+                   interdirait le renvoi. */
+                if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
                 if (res.ok) {
-                    showConfirmation(card, data, t);
+                    showConfirmation(form, t);
                 } else {
-                    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
                     /* Le message du socle plutot qu'un « une erreur est
                        survenue » : c'est lui qui nomme le champ refuse. */
                     alert(res.message || t.errGeneric);

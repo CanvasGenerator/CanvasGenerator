@@ -10,6 +10,7 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
+import { montrerMessage, effacerMessage, COCHE } from '../shared/message-confirmation.js';
 
 export default function (editor, categories) {
 
@@ -723,6 +724,10 @@ export default function (editor, categories) {
             if (!ok) return;
 
             const btn = form.querySelector('.wbc-submit');
+            /* Le libellé d'origine est relevé AVANT d'être remplacé par le
+               spinner : le formulaire restant affiché après la confirmation,
+               il faut pouvoir le rendre au visiteur. */
+            const originalLabel = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.innerHTML = `<span class="wbc-spinner"></span>${t.sending}`; }
 
             const data = { TypeWebconf: typeSelect.value };
@@ -744,23 +749,32 @@ export default function (editor, categories) {
             data.HasOptedInSMS      = rgpd ? '1' : '0';
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
 
-            /* Mode test — simule un appel API */
+            effacerMessage(form);
+
+            /* Mode test — simule un appel API.
+             *
+             * Retour client du 2026-09-03 : le formulaire ne disparaît plus.
+             * Le message s'ajoute au-dessus du bouton, l'écran `.wbc-success`
+             * n'est plus ouvert, et le bouton redevient cliquable — même
+             * traitement que les six formulaires branchés au socle.
+             *
+             * ⚠ Ce bloc N'ÉCRIT PAS au CRM : le socle ne branche que
+             * `.jpo-form, .brf-form, .cnd-form, .imf-form`. Il n'y a donc rien
+             * à aligner côté page publiée, seulement l'aperçu du builder — mais
+             * c'est lui qu'on montre en recette. Le récapitulatif reste rendu
+             * en HTML : il met la date et le sujet en gras, et l'aplatir en
+             * texte appauvrirait le message pour rien. */
             setTimeout(() => {
-                const formZone = card.querySelector('.wbc-form-zone');
-                const success  = card.querySelector('.wbc-success');
-                if (formZone) formZone.style.display = 'none';
-                if (success) {
-                    success.style.display = 'block';
-                    const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-                    const thanks = success.querySelector('.wbc-success-thanks');
-                    const msg    = success.querySelector('.wbc-success-msg');
-                    if (thanks) thanks.textContent = t.successThanks(name);
-                    if (msg)    msg.innerHTML      = t.successConfirm(
+                if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
+                const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
+                montrerMessage(form, [
+                    COCHE + ' ' + t.successThanks(name),
+                    { html: t.successConfirm(
                         data.WebconfDate  || '—',
                         data.WebconfTopic || '—',
                         data.EmailAddress || ''
-                    );
-                }
+                    ) },
+                ], 'succes');
             }, 900);
         });
     }

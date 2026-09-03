@@ -3022,18 +3022,39 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
        « (PDF) » sont dans le HTML des pages DEJA PUBLIEES. Les retirer du
        bloc ne touche aucune page en ligne — cf. le piege SOCLE_INLINE. Le
        socle les efface donc a l'execution, et l'effet est immediat. */
+    /* \u26a0 Accents en sequences \u, PAS en clair : ce fichier est recopie dans
+       picklist-handler.ampscript puis televerse par l'API SFMC, ou un accent
+       litteral se corrompt selon l'encodage. Le \u est du pur ASCII a la source
+       et rend l'accent a l'execution. Meme regle que MESSAGES_BLOCAGE plus bas.
+       Retour du 2026-09-03 : titre + corps de message, en remplacement du
+       \u00ab une seule ligne \u00bb du 02/09. */
     var MESSAGES = {
-        brochure:    { titre: 'Demande envoy\u00e9e' },
-        candidature: { titre: 'Candidature envoy\u00e9e' },
-        evenement:   { titre: 'Demande envoy\u00e9e' },
-        immersion:   { titre: 'Demande envoy\u00e9e' }
+        brochure: {
+            titre: 'Votre brochure est pr\u00eate !',
+            texte: 'Vous pouvez d\u00e8s maintenant la t\u00e9l\u00e9charger. '
+                 + 'Elle vous a \u00e9galement \u00e9t\u00e9 envoy\u00e9e par email.'
+        },
+        candidature: {
+            titre: 'Nous avons bien re\u00e7u votre demande de candidature',
+            texte: 'Pour la finaliser et d\u00e9poser votre dossier, cr\u00e9ez '
+                 + 'votre espace candidat via le lien envoy\u00e9 par e-mail '
+                 + '(pensez \u00e0 v\u00e9rifier vos spams).'
+        },
+        evenement: {
+            titre: 'Votre inscription est confirm\u00e9e !',
+            texte: 'Merci pour votre inscription \u00e0 notre \u00e9v\u00e9nement. '
+                 + 'Vous recevrez toutes les informations pratiques par email.'
+        },
+        immersion: {
+            titre: 'Votre demande de participation est confirm\u00e9e !',
+            texte: 'Notre \u00e9quipe des admissions vous contactera '
+                 + 'prochainement par t\u00e9l\u00e9phone afin de convenir '
+                 + 'd\'une date.'
+        }
     };
 
-    /* La coche, normalisee. Le HTML publie porte un emoji different selon le
-       formulaire \u2014 enveloppe sur la candidature, coche verte ailleurs \u2014 pose
-       dans un <div> sans classe, premier enfant de l'ecran de succes. Les
-       deux conditions (pas de classe, texte tres court) evitent de repeindre
-       un bloc qu'une ecole aurait ajoute la. */
+    /* La coche du message de confirmation. Elle ouvre la premiere ligne de
+       l'encart vert : le visiteur doit reconnaitre un succes AVANT de lire. */
     var COCHE = '\u2714\ufe0f';
 
     /** La famille du formulaire, lue dans son propre champ cache. */
@@ -3046,105 +3067,276 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return 'evenement';
     }
 
-    /** La carte qui entoure le formulaire, quel que soit le prefixe. */
-    function carteDe(form) {
-        var n = form.parentNode;
-        while (n && n.className !== undefined) {
-            if (/-card(\s|$)/.test(String(n.className))) return n;
-            n = n.parentNode;
+    /* ====================================================================
+       L'ENCART DE MESSAGE — UN SEUL, TROIS TONS
+       ====================================================================
+       Retour client du 2026-09-03 : LE FORMULAIRE NE DOIT PLUS DISPARAITRE.
+
+       Ce que le socle faisait jusqu'ici, et pourquoi c'etait faux. Sur un
+       succes, `montrerSucces` masquait la zone de formulaire, les titres, et
+       TOUS les enfants de la carte, puis ouvrait l'ecran `.xxx-success`
+       centre. Le visiteur voyait un message seul au milieu d'une page vide :
+       plus de formulaire, plus de valeurs, plus rien a relire. Le chemin du
+       BLOCAGE, lui, faisait deja ce qu'il fallait — un encart au-dessus du
+       bouton, formulaire intact — et c'est ce comportement qui est generalise
+       ici a TOUTES les familles de formulaire, succes compris.
+
+       D'ou l'encart unique. Confirmation, candidature deja en cours, decision
+       defavorable et erreur de saisie partagent desormais le meme bloc, au
+       meme endroit, et ne different que par le TON :
+
+         succes  vert    la soumission a ete ecrite au CRM
+         r1      orange  candidature deja en cours sur ce programme
+         r2      rouge   decision defavorable rendue sur ce programme
+         erreur  rouge   refus de saisie (numero de telephone, p. ex.)
+
+       Un seul element plutot qu'un par etat, et c'est delibere : deux encarts
+       distincts finiraient empiles le jour ou un visiteur enchaine un blocage
+       puis un succes — il lirait « candidature en cours » sous « demande bien
+       recue ». Un seul bloc, reecrit a chaque tentative, ne peut pas mentir.
+
+       ⚠ L'ecran `.xxx-success` du HTML publie n'est plus jamais ouvert. Il
+       reste dans la page, a son `display:none` de depart, et c'est ce qui rend
+       ce retour applicable SANS republier les pages deja en ligne.
+       ==================================================================== */
+    var TONS = {
+        succes: { bord: '#12805c', fond: '#ecfdf3', texte: '#05603a' },
+        r1:     { bord: '#b54708', fond: '#fffaeb', texte: '#7a2e0e' },
+        r2:     { bord: '#b42318', fond: '#fef3f2', texte: '#7a271a' },
+        erreur: { bord: '#b42318', fond: '#fef3f2', texte: '#7a271a' }
+    };
+
+    /**
+     * L'encart du formulaire, cree au premier besoin puis reutilise.
+     *
+     * `data-socle="message"` et non plus `"blocage"` : il ne porte plus
+     * seulement des refus. Le nom ne vivait qu'a l'execution — aucune page
+     * publiee ne le contient — donc le renommer ne casse rien en ligne.
+     */
+    function encartMessage(form) {
+        var zone = form.querySelector('[data-socle="message"]');
+        if (zone) return zone;
+
+        zone = document.createElement('div');
+        zone.className = 'socle-message';
+        if (zone.setAttribute) {
+            zone.setAttribute('data-socle', 'message');
+            /* `alert` et non `status` : qu'il annonce un refus ou une
+               confirmation, l'encart est le SEUL retour de la soumission —
+               plus rien ne bouge ailleurs dans la page. Un lecteur d'ecran
+               doit l'entendre aussitot. */
+            zone.setAttribute('role', 'alert');
         }
-        return form.parentNode;
+        zone.style.margin = '16px 0';
+        zone.style.padding = '14px 16px';
+        zone.style.borderRadius = '6px';
+        zone.style.borderLeftWidth = '4px';
+        zone.style.borderLeftStyle = 'solid';
+        zone.style.fontSize = '13px';
+        zone.style.lineHeight = '1.5';
+        zone.style.textAlign = 'left';
+
+        /* Au-dessus du bouton plutot qu'a la fin du formulaire : le visiteur
+           doit lire avant de recliquer. Repli par ajout si la maquette de
+           l'ecole ne porte pas la meme enveloppe de bouton. */
+        var ancre = form.querySelector('.cnd-submit-wrap, .brf-submit-wrap, '
+                                     + '.jpo-submit-wrap, .imf-submit-wrap');
+        if (ancre && ancre.parentNode && ancre.parentNode.insertBefore) {
+            ancre.parentNode.insertBefore(zone, ancre);
+        } else {
+            form.appendChild(zone);
+        }
+        return zone;
     }
 
     /**
-     * Remplace le formulaire par l'ecran de succes.
+     * Ecrit des lignes dans l'encart, au ton demande.
      *
-     * On REUTILISE le bloc `.xxx-success` deja present : il porte le style de
-     * l'ecole. Ses titres sont vides sur une page publiee, on les remplit.
+     * La PREMIERE ligne passe en gras des qu'il y en a plusieurs : c'est le
+     * titre du message, et ce qui suit se lit comme son explication.
+     */
+    function montrerMessage(form, lignes, ton) {
+        var zone = encartMessage(form);
+        var couleurs = TONS[ton] || TONS.erreur;
+
+        zone.style.borderLeftColor = couleurs.bord;
+        zone.style.background = couleurs.fond;
+        zone.style.color = couleurs.texte;
+
+        while (zone.firstChild) zone.removeChild(zone.firstChild);
+
+        for (var i = 0; i < lignes.length; i++) {
+            /* Une ligne `{cta:{...}}` devient un bouton, pas un paragraphe :
+               c'est le « TELECHARGER LA BROCHURE » du retour du 03/09. */
+            if (lignes[i] && lignes[i].cta) { zone.appendChild(boutonCta(lignes[i].cta)); continue; }
+            var p = document.createElement('p');
+            p.textContent = lignes[i];
+            p.style.margin = i === 0 ? '0' : '6px 0 0';
+            if (i === 0 && lignes.length > 1) p.style.fontWeight = '700';
+            zone.appendChild(p);
+        }
+
+        zone.style.display = 'block';
+        try { zone.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+    }
+
+    /**
+     * Le bouton d'action de l'encart.
+     *
+     * Un <a> et non un <button> : c'est une navigation vers un fichier, et un
+     * lien reste ouvrable dans un nouvel onglet, copiable, et lisible par un
+     * lecteur d'ecran comme ce qu'il est.
+     *
+     * `target="_blank"` plutot que l'attribut `download` : le PDF est heberge
+     * ailleurs que la CloudPage, et `download` est IGNORE en cross-origin — il
+     * aurait donne un lien qui navigue au lieu de telecharger, sans le dire.
+     * Ouvrir un onglet preserve en prime le formulaire et son message.
+     *
+     * Le style copie celui du bouton de soumission des blocs (noir, majuscules,
+     * pleine largeur) : le visiteur doit reconnaitre un bouton de l'ecole, pas
+     * un element rapporte.
+     */
+    function boutonCta(cta) {
+        var a = document.createElement('a');
+        a.setAttribute('href', cta.href);
+        /* Le nouvel onglet n'est pose que sur une VRAIE URL — garde utile si
+           la DE venait a porter une URL relative ou un simple `#`. */
+        if (/^https?:/i.test(cta.href)) {
+            a.setAttribute('target', '_blank');
+            /* `noopener` : la page ouverte ne doit pas pouvoir manipuler
+               celle-ci par `window.opener`. `noreferrer` en prime, l'URL de la
+               CloudPage n'a rien a apprendre a l'hebergeur du PDF. */
+            a.setAttribute('rel', 'noopener noreferrer');
+        }
+        a.textContent = cta.libelle;
+        a.style.display = 'block';
+        a.style.marginTop = '14px';
+        a.style.padding = '14px';
+        a.style.background = '#000';
+        a.style.color = '#fff';
+        a.style.textAlign = 'center';
+        a.style.textDecoration = 'none';
+        a.style.fontSize = '14px';
+        a.style.fontWeight = '700';
+        a.style.textTransform = 'uppercase';
+        a.style.letterSpacing = '0.05em';
+        return a;
+    }
+
+    /* ====================================================================
+       LE CTA « TELECHARGER LA BROCHURE » — retour client du 2026-09-03
+       ====================================================================
+       Le formulaire de brochure promet une brochure ; jusqu'ici il annoncait
+       seulement qu'elle partait par email. Le client demande le lien SUR LA
+       PAGE, tout de suite apres la soumission.
+
+       --- D'ou vient le lien -------------------------------------------
+       D'une Data Extension, publiee dans `SOCLE_DATA.brochures` par le socle
+       de lecture, comme `longueursTel` l'est deja depuis
+       `LPB_Mapping_Indicatifs`. Rien en dur ici : le metier ajoute une
+       brochure ou corrige une URL sans redeploiement.
+
+       ⚠ CETTE DE N'EXISTE PAS ENCORE (etat au 04/09). Le socle de lecture ne
+       publie donc pas `brochures`, et tout ce bloc reste inerte : le message
+       de confirmation s'affiche sans bouton, exactement comme avant. C'est
+       voulu — un CTA vers une URL absente serait pire que pas de CTA. Le jour
+       ou la DE arrive, ce code s'allume sans etre retouche.
+
+       --- La forme attendue --------------------------------------------
+         SOCLE_DATA.brochures = [
+           { url: "https://...", libelle: "...",        // libelle facultatif
+             programme: "...", specialite: "...",       // criteres, tous
+             campus: "...",    niveau: "..." },         // facultatifs
+           ...
+         ]
+
+       Une ligne ne retient QUE les criteres qu'elle renseigne. Une ligne sans
+       aucun critere est la brochure par defaut de l'ecole ; une ligne qui
+       porte `programme` ne sert que ce programme. On garde la ligne
+       CORRESPONDANTE LA PLUS PRECISE — celle qui contraint le plus de
+       criteres — ce qui laisse cohabiter un defaut d'ecole et des brochures
+       par programme sans ordre impose dans la DE.
+
+       Cette forme est volontairement plus large que ce dont on a besoin
+       aujourd'hui : on ne sait pas encore si la DE sera par ecole, par
+       programme ou par campus, et les trois se decrivent ainsi sans changer
+       une ligne de ce fichier.
+       ==================================================================== */
+    var CTA_BROCHURE = {
+        fr: 'T\u00e9l\u00e9charger la brochure',
+        en: 'Download the brochure'
+    };
+
+    /* Critere de la DE -> champ du formulaire qui le renseigne. */
+    var CRITERES_BROCHURE = [
+        { cle: 'programme',  champ: 'Programme'  },
+        { cle: 'specialite', champ: 'Speciality' },
+        { cle: 'campus',     champ: 'Campus'     },
+        { cle: 'niveau',     champ: 'StudyLevel' }
+    ];
+
+    function valeurChamp(form, nom) {
+        var el = form.querySelector('[name="' + nom + '"]');
+        return el ? String(el.value === null || el.value === undefined ? '' : el.value) : '';
+    }
+
+    /**
+     * Le CTA a poser sous la confirmation, ou null s'il n'y en a pas.
+     *
+     * Trois raisons de ne rien rendre, et aucune n'est une panne : le
+     * formulaire n'est pas un formulaire de brochure, la DE n'est pas encore
+     * publiee, ou aucune de ses lignes ne couvre ce que le visiteur a choisi.
+     */
+    function ctaBrochure(form) {
+        if (familleDe(form) !== 'brochure') return null;
+
+        var lignes = D && D.brochures;
+        if (!lignes || !lignes.length) return null;
+
+        var meilleure = null, meilleurScore = -1;
+        for (var i = 0; i < lignes.length; i++) {
+            var ligne = lignes[i];
+            if (!ligne || !ligne.url) continue;
+
+            var score = 0, retenue = true;
+            for (var c = 0; c < CRITERES_BROCHURE.length; c++) {
+                var attendu = ligne[CRITERES_BROCHURE[c].cle];
+                if (!attendu) continue;                 // critere non contraint
+                score++;
+                if (String(attendu).toLowerCase()
+                    !== valeurChamp(form, CRITERES_BROCHURE[c].champ).toLowerCase()) {
+                    retenue = false;
+                    break;
+                }
+            }
+            /* `>` et non `>=` : a precision egale, la premiere ligne de la DE
+               gagne, ce qui rend l'ordre du metier previsible. */
+            if (retenue && score > meilleurScore) { meilleure = ligne; meilleurScore = score; }
+        }
+        if (!meilleure) return null;
+
+        var langue = langueAffichage() === 'en' ? 'en' : 'fr';
+        return { libelle: meilleure.libelle || CTA_BROCHURE[langue], href: meilleure.url };
+    }
+
+    /**
+     * La confirmation, en vert, AU-DESSUS du formulaire laisse intact.
+     *
+     * Rien n'est masque, et le formulaire garde ses valeurs : le visiteur
+     * relit ce qu'il vient d'envoyer, et peut renvoyer — c'est exactement le
+     * meme POST, le socle d'ecriture ne voit aucune difference. Sur une
+     * candidature, changer de campus ou de rentree designe un autre PTAT :
+     * cette porte doit rester ouverte.
      */
     function montrerSucces(form) {
-        var carte = carteDe(form);
-        var succes = carte.querySelector('.jpo-success, .brf-success, .cnd-success, .imf-success');
         var msg = MESSAGES[familleDe(form)];
-
-        var zone = carte.querySelector('.jpo-form-zone');
-        if (zone) { zone.style.display = 'none'; } else { form.style.display = 'none'; }
-
-        /* Titre et sous-titre du formulaire : ils annoncaient une action qui
-           n'a plus lieu d'etre. */
-        var entetes = carte.querySelectorAll('.jpo-title, .brf-title, .cnd-title, .imf-title, ' +
-                                             '.jpo-subtitle, .brf-subtitle, .cnd-subtitle, .imf-subtitle');
-        for (var i = 0; i < entetes.length; i++) entetes[i].style.display = 'none';
-
-        if (!succes) {
-            succes = document.createElement('div');
-            succes.className = 'socle-succes';
-            succes.style.padding = '28px 20px';
-            succes.style.textAlign = 'center';
-            carte.appendChild(succes);
-            succes.innerHTML = '<div style="font-size:36px;margin-bottom:10px">&#10004;&#65039;</div>';
-        }
-
-        /* ---- TOUT LE RESTE DE LA CARTE DISPARAIT ----------------------
-           On ENUMERE les enfants de la carte au lieu de nommer les zones a
-           masquer. Le code precedent ne connaissait que `.jpo-form-zone` et
-           les titres : sur un formulaire evenement, `.jpo-campus-zone` — la
-           liste des campus et le rappel de date/adresse — est SOEUR de la zone
-           de formulaire, et restait donc affichee sous le message de
-           confirmation, avec sa liste toujours cliquable. Ajouter un selecteur
-           de plus n'aurait fait que reculer le probleme au bloc suivant.
-
-           Deux prudences : on ne masque jamais un element qui CONTIENT
-           l'ecran de succes, et on ne balaie que si `carteDe` a reellement
-           trouve une carte — son repli est le parent du formulaire, qui
-           pourrait etre un conteneur bien plus large que la carte. */
-        if (/-card(\s|$)/.test(String(carte.className || '')) && carte.children) {
-            for (var e = 0; e < carte.children.length; e++) {
-                var enfant = carte.children[e];
-                if (!enfant || enfant === succes) continue;
-                if (enfant.contains && enfant.contains(succes)) continue;
-                if (enfant.style) enfant.style.display = 'none';
-            }
-        }
-
-        var titre = succes.querySelector('.jpo-success-thanks, .brf-success-title, ' +
-                                         '.cnd-success-title, .imf-success-title');
-        var texte = succes.querySelector('.jpo-success-msg, .brf-success-msg, ' +
-                                         '.cnd-success-msg, .imf-success-msg');
-        if (titre) { titre.textContent = msg.titre; }
-
-        /* Le sous-titre n'a plus de contenu. On le VIDE et on le MASQUE : le
-           vider seul lui laisserait sa marge basse, et l'ecran gagnerait un
-           blanc que rien ne justifie. */
-        if (texte) {
-            texte.textContent = '';
-            texte.style.display = 'none';
-        }
-
-        /* Les blocs annexes de l'ecran de succes disparaissent — aujourd'hui
-           la seule liste de brochures, dont les liens « (PDF) » ne menaient
-           nulle part (`onclick="return false"`) et dont la liste restait vide
-           sur une page publiee, faute du JS des blocs pour la remplir. */
-        var annexes = succes.querySelectorAll ? succes.querySelectorAll('.brf-brochure-list') : [];
-        for (var an = 0; an < annexes.length; an++) {
-            if (annexes[an].style) annexes[an].style.display = 'none';
-        }
-
-        var icone = succes.children ? succes.children[0] : null;
-        if (icone && icone.tagName === 'DIV' && !icone.className
-            && String(icone.textContent || '').length <= 4) {
-            icone.textContent = COCHE;
-        }
-
-        if (!titre) {
-            var h = document.createElement('h3');
-            h.textContent = msg.titre;
-            succes.appendChild(h);
-        }
-
-        succes.style.display = 'block';
-        if (succes.classList) succes.classList.remove('hidden');
-        try { succes.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
+        var lignes = [COCHE + ' ' + msg.titre];
+        if (msg.texte) lignes.push(msg.texte);
+        /* Le CTA de brochure, quand la DE le fournit. Sinon rien : le message
+           reste ce qu'il etait. Voir CTA_BROCHURE plus haut. */
+        var cta = ctaBrochure(form);
+        if (cta) lignes.push({ cta: cta });
+        montrerMessage(form, lignes, 'succes');
     }
 
     /* ====================================================================
@@ -3158,21 +3350,16 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
          r2  une decision defavorable a deja ete rendue sur ce programme
              (FinalDecision__c = Rejected, Jira 464).
 
-       Un dossier « Withdrawn / Abandoned » ne bloque pas : le candidat a
-       renonce, il a le droit de revenir. C'est le socle d'ecriture qui en
-       decide, pas cet ecran.
+       ⚠ CETTE LOGIQUE N'EST PAS TOUCHEE par le retour du 03/09. C'est le
+       socle d'ECRITURE qui tranche, dans `handler-form.ampscript`, et il le
+       fait correctement : cet ecran ne fait qu'afficher le motif recu.
 
-       Ce que ce bloc corrige : jusqu'ici la reponse portait `statut=blocked`
-       et aucun message. Le front tombait donc sur sa branche d'echec et
-       affichait, dans une `alert()`, « le CRM a refuse l'ecriture — le detail
-       est dans LPB_Log_Soumissions ». A un candidat.
-
-       --- Pourquoi le formulaire RESTE affiche -------------------------
-       Le blocage porte sur UN programme, pas sur la personne : changer de
-       campus, de specialite ou de rentree designe un autre PTAT, sur lequel
-       rien n'interdit de candidater. Remplacer le formulaire par le message,
-       comme le fait la confirmation, fermerait cette porte. On pose donc un
-       encart au-dessus du bouton, et on rend le bouton.
+       --- Le texte de R1 change, LUI, le 2026-09-03 --------------------
+       Il annoncait « votre candidature a deja ete transmise [...] consultez
+       l'email qui vous avait ete envoye » — une promesse d'email que rien ne
+       garantit, et aucune porte de sortie. Le metier lui substitue le libelle
+       que porte deja le socle d'ecriture : il ORIENTE le candidat vers les
+       admissions du campus vise. Reformulation seule, a logique constante.
 
        --- Pourquoi les accents sont echappes ---------------------------
        Le texte est celui du cadrage, au mot pres. Ce fichier est recopie dans
@@ -3194,77 +3381,19 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         ]
     };
 
-    /** L'encart de blocage du formulaire, cree au premier besoin. */
-    function encartBlocage(form) {
-        var zone = form.querySelector('[data-socle="blocage"]');
-        if (zone) return zone;
-
-        zone = document.createElement('div');
-        zone.className = 'socle-blocage';
-        if (zone.setAttribute) {
-            zone.setAttribute('data-socle', 'blocage');
-            /* `alert` et non `status` : le message annonce que la soumission
-               n'a pas abouti, un lecteur d'ecran doit l'entendre aussitot. */
-            zone.setAttribute('role', 'alert');
-        }
-        zone.style.margin = '16px 0';
-        zone.style.padding = '14px 16px';
-        zone.style.borderRadius = '6px';
-        zone.style.borderLeft = '4px solid #b42318';
-        zone.style.background = '#fef3f2';
-        zone.style.color = '#7a271a';
-        zone.style.fontSize = '13px';
-        zone.style.lineHeight = '1.5';
-        zone.style.textAlign = 'left';
-
-        /* Au-dessus du bouton plutot qu'a la fin du formulaire : le candidat
-           doit lire avant de recliquer. Repli par ajout si la maquette de
-           l'ecole ne porte pas la meme enveloppe de bouton. */
-        var ancre = form.querySelector('.cnd-submit-wrap, .brf-submit-wrap, '
-                                     + '.jpo-submit-wrap, .imf-submit-wrap');
-        if (ancre && ancre.parentNode && ancre.parentNode.insertBefore) {
-            ancre.parentNode.insertBefore(zone, ancre);
-        } else {
-            form.appendChild(zone);
-        }
-        return zone;
-    }
-
     /** Affiche le message du cadrage correspondant au motif renvoye. */
     function montrerBlocage(form, motif) {
         /* Motif absent : une page publiee avant que le socle d'ecriture ne
            l'emette. R1 est le cas de loin le plus frequent, et son message ne
-           prejuge d'aucune decision de jury — c'est le defaut le moins faux. */
-        montrerMessage(form, MESSAGES_BLOCAGE[motif] || MESSAGES_BLOCAGE.r1);
+           prejuge d'aucune decision de jury — c'est le defaut le moins faux.
+           Le motif sert AUSSI de ton : orange pour r1, rouge pour r2. */
+        var cle = MESSAGES_BLOCAGE[motif] ? motif : 'r1';
+        montrerMessage(form, MESSAGES_BLOCAGE[cle], cle);
     }
 
-    /**
-     * Affiche des lignes libres dans le meme encart.
-     *
-     * Extrait de `montrerBlocage` pour servir aussi aux refus de SAISIE — un
-     * numero de telephone au mauvais format, par exemple. Meme encart a dessein
-     * : le candidat a un seul endroit a lire, et il est deja style, place
-     * au-dessus du bouton et annonce aux lecteurs d'ecran.
-     */
-    function montrerMessage(form, lignes) {
-        var zone = encartBlocage(form);
-
-        while (zone.firstChild) zone.removeChild(zone.firstChild);
-
-        for (var i = 0; i < lignes.length; i++) {
-            var p = document.createElement('p');
-            p.textContent = lignes[i];
-            p.style.margin = i === 0 ? '0' : '6px 0 0';
-            zone.appendChild(p);
-        }
-
-        zone.style.display = 'block';
-        try { zone.scrollIntoView({ block: 'center', behavior: 'smooth' }); } catch (e) {}
-    }
-
-    /** Efface l'encart avant une nouvelle tentative : le programme a pu changer. */
-    function effacerBlocage(form) {
-        var zone = form.querySelector('[data-socle="blocage"]');
+    /** Efface l'encart avant une nouvelle tentative : tout a pu changer. */
+    function effacerMessage(form) {
+        var zone = form.querySelector('[data-socle="message"]');
         if (zone) zone.style.display = 'none';
     }
 
@@ -3905,7 +4034,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             if (mauvaisTels.length) {
                 var lignes = [];
                 for (var t = 0; t < mauvaisTels.length; t++) lignes.push(mauvaisTels[t].message);
-                montrerMessage(form, lignes);
+                montrerMessage(form, lignes, 'erreur');
                 try { mauvaisTels[0].champ.focus(); } catch (eFocus) {}
                 return;
             }
@@ -3914,10 +4043,12 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             var libelle = bouton ? bouton.innerHTML : '';
             if (bouton) { bouton.disabled = true; bouton.textContent = 'Envoi en cours...'; }
 
-            /* Le blocage porte sur un PROGRAMME : le candidat a pu en changer
-               depuis la tentative precedente. Garder l'ancien encart affiche
-               le ferait mentir. */
-            effacerBlocage(form);
+            /* L'encart de la tentative precedente s'efface, quel qu'il ait
+               ete. Un blocage porte sur un PROGRAMME et le candidat a pu en
+               changer ; une confirmation porte sur un envoi qui n'est plus
+               celui en cours. Dans les deux cas, le garder affiche pendant
+               que le nouvel envoi part le ferait mentir. */
+            effacerMessage(form);
 
             var corps = [];
             var vus = {};
@@ -3962,8 +4093,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             }).then(function (r) { return r.text(); })
               .then(function (html) {
                   var bilan = bilanDe(html);
-                  if (bilan.ok) { montrerSucces(form); return; }
+                  /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris.
+                     Il ne l'etait pas jusqu'au 03/09, et c'etait sans
+                     consequence : la confirmation emportait le formulaire
+                     entier, bouton compris. Maintenant que le formulaire
+                     RESTE, un bouton fige sur « Envoi en cours... » serait la
+                     seule chose cassee de la page — et le visiteur ne pourrait
+                     plus renvoyer, ce que ce retour demande justement. */
                   if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
+                  if (bilan.ok) { montrerSucces(form); return; }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a
                      refuse d'ecrire, exactement comme le cadrage le demande.
                      Elle se dit sur le formulaire, pas dans une alert(), et
@@ -4222,6 +4360,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 })();
 %%=v(@cascadeFerme)=%%
 <!-- ===== fin JS DE CASCADE ===== -->
+
+
 
 
 
