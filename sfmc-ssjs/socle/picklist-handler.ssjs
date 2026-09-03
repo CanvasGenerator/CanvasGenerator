@@ -838,6 +838,26 @@ try {
      * sinon "Terminale;Bac obtenu" deviendrait une option unique que personne
      * ne peut choisir, et les deux niveaux reels disparaitraient du menu.
      */
+    /**
+     * Le libelle que le CRM donne a une valeur de picklist, s'il en a un.
+     *
+     * Les listes de la cascade viennent des PROGRAMMES, qui ne portent que la
+     * valeur d'API — « Full-Time », « FR », « Editing & Post-Production ». Le
+     * socle publie les libelles lus dans PicklistValueInfo, et c'est eux qu'on
+     * affiche : « Temps plein », « Francais », « Montage Post-Production ».
+     *
+     * Repli sur la valeur d'API quand le CRM n'a pas de libelle — c'est le cas
+     * de plusieurs specialites, dont « International Art Market », identique
+     * dans les deux langues.
+     *
+     * ⚠ Seul le LIBELLE change. La `value` reste la valeur d'API : c'est elle
+     * qui part au CRM, et « Temps plein » dans Rhythm__c serait rejete en
+     * silence, comme « fr » l'aurait ete dans PreferredLangage__c. */
+    function libelleCrm(prop, valeur) {
+        var table = D && D.libelles && D.libelles[prop];
+        return (table && table[valeur]) || '';
+    }
+
     function distinct(rows, prop) {
         var vus = {}, out = [];
         for (var i = 0; i < rows.length; i++) {
@@ -848,7 +868,7 @@ try {
                 var v = parts[j].replace(/^\s+|\s+$/g, '');
                 if (!v || vus[v]) continue;
                 vus[v] = true;
-                out.push({ value: v, label: v });
+                out.push({ value: v, label: libelleCrm(prop, v) || v });
             }
         }
         return out;
@@ -1130,7 +1150,30 @@ try {
         var uniquePosable = (reelles.length === 1 && poserSiUnique !== false);
         var visible = autorise(nom);
         if (visible && progressif && !precedentsRemplis(nom)) visible = false;
-        if (visible && reelles.length <= 1) visible = false;
+
+        /* « Une seule valeur = aucun choix, donc champ masque » ne vaut que
+           pour les ecoles en mode PROGRESSIF. Une ecole qui a choisi
+           `Progressif=false` demande a montrer tous ses champs : les masquer un
+           a un au fil des choix du candidat va contre cette intention, et EFAP
+           a demande le 03/09 a les voir tous, valeur unique comprise.
+
+           La valeur unique est posee dans les deux cas — c'est la regle du
+           contrat, et elle ne depend pas de l'affichage. Le candidat voit donc
+           un champ deja rempli, qu'il n'a pas a toucher.
+
+           Zero option reste masque partout : il n'y a rien a montrer. */
+        if (visible && reelles.length === 0) visible = false;
+        if (visible && progressif && reelles.length === 1) visible = false;
+
+        /* Champ AFFICHE avec une seule option : on la pose, meme si tous les
+           programmes ne la portent pas. La garde `poserSiUnique` protege du
+           choix silencieux — elle n'a plus lieu d'etre quand le candidat VOIT
+           le champ et peut le vider. Demande du 03/09 pour la candidature
+           EFAP : « la valeur unique doit etre selectionnee automatiquement ».
+
+           La garde reste entiere sur un champ MASQUE : c'est la qu'elle
+           evitait d'eliminer en douce les programmes sans valeur. */
+        if (visible && reelles.length === 1) el.value = reelles[0].value;
         /* On ne PROPOSE pas cette valeur unique, on la POSE. Le champ reste
            dans le formulaire, donc elle part au CRM. Sans cela le placeholder
            restait selectionne et le champ partait vide.
@@ -2060,6 +2103,46 @@ try {
            relit donc a la source. */
         var camp = form.querySelector('[name="utm_campus"]');
         if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+
+        miroirCampus(form);
+    }
+
+    /**
+     * Le campus choisi part sous un nom QUE RIEN D'AUTRE NE PORTE.
+     *
+     * ⚠ `RequestParameter` d'AMPscript ignore la casse et FUSIONNE les valeurs
+     * de meme nom. Or la publication injecte dans chaque formulaire un champ
+     * cache `name="campus"` (marque `data-lpb-autofill`), homonyme du
+     * `<select name="Campus">` a la casse pres. Le socle recevait donc
+     * « EFAP PARIS, » — la valeur, une virgule, et le vide du champ cache.
+     *
+     * Consequence mesuree le 03/09 : sur 141 soumissions reelles, AUCUNE n'a
+     * renseigne `Ecole__c`. La recherche dans LPB_Mapping_Campus echouait sur
+     * une valeur qu'aucune ligne ne porte, en silence. Le journal l'affichait
+     * depuis le debut — « campus=EFAP PARIS, ecoleAcc= » — mais la virgule se
+     * lisait comme une ponctuation.
+     *
+     * Plutot que de rattraper la fusion cote socle, on l'evite : `CampusChoisi`
+     * n'a d'homonyme dans aucune casse, donc rien a fusionner. Le socle
+     * d'ecriture le lit en premier et ne retombe sur `Campus` que pour les
+     * pages anciennes, qui ne portent pas encore ce champ.
+     */
+    function miroirCampus(form) {
+        var source = form.querySelector('[name="Campus"]');
+        if (!source) return;
+        var miroir = form.querySelector('[name="CampusChoisi"]');
+        if (!miroir) {
+            miroir = document.createElement('input');
+            miroir.type = 'hidden';
+            miroir.name = 'CampusChoisi';
+            form.appendChild(miroir);
+        }
+        miroir.value = source.value || '';
+        /* Le campus change apres ce premier passage : on suit. */
+        if (!source.getAttribute('data-miroir')) {
+            source.setAttribute('data-miroir', '1');
+            source.addEventListener('change', function () { miroir.value = source.value || ''; });
+        }
     }
 
     /* ---- LE MESSAGE DE CONFIRMATION, REDUIT A UNE LIGNE ----------------
@@ -3084,7 +3167,36 @@ try {
         function rendreDates() {
             var liste = datesPour(elCampus ? elCampus.value : '');
 
-            if (zoneDates) {
+            if (zoneDates && estImmersion()) {
+                /* ---- IMMERSION : UN CHAMP CACHE, PAS UN CHOIX -------------
+                   L'immersion n'est pas un evenement date : l'ecole en a une,
+                   elle sert de rattachement a l'inscription Summit, et le
+                   candidat n'a rien a selectionner. On pose donc un
+                   `<input type="hidden">`, pas un bouton radio masque.
+
+                   La difference n'est pas cosmetique. Un radio `required` dans
+                   un conteneur en display:none est un piege connu : si rien
+                   n'est coche, le navigateur refuse la soumission ET ne peut
+                   pas montrer le champ fautif — le formulaire se bloque sans
+                   rien dire. Le champ cache n'a pas cet etat.
+
+                   La zone reste vide de tout libelle : aucune date affichee,
+                   conformement au contrat. */
+                zoneDates.innerHTML = '';
+                var instImm = liste[0];
+                if (instImm) {
+                    var cache = document.createElement('input');
+                    cache.type = 'hidden';
+                    cache.name = 'InstanceId';
+                    cache.value = instImm.value;
+                    zoneDates.appendChild(cache);
+                }
+                var porteurImm = zoneDates.closest
+                    ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
+                    : zoneDates.parentNode;
+                if (porteurImm && porteurImm.style) porteurImm.style.display = 'none';
+
+            } else if (zoneDates) {
                 zoneDates.innerHTML = '';
                 liste.forEach(function (inst, i) {
                     var id = 'inst_' + String(inst.value).replace(/[^a-zA-Z0-9_-]/g, '');
@@ -3202,20 +3314,6 @@ try {
                     zoneDates.appendChild(wrap);
                 });
 
-                /* ---- IMMERSION : LE BLOC DATE N'EXISTE PAS ---------------
-                   La notion de date n'a pas cours sur l'immersion : l'instance
-                   de l'ecole est cochee d'office et le bloc reste masque, quel
-                   que soit le nombre d'instances. Le bouton radio demeure dans
-                   le <form>, donc InstanceId part au CRM.
-
-                   Volontairement limite a l'immersion. Sur une JPO ou un
-                   atelier, la date est une information utile, meme unique. */
-                if (estImmersion()) {
-                    var porteurDates = zoneDates.closest
-                        ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
-                        : zoneDates.parentNode;
-                    if (porteurDates && porteurDates.style) porteurDates.style.display = 'none';
-                }
 
             } else if (elInst && elInst.tagName === 'SELECT') {
                 remplir('InstanceId', liste, valeur('InstanceId'));

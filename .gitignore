@@ -25,3 +25,5 @@ codex/
 ~$*
 .env.bak-avant-sync
 sfmc-ssjs/diagnostic/
+# Sorties du generateur de LP de recette
+.lp-recette/
