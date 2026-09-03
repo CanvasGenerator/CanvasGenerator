@@ -181,12 +181,67 @@ export default function (editor, categories) {
     display: flex; flex: 1; gap: 16px;
     justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
 }
-.socle-instance-quand { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
-.socle-instance-date { font-weight: 700; color: #1a1a1a; }
-.socle-instance-lieu { color: #555; white-space: pre-line; }
-.socle-instance-conf { color: #555; text-align: right; max-width: 45%; }
+/* ── Meme habillage que la carte evenement du builder ────────────────────
+   Capture du 03/09 : deux colonnes, le QUAND a gauche sous une icone
+   calendrier (date, horaires, conference), le OU a droite sous une icone
+   epingle (campus, adresse), separees par un trait vertical.
+
+   Ce CSS vit EN DOUBLE avec shared/event-form.js : toute retouche ici doit
+   y etre reportee. Les icones sont en CSS, le mot-cle currentColor n'existant
+   pas dans une data-URI : la couleur est celle de .jpo-event-ico, #333.
+
+   ⚠ Ces regles visent des elements que le socle cree A L'EXECUTION. Elles ne
+   survivent a la publication que grace a SELECTEURS_RUNTIME dans
+   lib/htmlCleaner.js. */
+.imf-dates label {
+    border-color: #e6e1da;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 12px;
+}
+.socle-instance-quand,
+.socle-instance-ou {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+}
+.socle-instance-quand > *,
+.socle-instance-ou > * { grid-column: 2; }
+.socle-instance-quand::before,
+.socle-instance-ou::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+/* L'icone tient la colonne 1 sur toute la hauteur : elle reste en regard de
+   la date meme quand les lignes s'ajoutent en dessous. */
+.socle-instance-quand::before {
+    grid-row: 1 / -1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2'/%3E%3Cpath d='M3 9.5h18M8 2.5v4M16 2.5v4' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.socle-instance-ou::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Cpath d='M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.6'/%3E%3C/svg%3E");
+}
+.socle-instance-ou {
+    border-left: 1px solid #e0dad2;
+    padding-left: 18px;
+}
+.socle-instance-date { font-weight: 700; font-size: 13px; color: #000; }
+.socle-instance-lieu { font-size: 12px; color: #555; line-height: 1.5; white-space: pre-line; }
+/* Sous 560px les colonnes s'empilent : le trait vertical devient un filet. */
 @media (max-width: 560px) {
-    .socle-instance-conf { text-align: left; max-width: 100%; }
+    .socle-instance-ou {
+        border-left: 0; padding-left: 0;
+        border-top: 1px solid #e0dad2; padding-top: 10px;
+    }
 }
 /* Bloc entier masque tant qu'il n'y a rien a proposer : un intitule sans
    option n'apprend rien. */

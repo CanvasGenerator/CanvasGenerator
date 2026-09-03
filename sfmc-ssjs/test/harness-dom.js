@@ -16,7 +16,30 @@
  */
 'use strict';
 
-function creerDom(layout) {
+/**
+ * Les selecteurs que le PORTEUR d'un champ represente dans ce harnais : le
+ * conteneur du champ, tel que le cherche `porteurDe()` du socle.
+ *
+ * Tout le reste — `.cnd-form`, `.brf-form`, `.jpo-form`... — designe un
+ * ANCETRE que le harnais ne modelise pas, et doit donc rendre null. Sans cette
+ * distinction, `closest` repondait oui a tout et un masque reserve a un seul
+ * formulaire s'appliquait a tous.
+ */
+const PORTEURS_CONNUS = /(\[data-socle-champ\]|-field\b|\.form-group|\.field\b)/;
+
+/**
+ * @param {Array} layout
+ * @param {string} [formClass] Classe du <form> simule ('cnd-form', 'brf-form'...).
+ *        Vide par defaut : le socle applique alors ses regles GENERIQUES, sans
+ *        le masquage propre a la candidature. C'est ce qui permet aux tests
+ *        d'ordre du value set de continuer a voir la liste complete des niveaux,
+ *        tandis qu'un test explicitement 'cnd-form' verifie le masquage cible.
+ */
+function creerDom(layout, formClass = '') {
+    /* Le <form> porteur, retourne par `el.closest('.cnd-form')` UNIQUEMENT quand
+       le type simule correspond. Les autres selecteurs (`.cnd-field`,
+       `[data-socle-champ]`...) continuent de renvoyer le porteur du champ. */
+    const forme = { _nom: '(form.' + (formClass || 'generique') + ')' };
     const parent = {
         childNodes: [],
         appendChild(n) {
@@ -98,7 +121,28 @@ function creerDom(layout) {
                 querySelector: () => null,
                 appendChild: (o) => el.options.push(o),
                 addEventListener() {},
-                closest: () => porteur,
+                /* SELECTIF, et non « porteur quoi qu'on demande ».
+                   Un closest permissif rendait vrai TOUTE remontee, y compris
+                   `closest('.cnd-form')` : le masque propre a la candidature
+                   s'appliquait donc a tous les gabarits du harnais, et quatre
+                   tests de l'ordre des niveaux tombaient alors que le code de
+                   production est correct — un vrai closest, lui, ne trouve pas
+                   de .cnd-form au-dessus d'une brochure.
+
+                   Le harnais ne modelise qu'un seul ancetre, le porteur du
+                   champ : on ne rend donc `porteur` que pour les selecteurs qui
+                   le designent, et null pour tout ancetre qu'il ne represente
+                   pas. C'est ce qui rend le cloisonnement par formulaire
+                   REELLEMENT testable. */
+                closest: (sel) => {
+                    const s = String(sel || '');
+                    if (PORTEURS_CONNUS.test(s)) return porteur;
+                    /* Le <form> simule, et LUI SEUL : `closest('.cnd-form')` ne
+                       repond que si le harnais joue bien une candidature. C'est
+                       ce qui distingue un masque cible d'un masque global. */
+                    if (formClass && s.indexOf(formClass) !== -1) return forme;
+                    return null;
+                },
                 parentNode: porteur,
             };
             champs[nom] = el;

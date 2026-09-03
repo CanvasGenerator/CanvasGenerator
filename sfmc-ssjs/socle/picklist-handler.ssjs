@@ -228,6 +228,83 @@ try {
     var D = window.SOCLE_DATA;
     if (!D) return;                       // lecture SF indisponible -> on laisse le HTML statique
 
+    /* ---- STYLE DES ELEMENTS QUE CE SCRIPT CREE ----------------------------
+       POURQUOI ICI ET PAS DANS LE GABARIT. Le CSS d'un bloc est recopie dans
+       la page au glisser-deposer, puis filtre. Deux consequences, verifiees
+       sur la page EFAP-Portes-Ouvertes du 03/09 : aucune regle
+       `.socle-instance-*` n'y figurait, et une retouche faite au bloc
+       n'atteint JAMAIS une page deja construite — il faudrait re-deposer le
+       formulaire sur chacune.
+
+       Le socle, lui, est re-injecte a CHAQUE publication (SOCLE_INLINE).
+       Poser le style ici, c'est donc le seul moyen que le design des dates
+       suive une simple republication, sur toutes les pages a la fois. C'est
+       aussi coherent : ces elements n'existent que parce que ce script les
+       cree, leur mise en forme lui appartient.
+
+       Conception issue de la carte du builder (capture du 03/09) : deux
+       colonnes, le QUAND a gauche sous une icone calendrier, le OU a droite
+       sous une icone epingle, separees par un trait vertical.
+
+       Les icones sont des data-URI : le mot-cle currentColor n'y existe pas,
+       la couleur est donc celle de .jpo-event-ico, #333.
+
+       On n'ecrit PAS de balise <style> litterale — l'API SFMC filtre le
+       balisage a l'upload ; un noeud cree en JS lui echappe, comme le <script>
+       de cascade lui-meme. Pose une seule fois. */
+    function poserStyleSocle() {
+        try {
+            if (!document.head || document.getElementById('socle-style')) return;
+            var s = document.createElement('style');
+            s.id = 'socle-style';
+            s.textContent = [
+                '.socle-instance-corps{display:flex;flex:1;gap:18px;',
+                'justify-content:space-between;align-items:flex-start;flex-wrap:wrap}',
+                '.socle-instance-quand,.socle-instance-ou{display:grid;',
+                'grid-template-columns:20px 1fr;column-gap:10px;row-gap:2px;',
+                'align-items:start;flex:1;min-width:0}',
+                '.socle-instance-quand>*,.socle-instance-ou>*{grid-column:2}',
+                '.socle-instance-quand::before,.socle-instance-ou::before{content:"";',
+                'width:20px;height:20px;margin-top:1px;background-repeat:no-repeat;',
+                'background-position:center;background-size:contain}',
+                /* L'icone tient la colonne 1 sur toute la hauteur : elle reste
+                   en regard de la date quand des lignes s'ajoutent dessous. */
+                '.socle-instance-quand::before{grid-row:1/-1;background-image:url(',
+                '"data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' ',
+                'viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23333\' stroke-width=\'1.7\'%3E',
+                '%3Crect x=\'3\' y=\'4.5\' width=\'18\' height=\'16.5\' rx=\'2\'/%3E',
+                '%3Cpath d=\'M3 9.5h18M8 2.5v4M16 2.5v4\' stroke-linecap=\'round\'/%3E%3C/svg%3E")}',
+                '.socle-instance-ou{border-left:1px solid #e0dad2;padding-left:18px}',
+                '.socle-instance-ou::before{background-image:url(',
+                '"data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' ',
+                'viewBox=\'0 0 24 24\' fill=\'none\' stroke=\'%23333\' stroke-width=\'1.7\'%3E',
+                '%3Cpath d=\'M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z\' ',
+                'stroke-linejoin=\'round\'/%3E%3Ccircle cx=\'12\' cy=\'10\' r=\'2.6\'/%3E%3C/svg%3E")}',
+                '.socle-instance-date{font-weight:700;font-size:13px;color:#000}',
+                '.socle-instance-lieu{font-size:12px;color:#555;line-height:1.5;',
+                'white-space:pre-line}',
+                /* Meme habillage que la carte du builder pour la ligne entiere.
+                   ENFANTS DIRECTS uniquement : depuis que le bloc des ateliers
+                   se deplace SOUS sa date, il vit dans .jpo-dates, et un
+                   selecteur descendant donnerait aux cases a cocher l'allure
+                   d'une carte de date. */
+                '.jpo-dates>label,.imf-dates>label{border-color:#e6e1da;',
+                'background:transparent;padding:16px 18px;font-size:12px}',
+                /* Le bloc des ateliers, decale sous sa date : le retrait dit
+                   qu'il en depend, la ou un bloc a fleur de bord se lirait
+                   comme une question independante. */
+                '.jpo-dates>.jpo-ateliers-field,.imf-dates>.imf-ateliers-field',
+                '{padding-left:18px}',
+                /* Sous 560px les colonnes s'empilent : le trait vertical
+                   devient un filet horizontal. */
+                '@media(max-width:560px){.socle-instance-ou{border-left:0;',
+                'padding-left:0;border-top:1px solid #e0dad2;padding-top:10px}}'
+            ].join('');
+            document.head.appendChild(s);
+        } catch (e) { /* sans style la page reste lisible, juste moins mise en forme */ }
+    }
+    poserStyleSocle();
+
     /* ---- ATTENDRE LE DOM ---------------------------------------------------
        Le socle est inclus EN HAUT de la page : quand ce script s'execute, le
        formulaire n'existe pas encore. Sans cette attente, tous les
@@ -313,10 +390,34 @@ try {
         VousEtes: ['JURY']
     };
 
-    function masquee(name, option) {
-        var liste = MASQUE[name];
-        if (!liste) return false;
-        // Value ET label : selon les orgs, « Jury » est l'un, l'autre, ou les deux.
+    /* Valeurs masquees UNIQUEMENT sur le formulaire de candidature (.cnd-form).
+       Retour candidature : « Niveau d'etudes » ne doit plus proposer Seconde,
+       Premiere ni Autres — une candidature dans le superieur ne se depose pas
+       avant le bac, et « Autres » n'y veut rien dire. Meme nature que MASQUE
+       ci-dessus : PUREMENT VISUEL. La valeur reste dans le value set du CRM, on
+       cesse seulement de la proposer ici ; rien n'est retire cote org, et la
+       value postee au socle d'ecriture n'est pas touchee. Les autres
+       formulaires (brochure...) gardent la liste complete.
+       « AUTRE » et « AUTRES » sont tous deux listes : selon l'org le value set
+       ecrit l'un ou l'autre, et `masquee` compare a l'identique. */
+    var MASQUE_CANDIDATURE = {
+        StudyLevel: ['SECONDE', 'PREMIERE', 'AUTRE', 'AUTRES']
+    };
+
+    /** La liste des valeurs a masquer pour ce champ, selon le formulaire porteur.
+        `el` est le <select> concerne : on ne cumule les masques candidature que
+        s'il vit dans un .cnd-form, pour ne pas amputer la brochure. */
+    function listeMasque(name, el) {
+        var base = MASQUE[name] || [];
+        if (el && el.closest && el.closest('.cnd-form') && MASQUE_CANDIDATURE[name]) {
+            return base.concat(MASQUE_CANDIDATURE[name]);
+        }
+        return base;
+    }
+
+    function masquee(liste, option) {
+        if (!liste || !liste.length) return false;
+        // Value ET label : selon les orgs, la valeur est l'un, l'autre, ou les deux.
         var kv = cle(option.value), kl = cle(option.label);
         for (var i = 0; i < liste.length; i++) {
             if (liste[i] === kv || liste[i] === kl) return true;
@@ -325,11 +426,12 @@ try {
     }
 
     /** Ote d'une liste les valeurs que ce champ ne doit plus proposer. */
-    function exclure(name, options) {
-        if (!options || !MASQUE[name]) return options;
+    function exclure(name, options, el) {
+        var liste = listeMasque(name, el);
+        if (!options || !liste.length) return options;
         var out = [];
         for (var i = 0; i < options.length; i++) {
-            if (!masquee(name, options[i])) out.push(options[i]);
+            if (!masquee(liste, options[i])) out.push(options[i]);
         }
         return out;
     }
@@ -564,9 +666,34 @@ try {
      * une entree de dico qui n'existe pas — pour rien, la marque etant un nom
      * propre.
      */
+    /* « Langue d'enseignement » : le CRM porte « FR »/« EN » sur les programmes,
+       et la cascade les affichait tels quels. Retour candidature : on veut lire
+       « Francais »/« Anglais » (et « French »/« English » en page anglaise).
+       PUREMENT VISUEL — la value de l'option reste « FR »/« EN », c'est elle qui
+       repart au socle d'ecriture ; la traduire casserait le rattachement du
+       programme, comme pour tous les autres libelles ci-dessus. Une valeur hors
+       table (autre langue ajoutee un jour au CRM) s'affiche telle quelle.
+       Ce champ n'existe que sur la candidature, l'effet y est donc naturellement
+       limite — aucun autre formulaire ne porte de <select name="Language">. */
+    var LANGUE_LIBELLE = {
+        FR: { fr: 'Français', en: 'French'  },
+        EN: { fr: 'Anglais',  en: 'English' }
+    };
+
+    function libelleLangue(option, langue) {
+        var g = LANGUE_LIBELLE[cle(option.value)] || LANGUE_LIBELLE[cle(option.label)];
+        if (!g) return '';
+        return g[langue] || g.fr;
+    }
+
     function libelleAffiche(option, langue, name) {
         var surMesure = libelleMarque(name, option, langue);
         if (surMesure) return surMesure;
+
+        if (name === 'Language') {
+            var langLib = libelleLangue(option, langue);
+            if (langLib) return langLib;
+        }
 
         var brut = option.label || option.value;
         var propre = estNomPropre(name);
@@ -665,7 +792,7 @@ try {
            des valeurs masquees, la liste devient vide ici et la garde
            ci-dessous laisse en place les options statiques du builder — le
            champ obligatoire n'est jamais vide. */
-        options = exclure(name, options);
+        options = exclure(name, options, el);
 
         // Salesforce n'a rien renvoye pour cette liste : on NE TOUCHE PAS au
         // <select>. Les options statiques deja presentes (baked par le builder)
@@ -1674,23 +1801,30 @@ try {
     }
 
     /**
-     * "2026-08-29T09:30:00.000Z" -> "09:30", "09:30:00.000Z" -> "09:30".
+     * "2026-08-29T09:30:00.000Z" -> "9h30", "09:30:00.000Z" -> "9h30".
      *
      * Deux formats a absorber : les creneaux de conference sont des DATE-HEURES
      * (summit__Date_Available_Start__c), les horaires d'instance de simples
      * HEURES (summit__Instance_Start_Time__c). On ne garde que heure et minute
      * — la date est deja sur la ligne, et les millisecondes n'apprennent rien.
      *
+     * NOTATION FRANCAISE — retour client du 03/09 : « 9h30 au lieu de 09:30 ».
+     * Le zero de tete tombe, le deux-points devient un h, et les MINUTES
+     * RONDES disparaissent : "10:00" donne "10h" et non "10h00". C'est la
+     * notation de la carte du builder, que la capture du 03/09 designe comme
+     * la reference — elle y ecrit « 10h - 13h ».
+     *
      * Format inattendu : on rend la valeur telle quelle plutot que de masquer
      * l'information.
      */
     function heureSeule(v) {
         var t = String(v || '');
-        var m = t.match(/T(\d{2}:\d{2})/) || t.match(/^(\d{2}:\d{2})/);
-        return m ? m[1] : t;
+        var m = t.match(/T(\d{2}):(\d{2})/) || t.match(/^(\d{2}):(\d{2})/);
+        if (!m) return t;
+        return String(Number(m[1])) + 'h' + (m[2] === '00' ? '' : m[2]);
     }
 
-    /** "09:30 - 10:30" quand les deux bornes sont la, sinon ce qu'on a. */
+    /** "9h30 - 10h30" quand les deux bornes sont la, sinon ce qu'on a. */
     function plage(debut, fin) {
         var d = debut ? heureSeule(debut) : '';
         var f = fin ? heureSeule(fin) : '';
@@ -1776,6 +1910,34 @@ try {
             if (porteurAteliers.classList) porteurAteliers.classList.toggle('hidden', !liste.length);
         }
 
+        /* SOUS LEUR DATE, ET NON TOUS EN BAS — retour client du 03/09.
+           Le bloc vivait a la fin du formulaire, loin de la date a laquelle ses
+           creneaux se rattachent : le visiteur cochait une date en haut, puis
+           trouvait « Je souhaite participer a » plusieurs champs plus loin,
+           sans rien qui les relie.
+
+           On DEPLACE le bloc juste apres la ligne de la date retenue. Un
+           deplacement, pas une copie : le champ cache Appointments, son
+           ecouteur et les cases restent les memes objets — rien a
+           resynchroniser.
+
+           `insertBefore` avec un noeud deja place le retire de sa position
+           precedente, c'est donc aussi ce qui le ramene a la bonne date quand
+           le visiteur change d'avis. */
+        try {
+            var zoneD = document.querySelector('[data-socle="instances"]');
+            var coche = zoneD && zoneD.querySelector
+                ? zoneD.querySelector('input[name="InstanceId"]:checked')
+                : null;
+            var ligne = coche && coche.parentNode;
+            if (porteurAteliers && ligne && ligne.parentNode &&
+                ligne.parentNode.insertBefore) {
+                ligne.parentNode.insertBefore(porteurAteliers, ligne.nextSibling);
+            }
+        } catch (eDeplacement) {
+            /* Le bloc reste ou il est : moins bien place, jamais perdu. */
+        }
+
         liste.forEach(function (a) {
             var id = 'appt_' + String(a.value).replace(/[^a-zA-Z0-9_-]/g, '');
             var wrap = document.createElement('label');
@@ -1785,7 +1947,17 @@ try {
             box.type = 'checkbox';
             box.id = id;
             box.value = a.value;
-            box.checked = (a.required === true || a.required === 'true');
+            /* DECOCHEES PAR DEFAUT — retour client du 03/09, « places
+               limitees ». Elles etaient pre-cochees parce que le CRM les
+               marque obligatoires ; mais pre-cocher inscrit d'office chaque
+               visiteur a des sessions a capacite limitee, y compris ceux qui
+               n'y viendront pas, et remplit les places avec des absents.
+
+               Le visiteur choisit desormais, ce que le nouvel intitule dit
+               deja : « Je souhaite participer a ». `Appointments` part donc
+               vide tant qu'il n'a rien coche — aucune validation n'exige le
+               contraire, `data-required` n'etant lu nulle part. */
+            box.checked = false;
             box.setAttribute('data-required', String(a.required));
 
             var txt = document.createElement('span');
@@ -1807,8 +1979,10 @@ try {
 
            A REFAIRE a chaque rendu : les cases sont recreees quand la date
            change, et l'ecouteur pose sur les anciennes disparait avec elles.
-           Le champ cache est remis a jour tout de suite, pour que les ateliers
-           obligatoires soient comptes meme si le visiteur ne touche a rien. */
+           Le champ cache est remis a jour tout de suite — depuis que les cases
+           naissent DECOCHEES, c'est ce qui le VIDE quand on change de date :
+           sans cet appel, les choix faits sur la date precedente resteraient
+           postes alors que leurs cases ont disparu. */
         var cible = champ('Appointments');
         if (cible) {
             var maj = function () {
@@ -2922,7 +3096,17 @@ try {
                     radio.name = 'InstanceId';
                     radio.id = id;
                     radio.value = inst.value;
-                    if (i === 0) radio.checked = true;
+                    /* AUCUNE DATE PRESELECTIONNEE — retour client du 03/09,
+                       meme raison que les ateliers : les places sont limitees.
+                       La date la plus proche etait cochee d'office, ce qui
+                       inscrivait a un creneau tout visiteur qui ne descendait
+                       pas jusqu'ici, et remplissait ce creneau d'absents.
+
+                       `required` reste, et c'est ce qui rend le retrait sans
+                       danger : le socle d'ecriture REFUSE une soumission sans
+                       InstanceId. Sans presélection et sans `required`, le
+                       visiteur se heurterait a un refus muet cote serveur ;
+                       avec `required`, le navigateur le lui dit avant l'envoi. */
                     /* Un seul `required` suffit pour tout le groupe, et le
                        navigateur s'en charge : choisir une date n'est pas
                        facultatif. */
@@ -2944,27 +3128,69 @@ try {
                         || casseLisible(inst.label || inst.value, false);
                     gauche.appendChild(quand);
 
-                    var detail = [];
+                    /* COLONNE DE GAUCHE, l'icone calendrier : le QUAND.
+                       Date, horaires, puis la conference — chacun sur sa
+                       ligne, comme la carte du builder (capture du 03/09). */
                     var h = plage(inst.heure, inst.heureFin);
-                    if (h) detail.push(h);
-                    if (inst.address) detail.push(inst.address);
-                    if (detail.length) {
-                        var lieu = document.createElement('span');
-                        lieu.className = 'socle-instance-lieu';
-                        /* L'adresse porte ses propres retours a la ligne cote
-                           CRM ; on les respecte plutot que de tout aplatir. */
-                        lieu.textContent = detail.join(' - ');
-                        gauche.appendChild(lieu);
+                    if (h) {
+                        var horaire = document.createElement('span');
+                        horaire.className = 'socle-instance-lieu';
+                        horaire.textContent = h;
+                        gauche.appendChild(horaire);
                     }
+
+                    /* « Conference a : 9h30 » — retour client du 03/09.
+                       Le LIBELLE du sous-evenement n'est plus affiche : le CRM
+                       le nomme « Presentation de l'ecole », wording que le
+                       client ne veut pas lire. On garde l'HEURE, qui est la
+                       seule information utile, et l'intitule est fixe.
+
+                       DANS LA COLONNE DU QUAND : une heure de conference est
+                       une information de temps, pas de lieu. C'est la place que
+                       lui donne la carte du builder.
+
+                       Sans heure, on n'affiche rien : « Conference a : » seul
+                       ne dirait rien au visiteur. */
+                    var conf = conferenceDe(inst.value);
+                    if (conf && conf.heure) {
+                        var laConf = document.createElement('span');
+                        laConf.className = 'socle-instance-lieu';
+                        laConf.textContent = 'Conférence à : ' + conf.heure;
+                        gauche.appendChild(laConf);
+                    }
+
                     corps.appendChild(gauche);
 
-                    var conf = conferenceDe(inst.value);
-                    if (conf) {
-                        var droite = document.createElement('span');
-                        droite.className = 'socle-instance-conf';
-                        droite.textContent = casseLisible(conf.label, false)
-                            + (conf.heure ? ' : ' + conf.heure : '');
-                        corps.appendChild(droite);
+                    /* COLONNE DE DROITE, l'icone epingle : le OU.
+                       Nom du campus puis adresse postale, chacun sur sa ligne.
+
+                       L'adresse etait dans la colonne de gauche, sous les
+                       horaires : le calendrier annoncait donc une adresse, et
+                       l'epingle ne servait a rien. Les deux icones disent
+                       maintenant ce qu'elles designent.
+
+                       Colonne omise entierement si le CRM ne donne ni campus ni
+                       adresse : un trait vertical suivi du vide se lit comme un
+                       defaut d'affichage. */
+                    if (inst.campus || inst.address) {
+                        var ou = document.createElement('span');
+                        ou.className = 'socle-instance-ou';
+
+                        if (inst.campus) {
+                            var leCampus = document.createElement('span');
+                            leCampus.className = 'socle-instance-lieu';
+                            leCampus.textContent = casseLisible(inst.campus, true);
+                            ou.appendChild(leCampus);
+                        }
+                        if (inst.address) {
+                            var adresse = document.createElement('span');
+                            adresse.className = 'socle-instance-lieu';
+                            /* L'adresse porte ses propres retours a la ligne
+                               cote CRM ; white-space: pre-line les respecte. */
+                            adresse.textContent = inst.address;
+                            ou.appendChild(adresse);
+                        }
+                        corps.appendChild(ou);
                     }
 
                     radio.addEventListener('change', function () {
@@ -2996,9 +3222,30 @@ try {
                 if (!elInst.value && liste.length) elInst.value = liste[0].value;
             }
 
-            /* Les ateliers suivent la date retenue. Aucune date : on vide, sans
-               quoi la liste de la selection precedente resterait a l'ecran. */
-            rendreAteliers(liste.length ? liste[0].value : '');
+            /* Les ateliers suivent la date CHOISIE, et plus la premiere de la
+               liste : depuis que rien n'est preselectionne, afficher le
+               programme d'une date que le visiteur n'a pas retenue lui
+               presenterait des creneaux qui ne sont pas les siens. On vide
+               donc, et `radio.addEventListener('change')` les remplit des
+               qu'une date est cochee.
+
+               Vider est aussi ce qui evite qu'une selection faite sur la date
+               precedente reste a l'ecran apres un changement de campus. */
+            var choisie = '';
+            if (zoneDates) {
+                /* Rendu par boutons radio : plus rien n'est coche au depart,
+                   donc rien a montrer tant que le visiteur n'a pas tranche. */
+                var coche = zoneDates.querySelector('input[name="InstanceId"]:checked');
+                choisie = coche ? coche.value : '';
+            } else {
+                /* Repli par <select> des formulaires anciens : celui-la EST
+                   positionne sur la premiere date juste au-dessus. Une date est
+                   donc bel et bien retenue, et masquer son programme serait
+                   faux — c'est le seul cas ou la premiere de la liste vaut
+                   choix. */
+                choisie = (elInst && elInst.value) || (liste.length ? liste[0].value : '');
+            }
+            rendreAteliers(choisie);
         }
 
         if (elInst && elInst.tagName === 'SELECT') {
