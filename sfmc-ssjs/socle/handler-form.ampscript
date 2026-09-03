@@ -1304,9 +1304,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "ClientID__c",            @clientId)
 
             ELSEIF Empty(@typeForm) THEN
-                SET @paId = CreateSalesforceObject("Account", 13,
+                SET @paId = CreateSalesforceObject("Account", 14,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
+                    "Ecole__c",               @schoolAccId,
                     "PreferredLangage__c",    @langue,
                     "PersonEmail",            @email,
                     "LastName",               @lastName,
@@ -1320,10 +1321,11 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "ClientID__c",            @clientId)
 
             ELSE
-                SET @paId = CreateSalesforceObject("Account", 14,
+                SET @paId = CreateSalesforceObject("Account", 15,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
                     "FormType__c",            @typeForm,
+                    "Ecole__c",               @schoolAccId,
                     "PreferredLangage__c",    @langue,
                     "PersonEmail",            @email,
                     "LastName",               @lastName,
@@ -1419,9 +1421,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "FormType", @formType)
                 ENDIF
 
-                IF NOT Empty(@schoolAccId) THEN
-                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId)
-                ENDIF
+                /* `Ecole__c` fait desormais partie de la CREATION : cet
+                   update qui suivait l'insert est devenu redondant, il
+                   reecrivait la meme valeur au prix d'un appel de plus. */
                 SET @rows = RetrieveSalesforceObjects("Account", "Id,PersonContactId", "Id", "=", @paId)
                 IF RowCount(@rows) > 0 THEN SET @paContactId = Field(Row(@rows,1), "PersonContactId") ENDIF
             ENDIF
