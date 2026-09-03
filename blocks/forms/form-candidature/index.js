@@ -95,6 +95,7 @@ export default function (editor, categories) {
         const rgpd = resolveRgpdConfig(lang);
         const studyLevelOptions = buildOptions(EDC_PICKLISTS.studyLevel, '');
         const campusOptions      = buildOptions(EDC_PICKLISTS.campus,      '');
+        const countryOptions     = buildOptions(EDC_PICKLISTS.countries,   '');
         const hidden = buildHiddenFields({ formName: 'Candidature', formType: 'candidature', lang });
 
         return `
@@ -301,11 +302,6 @@ ${hidden}
             </div>
         </div>
 
-        <!-- PAS de « Pays de résidence » ici. « Champs visibles des
-             formulaires.xlsx » ne le porte que sur la brochure, sur les dix
-             écoles. Il était demandé sur la candidature sans figurer au
-             cadrage. -->
-
         <!-- Email / Portable -->
         <div class="cnd-row">
             <div class="cnd-field">
@@ -331,6 +327,24 @@ ${hidden}
                 </div>
                 <span class="cnd-err-msg">${t.errPhone}</span>
             </div>
+        </div>
+
+        <!-- Pays de résidence — ajouté sur la candidature, aligné sur la
+             brochure : juste après le téléphone, avant campus / niveau.
+             Comme sur la brochure, ce champ ne figure PAS dans la table NOM_DOM
+             du socle, qui ne réordonne que campus, niveau, spécialité, rythme,
+             langue, rentrée et programme : sa place ici est donc définitive,
+             page publiée comprise. Le socle remplit ses options depuis le value
+             set « Pays » du CRM (name="Country"), déjà pris en charge pour la
+             brochure — rien à ajouter côté écriture. -->
+        <div class="cnd-field">
+            <label class="cnd-label">${t.country}<span class="req">*</span></label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Country" required>
+                    ${countryOptions}
+                </select>
+            </div>
+            <span class="cnd-err-msg">${t.errRequired}</span>
         </div>
 
         <!-- Campus / Niveau d'études — positions 5 et 6 de l'Excel des champs

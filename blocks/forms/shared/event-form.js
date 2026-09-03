@@ -70,7 +70,10 @@ import { socleReadSnippet } from './socle-read-snippet.js';
                (content d'un ::before), donc sans toucher au socle. */
             noDate:      "Aucune date n'est disponible pour ce campus. "
                          + "L'inscription est impossible : merci de choisir un autre campus.",
-            ateliers:    'Au programme',
+            /* « Au programme » jusqu'au retour client du 03/09 : l'intitulé
+               décrivait la journée alors que le bloc est une liste de cases à
+               cocher — donc un choix, pas une annonce. */
+            ateliers:    'Je souhaite participer à',
             youAre:      'Vous êtes',
             lastName:    'Nom',
             firstName:   'Prénom',
@@ -308,28 +311,89 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     align-items: flex-start;
     flex-wrap: wrap;
 }
+/* ── Meme habillage que la carte evenement du builder ────────────────────
+   Arbitrage du 03/09 : ce que le builder montre est ce que la page publiee
+   doit rendre. On reprend donc de .jpo-event-card la bordure, le fond
+   transparent, l'espacement, les tailles, l'icone calendrier a gauche, le
+   trait vertical et l'icone epingle a droite.
+
+   Les icones sont posees en CSS et non fabriquees par le socle : elles sont
+   purement decoratives, et les lui faire construire aurait ajoute du DOM a
+   maintenir a deux endroits. Le mot-cle currentColor n'existant pas dans une
+   data-URI, la couleur est celle de .jpo-event-ico, #333.
+
+   ⚠ Ces regles visent des elements que le socle cree A L'EXECUTION. Elles ne
+   survivent a la publication que grace a SELECTEURS_RUNTIME dans
+   lib/htmlCleaner.js : sans lui le nettoyeur les juge orphelines et les
+   supprime, ce qui est exactement ce qui faisait perdre ce design en ligne. */
+.jpo-dates label {
+    border-color: #e6e1da;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 12px;
+}
 .socle-instance-quand {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
     min-width: 0;
 }
+/* L'icone tient la colonne 1 sur TOUTE la hauteur : elle reste en regard de
+   la date meme quand l'adresse ajoute des lignes en dessous. */
+.socle-instance-quand::before {
+    content: '';
+    grid-row: 1 / -1;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2'/%3E%3Cpath d='M3 9.5h18M8 2.5v4M16 2.5v4' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+.socle-instance-quand > * { grid-column: 2; }
 .socle-instance-date {
     font-weight: 700;
-    color: #1a1a1a;
+    font-size: 13px;
+    color: #000;
 }
 .socle-instance-lieu {
+    font-size: 12px;
     color: #555;
+    line-height: 1.5;
     /* L'adresse arrive du CRM avec ses propres retours a la ligne. */
     white-space: pre-line;
 }
-.socle-instance-conf {
-    color: #555;
-    text-align: right;
-    max-width: 45%;
+/* La colonne du OU : nom du campus et adresse. Meme grille que celle du
+   QUAND, plus le trait vertical de la carte du builder. */
+.socle-instance-ou {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid #e0dad2;
+    padding-left: 18px;
 }
+.socle-instance-ou > * { grid-column: 2; }
+.socle-instance-ou::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Cpath d='M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.6'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+/* Sous 560px les deux colonnes s'empilent : un trait vertical n'a plus de
+   sens, il devient un filet horizontal. */
 @media (max-width: 560px) {
-    .socle-instance-conf { text-align: left; max-width: 100%; }
+    .socle-instance-ou {
+        border-left: 0;
+        padding-left: 0;
+        border-top: 1px solid #e0dad2;
+        padding-top: 10px;
+    }
 }
 /* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
    compris, plutot que de laisser un intitule orphelin. */
