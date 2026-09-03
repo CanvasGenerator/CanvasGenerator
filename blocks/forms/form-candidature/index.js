@@ -126,6 +126,13 @@ export default function (editor, categories) {
 .cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .cnd-row .cnd-field { margin-bottom: 0; }
 .cnd-field.hidden { display: none; }
+/* Un champ masque laisse sa CELLULE de grille en place : le voisin restait
+   donc coince dans sa colonne, a droite, avec la moitie de la ligne vide a
+   cote. C'est ce que donnait le niveau d'etudes sur les ecoles ou le campus
+   n'est pas propose. La cellule vide s'efface, et celle qui reste occupe la
+   ligne entiere. */
+.cnd-row > .cnd-col:has(> .cnd-field.hidden) { display: none; }
+.cnd-row:has(> .cnd-col > .cnd-field.hidden) { grid-template-columns: 1fr; }
 .cnd-label {
     font-size: 11px;
     font-weight: 700;
