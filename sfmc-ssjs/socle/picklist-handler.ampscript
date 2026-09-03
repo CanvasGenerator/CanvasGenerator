@@ -2967,6 +2967,45 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         var camp = form.querySelector('[name="utm_campus"]');
         if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
 
+        miroirCampus(form);
+    }
+
+    /**
+     * Le campus choisi part sous un nom QUE RIEN D'AUTRE NE PORTE.
+     *
+     * ⚠ `RequestParameter` d'AMPscript ignore la casse et FUSIONNE les valeurs
+     * de meme nom. Or la publication injecte dans chaque formulaire un champ
+     * cache `name="campus"` (marque `data-lpb-autofill`), homonyme du
+     * `<select name="Campus">` a la casse pres. Le socle recevait donc
+     * « EFAP PARIS, » — la valeur, une virgule, et le vide du champ cache.
+     *
+     * Consequence mesuree le 03/09 : sur 141 soumissions reelles, AUCUNE n'a
+     * renseigne `Ecole__c`. La recherche dans LPB_Mapping_Campus echouait sur
+     * une valeur qu'aucune ligne ne porte, en silence. Le journal l'affichait
+     * depuis le debut — « campus=EFAP PARIS, ecoleAcc= » — mais la virgule se
+     * lisait comme une ponctuation.
+     *
+     * Plutot que de rattraper la fusion cote socle, on l'evite : `CampusChoisi`
+     * n'a d'homonyme dans aucune casse, donc rien a fusionner. Le socle
+     * d'ecriture le lit en premier et ne retombe sur `Campus` que pour les
+     * pages anciennes, qui ne portent pas encore ce champ.
+     */
+    function miroirCampus(form) {
+        var source = form.querySelector('[name="Campus"]');
+        if (!source) return;
+        var miroir = form.querySelector('[name="CampusChoisi"]');
+        if (!miroir) {
+            miroir = document.createElement('input');
+            miroir.type = 'hidden';
+            miroir.name = 'CampusChoisi';
+            form.appendChild(miroir);
+        }
+        miroir.value = source.value || '';
+        /* Le campus change apres ce premier passage : on suit. */
+        if (!source.getAttribute('data-miroir')) {
+            source.setAttribute('data-miroir', '1');
+            source.addEventListener('change', function () { miroir.value = source.value || ''; });
+        }
     }
 
     /* ---- LE MESSAGE DE CONFIRMATION, REDUIT A UNE LIGNE ----------------
