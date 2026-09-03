@@ -774,6 +774,69 @@ test('Les deux conventions de casse du CRM se classent pareil [REGRESSION]', () 
          'niveaux de l autre referentiel');
 }, LAYOUT_AFFICHAGE);
 
+/* ---- Masquage propre a la candidature (retour candidature) -------------
+   « Niveau d'etudes » ne doit plus proposer Seconde, Premiere ni Autres SUR
+   LA CANDIDATURE. C'est un masque VISUEL et CIBLE : la value reste dans le
+   value set du CRM, et les autres formulaires (brochure...) gardent la liste
+   complete. Le harnais joue le formulaire porteur via le 3e argument de
+   creerDom ('cnd-form' vs 'brf-form') : c'est le meme `el.closest('.cnd-form')`
+   que teste le socle. */
+test('Candidature : Seconde, Premiere et Autres ne sont plus proposes', () => {
+    const dom = creerDom(LAYOUT_AFFICHAGE, 'cnd-form');
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP', picklists: { StudyLevel: NIVEAUX_CRM }, config: cfg() }) },
+        document: dom.document,
+    });
+    egal(dom.options('StudyLevel'),
+         ['Collège', 'Terminale', 'Bac obtenu ou Prépa', 'Bac+1', 'Bac+2',
+          'Bac+3', 'Bac+4', 'Bac+5 et +'],
+         'niveaux candidature, sans Seconde / Premiere / Autres');
+}, LAYOUT_AFFICHAGE);
+
+test('Hors candidature (brochure) : la liste complete des niveaux est gardee', () => {
+    const dom = creerDom(LAYOUT_AFFICHAGE, 'brf-form');
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP', picklists: { StudyLevel: NIVEAUX_CRM }, config: cfg() }) },
+        document: dom.document,
+    });
+    const lus = dom.options('StudyLevel');
+    for (const attendu of ['Seconde', 'Première', 'Autres']) {
+        if (!lus.includes(attendu)) {
+            throw new Error(`« ${attendu} » retire a tort hors candidature : ${JSON.stringify(lus)}`);
+        }
+    }
+}, LAYOUT_AFFICHAGE);
+
+/* ---- « Langue d'enseignement » : FR/EN -> Francais/Anglais -------------
+   Le CRM porte « FR »/« EN » sur les programmes ; le candidat doit lire
+   « Français »/« Anglais ». PUREMENT VISUEL : la value postee au socle reste
+   « FR »/« EN ». On construit deux programmes identiques sauf la langue pour
+   que le champ Langue propose bien les deux. */
+test('Langue : « FR »/« EN » du CRM s affichent « Français »/« Anglais »', () => {
+    const dom = creerDom(LAYOUT);
+    dom.champs.Campus.value     = 'EFAP PARIS';
+    dom.champs.Niveau.value     = 'Bac+3';
+    dom.champs.Speciality.value = 'Comm';
+    dom.champs.Rhythm.value     = 'FT';
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP',
+            programs: [
+                { id: 'l1', name: 'Prog FR', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'FT', language: 'FR' },
+                { id: 'l2', name: 'Prog EN', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'FT', language: 'EN' },
+            ],
+            config: cfg() }) },
+        document: dom.document,
+    });
+    egal(dom.options('Language'), ['Français', 'Anglais'], 'libelles de langue lisibles');
+    egal(dom.champs.Language.options.map((o) => o.value), ['FR', 'EN'],
+         'values postees au socle : intactes');
+}, LAYOUT);
+
 /* ---- Casse des libelles (retour client du 02/09) ----------------------
    « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre en
    minuscule). » Le CRM stocke « EFAP PARIS », « BAC+1 », « COLLEGE » : ses
