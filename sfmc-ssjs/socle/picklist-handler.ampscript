@@ -485,6 +485,23 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
             SET @cName = ""
         ENDIF
 
+        /* Meme raison pour un programme SANS SPECIALITE. Le candidat choisit
+           d'abord un programme souhaite ; un programme qui n'en porte aucune
+           n'apparait dans aucune liste, mais reste en lice en coulisses et
+           fausse tout ce qui suit : `distinct` ignore les valeurs vides, donc
+           la specialite semble n'avoir qu'une valeur, elle est posee d'office,
+           et cette pose ECARTE les programmes concurrents. Le candidat voyait
+           ses champs se vider sans comprendre.
+           Mesure du 04/09 sur les 10 ecoles : 135 des 472 programmes a PTAT
+           n'ont pas de specialite. Les ecarter ne vide aucun campus, SAUF EFJ
+           — ses 6 programmes, sur PARIS et BORDEAUX, en sont tous depourvus.
+           Tant que le CRM ne les remplit pas, la candidature EFJ n'a plus rien
+           a proposer. C'est visible et signalable, la ou l'anomalie d'avant
+           etait silencieuse. */
+        IF @candidature == "true" AND Empty(Field(@row, "Speciality__c")) THEN
+            SET @cName = ""
+        ENDIF
+
         IF Length(@cName) > 0 AND IndexOf(Uppercase(@cName), @prefixUp) == 1 THEN
             SET @idIndex = Concat(@idIndex, @pid, ";")
             SET @nbProgs = Add(@nbProgs, 1)
@@ -1769,7 +1786,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      * reponse qu'une mauvaise reponse silencieuse.
      *
      * La vraie correction n'est pas ici : `Speciality__c` est vide sur ces
-     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules. */
+     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules.
+     *
+     * MISE A JOUR DU 04/09 — en CANDIDATURE, le socle ecarte desormais en
+     * amont tout programme sans specialite : le cas decrit ci-dessus ne s'y
+     * presente plus. La garde reste indispensable pour le RYTHME et la LANGUE,
+     * qui peuvent etre vides sur un programme par ailleurs valable, et pour les
+     * autres formulaires, qui ne filtrent pas les programmes. */
     /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
        optionnels par nature : le candidat peut les renseigner ou non, donc ils
        ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
