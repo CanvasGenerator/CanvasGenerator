@@ -177,6 +177,7 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true, champs 
     function correspond(n, sel) {
         if (sel.startsWith('form.')) return n.tagName === 'FORM' && n.className === sel.slice(5);
         if (sel.startsWith('[name="')) return n.name === sel.slice(7, -2);
+        if (sel.startsWith('select[name="')) return n.tagName === 'SELECT' && n.name === sel.slice(13, -2);
         if (sel === 'button[type="submit"]') return n.tagName === 'BUTTON' && n.type === 'submit';
         if (sel === 'input[type="submit"]') return n.tagName === 'INPUT' && n.type === 'submit';
         if (sel.startsWith('[data-socle="')) return n.getAttribute('data-socle') === sel.slice(13, -2);
@@ -437,6 +438,23 @@ test('sf_campus preselectionne le campus, comme campus= le faisait [AUDIT 04/09]
     p.url = '?sf_campus=lyon';
     jouer(p, '');
     egal(select.value, 'EFAP LYON', 'sf_campus=lyon n a pas preselectionne EFAP LYON');
+});
+
+test('Le campus HORS du form est recopie dans CampusChoisi [evenementiel, 04/09]', () => {
+    /* JPO, atelier, stage, immersion : le select de campus vit dans une zone
+       SOEUR du <form>. L'expediteur du socle ne poste que le form : sans
+       miroir, aucune cle Campus ne partait et Ecole__c restait vide — sur
+       chacune des soumissions evenementielles du journal. */
+    const p = creerPage('evenement');
+    const select = p.document.createElement('select');
+    select.name = 'Campus';
+    select.options = [{ value: '' }, { value: 'EFAP PARIS' }, { value: 'EFAP BORDEAUX' }];
+    select.value = 'EFAP BORDEAUX';
+    p.campus.appendChild(select);          // la zone campus, pas le form
+    jouer(p, '');
+    const miroir = p.form.querySelector('[name="CampusChoisi"]');
+    vrai(!!miroir, 'CampusChoisi absent du form quand le select est a cote');
+    egal(miroir && miroir.value, 'EFAP BORDEAUX', 'CampusChoisi ne porte pas le campus choisi a cote du form');
 });
 
 test('utm_campus vient de l URL, pas de tracking_params', () => {
