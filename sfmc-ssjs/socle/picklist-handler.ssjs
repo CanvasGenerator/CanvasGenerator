@@ -2143,8 +2143,34 @@ try {
      * les pages servies par une CloudPage non mise a jour, et toute collision
      * future du meme genre.
      */
+    /**
+     * Le select de campus d'un formulaire — DANS le form, ou juste a cote.
+     *
+     * Les quatre formulaires evenementiels (JPO, atelier, stage, immersion)
+     * posent leur campus AU-DESSUS du <form>, dans une zone soeur : c'est la
+     * maquette. L'expediteur du socle ne serialise que les champs du form, et
+     * le miroir ne cherchait que la : sur ces quatre formulaires, aucune cle
+     * `Campus` ne partait, et Ecole__c n'a JAMAIS ete ecrit. Journal du 04/09 :
+     * evenement 0 resolu / 4 vides, quand brochure et candidature resolvent.
+     *
+     * On remonte donc d'un parent a la fois jusqu'au premier qui contient un
+     * select de campus : le plus proche gagne, ce qui borne la recherche a la
+     * carte du formulaire et ne peut pas attraper celui d'un autre bloc.
+     */
+    function selectCampusDe(form) {
+        var s = form.querySelector('[name="Campus"]');
+        if (s) return s;
+        var n = form.parentNode;
+        while (n && typeof n.querySelector === 'function') {
+            s = n.querySelector('select[name="Campus"]');
+            if (s) return s;
+            n = n.parentNode;
+        }
+        return null;
+    }
+
     function miroirCampus(form) {
-        var source = form.querySelector('[name="Campus"]');
+        var source = selectCampusDe(form);
         if (!source) return;
         var miroir = form.querySelector('[name="CampusChoisi"]');
         if (!miroir) {
