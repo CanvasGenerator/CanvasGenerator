@@ -1462,7 +1462,11 @@ try {
         var el = champ('Campus');
         if (!el || el.value) return;
 
-        var voulu = parametreUrl('campus') || parametreUrl('Campus');
+        /* `sf_campus` est le nom que les guidelines de tracking imposent aux
+           liens decores (utm_ -> sf_). Jusqu'au 04/09 seul `campus` etait lu :
+           le parametre officiel ne preselectionnait rien. */
+        var voulu = parametreUrl('campus') || parametreUrl('Campus')
+                 || parametreUrl('sf_campus') || parametreUrl('utm_campus');
         if (!voulu) return;
         voulu = voulu.replace(/^\s+|\s+$/g, '');
         if (!voulu) return;
@@ -2104,11 +2108,12 @@ try {
             if (v !== undefined && v !== null && v !== '') el.value = v;
         }
 
-        /* utm_campus n'est pas publie par la page — elle expose `campus`, qui
-           est le campus PRE-SELECTIONNE, pas le parametre publicitaire. On le
-           relit donc a la source. */
+        /* utm_campus : la CloudPage le pose desormais dans le champ cache du
+           meme nom (audit du 04/09). On garde la lecture directe de l'URL pour
+           les pages servies par une CloudPage plus ancienne — `utm_campus`
+           d'abord, puis `sf_campus`, le nom impose par les guidelines. */
         var camp = form.querySelector('[name="utm_campus"]');
-        if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+        if (camp && !camp.value) camp.value = parametreUrl('utm_campus') || parametreUrl('sf_campus');
 
         miroirCampus(form);
     }
@@ -2132,6 +2137,11 @@ try {
      * n'a d'homonyme dans aucune casse, donc rien a fusionner. Le socle
      * d'ecriture le lit en premier et ne retombe sur `Campus` que pour les
      * pages anciennes, qui ne portent pas encore ce champ.
+     *
+     * Depuis l'audit du 04/09 la CloudPage n'injecte plus `campus` (elle pose
+     * `utm_campus`, que le formulaire declare). Le miroir reste : il protege
+     * les pages servies par une CloudPage non mise a jour, et toute collision
+     * future du meme genre.
      */
     function miroirCampus(form) {
         var source = form.querySelector('[name="Campus"]');

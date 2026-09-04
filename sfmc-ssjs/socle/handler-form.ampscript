@@ -352,9 +352,24 @@ IF IndexOf(@submitted, "true") > 0 THEN
 
        On ne traduit donc que ce qui a un equivalent certain, et on laisse VIDE
        le reste. Un canal manquant se rattrape par une requete ; une page morte
-       fait perdre la soumission entiere. */
-    SET @refCanal = "|direct=Direct|display=Display|geo=GEO|sea=SEA|seo=SEO|smo=SMO|sma=SMA|press=Press|presse=Press|brochure=Brochure|digital audio=Digital Audio|email marketing=Email Marketing|emailing=Email Marketing|education fair=Education Fair|salon=Education Fair|high school forum=High School Forum|forum lycee=High School Forum|referral partner=Referral Partner|"
-    SET @refSous  = "|tiktok ads=TikTok Ads|linkedin ads=LinkedIn Ads|digital audio=Digital Audio|display=Display|youtube ads=YouTube Ads|geo=GEO|instagram ads=Instagram Ads|snapchat ads=Snapchat Ads|wechat ads=WeChat Ads|line ads=Line Ads|facebook ads=Facebook Ads|paymax=Paymax|"
+       fait perdre la soumission entiere.
+
+       AUDIT DU 04/09 — la table ne couvrait que ce qui portait le MEME nom des
+       deux cotes : Emailing et Direct. Tout le reste du vocabulaire de la
+       CloudPage etait ignore, alors que l'org a un equivalent evident :
+       Search Organic -> SEO, Paid Search -> SEA, Social Organic -> SMO,
+       Paid Social -> SMA. Cote sous-canal, le CRM a AJOUTE depuis le 31/08 les
+       cinq sous-canaux emailing (Nurturing, Loyalty, Automatisation,
+       Invitation, Newsletter) : la table d'ici ne les connaissait pas et les
+       jetait au journal (SOUSCANAL:ignore). Les sous-canaux Google Ads sont
+       rapproches quand l'org a la valeur : YouTube Ads ; « Paymax » est lu
+       comme la coquille de PMAX (Performance Max) — aucun autre sens en regie.
+       GOOGLE-ADS-SEARCH et GOOGLE-ADS-DEMANDGEN n'ont pas de valeur org.
+       Restent sans equivalent, volontairement : Referrals (« Referral
+       Partner » designe un prescripteur, pas un site referent), SMS, WhatsApp,
+       AI, Autre — a trancher par le CRM, pas a deviner ici. */
+    SET @refCanal = "|direct=Direct|display=Display|geo=GEO|sea=SEA|seo=SEO|smo=SMO|sma=SMA|press=Press|presse=Press|brochure=Brochure|digital audio=Digital Audio|email marketing=Email Marketing|emailing=Email Marketing|education fair=Education Fair|salon=Education Fair|high school forum=High School Forum|forum lycee=High School Forum|referral partner=Referral Partner|search organic=SEO|paid search=SEA|social organic=SMO|paid social=SMA|"
+    SET @refSous  = "|tiktok ads=TikTok Ads|linkedin ads=LinkedIn Ads|digital audio=Digital Audio|display=Display|youtube ads=YouTube Ads|geo=GEO|instagram ads=Instagram Ads|snapchat ads=Snapchat Ads|wechat ads=WeChat Ads|line ads=Line Ads|facebook ads=Facebook Ads|paymax=Paymax|nurturing=Nurturing|loyalty=Loyalty|automatisation=Automatisation|invitation=Invitation|newsletter=Newsletter|google ads pmax=Paymax|google ads youtube=YouTube Ads|snap ads=Snapchat Ads|"
 
     /* AMPscript n'a pas de fonction utilisateur : le rapprochement est deroule
        deux fois. Cle normalisee — minuscules, tirets et soulignes en espaces —

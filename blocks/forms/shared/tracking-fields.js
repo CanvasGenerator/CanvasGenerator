@@ -7,7 +7,17 @@
  * Deux exports :
  *   • buildHiddenFields()   → chaîne HTML des <input type="hidden">
  *   • populateHiddenFields()→ remplit les valeurs (URL utm_*, gclid,
- *                             clientId, consent, Marque, Langue…) à l'init.
+ *                             Marque, Langue…) à l'init.
+ *
+ * ⚠ Ce que ce module NE remplit PLUS (audit tracking du 04/09) :
+ *   • `clientId` — c'est l'identifiant Google Analytics (cookie `_ga`), que
+ *     seule la CloudPage /landingpage connaît ; elle l'injecte sous `client_id`
+ *     et le socle le recopie ici. L'ancien repli — un hash maison stocké en
+ *     localStorage — écrivait un faux identifiant dans Account.ClientID__c,
+ *     un champ censé rejoindre un parcours GA4.
+ *   • `consent` / `date_consentement_cookies` — le consentement vient
+ *     d'Axeptio, lu par la CloudPage. Les cookies `cookie_consent*` lus ici
+ *     n'existaient sur aucun site du Groupe.
  *
  * Note : « Rentrée générale » N'EST PAS incluse — poussée par Flow Builder
  * côté CRM (cf. onglet « Règles métier » §4).
@@ -99,9 +109,8 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
 /**
  * Remplit les champs cachés à l'initialisation du formulaire.
  * - utm_* / gclid / fbclid : depuis les paramètres d'URL
- * - clientId               : localStorage (ou généré)
- * - consent / date         : depuis le cookie de consentement s'il existe
  * - Marque / Langue        : depuis window.CURRENT_SCHOOL
+ * (clientId, consent : posés par la CloudPage — voir l'en-tête du module)
  *
  * @param {HTMLFormElement} form
  * @param {Object}          opts
@@ -129,27 +138,6 @@ export function populateHiddenFields(form, { lang = 'fr' } = {}) {
         });
     }
 
-    /* ── clientId persistant (GA-like) ── */
-    try {
-        const store = win.localStorage;
-        let cid = store.getItem('edh_client_id');
-        if (!cid) {
-            cid = 'cid_' + Math.abs(hashString(String(win.navigator.userAgent) + form.dataset.lang + form.action));
-            store.setItem('edh_client_id', cid);
-        }
-        setVal('clientId', cid);
-    } catch (e) { /* stockage indisponible */ }
-
-    /* ── Consentement cookies (si bannière présente) ── */
-    try {
-        const cookieConsent = readCookie(win.document, 'cookie_consent');
-        if (cookieConsent) {
-            setVal('consent', cookieConsent);
-            const dateConsent = readCookie(win.document, 'cookie_consent_date');
-            if (dateConsent) setVal('date_consentement_cookies', dateConsent);
-        }
-    } catch (e) { /* pas de cookie */ }
-
     /* ── Marque + Langue souhaitée depuis le contexte école ── */
     try {
         const school = (typeof win !== 'undefined' && win.CURRENT_SCHOOL) ? win.CURRENT_SCHOOL : null;
@@ -166,20 +154,4 @@ export function populateHiddenFields(form, { lang = 'fr' } = {}) {
 
     /* ── Langue préférée de contact = langue du formulaire ── */
     setVal('LanguePreferee', lang);
-}
-
-/* ── Utilitaires internes ─────────────────────────────────────────── */
-function hashString(str) {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-    }
-    return h;
-}
-
-function readCookie(doc, name) {
-    try {
-        const m = doc.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-        return m ? decodeURIComponent(m[1]) : null;
-    } catch (e) { return null; }
 }
