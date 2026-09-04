@@ -169,7 +169,7 @@ VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @speciality, @specRows, @progRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
-VAR @utmCampus, @consent, @dateCookies
+VAR @utmCampus, @consent, @consentVoulu, @dateCookies
 VAR @rows, @n, @row, @paId, @paContactId, @isNew, @schoolAccId, @campusSel
 VAR @i, @canalParam, @canalValue, @coche, @cpcId, @cmId, @preuve, @cpEmail, @cpPhone, @cpId
 VAR @cpcMail, @cpcTel, @cpcRows, @cpcRow, @nCpcMail, @nCpcTel, @nCpc, @k, @majs
@@ -752,11 +752,24 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "FormType", @formType)
             ENDIF
 
-            /* --- FILL-IF-BLANK -------------------------------------------
-               On ne remplit QUE ce qui est vide cote CRM. Un appel par champ :
-               AMPscript ne permet pas de construire dynamiquement la liste
-               d'arguments. En pratique, un contact deja qualifie ne declenche
-               aucun appel ici. */
+            /* --- MISE A JOUR DES INFOS DECLAREES --------------------------
+               Ce que le prospect SAISIT dans le formulaire fait foi : chaque
+               soumission met le compte a jour. Le formulaire est le seul
+               endroit ou il peut corriger un nom mal orthographie, un numero
+               qui a change ou un niveau d'etudes qui a progresse.
+               Jusqu'au 04/09 on ne remplissait que les champs VIDES : une
+               correction n'arrivait donc jamais au CRM, et l'ancienne valeur
+               survivait a toutes les soumissions suivantes.
+               On n'appelle que si la valeur DIFFERE de celle du CRM — un appel
+               par champ, AMPscript ne sachant pas construire dynamiquement une
+               liste d'arguments. Une re-soumission a l'identique ne coute donc
+               toujours rien.
+               Le tracking et `Ecole__c` suivent la meme regle, plus bas : la
+               derniere soumission fait foi partout. Seul
+               `CreationSourceDetail__c` reste fige a la premiere valeur — il
+               nomme la source de CREATION du compte, et son jumeau
+               `CreationSourceDate__c` est alimente par le CRM, qui refuse nos
+               ecritures. Les faire diverger n'aurait aucun sens. */
             IF @LOG_ACTIF == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
@@ -764,7 +777,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "RunId", @runId,
                     "Ordre", @logOrdre,
                     "Horodatage", Now(),
-                    "Etape", "35 - avant fill-if-blank",
+                    "Etape", "35 - avant maj infos",
                     "Statut", "OK",
                     "Objet", "Account",
                     "RecordId", @paId,
@@ -773,7 +786,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "Ecole", @ecole,
                     "FormType", @formType)
             ENDIF
-            IF Empty(Field(@row,"LastName"))  AND NOT Empty(@lastName)  THEN
+            IF NOT Empty(@lastName) AND Field(@row,"LastName") != @lastName THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -799,7 +812,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     SET @n = UpdateSingleSalesforceObject("Account", @paId, "LastName", @lastName)
                 ENDIF
                 ENDIF
-            IF Empty(Field(@row,"FirstName")) AND NOT Empty(@firstName) THEN
+            IF NOT Empty(@firstName) AND Field(@row,"FirstName") != @firstName THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -825,7 +838,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     SET @n = UpdateSingleSalesforceObject("Account", @paId, "FirstName", @firstName)
                 ENDIF
                 ENDIF
-            IF Empty(Field(@row,"LivingCountry__c")) AND NOT Empty(@country) THEN
+            IF NOT Empty(@country) AND Field(@row,"LivingCountry__c") != @country THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -844,7 +857,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "LivingCountry__c", @country)
                 ENDIF
-            IF Empty(Field(@row,"IndicatifPick__c")) AND NOT Empty(@indicatif) THEN
+            IF NOT Empty(@indicatif) AND Field(@row,"IndicatifPick__c") != @indicatif THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -865,7 +878,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
             /* MobileNumber__c et JAMAIS PersonMobilePhone : l'E.164 est calcule
                par un flow, l'ecrire ici le ferait diverger. */
-            IF Empty(Field(@row,"MobileNumber__c")) AND NOT Empty(@mobile) THEN
+            IF NOT Empty(@mobile) AND Field(@row,"MobileNumber__c") != @mobile THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -884,7 +897,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "MobileNumber__c", @mobile)
                 ENDIF
-            IF Empty(Field(@row,"Academic_Level_List__c")) AND NOT Empty(@studyLevel) THEN
+            IF NOT Empty(@studyLevel) AND Field(@row,"Academic_Level_List__c") != @studyLevel THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -903,7 +916,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Academic_Level_List__c", @studyLevel)
                 ENDIF
-            IF Empty(Field(@row,"PersonAccountType__c")) AND NOT Empty(@vousEtes) THEN
+            IF NOT Empty(@vousEtes) AND Field(@row,"PersonAccountType__c") != @vousEtes THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -924,8 +937,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
             /* Ecole__c est un LOOKUP : il exige l'Id de l'Account ecole, pas le
                code "efap". Sans lui, le trigger ne depose pas le tampon et le
-               flow CRM aval ne verra jamais la soumission. */
-            IF Empty(Field(@row,"Ecole__c")) AND NOT Empty(@schoolAccId) THEN
+               flow CRM aval ne verra jamais la soumission.
+               En upsert depuis le 04/09, sur demande : l'ecole du dernier
+               formulaire rempli gagne. Un prospect EFAP qui candidate ensuite
+               chez ICART bascule donc cote ICART — c'est voulu, le dossier suit
+               la demarche en cours. */
+            IF NOT Empty(@schoolAccId) AND Field(@row,"Ecole__c") != @schoolAccId THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -945,9 +962,17 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "Ecole__c", @schoolAccId)
                 ENDIF
 
-            /* Tracking en first-touch : on ne reecrit pas l'origine d'un
-               contact deja attribue. */
-            IF Empty(Field(@row,"UTMSource__c"))   AND NOT Empty(@utmS)  THEN
+            /* Tracking en LAST-TOUCH depuis le 04/09 : la derniere visite fait
+               foi, comme les infos declarees plus haut. Demande explicite du
+               04/09, apres la bascule des champs declares.
+               ⚠ CE QUE CELA COUTE : l'origine PREMIERE d'un contact n'est plus
+               conservee nulle part. Un prospect venu d'une campagne Google puis
+               revenu par un lien organique porte desormais l'organique, et la
+               campagne qui l'a fait venir n'est plus attribuable. C'est un
+               arbitrage d'attribution, pas un detail technique : si le
+               marketing a besoin du first-touch, il faudra des champs dedies
+               cote CRM, le socle ne peut pas porter les deux dans un seul. */
+            IF NOT Empty(@utmS) AND Field(@row,"UTMSource__c") != @utmS THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -966,7 +991,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMSource__c", @utmS)
                 ENDIF
-            IF Empty(Field(@row,"UTMMedium__c"))   AND NOT Empty(@utmM)  THEN
+            IF NOT Empty(@utmM) AND Field(@row,"UTMMedium__c") != @utmM THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -985,7 +1010,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMMedium__c", @utmM)
                 ENDIF
-            IF Empty(Field(@row,"UTMCampaign__c")) AND NOT Empty(@utmC)  THEN
+            IF NOT Empty(@utmC) AND Field(@row,"UTMCampaign__c") != @utmC THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -1004,7 +1029,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampaign__c", @utmC)
                 ENDIF
-            IF Empty(Field(@row,"ClientID__c"))    AND NOT Empty(@clientId) THEN
+            IF NOT Empty(@clientId) AND Field(@row,"ClientID__c") != @clientId THEN
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
@@ -1037,26 +1062,26 @@ IF IndexOf(@submitted, "true") > 0 THEN
                d'acquisition et le consentement cookies, puis les expose en
                variables AMPscript. Rien a demander au visiteur.
 
-               Meme regle first-touch que ci-dessus : on ne reecrit jamais
-               l'origine d'un contact deja attribue. Pas de journalisation par
-               champ ici — l'echafaudage de diagnostic est de toute facon a
-               retirer avant la Prod. */
-            IF Empty(Field(@row,"UTMContent__c")) AND NOT Empty(@utmCo) THEN
+               Meme regle last-touch que ci-dessus : la derniere visite ecrase
+               la precedente. Pas de journalisation par champ ici —
+               l'echafaudage de diagnostic est de toute facon a retirer avant la
+               Prod. */
+            IF NOT Empty(@utmCo) AND Field(@row,"UTMContent__c") != @utmCo THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMContent__c", @utmCo)
             ENDIF
-            IF Empty(Field(@row,"UTMTerm__c")) AND NOT Empty(@utmT) THEN
+            IF NOT Empty(@utmT) AND Field(@row,"UTMTerm__c") != @utmT THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMTerm__c", @utmT)
             ENDIF
-            IF Empty(Field(@row,"UTMId__c")) AND NOT Empty(@utmI) THEN
+            IF NOT Empty(@utmI) AND Field(@row,"UTMId__c") != @utmI THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMId__c", @utmI)
             ENDIF
-            IF Empty(Field(@row,"UTMCampus__c")) AND NOT Empty(@utmCampus) THEN
+            IF NOT Empty(@utmCampus) AND Field(@row,"UTMCampus__c") != @utmCampus THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "UTMCampus__c", @utmCampus)
             ENDIF
-            IF Empty(Field(@row,"gclid__c")) AND NOT Empty(@gclid) THEN
+            IF NOT Empty(@gclid) AND Field(@row,"gclid__c") != @gclid THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "gclid__c", @gclid)
             ENDIF
-            IF Empty(Field(@row,"fbclid__c")) AND NOT Empty(@fbclid) THEN
+            IF NOT Empty(@fbclid) AND Field(@row,"fbclid__c") != @fbclid THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "fbclid__c", @fbclid)
             ENDIF
 
@@ -1064,23 +1089,27 @@ IF IndexOf(@submitted, "true") > 0 THEN
                CloudPage (utm_source x utm_medium -> canal / sous-canal), pas
                ici. Le mapping v4 renvoie a un document Confluence de Pascal :
                c'est cette table-la qu'implemente le viewer. */
-            IF Empty(Field(@row,"AcquisitionChannel__c")) AND NOT Empty(@canal) THEN
+            IF NOT Empty(@canal) AND Field(@row,"AcquisitionChannel__c") != @canal THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionChannel__c", @canal)
             ENDIF
-            IF Empty(Field(@row,"AcquisitionSubChannel__c")) AND NOT Empty(@sousCanal) THEN
+            IF NOT Empty(@sousCanal) AND Field(@row,"AcquisitionSubChannel__c") != @sousCanal THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "AcquisitionSubChannel__c", @sousCanal)
             ENDIF
 
             /* Consentement cookies : Axeptio, lu par la CloudPage. Le viewer
                rend "1" ou "0" ; Consent__c est une case a cocher. */
-            IF Empty(Field(@row,"Consent__c")) AND NOT Empty(@consent) THEN
+            IF NOT Empty(@consent) THEN
+                /* Condition composee ecrite en IF plutot qu'en IIF : sur cette
+                   org, une expression un peu riche passee a IIF tue la page. */
+                SET @consentVoulu = "false"
                 IF @consent == "1" OR Lowercase(@consent) == "true" THEN
-                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "true")
-                ELSE
-                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", "false")
+                    SET @consentVoulu = "true"
+                ENDIF
+                IF Lowercase(Field(@row,"Consent__c")) != @consentVoulu THEN
+                    SET @n = UpdateSingleSalesforceObject("Account", @paId, "Consent__c", @consentVoulu)
                 ENDIF
             ENDIF
-            IF Empty(Field(@row,"DateConsentementCookies__c")) AND NOT Empty(@dateCookies) THEN
+            IF NOT Empty(@dateCookies) AND Field(@row,"DateConsentementCookies__c") != @dateCookies THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
             ENDIF
 

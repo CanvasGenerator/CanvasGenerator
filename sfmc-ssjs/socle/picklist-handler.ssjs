@@ -906,7 +906,13 @@ try {
      * reponse qu'une mauvaise reponse silencieuse.
      *
      * La vraie correction n'est pas ici : `Speciality__c` est vide sur ces
-     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules. */
+     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules.
+     *
+     * MISE A JOUR DU 04/09 — en CANDIDATURE, le socle ecarte desormais en
+     * amont tout programme sans specialite : le cas decrit ci-dessus ne s'y
+     * presente plus. La garde reste indispensable pour le RYTHME et la LANGUE,
+     * qui peuvent etre vides sur un programme par ailleurs valable, et pour les
+     * autres formulaires, qui ne filtrent pas les programmes. */
     /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
        optionnels par nature : le candidat peut les renseigner ou non, donc ils
        ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
