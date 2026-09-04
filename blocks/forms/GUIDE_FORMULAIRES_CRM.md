@@ -72,9 +72,9 @@ et **auto-remplis** par `populateHiddenFields()` à l'initialisation.
 | `CampagneAssociee` | (vide) | — | Contact / Campagne associée |
 | `utm_source` … `utm_campus` | paramètres de campagne | `URLSearchParams` | Contact + Membre de campagne / utm_* |
 | `gclid`, `fbclid` | identifiants pub Google/Meta | `URLSearchParams` | Contact + Membre de campagne |
-| `clientId` | identifiant visiteur persistant | `localStorage` | Contact + Membre de campagne / client ID |
-| `consent` | consentement cookies | cookie `cookie_consent` | Contact / consent |
-| `date_consentement_cookies` | date du consentement cookies | cookie | Contact / date_consentement_cookies |
+| `clientId` | identifiant Google Analytics (cookie `_ga`) | CloudPage `/landingpage` (`client_id`), recopié par le socle | Account + Membre de campagne / client ID |
+| `consent` | consentement cookies | Axeptio, lu par la CloudPage | Account / consent |
+| `date_consentement_cookies` | date du consentement cookies | CloudPage | Account / date_consentement_cookies |
 | `canal`, `sous_canal` | canal d'acquisition | (mapping à fournir) | Contact + Membre de campagne |
 
 **Champs calculés à la soumission** (dans le handler `submit`, pas dans le HTML) :
