@@ -161,6 +161,11 @@ SET @VAL_REFUSE      = "rejected"
    exacte du cadrage, accents compris : AMPscript ne sort pas d'accent sur ce
    projet, et le message client en comporte. */
 VAR @sfBlockMsg, @sfBlockRule, @candContactId, @candRows, @nCand, @candStatut, @candDecision
+/* La portee du controle : "ptat" quand le programme est connu, "personne"
+   quand il ne l'est pas. Emise au journal — sans elle, impossible de savoir
+   en recette laquelle des deux branches a parle. */
+VAR @candPortee
+SET @candPortee = ""
 SET @sfBlockMsg = ""
 SET @sfBlockRule = ""
 
@@ -547,7 +552,40 @@ IF IndexOf(@submitted, "true") > 0 THEN
        peut fusionner). Un candidat legitime bloque par erreur est un lead
        perdu, sans trace et sans recours. L'asymetrie tranche le defaut.
        ==================================================================== */
-    IF @REGLES_ACTIVES == "true" AND @formType == "candidature" AND NOT Empty(@ptatId) THEN
+    /* ---- UN PTAT ABSENT NE DESARME PLUS LA REGLE ----------------------
+       Correctif du 2026-09-04, apres un cas de recette : un candidat portant
+       FinalDecision__c = Rejected recevait le message VERT de succes, et sa
+       candidature s'ecrivait.
+
+       La cause n'etait pas dans le tri R1/R2, qui est correct, mais ICI. La
+       condition portait un troisieme terme, `NOT Empty(@ptatId)`. Or
+       `@ptatId` vient de `RequestParameter("PTAT_Id")`, un champ cache que
+       remplit la CASCADE du navigateur, pas le CRM — et cette cascade le
+       laisse vide chaque fois qu'elle ne reduit pas a un seul programme
+       (`cible.value = trouve ? trouve.ptatId : ''`, picklist-handler). Elle
+       ne tourne meme pas du tout quand `SOCLE_DATA.programs` est vide.
+
+       Un PTAT vide sautait donc la regle ENTIERE, en silence : ni message, ni
+       erreur, ni trace. La verification la plus stricte du formulaire etait
+       desarmee par le champ le plus fragile de la page.
+
+       Ce qui change, et ce qui NE change PAS. Le filtre par programme est
+       CONSERVE : quand le PTAT est connu, la requete est exactement celle
+       d'avant, et le blocage reste propre au couple personne x PTAT. La
+       resolution du PTAT n'est pas touchee d'une ligne — ce n'est pas le
+       sujet ici, et elle continue d'alimenter `PTAT_Id__c` a l'ecriture.
+
+       Seul le cas « PTAT inconnu » change : au lieu de ne RIEN verifier, on
+       verifie ce qu'on peut encore verifier — l'existence d'une candidature
+       pour cette PERSONNE. C'est le seul repli qui ait un sens : sans
+       programme identifie, les deux choix possibles sont « controler la
+       personne » ou « ne rien controler », et c'est le second qui produisait
+       le bug. Il est plus severe que la regle nominale, et c'est assume : il
+       ne s'applique que la ou l'on ne sait pas de quel programme il s'agit.
+
+       Le journal distingue les deux portees (`ptat` / `personne`) : sans ca,
+       impossible de savoir en recette quelle branche a parle. */
+    IF @REGLES_ACTIVES == "true" AND @formType == "candidature" THEN
 
         /* Le lien vers la personne se fait par le Contact du Person Account.
            Sans compte existant, il ne peut y avoir de candidature anterieure :
@@ -555,14 +593,51 @@ IF IndexOf(@submitted, "true") > 0 THEN
         SET @rows = RetrieveSalesforceObjects("Account", "Id,PersonContactId",
             "PersonEmail", "=", @email)
 
+        /* ---- TRACER AUSSI LES CAS QUI LAISSENT PASSER ------------------
+           Ajoute le 2026-09-04, et c'est la lecon du bug. La regle ne
+           journalisait QUE ses blocages : un candidat qui passait ne laissait
+           aucune trace, et « pourquoi celui-la est-il passe ? » n'avait donc
+           aucune reponse lisible. Il a fallu relire le code pour comprendre
+           qu'un PTAT vide desarmait tout.
+
+           Desormais chaque sortie dit laquelle elle est, dans `journal=` du
+           commentaire `socle ecriture`. Trois mots dans une chaine deja
+           construite : aucun appel, aucune ecriture, aucun risque. */
+        IF RowCount(@rows) == 0 THEN
+            SET @journal = Concat(@journal, " CAND:aucun-compte")
+        ENDIF
+
         IF RowCount(@rows) > 0 THEN
             SET @candContactId = Field(Row(@rows,1), "PersonContactId")
 
-            SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
-                Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
-                @F_APP_PERSON, "=", @candContactId,
-                @F_APP_PTAT,   "=", @ptatId)
+            IF NOT Empty(@ptatId) THEN
+                /* Cas nominal, INCHANGE : le blocage porte sur le couple
+                   personne x PTAT, donc sur UN programme. Changer de campus,
+                   de specialite ou de rentree designe un autre PTAT, sur
+                   lequel rien n'interdit de candidater. */
+                SET @candPortee = "ptat"
+                SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
+                    Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
+                    @F_APP_PERSON, "=", @candContactId,
+                    @F_APP_PTAT,   "=", @ptatId)
+            ELSE
+                /* Repli : programme inconnu, on controle la personne. Voir le
+                   commentaire du garde ci-dessus pour le pourquoi. */
+                SET @candPortee = "personne"
+                SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
+                    Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
+                    @F_APP_PERSON, "=", @candContactId)
+            ENDIF
             SET @nCand = RowCount(@candRows)
+
+            IF @nCand == 0 THEN
+                /* Compte trouve, mais AUCUNE candidature : c'est le vert
+                   legitime — un e-mail connu du CRM par une brochure ou une
+                   JPO n'est pas un candidat. La portee dit sur quoi on a
+                   cherche, ce qui distingue « rien sur ce programme » de
+                   « rien du tout ». */
+                SET @journal = Concat(@journal, " CAND:0:", @candPortee)
+            ENDIF
 
             IF @nCand > 0 THEN
                 FOR @i = 1 TO @nCand DO
@@ -584,7 +659,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
-                    SET @journal = Concat(@journal, " BLOQUE:", @sfBlockRule, ":", @nCand, "candidature(s)")
+                    SET @journal = Concat(@journal, " BLOQUE:", @sfBlockRule, ":", @candPortee, ":", @nCand, "candidature(s)")
                 ENDIF
             ENDIF
         ENDIF

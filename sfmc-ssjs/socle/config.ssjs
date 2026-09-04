@@ -266,6 +266,31 @@ var SocleConfig = {
                           campusPrefix: "CampusPrefix", schoolAccountId: "SchoolAccountId",
                           actif: "Actif" },
 
+        /* -- CTA « demande de documentation » -----------------------------
+           Retour client du 03/09 : la confirmation du formulaire de brochure
+           porte un bouton de telechargement. Le lien, le libelle ET les deux
+           couleurs viennent de cette DE — chaque ecole a sa charte, et le
+           metier doit pouvoir la changer sans redeploiement.
+
+           Une ligne par (ecole x niveau d'etudes x cursus). `niveau_etudes` et
+           `cursus` sont en Text(4000) : ils acceptent plusieurs valeurs
+           separees par `;`, comme les colonnes de programme. Une colonne de
+           critere VIDE ne contraint rien — c'est ainsi qu'une ecole pose une
+           documentation par defaut valable pour tous ses niveaux.
+
+           ⚠ La DE vit aujourd'hui dans le dossier « 04 Tests ». Le dossier n'a
+           aucune importance pour `DataExtension.Init` (seuls le Name et
+           l'ExternalKey comptent), mais il dit que la donnee est de recette :
+           a confirmer avant la Prod, comme les autres DE de cette section.
+
+           ⚠ Si la DE n'existe pas, `SocleResolvers.lookup` rend [] et le
+           bouton ne s'affiche pas. La page n'est jamais mise en peril. */
+        ctaDocDE:       "CTA_demande_documentation",
+        ctaDocKey:      "ecole",
+        ctaDocValues:   { url: "url_documentation", libelle: "titre_CTA_doc",
+                          fond: "couleur_fond_CTA_doc", police: "couleur_police_CTA_doc",
+                          niveau: "niveau_etudes", cursus: "cursus" },
+
         /* Zone (FR / Intl) deduite du pays de residence. */
         zoneDomesticCountry: "France",
         zoneDomestic:   "FR",

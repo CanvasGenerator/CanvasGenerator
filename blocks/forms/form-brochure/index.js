@@ -52,11 +52,11 @@ export default function (editor, categories) {
             successTitle:   'Votre brochure est prête !',
             successMsg:     'Vous pouvez dès maintenant la télécharger. '
                           + 'Elle vous a également été envoyée par email.',
-            /* Le CTA du retour du 03/09. Sur une page publiee, l'URL vient de
-               la DE via `SOCLE_DATA.brochures` ; ici, dans le builder, il n'y a
-               pas de socle — le bouton est rendu avec une URL de demonstration
-               pour que la maquette montre l'ecran complet. */
-            ctaBrochure:    'Télécharger la brochure',
+            /* Le CTA du retour du 03/09. Sur une page publiee, le libelle et
+               les couleurs viennent de la DE `CTA_demande_documentation` via
+               `SOCLE_DATA.ctaDoc` — une ligne par ecole x niveau. Ici, dans le
+               builder, il n'y a ni socle ni DE : valeurs de demonstration. */
+            ctaBrochure:    'Je télécharge la documentation',
             errRequired:    'Ce champ est requis.',
             errEmail:       'Format e-mail invalide.',
             errEmailDom:    'Veuillez utiliser une adresse valide.',
@@ -89,7 +89,7 @@ export default function (editor, categories) {
             successTitle:   'Your brochure is ready!',
             successMsg:     'You can download it right now. It has also been '
                           + 'sent to you by email.',
-            ctaBrochure:    'Download the brochure',
+            ctaBrochure:    'Download the documentation',
             errRequired:    'This field is required.',
             errEmail:       'Invalid email format.',
             errEmailDom:    'Please use a valid email address.',
@@ -529,16 +529,17 @@ ${socleReadSnippet({ formType: 'brochure' })}
      * il en tire l'URL de `SOCLE_DATA.brochures`, alimenté par une Data
      * Extension.
      *
-     * Cette DE N'EXISTE PAS ENCORE (état au 04/09). En attendant, l'aperçu
-     * affiche le bouton avec une URL de démonstration, pour que la maquette
-     * montre l'écran complet ; la page publiée, elle, affichera simplement le
-     * message sans bouton tant que la DE n'est pas là.
+     * Sur la page publiée, le socle lit la DE `CTA_demande_documentation` et en
+     * tire le lien, le libellé ET les deux couleurs — chaque école a sa charte.
+     * Le builder, lui, n'a ni socle ni DE : il rend le bouton avec des valeurs
+     * de démonstration, celles de la ligne EFAP, pour que la maquette montre
+     * l'écran complet et la bonne mise en forme.
      *
      * `res.statut === 'simule'` est ce qui distingue les deux : `soumettre()`
      * ne rend ce statut que lorsqu'aucun socle ne tourne. */
     function ctaDeDemo(res, t) {
         if (res.statut !== 'simule') return null;
-        return { libelle: t.ctaBrochure, href: '#' };
+        return { libelle: t.ctaBrochure, href: '#', fond: '#1A1919', police: '#FFFFFF' };
     }
 
     function initBrfForm(form) {

@@ -419,6 +419,65 @@ test('Brochure : un champ seul dans sa section n est pas deplace [REGRESSION]', 
     egal(d.ordreSection('colB'), ['Campus'], 'le campus doit rester seul dans sa colonne');
 }, LAYOUT_BROCHURE_COLONNES);
 
+/* ---- Ecoles sans campus : la colonne restee seule prend la rangee -------
+   IFA Paris, Ecole Bleue, MoPA et 3WA ne font choisir aucun campus, sur aucun
+   des six formulaires. Le masquer ne suffisait pas a l'ecran : la colonne
+   videe restait un element de grille et gardait sa moitie de rangee, si bien
+   que le niveau d'etudes — dernier champ du formulaire — s'affichait a
+   mi-largeur, seul contre la marge (retour client du 04/09). */
+const LAYOUT_SANS_CAMPUS = [['Email', 0], ['StudyLevel', 1, 'row/colA'],
+                            ['Campus', 1, 'row/colB'], ['Consentements', 0]];
+
+/* La pre-candidature n'a PAS de colonne intermediaire : ses deux champs sont
+   enfants directs du `.pc-row`. Le porteur y est sa propre cellule. */
+const LAYOUT_SANS_CAMPUS_PLAT = [['Email', 0], ['StudyLevel', 1, 'row'],
+                                 ['Campus', 1, 'row'], ['Consentements', 0]];
+
+/** Joue le socle avec un axe campus interdit a l'ecole. */
+function jouerSansCampus(layout) {
+    const dom = creerDom(layout);
+    /* Sur un vrai formulaire, le niveau d'etudes ne nait pas masque : seuls
+       les champs de la cascade portent `hidden` au depart. */
+    dom.champs.StudyLevel.parentNode.classList.remove('hidden');
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            config: cfg({ champs: { Campus: { visible: 'jamais' } } }) }) },
+        document: dom.document,
+    });
+    return dom;
+}
+
+test('Sans campus, la colonne videe sort de la grille et le niveau la remplace [REGRESSION]', () => {
+    const d = jouerSansCampus(LAYOUT_SANS_CAMPUS);
+    if (d.visible('Campus')) throw new Error('prealable : le campus devrait etre masque');
+    egal(d.section('row/colB').style.display, 'none',
+         'la colonne du campus doit cesser d occuper sa moitie de rangee');
+    egal(d.section('row/colA').style.gridColumn, '1 / -1',
+         'le niveau d etudes doit prendre toute la largeur du formulaire');
+}, LAYOUT_SANS_CAMPUS);
+
+test('Sans campus : le niveau s etale meme sans colonne intermediaire', () => {
+    const d = jouerSansCampus(LAYOUT_SANS_CAMPUS_PLAT);
+    if (d.visible('Campus')) throw new Error('prealable : le campus devrait etre masque');
+    egal(d.champs.StudyLevel.parentNode.style.gridColumn, '1 / -1',
+         'le niveau d etudes doit prendre toute la largeur du formulaire');
+}, LAYOUT_SANS_CAMPUS_PLAT);
+
+test('Avec campus, la rangee garde bien ses deux colonnes', () => {
+    const d = creerDom(LAYOUT_SANS_CAMPUS);
+    d.champs.StudyLevel.parentNode.classList.remove('hidden');
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg() }) },
+        document: d.document,
+    });
+    if (d.section('row/colA').style.gridColumn) {
+        throw new Error('le niveau s etale alors que le campus est propose');
+    }
+    if (d.section('row/colB').style.display === 'none') {
+        throw new Error('la colonne du campus a disparu alors qu il est propose');
+    }
+}, LAYOUT_SANS_CAMPUS);
+
 /* La candidature veut l'ordre INVERSE de la brochure — campus puis niveau —
    et ses quatre champs de cascade restent freres du formulaire, parce que leur
    ordre relatif, lui, est une regle metier que le socle doit pouvoir appliquer

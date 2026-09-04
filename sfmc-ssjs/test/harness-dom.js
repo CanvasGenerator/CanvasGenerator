@@ -80,21 +80,43 @@ function creerDom(layout, formClass = '') {
        niveau vivent dans un `.cnd-row` a deux colonnes, tandis que specialite,
        rythme, langue et rentree sont enfants directs du `<form>`. Un gabarit
        PLAT laissait donc passer un `appliquerOrdre` qui abandonnait des que les
-       porteurs ne partageaient pas tous le meme parent. */
+       porteurs ne partageaient pas tous le meme parent.
+
+       Les sections s'IMBRIQUENT : un nom en chemin ('row/colA') cree la rangee
+       puis la colonne. C'est le markup reel de la brochure, de la candidature
+       et de l'immersion — une rangee a deux colonnes, un champ par colonne —
+       et c'est ce qu'il faut pour verifier qu'une colonne restee seule prend
+       toute la largeur. */
     const sections = {};
     function sectionDe(nom) {
         if (!nom) return parent;
         if (!sections[nom]) {
+            const parts = String(nom).split('/');
+            const hote = parts.length > 1 ? sectionDe(parts.slice(0, -1).join('/')) : parent;
             const sec = {
-                _nom: '(' + nom + ')', style: {}, parentNode: parent, nextSibling: null,
+                _nom: '(' + parts[parts.length - 1] + ')', style: {}, parentNode: hote,
+                nextSibling: null,
                 childNodes: [], classList: creerClassList([]),
                 appendChild: parent.appendChild, insertBefore: parent.insertBefore,
                 _sync: parent._sync,
             };
             sections[nom] = sec;
-            parent.childNodes.push(sec);
+            hote.childNodes.push(sec);
         }
         return sections[nom];
+    }
+
+    /* Rattache une section — et toutes celles qui la portent — a son hote.
+       `reset()` vide les listes d'enfants : sans ce rattachement les sections
+       deja creees n'y revenaient jamais, et le DOM rejoue perdait ses rangees. */
+    function attacherSection(chemin) {
+        const parts = String(chemin).split('/');
+        for (let i = 0; i < parts.length; i++) {
+            const sec = sections[parts.slice(0, i + 1).join('/')];
+            if (sec && sec.parentNode.childNodes.indexOf(sec) === -1) {
+                sec.parentNode.childNodes.push(sec);
+            }
+        }
     }
 
     const champs = {};
@@ -180,16 +202,21 @@ function creerDom(layout, formClass = '') {
         visible: (nom) => Boolean(champs[nom]) &&
             champs[nom].parentNode.style.display !== 'none' &&
             !champs[nom].parentNode.classList.contains('hidden'),
+        /* Le conteneur lui-meme : c'est sur lui que se lisent le `display`
+           d'une colonne videe et le `grid-column` de celle qui reste. */
+        section: (nom) => sections[nom] || null,
         reset() {
             parent.childNodes.length = 0;
-            Object.values(sections).forEach((sec) => { sec.childNodes.length = 0; });
-            const vues = new Set();
+            Object.values(sections).forEach((sec) => {
+                sec.childNodes.length = 0;
+                sec.style.display = ''; sec.style.gridColumn = '';
+            });
             for (const [nom, estCascade, section] of layout) {
                 const hote = sectionDe(section);
-                if (section && !vues.has(section)) { vues.add(section); }
+                if (section) attacherSection(section);
                 const p = champs[nom] ? champs[nom].parentNode
                                       : { _nom: nom, style: {}, classList: creerClassList([]) };
-                p._nom = nom; p.style.display = ''; p.parentNode = hote;
+                p._nom = nom; p.style.display = ''; p.style.gridColumn = ''; p.parentNode = hote;
                 if (p.classList) p.classList.toggle('hidden', Boolean(estCascade));
                 hote.childNodes.push(p);
             }

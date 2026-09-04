@@ -205,7 +205,7 @@ function jouer(page, htmlRendu) {
                 terms: [], instances: [], appointments: [],
                 /* Absent par defaut : la DE des brochures n'existe pas encore,
                    et c'est l'etat que la plupart des tests doivent verifier. */
-                brochures: page.brochures,
+                ctaDoc: page.ctaDoc,
                 config: { progressif: true, ordre: 'campus,niveau', champs: {} },
             },
             location: { search: '?utm_campus=lyon', href: 'https://x/p?utm_campus=lyon' },
@@ -670,20 +670,21 @@ test('Le bouton est rendu au candidat apres un blocage', () => {
 
 
 /* ============================================================================
- *  LE CTA « TÉLÉCHARGER LA BROCHURE » — retour client du 2026-09-03
+ *  LE CTA « DEMANDE DE DOCUMENTATION » — retour client du 2026-09-03
  * ============================================================================
- *  Le formulaire de brochure promet une brochure ; il annonçait seulement
+ *  Le formulaire de brochure promet une documentation ; il annonçait seulement
  *  qu'elle partait par email. Le client demande le lien SUR LA PAGE, tout de
  *  suite après la soumission.
  *
- *  L'URL vient d'une Data Extension, publiée dans `SOCLE_DATA.brochures` comme
- *  `longueursTel` l'est depuis `LPB_Mapping_Indicatifs`. ⚠ CETTE DE N'EXISTE
- *  PAS ENCORE (état au 04/09) : le premier test ci-dessous verrouille le
- *  comportement en attendant — message seul, sans bouton. Un CTA vers une URL
- *  absente serait pire que pas de CTA du tout.
+ *  Tout vient de la DE `CTA_demande_documentation`, publiée dans
+ *  `SOCLE_DATA.ctaDoc` filtrée sur l'école courante : le lien, le libellé et
+ *  LES DEUX COULEURS — chaque école a sa charte. Rien n'est en dur, pas même
+ *  le libellé ; seul le couple noir/blanc sert de repli quand la DE laisse les
+ *  couleurs vides.
  *
- *  Les suivants décrivent le contrat que la DE devra remplir, et se lisent
- *  comme sa spécification.
+ *  ⚠ Ces tests décrivent AUSSI l'écart de référentiel mesuré le 04/09 entre la
+ *  DE (saisie à la main) et le value set Salesforce que poste le formulaire.
+ *  Ils sont le seul endroit où cet écart est vérifié automatiquement.
  * ========================================================================== */
 
 /** Le bouton de l'encart, et ce qu'il porte. */
@@ -693,75 +694,194 @@ function cta(p) {
     return z.children.filter((c) => c.tagName === 'A')[0] || null;
 }
 
-test('Sans la DE, la confirmation brochure n a PAS de bouton [état au 04/09]', () => {
-    /* L'état d'aujourd'hui, et il doit rester correct : tant que le socle de
-       lecture ne publie pas `brochures`, le message s'affiche seul. */
+/* Une ligne de la DE, telle qu'elle arrive dans SOCLE_DATA.ctaDoc. Les valeurs
+   sont celles de la capture EFAP du 04/09, au caractère près. */
+function ligneDoc(sur) {
+    return Object.assign({
+        url: 'https://cdn.efap.com/doc-efap.pdf',
+        libelle: 'Je télécharge la documentation',
+        fond: '#1A1919',
+        police: '#FFFFFF',
+        niveau: '',
+        cursus: '',
+    }, sur || {});
+}
+
+test('Sans la DE, la confirmation brochure n a PAS de bouton', () => {
+    /* L'état d'avant le branchement, et il doit rester correct : DE absente,
+       mal nommée, ou sans ligne pour cette école — le message s'affiche seul. */
     const p = creerPage('brochure');
     jouer(p, SUCCES);
     vrai(encart(p) !== null, 'prealable : la confirmation ne s est pas affichee');
-    egal(cta(p), null, 'bouton pose alors qu aucune URL n est disponible');
+    egal(cta(p), null, 'bouton pose alors qu aucune ligne n est disponible');
 });
 
-test('Une ligne sans critère est la brochure par défaut de l école', () => {
+test('Une ligne sans critère sert de documentation par défaut', () => {
     const p = creerPage('brochure');
-    p.brochures = [{ url: 'https://cdn.efap.com/brochure-efap.pdf' }];
+    p.ctaDoc = [ligneDoc()];
     jouer(p, SUCCES);
     const bouton = cta(p);
-    vrai(bouton !== null, 'aucun bouton pose alors que la DE fournit une URL');
-    egal(bouton.getAttribute('href'), 'https://cdn.efap.com/brochure-efap.pdf', 'mauvaise URL');
-    egal(bouton.textContent, 'Télécharger la brochure', 'libelle par defaut inattendu');
+    vrai(bouton !== null, 'aucun bouton pose alors que la DE fournit une ligne');
+    egal(bouton.getAttribute('href'), 'https://cdn.efap.com/doc-efap.pdf', 'mauvaise URL');
+    egal(bouton.textContent, 'Je télécharge la documentation', 'libelle de la DE ignore');
+});
+
+test('Les couleurs de l école viennent de la DE', () => {
+    /* Le cœur du retour : chaque école a sa charte. Un bouton noir partout
+       aurait été plus simple, et faux. */
+    const p = creerPage('brochure');
+    p.ctaDoc = [ligneDoc({ fond: '#C8102E', police: '#FFF' })];
+    jouer(p, SUCCES);
+    egal(cta(p).style.background, '#C8102E', 'couleur de fond de la DE ignoree');
+    egal(cta(p).style.color, '#FFF', 'couleur de police de la DE ignoree');
+});
+
+test('Couleurs vides ou invalides : on retombe sur un bouton lisible', () => {
+    /* Une DE se remplit à la main. Une couleur oubliée, ou saisie « noir »
+       plutôt que « #1A1919 », ne doit pas rendre le libellé illisible sur un
+       fond transparent. */
+    const p = creerPage('brochure');
+    p.ctaDoc = [ligneDoc({ fond: '', police: 'blanc' })];
+    jouer(p, SUCCES);
+    egal(cta(p).style.background, '#000', 'repli de fond absent');
+    egal(cta(p).style.color, '#fff', 'repli de police absent');
+});
+
+test('Une ligne SANS libellé ne rend aucun bouton', () => {
+    /* Rien n'est en dur, pas même le texte : inventer « Télécharger » ferait
+       apparaître, dans la charte de l'école, un bouton que personne n'a écrit. */
+    const p = creerPage('brochure');
+    p.ctaDoc = [ligneDoc({ libelle: '' })];
+    jouer(p, SUCCES);
+    egal(cta(p), null, 'bouton pose avec un libelle invente');
+});
+
+test('Le niveau d études sélectionne la bonne ligne', () => {
+    const p = creerPage('brochure', { champs: { StudyLevel: 'Terminale' } });
+    p.ctaDoc = [
+        ligneDoc({ url: 'https://x/defaut.pdf' }),
+        ligneDoc({ url: 'https://x/terminale.pdf', niveau: 'Terminale' }),
+    ];
+    jouer(p, SUCCES);
+    egal(cta(p).getAttribute('href'), 'https://x/terminale.pdf',
+         'le defaut a pris le pas sur la ligne du niveau');
 });
 
 test('La ligne la PLUS PRÉCISE gagne, quel que soit l ordre dans la DE', () => {
-    /* Un défaut d'école et une brochure par programme doivent pouvoir
-       cohabiter sans que le métier ait à trier ses lignes. */
-    const p = creerPage('brochure', { champs: { Programme: 'MBA-COM' } });
-    p.brochures = [
-        { url: 'https://x/defaut.pdf' },
-        { url: 'https://x/mba-com.pdf', programme: 'MBA-COM' },
+    /* Un défaut d'école et des documentations par niveau doivent cohabiter
+       sans que le métier ait à trier ses lignes. */
+    const p = creerPage('brochure', { champs: { StudyLevel: 'BAC+2' } });
+    p.ctaDoc = [
+        ligneDoc({ url: 'https://x/bac2.pdf', niveau: 'Bac+2' }),
+        ligneDoc({ url: 'https://x/defaut.pdf' }),
     ];
     jouer(p, SUCCES);
-    egal(cta(p).getAttribute('href'), 'https://x/mba-com.pdf', 'le defaut a pris le pas sur le programme');
+    egal(cta(p).getAttribute('href'), 'https://x/bac2.pdf', 'ordre de la DE mal arbitre');
 });
 
-test('Une ligne dont le critère ne correspond pas est ignorée', () => {
-    const p = creerPage('brochure', { champs: { Programme: 'BACHELOR-DESIGN' } });
-    p.brochures = [
-        { url: 'https://x/defaut.pdf' },
-        { url: 'https://x/mba-com.pdf', programme: 'MBA-COM' },
-    ];
+test('La CASSE ne fait pas rater la ligne [REGRESSION 04/09]', () => {
+    /* Mesuré sur les comptes réels : le formulaire poste « BAC+1 », la DE
+       porte « Bac+1 ». Une comparaison littérale ne matchait pas, et le
+       candidat n'avait aucun bouton — sans le moindre signal. */
+    const p = creerPage('brochure', { champs: { StudyLevel: 'BAC+1' } });
+    p.ctaDoc = [ligneDoc({ url: 'https://x/bac1.pdf', niveau: 'Bac+1' })];
     jouer(p, SUCCES);
-    egal(cta(p).getAttribute('href'), 'https://x/defaut.pdf', 'brochure d un autre programme servie');
+    vrai(cta(p) !== null, 'ligne ratee sur une simple difference de casse');
+    egal(cta(p).getAttribute('href'), 'https://x/bac1.pdf', 'mauvaise ligne retenue');
 });
 
-test('Aucune ligne ne correspond : pas de bouton, mais le message reste', () => {
-    /* Ne rien proposer vaut mieux que proposer la mauvaise brochure — et la
-       confirmation, elle, a toute sa raison d'etre : l'envoi a bien eu lieu. */
-    const p = creerPage('brochure', { champs: { Programme: 'INCONNU' } });
-    p.brochures = [{ url: 'https://x/mba-com.pdf', programme: 'MBA-COM' }];
+test('Les ACCENTS ne font pas rater la ligne', () => {
+    const p = creerPage('brochure', { champs: { StudyLevel: 'Première' } });
+    p.ctaDoc = [ligneDoc({ url: 'https://x/premiere.pdf', niveau: 'PREMIERE' })];
     jouer(p, SUCCES);
-    egal(cta(p), null, 'bouton pose sans ligne correspondante');
-    vrai(texteEncart(p).length > 0, 'message de confirmation perdu');
+    vrai(cta(p) !== null, 'ligne ratee sur une difference d accent');
 });
 
-test('Plusieurs critères doivent TOUS correspondre', () => {
-    const p = creerPage('brochure', { champs: { Programme: 'MBA-COM', Campus: 'lyon' } });
-    p.brochures = [
-        { url: 'https://x/defaut.pdf' },
-        { url: 'https://x/mba-paris.pdf', programme: 'MBA-COM', campus: 'paris' },
+test('Le bac obtenu se reconnaît dans ses TROIS graphies [REGRESSION 04/09]', () => {
+    /* Le seul écart que la normalisation ne rattrape pas : des libellés
+       franchement différents pour le même niveau, pas des variantes de casse.
+
+         « BAC »                 la DE, telle qu'elle est saisie
+         « Bac obtenu »          le référentiel des programmes
+         « BAC obtenu ou Prépa » le référentiel des comptes — CE QUE LE
+                                 FORMULAIRE POSTE
+
+       Confirmé par le métier le 04/09 : le « BAC » de la DE désigne bien le bac
+       obtenu. Sans l'équivalence, un candidat bachelier n'avait aucun bouton.
+
+       Les deux premières graphies sont couvertes parce que la DE peut porter
+       l'une ou l'autre demain — et parce que ce test est le rappel que
+       l'équivalence est un pansement : le jour où la DE sera alignée sur le
+       value set Salesforce, il pourra tomber. */
+    ['BAC', 'Bac obtenu', 'BAC obtenu ou Prépa'].forEach((graphie) => {
+        const p = creerPage('brochure', { champs: { StudyLevel: 'BAC obtenu ou Prépa' } });
+        p.ctaDoc = [ligneDoc({ url: 'https://x/bac.pdf', niveau: graphie })];
+        jouer(p, SUCCES);
+        vrai(cta(p) !== null, 'candidat bachelier laisse sans bouton pour ' + graphie);
+        egal(cta(p).getAttribute('href'), 'https://x/bac.pdf', 'mauvaise ligne pour ' + graphie);
+    });
+});
+
+test('Le bac obtenu ne deborde pas sur un autre niveau', () => {
+    /* Une équivalence trop large servirait la documentation « bac obtenu » à un
+       élève de Terminale, qui ne l'a pas encore. */
+    const p = creerPage('brochure', { champs: { StudyLevel: 'Terminale' } });
+    p.ctaDoc = [ligneDoc({ url: 'https://x/bac.pdf', niveau: 'BAC' })];
+    jouer(p, SUCCES);
+    egal(cta(p), null, 'documentation « bac obtenu » servie a un eleve de Terminale');
+});
+
+test('Une cellule multi-valeurs « Bac+1;Bac+2 » sert les deux niveaux', () => {
+    /* `niveau_etudes` est en Text(4000) : la colonne accepte plusieurs valeurs
+       séparées par `;`, comme les colonnes de programme. */
+    ['BAC+1', 'BAC+2'].forEach((niveau) => {
+        const p = creerPage('brochure', { champs: { StudyLevel: niveau } });
+        p.ctaDoc = [ligneDoc({ url: 'https://x/cycle1.pdf', niveau: 'Bac+1;Bac+2' })];
+        jouer(p, SUCCES);
+        vrai(cta(p) !== null, `cellule multi-valeurs ratee pour ${niveau}`);
+    });
+});
+
+test('Un niveau hors de la cellule multi-valeurs ne matche pas', () => {
+    const p = creerPage('brochure', { champs: { StudyLevel: 'BAC+5 et +' } });
+    p.ctaDoc = [ligneDoc({ url: 'https://x/cycle1.pdf', niveau: 'Bac+1;Bac+2' })];
+    jouer(p, SUCCES);
+    egal(cta(p), null, 'ligne servie a un niveau qu elle ne couvre pas');
+});
+
+test('Le cursus se compare au programme comme à la spécialité', () => {
+    /* La colonne est vide sur toutes les lignes connues au 04/09 : on ignore
+       laquelle des deux le métier y saisira. On accepte donc les deux. */
+    const surProgramme = creerPage('brochure', { champs: { Programme: 'MBA-COM' } });
+    surProgramme.ctaDoc = [ligneDoc({ url: 'https://x/mba.pdf', cursus: 'MBA-COM' })];
+    jouer(surProgramme, SUCCES);
+    vrai(cta(surProgramme) !== null, 'cursus non reconnu depuis Programme');
+
+    const surSpecialite = creerPage('brochure', { champs: { Speciality: 'Communication' } });
+    surSpecialite.ctaDoc = [ligneDoc({ url: 'https://x/com.pdf', cursus: 'Communication' })];
+    jouer(surSpecialite, SUCCES);
+    vrai(cta(surSpecialite) !== null, 'cursus non reconnu depuis Speciality');
+});
+
+test('Deux critères doivent TOUS correspondre', () => {
+    const p = creerPage('brochure', { champs: { StudyLevel: 'BAC+2', Programme: 'MBA-COM' } });
+    p.ctaDoc = [
+        ligneDoc({ url: 'https://x/defaut.pdf' }),
+        ligneDoc({ url: 'https://x/autre.pdf', niveau: 'Bac+2', cursus: 'DESIGN' }),
     ];
     jouer(p, SUCCES);
     egal(cta(p).getAttribute('href'), 'https://x/defaut.pdf',
          'ligne retenue alors qu un seul de ses deux criteres correspond');
 });
 
-test('Le libellé de la DE prend le pas sur le libellé par défaut', () => {
-    /* Le metier doit pouvoir nommer sa brochure — « Télécharger le programme
-       MBA » dit plus que « Télécharger la brochure ». */
-    const p = creerPage('brochure');
-    p.brochures = [{ url: 'https://x/a.pdf', libelle: 'Télécharger le programme MBA' }];
+test('Aucune ligne ne correspond : pas de bouton, mais le message reste', () => {
+    /* Ne rien proposer vaut mieux que proposer la mauvaise documentation — et
+       la confirmation garde toute sa raison d'être : l'envoi a bien eu lieu. */
+    const p = creerPage('brochure', { champs: { StudyLevel: 'Autres' } });
+    p.ctaDoc = [ligneDoc({ url: 'https://x/terminale.pdf', niveau: 'Terminale' })];
     jouer(p, SUCCES);
-    egal(cta(p).textContent, 'Télécharger le programme MBA', 'libelle de la DE ignore');
+    egal(cta(p), null, 'bouton pose sans ligne correspondante');
+    vrai(texteEncart(p).length > 0, 'message de confirmation perdu');
 });
 
 test('Le bouton s ouvre dans un nouvel onglet, sans fuite de contexte', () => {
@@ -770,7 +890,7 @@ test('Le bouton s ouvre dans un nouvel onglet, sans fuite de contexte', () => {
        `rel` empêche la page ouverte de manipuler celle-ci par `window.opener`
        — et garde le formulaire, avec son message, intact derrière. */
     const p = creerPage('brochure');
-    p.brochures = [{ url: 'https://x/a.pdf' }];
+    p.ctaDoc = [ligneDoc()];
     jouer(p, SUCCES);
     egal(cta(p).tagName, 'A', 'le CTA n est pas un lien');
     egal(cta(p).getAttribute('target'), '_blank', 'le PDF remplacerait la page');
@@ -778,28 +898,26 @@ test('Le bouton s ouvre dans un nouvel onglet, sans fuite de contexte', () => {
 });
 
 test('Le CTA ne s affiche QUE sur un formulaire de brochure', () => {
-    /* Rien n'empeche la DE d'etre publiee sur une page qui porte un autre
-       formulaire : le socle de lecture est le meme pour tous. */
+    /* Le socle de lecture est le même pour tous : la DE est publiée sur toutes
+       les pages de l'école, formulaire de candidature compris. */
     const p = creerPage('candidature');
-    p.brochures = [{ url: 'https://x/a.pdf' }];
+    p.ctaDoc = [ligneDoc()];
     jouer(p, SUCCES);
-    egal(cta(p), null, 'bouton de brochure pose sur une candidature');
+    egal(cta(p), null, 'bouton de documentation pose sur une candidature');
 });
 
 test('Un blocage ne porte jamais de CTA', () => {
     /* Rien n'a été écrit, donc rien n'a été promis. */
     const p = creerPage('brochure');
-    p.brochures = [{ url: 'https://x/a.pdf' }];
+    p.ctaDoc = [ligneDoc()];
     jouer(p, '<!-- socle ecriture: statut=blocked pa= nouveau=false journal= -->'
            + '<!-- socle blocage: motif=r1 -->');
     egal(cta(p), null, 'bouton de telechargement pose sur un blocage');
 });
 
 test('Une ligne sans URL est ignorée, elle ne fait pas tomber la page', () => {
-    /* Une DE se remplit à la main : une ligne à moitié saisie est une question
-       de temps, et elle ne doit coûter que son propre silence. */
     const p = creerPage('brochure');
-    p.brochures = [{ libelle: 'Brochure sans lien' }, { url: 'https://x/bon.pdf' }];
+    p.ctaDoc = [ligneDoc({ url: '' }), ligneDoc({ url: 'https://x/bon.pdf' })];
     jouer(p, SUCCES);
     egal(cta(p).getAttribute('href'), 'https://x/bon.pdf', 'ligne incomplete servie');
 });

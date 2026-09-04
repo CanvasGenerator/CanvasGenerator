@@ -133,6 +133,41 @@ try {
         if (!Socle.isBlank(instSel)) appointments = SocleRead.getAppointmentOptions(instSel);
     }
 
+    /* -- 4bis. CTA « demande de documentation » --------------------------
+       Retour client du 03/09. Le bouton de telechargement de la confirmation
+       tire son lien, son libelle et ses deux couleurs de la DE
+       `CTA_demande_documentation` : chaque ecole a sa charte, et le metier en
+       change sans redeploiement.
+
+       On lit TOUTES les lignes de l'ecole courante et on laisse le navigateur
+       choisir. C'est delibere : le niveau d'etudes et le cursus ne sont connus
+       qu'APRES le rendu, quand le visiteur a rempli le formulaire — les
+       resoudre ici demanderait un aller-retour serveur a chaque changement de
+       menu, ce que toute l'architecture de ce socle evite. Le volume le
+       permet : une ecole porte une ligne par niveau, une quinzaine au plus.
+
+       Sans DE, sans ecole, ou sans ligne : liste vide, et aucun bouton. La
+       confirmation s'affiche alors exactement comme avant ce retour. */
+    var ctaDoc = [];
+    if (!Socle.isBlank(schoolId)) {
+        var Rd = SocleConfig.RESOLVERS;
+        var lignesCta = SocleResolvers.lookup(Rd.ctaDocDE, [Rd.ctaDocKey], [schoolId]);
+        for (var ic = 0; ic < lignesCta.length; ic++) {
+            var lc = lignesCta[ic];
+            /* Une ligne sans URL ne peut rien proposer. On l'ecarte ici plutot
+               que dans le navigateur : inutile de la faire voyager. */
+            if (Socle.isBlank(lc[Rd.ctaDocValues.url])) continue;
+            ctaDoc.push({
+                url:     String(lc[Rd.ctaDocValues.url]),
+                libelle: String(lc[Rd.ctaDocValues.libelle] || ""),
+                fond:    String(lc[Rd.ctaDocValues.fond]    || ""),
+                police:  String(lc[Rd.ctaDocValues.police]  || ""),
+                niveau:  String(lc[Rd.ctaDocValues.niveau]  || ""),
+                cursus:  String(lc[Rd.ctaDocValues.cursus]  || "")
+            });
+        }
+    }
+
     /* -- 5. Emission du payload ----------------------------------------- */
     Write('<script>window.SOCLE_DATA={');
     Write('"school":'   + jsonStr(schoolId) + ',');
@@ -147,7 +182,8 @@ try {
     Write('"ptats":'        + jsonList(ptats, ["ptatId", "programId", "termId"]) + ',');
     Write('"terms":'        + jsonList(terms, ["value", "label"]) + ',');
     Write('"instances":'    + jsonList(instances, ["value", "label", "date", "address"]) + ',');
-    Write('"appointments":' + jsonList(appointments, ["value", "label", "required"]));
+    Write('"appointments":' + jsonList(appointments, ["value", "label", "required"]) + ',');
+    Write('"ctaDoc":'       + jsonList(ctaDoc, ["url", "libelle", "fond", "police", "niveau", "cursus"]));
     Write('};<\/script>');
 
     // Trace de diagnostic, dans le code source de la page
@@ -193,6 +229,11 @@ try {
         Write(ligne("Rentrees",                         terms.length));
         Write(ligne("Dates d'evenement",                instances.length));
         Write(ligne("Ateliers",                         appointments.length));
+        /* A 0 alors que l'ecole est connue : la DE est absente, mal nommee, ou
+           ne porte aucune ligne pour cette ecole. Le bouton de documentation
+           ne s'affichera pas, et c'est la seule facon de le savoir sans lire
+           le code source de la page. */
+        Write(ligne("CTA documentation (DE)",           ctaDoc.length));
         Write('</table>');
 
         if (total === 0) {
@@ -926,6 +967,90 @@ try {
         return 0;
     }
 
+    /** Un element est-il masque ? Les deux leviers du socle : `display:none`
+        pose en ligne, et la classe `hidden` des gabarits. */
+    function estMasque(el) {
+        if (!el) return true;
+        if (el.style && el.style.display === 'none') return true;
+        return Boolean(el.classList && el.classList.contains('hidden'));
+    }
+
+    /** Les enfants ELEMENTS d'un conteneur. `children` n'existe pas dans le
+        harnais de test, ou les noeuds n'ont pas non plus de `nodeType` : on
+        retombe sur `childNodes` en ecartant les noeuds de texte. */
+    function enfantsElements(el) {
+        var liste = (el && el.children) || (el && el.childNodes) || [];
+        var out = [];
+        for (var i = 0; i < liste.length; i++) {
+            var n = liste[i];
+            if (n && (n.nodeType === undefined || n.nodeType === 1)) out.push(n);
+        }
+        return out;
+    }
+
+    /** Une cellule ne compte plus si elle est masquee, ou si le porteur unique
+        qu'elle enveloppe l'est. */
+    function celluleMasquee(cellule) {
+        if (estMasque(cellule)) return true;
+        var dedans = enfantsElements(cellule);
+        return dedans.length === 1 ? estMasque(dedans[0]) : false;
+    }
+
+    /**
+     * Rend sa pleine largeur au champ reste SEUL dans une rangee a deux
+     * colonnes.
+     *
+     * Quatre ecoles ne font pas choisir de campus — IFA Paris, Ecole Bleue,
+     * MoPA et 3WA (« Champs visibles des formulaires.xlsx »). Sur leurs
+     * brochures, candidatures, immersions et pre-candidatures, le campus et le
+     * niveau d'etudes partagent une rangee a deux colonnes : masquer le campus
+     * vidait une colonne et laissait le niveau a mi-largeur, seul contre la
+     * marge — le formulaire paraissait casse a l'ecran.
+     *
+     * Deux gestes, tous deux INERTES hors d'une grille :
+     *   1. la CELLULE (`.brf-col`, `.cnd-col`, `.imf-col`) qui n'enveloppe
+     *      qu'un porteur masque est masquee elle aussi : sans ca elle reste un
+     *      element de grille et continue d'occuper sa colonne. Sur la
+     *      pre-candidature, ou le porteur est enfant direct de la rangee, il
+     *      n'y a pas de cellule intermediaire et ce geste n'a pas lieu.
+     *   2. la cellule qui reste seule recoit `grid-column: 1 / -1`, donc toute
+     *      la largeur de la rangee. Sur un conteneur qui n'est pas une grille,
+     *      cette propriete ne produit rien : aucune autre mise en page ne
+     *      risque de bouger.
+     *
+     * On ne touche JAMAIS au `display` de la rangee : le gabarit garde la main
+     * sur sa mise en page, et la remise en deux colonnes est immediate si le
+     * campus redevient visible.
+     */
+    function ajusterColonnes(porteur) {
+        if (!porteur) return;
+
+        /* La cellule : un conteneur qui n'enveloppe QUE ce porteur. Ailleurs,
+           le porteur est sa propre cellule. */
+        var cellule = porteur;
+        var rangee  = porteur.parentNode;
+        if (rangee && rangee.style && enfantsElements(rangee).length === 1) {
+            cellule = rangee;
+            rangee  = rangee.parentNode;
+        }
+        if (cellule !== porteur && cellule.style) {
+            cellule.style.display = estMasque(porteur) ? 'none' : '';
+        }
+
+        var cellules = enfantsElements(rangee);
+        if (cellules.length < 2) return;   // rangee d'un seul champ : rien a etaler
+
+        var seule = null, visibles = 0;
+        for (var i = 0; i < cellules.length; i++) {
+            if (!celluleMasquee(cellules[i])) { visibles++; seule = cellules[i]; }
+        }
+        for (var j = 0; j < cellules.length; j++) {
+            if (!cellules[j].style) continue;
+            cellules[j].style.gridColumn =
+                (visibles === 1 && cellules[j] === seule) ? '1 / -1' : '';
+        }
+    }
+
     /**
      * Affiche ou masque le porteur visuel d'un champ.
      *
@@ -971,6 +1096,11 @@ try {
            (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
            l'emporte pas sur une regle de classe. */
         if (porteur.classList) porteur.classList.toggle('hidden', !visible);
+
+        /* APRES le masquage, jamais avant : `ajusterColonnes` lit l'etat qu'on
+           vient de poser pour decider si une colonne reste seule dans sa
+           rangee. */
+        ajusterColonnes(porteur);
     }
 
     /**
@@ -2123,8 +2253,11 @@ try {
         a.style.display = 'block';
         a.style.marginTop = '14px';
         a.style.padding = '14px';
-        a.style.background = '#000';
-        a.style.color = '#fff';
+        /* Les couleurs de la charte de l'ecole, quand la DE les donne. Le noir
+           et blanc du bouton de soumission sinon : un bouton doit rester
+           lisible meme si la colonne a ete laissee vide ou mal saisie. */
+        a.style.background = cta.fond   || '#000';
+        a.style.color      = cta.police || '#fff';
         a.style.textAlign = 'center';
         a.style.textDecoration = 'none';
         a.style.fontSize = '14px';
@@ -2135,56 +2268,99 @@ try {
     }
 
     /* ====================================================================
-       LE CTA « TELECHARGER LA BROCHURE » — retour client du 2026-09-03
+       LE CTA « DEMANDE DE DOCUMENTATION » — retour client du 2026-09-03
        ====================================================================
-       Le formulaire de brochure promet une brochure ; jusqu'ici il annoncait
-       seulement qu'elle partait par email. Le client demande le lien SUR LA
-       PAGE, tout de suite apres la soumission.
+       Le formulaire de brochure promet une documentation ; jusqu'ici il
+       annoncait seulement qu'elle partait par email. Le client demande le lien
+       SUR LA PAGE, tout de suite apres la soumission.
 
-       --- D'ou vient le lien -------------------------------------------
-       D'une Data Extension, publiee dans `SOCLE_DATA.brochures` par le socle
-       de lecture, comme `longueursTel` l'est deja depuis
-       `LPB_Mapping_Indicatifs`. Rien en dur ici : le metier ajoute une
-       brochure ou corrige une URL sans redeploiement.
+       --- D'ou vient tout -----------------------------------------------
+       De la DE `CTA_demande_documentation`, publiee dans `SOCLE_DATA.ctaDoc`
+       par le bloc serveur ci-dessus, filtree sur l'ecole courante. Elle porte
+       le lien, le libelle ET LES DEUX COULEURS : chaque ecole a sa charte, et
+       le metier en change sans redeploiement.
 
-       ⚠ CETTE DE N'EXISTE PAS ENCORE (etat au 04/09). Le socle de lecture ne
-       publie donc pas `brochures`, et tout ce bloc reste inerte : le message
-       de confirmation s'affiche sans bouton, exactement comme avant. C'est
-       voulu — un CTA vers une URL absente serait pire que pas de CTA. Le jour
-       ou la DE arrive, ce code s'allume sans etre retouche.
+       Rien n'est en dur ici, pas meme le libelle : une ligne sans titre ne
+       rend pas de bouton plutot que d'en inventer un. Le seul defaut code est
+       le couple de couleurs, et seulement quand la DE les laisse vides.
 
-       --- La forme attendue --------------------------------------------
-         SOCLE_DATA.brochures = [
-           { url: "https://...", libelle: "...",        // libelle facultatif
-             programme: "...", specialite: "...",       // criteres, tous
-             campus: "...",    niveau: "..." },         // facultatifs
+         SOCLE_DATA.ctaDoc = [
+           { url: "...", libelle: "Je telecharge la documentation",
+             fond: "#1A1919", police: "#FFFFFF",
+             niveau: "Terminale", cursus: "" },
            ...
          ]
 
-       Une ligne ne retient QUE les criteres qu'elle renseigne. Une ligne sans
-       aucun critere est la brochure par defaut de l'ecole ; une ligne qui
-       porte `programme` ne sert que ce programme. On garde la ligne
-       CORRESPONDANTE LA PLUS PRECISE — celle qui contraint le plus de
-       criteres — ce qui laisse cohabiter un defaut d'ecole et des brochures
-       par programme sans ordre impose dans la DE.
+       --- Comment la bonne ligne est choisie ----------------------------
+       Deux criteres, `niveau` et `cursus`, tous deux FACULTATIFS. Une colonne
+       vide ne contraint rien : c'est ainsi qu'une ecole pose une documentation
+       valable pour tous ses niveaux. On garde la ligne correspondante LA PLUS
+       PRECISE — celle qui contraint le plus de criteres — ce qui laisse
+       cohabiter un defaut d'ecole et des documentations par niveau sans ordre
+       impose dans la DE.
 
-       Cette forme est volontairement plus large que ce dont on a besoin
-       aujourd'hui : on ne sait pas encore si la DE sera par ecole, par
-       programme ou par campus, et les trois se decrivent ainsi sans changer
-       une ligne de ce fichier.
-       ==================================================================== */
-    var CTA_BROCHURE = {
-        fr: 'T\u00e9l\u00e9charger la brochure',
-        en: 'Download the brochure'
+       Les deux colonnes sont en Text(4000) et acceptent PLUSIEURS valeurs
+       separees par `;`, exactement comme les colonnes de programme. On reutilise
+       donc `contient()`, deja ecrit et deja teste pour ce besoin.
+
+       --- ⚠ LES DEUX REFERENTIELS DE NIVEAU, ENCORE ---------------------
+       Mesure du 2026-09-04 sur les comptes reels. Le formulaire poste la valeur
+       du value set Salesforce `Account.Academic_Level_List__c` :
+
+         College · Seconde · Premiere · Terminale · BAC obtenu ou Prepa ·
+         BAC+1 · BAC+2 · BAC+3 · BAC+4 · BAC+5 et + · BAC+6 · Autres
+
+       La DE, elle, a ete saisie a la main. Deux ecarts en decoulent :
+
+         1. LA CASSE. La DE ecrit « Bac+1 », le CRM « BAC+1 ». Regle par
+            `cleRecherche`, qui compare en majuscules SANS accent — ce qui
+            couvre du meme geste « Premiere » contre « Premiere ».
+
+         2. LE MEME NIVEAU, TROIS ECRITURES. Celui-la, aucune normalisation ne
+            le rattrape : ce sont des libelles differents, pas des variantes de
+            casse.
+
+              « BAC »                  la DE, telle qu'elle est saisie
+              « Bac obtenu »           le referentiel des programmes
+                                       (LearningProgram.Academic_Level_List__c)
+              « BAC obtenu ou Prepa »  le referentiel des comptes
+                                       (Account.Academic_Level_List__c), et
+                                       c'est CELUI QUE LE FORMULAIRE POSTE
+
+            Confirme par le metier le 04/09 : le « BAC » de la DE designe bien
+            le bac obtenu. Sans equivalence, un candidat titulaire du bac
+            n'aurait AUCUN bouton — silencieusement, comme toujours avec ce
+            genre d'ecart.
+
+            La double entree n'est pas de la prudence gratuite : elle rend la
+            DE juste QUELLE QUE SOIT la graphie que le metier y mettra demain,
+            et c'est exactement la meme equivalence que `canonNiveau()` applique
+            deja a la cascade, quelques centaines de lignes plus haut. Les deux
+            tables disent la meme chose de deux referentiels ; la vraie dette
+            est qu'il n'y ait pas de source commune (cf. PASSATION § 1.5).
+
+       Cette table reste donc un PANSEMENT, pas une regle metier. Aligner la DE
+       sur le value set Salesforce la rendrait inutile — et elle pourra tomber
+       ce jour-la sans rien casser. */
+    var EQUIV_NIVEAU_CTA = {
+        'BAC':         'BAC OBTENU OU PREPA',
+        'BAC OBTENU':  'BAC OBTENU OU PREPA'
     };
 
-    /* Critere de la DE -> champ du formulaire qui le renseigne. */
-    var CRITERES_BROCHURE = [
-        { cle: 'programme',  champ: 'Programme'  },
-        { cle: 'specialite', champ: 'Speciality' },
-        { cle: 'campus',     champ: 'Campus'     },
-        { cle: 'niveau',     champ: 'StudyLevel' }
-    ];
+    /**
+     * Niveau d'etudes normalise pour la comparaison.
+     *
+     * `cleRecherche` fait le gros du travail (majuscules, sans accent, trim) ;
+     * la table ne sert qu'aux libelles franchement differents.
+     */
+    function normeNiveauCta(v) {
+        var c = cleRecherche(v);
+        return Object.prototype.hasOwnProperty.call(EQUIV_NIVEAU_CTA, c)
+             ? EQUIV_NIVEAU_CTA[c] : c;
+    }
+
+    /** Comparaison simple des cursus : casse et accents mis de cote. */
+    function normeCursusCta(v) { return cleRecherche(v); }
 
     function valeurChamp(form, nom) {
         var el = form.querySelector('[name="' + nom + '"]');
@@ -2192,17 +2368,40 @@ try {
     }
 
     /**
+     * Le cursus du visiteur.
+     *
+     * `Programme` est le resultat de la cascade et n'est pas toujours resolu ;
+     * `Speciality` est ce que le visiteur a choisi lui-meme. On accepte l'un OU
+     * l'autre, faute de savoir laquelle des deux le metier saisit dans la
+     * colonne `cursus` — elle est vide sur toutes les lignes connues au
+     * 04/09. A trancher des qu'une ligne la renseignera.
+     */
+    function cursusDuFormulaire(form) {
+        return [valeurChamp(form, 'Programme'), valeurChamp(form, 'Speciality')];
+    }
+
+    /** Une couleur exploitable, ou '' si la DE porte autre chose qu'un hexa. */
+    function couleurHexa(v) {
+        var c = String(v === null || v === undefined ? '' : v).replace(/^\s+|\s+$/g, '');
+        return /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c) ? c : '';
+    }
+
+    /**
      * Le CTA a poser sous la confirmation, ou null s'il n'y en a pas.
      *
-     * Trois raisons de ne rien rendre, et aucune n'est une panne : le
-     * formulaire n'est pas un formulaire de brochure, la DE n'est pas encore
-     * publiee, ou aucune de ses lignes ne couvre ce que le visiteur a choisi.
+     * Quatre raisons de ne rien rendre, et aucune n'est une panne : le
+     * formulaire n'est pas un formulaire de brochure, la DE n'est pas lue,
+     * aucune de ses lignes ne couvre ce que le visiteur a choisi, ou la ligne
+     * retenue n'a pas de libelle.
      */
     function ctaBrochure(form) {
         if (familleDe(form) !== 'brochure') return null;
 
-        var lignes = D && D.brochures;
+        var lignes = D && D.ctaDoc;
         if (!lignes || !lignes.length) return null;
+
+        var niveau = valeurChamp(form, 'StudyLevel');
+        var cursus = cursusDuFormulaire(form);
 
         var meilleure = null, meilleurScore = -1;
         for (var i = 0; i < lignes.length; i++) {
@@ -2210,24 +2409,29 @@ try {
             if (!ligne || !ligne.url) continue;
 
             var score = 0, retenue = true;
-            for (var c = 0; c < CRITERES_BROCHURE.length; c++) {
-                var attendu = ligne[CRITERES_BROCHURE[c].cle];
-                if (!attendu) continue;                 // critere non contraint
+
+            if (ligne.niveau) {
                 score++;
-                if (String(attendu).toLowerCase()
-                    !== valeurChamp(form, CRITERES_BROCHURE[c].champ).toLowerCase()) {
-                    retenue = false;
-                    break;
-                }
+                if (!contient(ligne.niveau, niveau, normeNiveauCta)) retenue = false;
             }
+            if (retenue && ligne.cursus) {
+                score++;
+                if (!contient(ligne.cursus, cursus[0], normeCursusCta)
+                    && !contient(ligne.cursus, cursus[1], normeCursusCta)) retenue = false;
+            }
+
             /* `>` et non `>=` : a precision egale, la premiere ligne de la DE
                gagne, ce qui rend l'ordre du metier previsible. */
             if (retenue && score > meilleurScore) { meilleure = ligne; meilleurScore = score; }
         }
-        if (!meilleure) return null;
+        if (!meilleure || !meilleure.libelle) return null;
 
-        var langue = langueAffichage() === 'en' ? 'en' : 'fr';
-        return { libelle: meilleure.libelle || CTA_BROCHURE[langue], href: meilleure.url };
+        return {
+            libelle: meilleure.libelle,
+            href:    meilleure.url,
+            fond:    couleurHexa(meilleure.fond),
+            police:  couleurHexa(meilleure.police)
+        };
     }
 
     /**

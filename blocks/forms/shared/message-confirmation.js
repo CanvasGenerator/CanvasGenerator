@@ -145,7 +145,12 @@ function boutonCta(doc, cta) {
     a.textContent = cta.libelle;
     Object.assign(a.style, {
         display: 'block', marginTop: '14px', padding: '14px',
-        background: '#000', color: '#fff', textAlign: 'center',
+        /* Les couleurs de la charte de l'ecole, quand la DE les donne. Le noir
+           et blanc du bouton de soumission sinon : un bouton doit rester
+           lisible meme si la colonne a ete laissee vide ou mal saisie. */
+        background: cta.fond || '#000',
+        color: cta.police || '#fff',
+        textAlign: 'center',
         textDecoration: 'none', fontSize: '14px', fontWeight: '700',
         textTransform: 'uppercase', letterSpacing: '0.05em',
     });

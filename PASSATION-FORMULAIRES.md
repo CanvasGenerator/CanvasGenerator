@@ -403,41 +403,94 @@ empilés dès qu'un visiteur confirme puis retombe sur un blocage.
 > applicable **sans republier les pages en ligne**, seul le bloc socle est à
 > redéployer.
 
-### CTA « Télécharger la brochure » — retour client du 03/09
+### CTA « demande de documentation » — retour client du 03/09
 
-Sur la famille `brochure`, un bouton s'ajoute sous la confirmation. Il n'apparaît
-**que** si une URL est disponible : un CTA vers une brochure absente serait pire
-que pas de CTA.
+Sur la famille `brochure`, un bouton s'ajoute sous la confirmation. **Tout** vient
+de la DE `CTA_demande_documentation` — le lien, le libellé et les deux couleurs :
+chaque école a sa charte, et le métier en change sans redéploiement. Rien n'est en
+dur, pas même le texte ; une ligne sans libellé ne rend pas de bouton plutôt que
+d'en inventer un.
 
-⚠ **La DE n'existe pas encore (état au 04/09).** Le socle de lecture ne publie
-donc pas `brochures`, tout le bloc reste inerte, et la confirmation s'affiche
-sans bouton. Le front est prêt : il s'allume sans retouche le jour où la DE
-arrive. Reste à faire côté lecture — remplir `SOCLE_DATA.brochures` depuis la DE,
-sur le modèle de `longueursTel` / `LPB_Mapping_Indicatifs`.
+| Colonne | Rôle |
+|---|---|
+| `ecole` | clé de lecture, comparée à l'école de la page |
+| `niveau_etudes` | critère facultatif, Text(4000), multi-valeurs `;` |
+| `cursus` | critère facultatif, Text(4000), multi-valeurs `;` |
+| `titre_CTA_doc` | libellé du bouton — **sans lui, pas de bouton** |
+| `couleur_fond_CTA_doc` | fond, hexadécimal ; repli `#000` |
+| `couleur_police_CTA_doc` | texte, hexadécimal ; repli `#fff` |
+| `url_documentation` | lien — **sans lui, la ligne est ignorée** |
 
-```js
-SOCLE_DATA.brochures = [
-  { url: "https://...", libelle: "...",     // libellé facultatif
-    programme: "...", specialite: "...",    // critères, tous facultatifs
-    campus: "...",    niveau: "..." },
-]
-```
+Elle vit aujourd'hui dans le dossier **« 04 Tests »** : le dossier n'importe pas
+pour la lecture, mais la donnée est de recette — à confirmer avant la Prod.
+
+> ⚠ **La lecture vit dans le `.ampscript`, pas dans le `.ssjs`.** Sur cette org,
+> une CloudPage publiée ne peut pas lire en SSJS (§ en-tête du fichier) : la
+> partie serveur du socle de lecture est écrite **en AMPscript**, et c'est elle
+> qui est déployée. `scripts/sync-cascade-js.js` ne recopie que le bloc
+> **navigateur** — un ajout côté serveur doit être écrit **à la main dans le
+> `.ampscript`**, sinon il ne s'exécute jamais en production. Le miroir SSJS de
+> `picklist-handler.ssjs` reste tenu à jour comme référence lisible.
+
+> ⚠ **Une DE absente TUE LA PAGE.** `LookupRows` sur une DE inexistante n'est pas
+> rattrapable. D'où le drapeau **`@CTA_DOC_ACTIF`** en tête du bloc : si la BU
+> cible n'a pas encore la DE, le passer à `"false"` rend le bloc inerte — la
+> confirmation s'affiche sans bouton, comme avant ce retour — au lieu de rendre
+> illisibles toutes les pages de l'école. Une ligne à changer, contre une page
+> morte.
+
+**Où se fait quoi.** Le socle de lecture lit **toutes** les lignes de l'école et
+les publie dans `SOCLE_DATA.ctaDoc` ; c'est le **navigateur** qui choisit la
+ligne. C'est délibéré : le niveau et le cursus ne sont connus qu'après le rendu,
+et les résoudre côté serveur imposerait un aller-retour à chaque changement de
+menu — ce que toute l'architecture de ce socle évite.
 
 Une ligne ne retient **que les critères qu'elle renseigne** : sans aucun critère
-elle est la brochure par défaut de l'école, avec `programme` elle ne sert que ce
-programme. Le socle garde la ligne correspondante **la plus précise** — celle qui
-contraint le plus de critères — ce qui laisse cohabiter un défaut et des
-brochures par programme **sans ordre imposé dans la DE**. À précision égale, la
+elle est la documentation par défaut de l'école. Le socle garde la ligne
+correspondante **la plus précise**, ce qui laisse cohabiter un défaut et des
+documentations par niveau **sans ordre imposé dans la DE**. À précision égale, la
 première ligne gagne.
 
-Cette forme est volontairement plus large que le besoin connu : on ne sait pas
-encore si la DE sera par école, par programme ou par campus, et les trois se
-décrivent ainsi sans toucher au socle.
+Le lien s'ouvre dans un nouvel onglet (`target="_blank"` + `rel="noopener
+noreferrer"`) : l'attribut `download` est ignoré en cross-origin, et le PDF est
+hébergé ailleurs que la CloudPage.
 
-Les critères se comparent aux champs `Programme`, `Speciality`, `Campus`,
-`StudyLevel` du formulaire, en minuscules. Le lien s'ouvre dans un nouvel onglet
-(`target="_blank"` + `rel="noopener noreferrer"`) : l'attribut `download` est
-ignoré en cross-origin, et le PDF est hébergé ailleurs que la CloudPage.
+> Diagnostic : `?socleDebug=1` affiche une ligne **« CTA documentation (DE) »**.
+> À 0 alors que l'école est connue, la DE est absente, mal nommée, ou sans ligne
+> pour cette école — et le bouton ne s'affichera pas.
+
+#### ⚠ Deux référentiels de niveau, encore
+
+Mesuré le 04/09 sur les comptes réels. Le formulaire poste la valeur du value set
+Salesforce `Account.Academic_Level_List__c` :
+
+> `Collège` · `Seconde` · `Première` · `Terminale` · `BAC obtenu ou Prépa` ·
+> `BAC+1` · `BAC+2` · `BAC+3` · `BAC+4` · `BAC+5 et +` · `BAC+6` · `Autres`
+
+La DE est saisie à la main, d'où deux écarts :
+
+| Écart | Traitement |
+|---|---|
+| Casse — DE `Bac+1`, CRM `BAC+1` | `cleRecherche` : majuscules **sans accent**, ce qui couvre aussi `Première` |
+| **`BAC` / `Bac obtenu` vs CRM `BAC obtenu ou Prépa`** | table `EQUIV_NIVEAU_CTA`, **un pansement** |
+
+Aucune normalisation ne rattrape le second : ce sont des libellés différents, pas
+des variantes de casse. Le même niveau s'écrit de **trois** façons — `BAC` dans
+la DE, `Bac obtenu` dans le référentiel des programmes, `BAC obtenu ou Prépa`
+dans celui des comptes, et c'est cette dernière que le formulaire poste.
+Confirmé par le métier le 04/09 : le `BAC` de la DE désigne bien le bac obtenu.
+Les trois graphies sont donc rendues équivalentes, comme `canonNiveau()` le fait
+déjà pour la cascade (§ 1.5 — la vraie dette est l'absence de source commune).
+Sans l'équivalence, un candidat titulaire du bac n'aurait **aucun bouton**, en
+silence. La correction durable est d'**aligner la DE sur le value set
+Salesforce** ; ce jour-là la table peut disparaître sans rien casser. Les valeurs
+`BAC+5 et +`, `BAC+6` et `Autres` n'apparaissaient pas dans la capture fournie —
+à vérifier côté métier.
+
+`cursus` est vide sur toutes les lignes connues au 04/09 : on ignore si le métier
+y saisira un programme ou une spécialité. Le socle accepte donc **l'un ou
+l'autre** (`Programme` puis `Speciality`) — à trancher dès qu'une ligne le
+renseignera.
 
 Deux pièges déjà rencontrés :
 - **`submitted` posté deux fois** (champ caché + ajout du script) →
