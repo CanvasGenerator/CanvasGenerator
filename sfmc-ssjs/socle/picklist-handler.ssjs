@@ -3171,6 +3171,38 @@ try {
      * que sur certains formulaires evenement, et exiger un format sur un champ
      * invisible fermerait la porte sans rien montrer.
      */
+    /**
+     * Format de l'adresse e-mail.
+     *
+     * `type="email"` du navigateur laisse passer « nom@domaine » sans
+     * extension. Salesforce, lui, le refuse — et un refus de CreateSalesforceObject
+     * TUE la page : le visiteur voyait une erreur generique, et rien n'etait
+     * ecrit. Retour du 06/09. On exige donc ce que le CRM exige : une
+     * extension d'au moins deux lettres, pas d'espace.
+     * Meme regle cote AMPscript (handler-form), pour un POST sans JS. */
+    var EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+    function erreurFormatEmail(input) {
+        if (!input) return '';
+        var v = String(input.value == null ? '' : input.value).replace(/^\s+|\s+$/g, '');
+        if (!v) return '';                        // champ vide : c'est `required` qui parle
+        if (EMAIL_FORMAT.test(v)) return '';
+        return langueAffichage() === 'en'
+            ? 'Invalid email address: please check the format (e.g. name@domain.com).'
+            : 'Adresse e-mail invalide : vérifiez le format (exemple : prenom.nom@domaine.fr).';
+    }
+
+    function erreursEmail(form) {
+        var out = [];
+        var mails = form.querySelectorAll('input[name="EmailAddress"]');
+        for (var i = 0; i < mails.length; i++) {
+            if (!estVisible(mails[i])) continue;
+            var msg = erreurFormatEmail(mails[i]);
+            if (msg) out.push({ champ: mails[i], message: msg });
+        }
+        return out;
+    }
+
     function erreursTelephone(form) {
         var out = [];
         var tels = form.querySelectorAll('input[name="MobilePhone"], input[name="ChildPhone"]');
@@ -3211,7 +3243,7 @@ try {
                sur place plutot que de creer un prospect avec un numero
                injoignable. Place avant la desactivation du bouton, sinon le
                candidat se retrouverait devant un bouton mort. */
-            var mauvaisTels = erreursTelephone(form);
+            var mauvaisTels = erreursEmail(form).concat(erreursTelephone(form));
             if (mauvaisTels.length) {
                 var lignes = [];
                 for (var t = 0; t < mauvaisTels.length; t++) lignes.push(mauvaisTels[t].message);
