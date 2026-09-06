@@ -164,7 +164,7 @@ VAR @sfBlockMsg, @sfBlockRule, @candContactId, @candRows, @nCand, @candStatut, @
 SET @sfBlockMsg = ""
 SET @sfBlockRule = ""
 
-VAR @submitted, @email, @ecole, @formType
+VAR @submitted, @email, @emailInvalide, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @speciality, @specRows, @progRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
@@ -688,9 +688,23 @@ IF IndexOf(@submitted, "true") > 0 THEN
        Pas d'email = pas de dedoublonnage possible = on n'ecrit rien. C'est la
        regle du contrat, et elle protege d'une explosion de doublons.
        ==================================================================== */
-    IF Empty(@email) THEN
+    /* Format : ce que Salesforce exige, ni plus ni moins — une extension
+       d'au moins deux lettres, pas d'espace. Un e-mail qu'il refuse TUE la
+       page au CreateSalesforceObject : le visiteur voyait une erreur generique
+       et rien n'etait ecrit (retour du 06/09). Le socle JS fait le meme test
+       avant l'envoi ; ceci est le filet pour un POST sans JS. */
+    SET @emailInvalide = "false"
+    IF NOT Empty(@email) AND Empty(RegExMatch(@email, "^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$", 0)) THEN
+        SET @emailInvalide = "true"
+    ENDIF
+
+    IF Empty(@email) OR @emailInvalide == "true" THEN
         SET @sfStatus = "error"
-        SET @sfErrorMsg = "Adresse e-mail absente : aucune ecriture possible (cle de dedoublonnage)."
+        IF @emailInvalide == "true" THEN
+            SET @sfErrorMsg = "Adresse e-mail invalide : verifiez le format (exemple : prenom.nom@domaine.fr)."
+        ELSE
+            SET @sfErrorMsg = "Adresse e-mail absente : aucune ecriture possible (cle de dedoublonnage)."
+        ENDIF
         IF @LOG_ACTIF == "true" THEN
             SET @logOrdre = Add(@logOrdre, 1)
             InsertData("LPB_Log_Soumissions",
@@ -698,7 +712,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 "RunId", @runId,
                 "Ordre", @logOrdre,
                 "Horodatage", Now(),
-                "Etape", "05 - email absent",
+                "Etape", "05 - email absent ou invalide",
                 "Statut", "KO",
                 "Objet", "-",
                 "RecordId", "",
