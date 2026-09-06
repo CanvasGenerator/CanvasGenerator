@@ -3812,11 +3812,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                 return;
             }
 
-            /* Plafond d'affichage : 201 <li> a chaque frappe rament sur mobile,
-               et personne ne lit au-dela. La recherche, elle, porte bien sur
-               les 201. */
-            var max = Math.min(trouvees.length, 60);
-            for (var j = 0; j < max; j++) {
+            /* Pas de plafond. Il y en avait un (60) au nom de la fluidite sur
+               mobile ; retour du 06/09 : liste ouverte sans rien taper, elle
+               s'arretait a « Ethiopie », et l'utilisateur en concluait que les
+               autres pays n'existaient pas. Rien n'indiquait une coupure. La
+               liste defile deja (max-height + overflow), et 201 <li> se
+               construisent en quelques millisecondes. */
+            for (var j = 0; j < trouvees.length; j++) {
                 var e = trouvees[j].e;
                 var li = document.createElement('li');
                 li.textContent = e.texte;
