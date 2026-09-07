@@ -316,6 +316,23 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @vousEtes   = RequestParameter("VousEtes")
     SET @ecole      = RequestParameter("Marque")
     SET @formType   = Lowercase(RequestParameter("TypeFormulaire"))
+
+    /* ---- TYPE DE PROFIL EN CANDIDATURE : « Étudiant », D'OFFICE ------------
+       Le formulaire de candidature n'a pas de champ « Vous êtes » : qui
+       candidate est etudiant, la question ne se pose pas. Mais le flow CRM qui
+       cree la candidature a besoin de PersonAccountType__c — vide, il ne cree
+       rien. Retour du 07/09 : 67 comptes issus de candidatures sans type de
+       profil, et autant de candidatures jamais creees.
+       « Student » est la valeur d'API de « Étudiant » dans le value set
+       (a distinguer de « EDH Student », l'etudiant deja inscrit dans une ecole
+       du Groupe). Pose seulement si le formulaire n'a rien envoye : une page
+       qui porterait un jour le champ garde la main. Un compte existant en
+       « Parent » qui candidate passe donc en « Student » — c'est le sens de la
+       demarche, et la regle « la derniere saisie fait foi » s'applique. */
+    IF @formType == "candidature" AND Empty(@vousEtes) THEN
+        SET @vousEtes = "Student"
+    ENDIF
+
     SET @ptatId     = RequestParameter("PTAT_Id")
     SET @speciality = RequestParameter("Speciality")
     SET @campaignId = RequestParameter("CampaignId")
