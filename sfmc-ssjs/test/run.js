@@ -15,6 +15,7 @@ const etapes = [
     ['Champs requis',            ['test-requis.js']],
     ['Envoi au socle',           ['test-envoi.js']],
     ['Confirmation',             ['test-confirmation.js']],
+    ['Regles de blocage',        ['test-regles-blocage.js']],
 ];
 
 let echecs = 0;

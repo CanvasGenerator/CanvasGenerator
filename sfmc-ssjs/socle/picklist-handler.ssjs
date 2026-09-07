@@ -1037,6 +1037,129 @@ try {
            (`.cnd-field.hidden { display: none }`), et une valeur inline vide ne
            l'emporte pas sur une regle de classe. */
         if (porteur.classList) porteur.classList.toggle('hidden', !visible);
+
+        /* La CELLULE de grille qui enveloppe le porteur, elle, ne disparait
+           pas avec lui : voir `ajusterRangee` juste en dessous. */
+        ajusterRangee(el);
+    }
+
+    /* ========================================================================
+     *  LA CELLULE DE GRILLE SURVIT A SON CHAMP
+     * ------------------------------------------------------------------------
+     *  Quatre ecoles ne proposent aucun campus — IFA Paris, Ecole Bleue, MoPA,
+     *  3WA (« Champs visibles des formulaires.xlsx », 31/08). Or campus et
+     *  niveau d'etudes partagent une rangee a DEUX COLONNES : masquer le campus
+     *  laissait le niveau a mi-largeur, seul contre la marge.
+     *
+     *  `afficher()` masque le PORTEUR du champ (`.cnd-field`, `.brf-field`...).
+     *  Sur la candidature, la brochure et l'immersion, ce porteur vit dans une
+     *  CELLULE intermediaire (`.cnd-col`, `.brf-col`, `.imf-col`) qui, elle,
+     *  reste un element de grille et continue d'occuper sa colonne. Un porteur
+     *  invisible dans une cellule bien vivante : la moitie de la ligne demeure
+     *  reservee a un champ que personne ne verra.
+     *
+     *  D'ou ce second temps, APRES le masquage : la cellule devenue vide se
+     *  retire, et celle qui reste seule prend toute la largeur.
+     *
+     *  --- Trois precautions, et chacune repare un piege du gabarit ---------
+     *
+     *  1. ON NE TOUCHE JAMAIS AU `display` DE LA RANGEE. C'est le gabarit qui
+     *     decide si la ligne existe, et lui seul : la requete `@media` des six
+     *     formulaires la repasse a une colonne sur mobile. Poser un `display`
+     *     inline dessus prendrait la main sur cette regle sans le dire. On agit
+     *     donc sur les cellules, et on laisse la rangee au CSS.
+     *
+     *  2. LE GESTE EST INERTE HORS D'UNE GRILLE. La precandidature n'a PAS de
+     *     cellule intermediaire — son `.pc-field` est enfant direct du
+     *     `.pc-row`, donc porteur ET cellule a la fois — et les formulaires
+     *     JPO, atelier et stage n'ont pas de rangee du tout. Faute de rangee
+     *     reconnue la fonction sort sans rien faire ; quand la cellule EST le
+     *     porteur, elle ne fait que relire ce qu'`afficher` vient de poser.
+     *
+     *  3. UNE CELLULE N'EST JUGEE QUE SUR L'ETAT DE SES CHAMPS, jamais sur le
+     *     sien. Se relire soi-meme condamnerait une cellule masquee au tour
+     *     precedent a ne plus jamais reapparaitre — et la cascade repasse a
+     *     chaque `change`, un campus pouvant redevenir visible entre deux
+     *     passages.
+     * ====================================================================== */
+
+    /**
+     * Les rangees de grille des six formulaires, plus un crochet generique
+     * pour les gabarits a venir. Une rangee INCONNUE d'ici rend le geste
+     * inerte, et c'est le bon defaut : mieux vaut une demi-largeur qu'une mise
+     * en page retournee par surprise.
+     */
+    var RANGEES = '[data-socle-rangee], .cnd-row, .brf-row, .imf-row, '
+                + '.pc-row, .wbc-row';
+
+    /** Masque au sens du socle : style inline OU classe `hidden`. */
+    function estMasque(el) {
+        if (!el) return true;
+        if (el.style && el.style.display === 'none') return true;
+        return Boolean(el.classList && el.classList.contains('hidden'));
+    }
+
+    /** Les enfants ELEMENT d'un noeud — les cellules d'une rangee de grille. */
+    function enfantsElement(el) {
+        var out = [];
+        var fils = (el && el.childNodes) || [];
+        for (var i = 0; i < fils.length; i++) {
+            if (fils[i] && fils[i].nodeType === 1) out.push(fils[i]);
+        }
+        return out;
+    }
+
+    /**
+     * Une cellule est vide quand TOUS les champs qu'elle porte sont masques.
+     *
+     * Sans aucun champ, on ne juge pas : la cellule appartient au gabarit et ne
+     * nous regarde pas. C'est ce qui protege les rangees ou le socle n'a rien a
+     * dire — indicatif et telephone, nom et prenom.
+     */
+    var CHAMPS_VISIBLES = 'input:not([type="hidden"]), select, textarea';
+
+    function celluleVide(cellule) {
+        /* Les champs CACHES sont exclus, et ce n'est pas un detail : un
+           `<input type="hidden">` n'occupe aucune place, mais son porteur
+           remonte jusqu'a la cellule elle-meme — qu'on jugerait alors occupee,
+           et qui ne se retirerait plus jamais. Aucun n'habite une cellule
+           aujourd'hui ; il suffirait qu'on en depose un pour que la regle
+           devienne muette, sans le moindre signe. */
+        var champs = cellule.querySelectorAll ? cellule.querySelectorAll(CHAMPS_VISIBLES) : null;
+        if (!champs || !champs.length) return false;
+        for (var i = 0; i < champs.length; i++) {
+            if (!estMasque(porteurDe(champs[i]))) return false;
+        }
+        return true;
+    }
+
+    /**
+     * Recalcule les cellules de la rangee qui porte ce champ.
+     * Sans rangee reconnue, ne fait rien.
+     */
+    function ajusterRangee(el) {
+        if (!el || !el.closest) return;
+        var rangee = el.closest(RANGEES);
+        if (!rangee) return;
+
+        var cellules = enfantsElement(rangee);
+        var debout = [];
+        for (var i = 0; i < cellules.length; i++) {
+            var vide = celluleVide(cellules[i]);
+            if (cellules[i].style) cellules[i].style.display = vide ? 'none' : '';
+            if (!vide) debout.push(cellules[i]);
+        }
+
+        /* La derniere cellule debout prend la ligne entiere. `1 / -1` couvre
+           toutes les colonnes declarees par le gabarit, quel qu'en soit le
+           nombre, et se retire de lui-meme des qu'une voisine revient — c'est
+           pour cette symetrie qu'on reecrit la propriete a chaque passage
+           plutot que de la poser une fois pour toutes. */
+        for (var j = 0; j < debout.length; j++) {
+            if (debout[j].style) {
+                debout[j].style.gridColumn = (debout.length === 1) ? '1 / -1' : '';
+            }
+        }
     }
 
     /**
@@ -2329,9 +2452,14 @@ try {
      * aurait donne un lien qui navigue au lieu de telecharger, sans le dire.
      * Ouvrir un onglet preserve en prime le formulaire et son message.
      *
-     * Le style copie celui du bouton de soumission des blocs (noir, majuscules,
+     * Le style copie celui du bouton de soumission des blocs (majuscules,
      * pleine largeur) : le visiteur doit reconnaitre un bouton de l'ecole, pas
      * un element rapporte.
+     *
+     * Les COULEURS peuvent venir de la DE — chaque ecole a sa charte, et le
+     * metier doit pouvoir en changer sans redeploiement. Absentes ou mal
+     * saisies, on retombe sur le noir et blanc d'origine : une couleur invalide
+     * rendrait un bouton illisible, ce qui est pire qu'un bouton banal.
      */
     function boutonCta(cta) {
         var a = document.createElement('a');
@@ -2349,8 +2477,8 @@ try {
         a.style.display = 'block';
         a.style.marginTop = '14px';
         a.style.padding = '14px';
-        a.style.background = '#000';
-        a.style.color = '#fff';
+        a.style.background = couleurOuDefaut(cta.fond, '#000');
+        a.style.color = couleurOuDefaut(cta.police, '#fff');
         a.style.textAlign = 'center';
         a.style.textDecoration = 'none';
         a.style.fontSize = '14px';
@@ -2456,6 +2584,177 @@ try {
         return { libelle: meilleure.libelle || CTA_BROCHURE[langue], href: meilleure.url };
     }
 
+    /* ====================================================================
+       LE CTA « TELECHARGER LA DOCUMENTATION » — DE CTA_demande_documentation
+       ====================================================================
+       Meme place que le CTA de brochure ci-dessus, mais une source REELLE :
+       la DE `CTA_demande_documentation` existe, elle est renseignee, et elle
+       porte le lien, le LIBELLE et les COULEURS. Chaque ecole a sa charte, et
+       le metier doit pouvoir la changer sans redeploiement — c'est pour ca
+       qu'aucune des trois n'est ecrite ici.
+
+         ecole                   Text 100    la cle de lecture, cote serveur
+         niveau_etudes           Text 4000   critere, plusieurs valeurs « ; »
+         cursus                  Text 4000   critere, plusieurs valeurs « ; »
+         titre_CTA_doc           Text 100    le libelle du bouton
+         couleur_fond_CTA_doc    Text 100    #RRGGBB
+         couleur_police_CTA_doc  Text 100    #RRGGBB
+         url_documentation       Text 4000   la cible
+
+       --- Le partage serveur / navigateur --------------------------------
+       La DE est lue COTE SERVEUR, filtree sur l'ecole de la page, et ses lignes
+       sont publiees dans `SOCLE_DATA.ctaDoc`. La selection finale se fait ICI :
+       le niveau et le cursus ne sont connus qu'une fois le formulaire rempli,
+       et toute l'architecture evite les allers-retours serveur.
+
+       --- Une colonne de critere VIDE ne contraint rien -------------------
+       C'est la ligne par defaut de l'ecole. On garde la ligne correspondante
+       LA PLUS PRECISE — celle qui contraint le plus de criteres — ce qui laisse
+       cohabiter un defaut et des lignes par niveau sans ordre impose dans la
+       DE. Meme doctrine que le CTA de brochure, et pour la meme raison : le
+       metier ne doit pas avoir a trier ses lignes.
+
+       --- ⚠ ECART DE REFERENTIEL, mesure sur les comptes reels -----------
+       Le formulaire poste la valeur du value set Salesforce
+       `Account.Academic_Level_List__c` :
+
+         College · Seconde · Premiere · Terminale · BAC obtenu ou Prepa ·
+         BAC+1 · BAC+2 · BAC+3 · BAC+4 · BAC+5 et + · BAC+6 · Autres
+
+       La DE, elle, est saisie A LA MAIN : elle ecrit « Bac+1 » (casse) et
+       « BAC » (libelle). On compare donc en MAJUSCULES SANS ACCENT, ce qui
+       regle la casse et les accents ; le libelle « BAC », lui, ne se deduit
+       d'aucune regle et demande une equivalence EXPLICITE — le metier a
+       confirme qu'il designe le bac obtenu.
+
+       C'est un pansement, et il est ecrit comme tel : la correction durable est
+       d'aligner la DE sur le value set. Le jour ou ce sera fait, la table
+       ci-dessous devient inerte sans rien casser.
+
+       --- ⚠ CE QUI RESTE A CORRIGER DANS LA DE, mesure le 2026-09-04 -------
+       102 lignes relevees en recette. Aucune n'est SANS critere : chaque ecole
+       enumere ses niveaux, il n'y a donc pas de ligne par defaut, et un niveau
+       absent de la DE ne rend AUCUN bouton. Trois trous en decoulent, et tous
+       les trois se rebouchent dans la DE, pas ici :
+
+         · EFAP ecrit « Bac+5 » la ou le value set dit « BAC+5 et + ». Les neuf
+           autres ecoles ecrivent bien « Bac+5 et + ». Un visiteur EFAP de ce
+           niveau n'a pas de bouton ; corriger la cellule suffit. Aucune
+           equivalence n'est posee ici pour ce cas : elle masquerait une faute
+           de saisie isolee au lieu de la faire corriger, et le cadrage n'en
+           prevoit qu'une seule, celle de « BAC ».
+         · « BAC+6 » et « Autres » existent dans le value set et dans aucune
+           ligne de la DE.
+         · CREAD porte deux lignes « Reconversion Professionnelle », qui n'est
+           pas un niveau d'etudes mais un profil. Elles sont inertes.
+       ==================================================================== */
+
+    /**
+     * Le referentiel de la DE, rapproche de celui du formulaire.
+     *
+     * Les cles sont deja normalisees par `cle()` : majuscules, sans accent,
+     * espaces reduits. Une valeur absente de la table passe telle quelle — la
+     * casse et les accents suffisent a rapprocher tout le reste.
+     */
+    var NIVEAU_DOC_EQUIV = {
+        'BAC': 'BAC OBTENU OU PREPA',
+        'BAC OBTENU': 'BAC OBTENU OU PREPA'
+    };
+
+    function canonNiveauDoc(v) {
+        var k = cle(v);
+        return NIVEAU_DOC_EQUIV[k] || k;
+    }
+
+    /** Normalisation commune aux criteres qui n'ont pas de referentiel a part. */
+    function canonDoc(v) { return cle(v); }
+
+    /**
+     * Critere de la DE -> champs du formulaire qui peuvent le renseigner.
+     *
+     * `cursus` en lit DEUX : la brochure ne porte que `Speciality` — le
+     * « Programme souhaite » du fichier des champs visibles — tandis que la
+     * candidature resout en plus un `Programme`. Une ligne dont le cursus
+     * correspond a l'un OU l'autre est retenue : les deux champs portent des
+     * espaces de valeurs disjoints, une correspondance croisee ne peut donc pas
+     * etre fortuite.
+     */
+    var CRITERES_DOC = [
+        { cle: 'niveau', champs: ['StudyLevel'], norme: canonNiveauDoc },
+        { cle: 'cursus', champs: ['Speciality', 'Programme'], norme: canonDoc }
+    ];
+
+    /** Une couleur exploitable, ou le repli. */
+    function couleurOuDefaut(brut, repli) {
+        var v = String(brut === null || brut === undefined ? '' : brut)
+                    .replace(/^\s+|\s+$/g, '');
+        /* Seules les notations hexadecimales sont acceptees, et c'est
+           volontaire : la DE est saisie a la main, et un « bleu » ou un
+           `#12345` poserait une couleur que le navigateur ignore — donc un
+           bouton transparent sur fond blanc, illisible et sans message. */
+        return /^#([0-9a-fA-F]{3}|[0-9a-fA-F]{6})$/.test(v) ? v : repli;
+    }
+
+    /**
+     * Le CTA de documentation a poser sous la confirmation, ou null.
+     *
+     * Quatre raisons de ne rien rendre, et aucune n'est une panne : ce n'est
+     * pas un formulaire de brochure, la DE ne repond pas, aucune de ses lignes
+     * ne couvre ce que le visiteur a choisi, ou la ligne retenue est incomplete.
+     * Un CTA vers une URL absente est pire que pas de CTA.
+     */
+    function ctaDocumentation(form) {
+        if (familleDe(form) !== 'brochure') return null;
+
+        var lignes = D && D.ctaDoc;
+        if (!lignes || !lignes.length) return null;
+
+        var meilleure = null, meilleurScore = -1;
+        for (var i = 0; i < lignes.length; i++) {
+            var ligne = lignes[i];
+            if (!ligne) continue;
+
+            var score = 0, retenue = true;
+            for (var c = 0; c < CRITERES_DOC.length; c++) {
+                var attendu = ligne[CRITERES_DOC[c].cle];
+                if (!attendu) continue;                 // colonne vide = ne contraint rien
+                score++;
+                if (!critereDocSatisfait(form, CRITERES_DOC[c], attendu)) { retenue = false; break; }
+            }
+            /* `>` et non `>=` : a precision egale, la premiere ligne de la DE
+               gagne, ce qui rend l'ordre du metier previsible. */
+            if (retenue && score > meilleurScore) { meilleure = ligne; meilleurScore = score; }
+        }
+        if (!meilleure) return null;
+
+        /* AUCUN LIBELLE EN DUR, et c'est une regle du cadrage : une ligne sans
+           titre ne rend pas de bouton. Inventer un libelle ferait passer pour
+           voulue une ligne a moitie saisie. */
+        var libelle = String(meilleure.titre || '').replace(/^\s+|\s+$/g, '');
+        if (!libelle) return null;
+
+        /* Et seulement sur une VRAIE URL : un `#` ou un chemin relatif
+           ouvrirait la CloudPage elle-meme dans un onglet. */
+        var url = String(meilleure.url || '').replace(/^\s+|\s+$/g, '');
+        if (!/^https?:\/\//i.test(url)) return null;
+
+        return { libelle: libelle, href: url,
+                 fond: meilleure.fond, police: meilleure.police };
+    }
+
+    /** Le critere est-il satisfait par l'un des champs qui peuvent le porter ? */
+    function critereDocSatisfait(form, critere, attendu) {
+        for (var j = 0; j < critere.champs.length; j++) {
+            var saisi = valeurChamp(form, critere.champs[j]);
+            if (!saisi) continue;
+            /* `contient` : la colonne est en Text(4000) et accepte plusieurs
+               valeurs separees par « ; ». La fonction est celle de la cascade,
+               reutilisee telle quelle, avec la normalisation du critere. */
+            if (contient(attendu, saisi, critere.norme)) return true;
+        }
+        return false;
+    }
+
     /**
      * La confirmation, en vert, AU-DESSUS du formulaire laisse intact.
      *
@@ -2469,9 +2768,15 @@ try {
         var msg = MESSAGES[familleDe(form)];
         var lignes = [COCHE + ' ' + msg.titre];
         if (msg.texte) lignes.push(msg.texte);
-        /* Le CTA de brochure, quand la DE le fournit. Sinon rien : le message
-           reste ce qu'il etait. Voir CTA_BROCHURE plus haut. */
-        var cta = ctaBrochure(form);
+        /* Le CTA, quand une DE le fournit. Sinon rien : le message reste ce
+           qu'il etait.
+
+           `CTA_demande_documentation` d'abord : c'est la DE qui EXISTE, et la
+           seule qui porte les couleurs de l'ecole. `SOCLE_DATA.brochures`
+           reste en repli — son contrat est plus large (campus, programme) et
+           rien ne dit qu'il ne servira pas ; il ne s'allume de toute facon
+           qu'a partir du moment ou quelqu'un le publie. */
+        var cta = ctaDocumentation(form) || ctaBrochure(form);
         if (cta) lignes.push({ cta: cta });
         montrerMessage(form, lignes, 'succes');
     }
