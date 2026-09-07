@@ -906,7 +906,13 @@ try {
      * reponse qu'une mauvaise reponse silencieuse.
      *
      * La vraie correction n'est pas ici : `Speciality__c` est vide sur ces
-     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules. */
+     * programmes. Rempli cote CRM, les 30 combinaisons se resolvent seules.
+     *
+     * MISE A JOUR DU 04/09 — en CANDIDATURE, le socle ecarte desormais en
+     * amont tout programme sans specialite : le cas decrit ci-dessus ne s'y
+     * presente plus. La garde reste indispensable pour le RYTHME et la LANGUE,
+     * qui peuvent etre vides sur un programme par ailleurs valable, et pour les
+     * autres formulaires, qui ne filtrent pas les programmes. */
     /* Criteres qu'au moins un programme en lice ne porte PAS. Ils sont
        optionnels par nature : le candidat peut les renseigner ou non, donc ils
        ne bloquent pas les champs qui les suivent en mode progressif. Rempli a
@@ -1456,7 +1462,11 @@ try {
         var el = champ('Campus');
         if (!el || el.value) return;
 
-        var voulu = parametreUrl('campus') || parametreUrl('Campus');
+        /* `sf_campus` est le nom que les guidelines de tracking imposent aux
+           liens decores (utm_ -> sf_). Jusqu'au 04/09 seul `campus` etait lu :
+           le parametre officiel ne preselectionnait rien. */
+        var voulu = parametreUrl('campus') || parametreUrl('Campus')
+                 || parametreUrl('sf_campus') || parametreUrl('utm_campus');
         if (!voulu) return;
         voulu = voulu.replace(/^\s+|\s+$/g, '');
         if (!voulu) return;
@@ -2098,11 +2108,12 @@ try {
             if (v !== undefined && v !== null && v !== '') el.value = v;
         }
 
-        /* utm_campus n'est pas publie par la page — elle expose `campus`, qui
-           est le campus PRE-SELECTIONNE, pas le parametre publicitaire. On le
-           relit donc a la source. */
+        /* utm_campus : la CloudPage le pose desormais dans le champ cache du
+           meme nom (audit du 04/09). On garde la lecture directe de l'URL pour
+           les pages servies par une CloudPage plus ancienne — `utm_campus`
+           d'abord, puis `sf_campus`, le nom impose par les guidelines. */
         var camp = form.querySelector('[name="utm_campus"]');
-        if (camp && !camp.value) camp.value = parametreUrl('utm_campus');
+        if (camp && !camp.value) camp.value = parametreUrl('utm_campus') || parametreUrl('sf_campus');
 
         miroirCampus(form);
     }
@@ -2126,9 +2137,40 @@ try {
      * n'a d'homonyme dans aucune casse, donc rien a fusionner. Le socle
      * d'ecriture le lit en premier et ne retombe sur `Campus` que pour les
      * pages anciennes, qui ne portent pas encore ce champ.
+     *
+     * Depuis l'audit du 04/09 la CloudPage n'injecte plus `campus` (elle pose
+     * `utm_campus`, que le formulaire declare). Le miroir reste : il protege
+     * les pages servies par une CloudPage non mise a jour, et toute collision
+     * future du meme genre.
      */
+    /**
+     * Le select de campus d'un formulaire — DANS le form, ou juste a cote.
+     *
+     * Les quatre formulaires evenementiels (JPO, atelier, stage, immersion)
+     * posent leur campus AU-DESSUS du <form>, dans une zone soeur : c'est la
+     * maquette. L'expediteur du socle ne serialise que les champs du form, et
+     * le miroir ne cherchait que la : sur ces quatre formulaires, aucune cle
+     * `Campus` ne partait, et Ecole__c n'a JAMAIS ete ecrit. Journal du 04/09 :
+     * evenement 0 resolu / 4 vides, quand brochure et candidature resolvent.
+     *
+     * On remonte donc d'un parent a la fois jusqu'au premier qui contient un
+     * select de campus : le plus proche gagne, ce qui borne la recherche a la
+     * carte du formulaire et ne peut pas attraper celui d'un autre bloc.
+     */
+    function selectCampusDe(form) {
+        var s = form.querySelector('[name="Campus"]');
+        if (s) return s;
+        var n = form.parentNode;
+        while (n && typeof n.querySelector === 'function') {
+            s = n.querySelector('select[name="Campus"]');
+            if (s) return s;
+            n = n.parentNode;
+        }
+        return null;
+    }
+
     function miroirCampus(form) {
-        var source = form.querySelector('[name="Campus"]');
+        var source = selectCampusDe(form);
         if (!source) return;
         var miroir = form.querySelector('[name="CampusChoisi"]');
         if (!miroir) {
@@ -2890,11 +2932,13 @@ try {
                 return;
             }
 
-            /* Plafond d'affichage : 201 <li> a chaque frappe rament sur mobile,
-               et personne ne lit au-dela. La recherche, elle, porte bien sur
-               les 201. */
-            var max = Math.min(trouvees.length, 60);
-            for (var j = 0; j < max; j++) {
+            /* Pas de plafond. Il y en avait un (60) au nom de la fluidite sur
+               mobile ; retour du 06/09 : liste ouverte sans rien taper, elle
+               s'arretait a « Ethiopie », et l'utilisateur en concluait que les
+               autres pays n'existaient pas. Rien n'indiquait une coupure. La
+               liste defile deja (max-height + overflow), et 201 <li> se
+               construisent en quelques millisecondes. */
+            for (var j = 0; j < trouvees.length; j++) {
                 var e = trouvees[j].e;
                 var li = document.createElement('li');
                 li.textContent = e.texte;
@@ -3127,6 +3171,38 @@ try {
      * que sur certains formulaires evenement, et exiger un format sur un champ
      * invisible fermerait la porte sans rien montrer.
      */
+    /**
+     * Format de l'adresse e-mail.
+     *
+     * `type="email"` du navigateur laisse passer « nom@domaine » sans
+     * extension. Salesforce, lui, le refuse — et un refus de CreateSalesforceObject
+     * TUE la page : le visiteur voyait une erreur generique, et rien n'etait
+     * ecrit. Retour du 06/09. On exige donc ce que le CRM exige : une
+     * extension d'au moins deux lettres, pas d'espace.
+     * Meme regle cote AMPscript (handler-form), pour un POST sans JS. */
+    var EMAIL_FORMAT = /^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$/;
+
+    function erreurFormatEmail(input) {
+        if (!input) return '';
+        var v = String(input.value == null ? '' : input.value).replace(/^\s+|\s+$/g, '');
+        if (!v) return '';                        // champ vide : c'est `required` qui parle
+        if (EMAIL_FORMAT.test(v)) return '';
+        return langueAffichage() === 'en'
+            ? 'Invalid email address: please check the format (e.g. name@domain.com).'
+            : 'Adresse e-mail invalide : vérifiez le format (exemple : prenom.nom@domaine.fr).';
+    }
+
+    function erreursEmail(form) {
+        var out = [];
+        var mails = form.querySelectorAll('input[name="EmailAddress"]');
+        for (var i = 0; i < mails.length; i++) {
+            if (!estVisible(mails[i])) continue;
+            var msg = erreurFormatEmail(mails[i]);
+            if (msg) out.push({ champ: mails[i], message: msg });
+        }
+        return out;
+    }
+
     function erreursTelephone(form) {
         var out = [];
         var tels = form.querySelectorAll('input[name="MobilePhone"], input[name="ChildPhone"]');
@@ -3167,7 +3243,7 @@ try {
                sur place plutot que de creer un prospect avec un numero
                injoignable. Place avant la desactivation du bouton, sinon le
                candidat se retrouverait devant un bouton mort. */
-            var mauvaisTels = erreursTelephone(form);
+            var mauvaisTels = erreursEmail(form).concat(erreursTelephone(form));
             if (mauvaisTels.length) {
                 var lignes = [];
                 for (var t = 0; t < mauvaisTels.length; t++) lignes.push(mauvaisTels[t].message);

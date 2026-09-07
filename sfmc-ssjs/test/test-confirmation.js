@@ -177,6 +177,7 @@ function creerPage(typeFormulaire, { avecSucces = true, avecZone = true, champs 
     function correspond(n, sel) {
         if (sel.startsWith('form.')) return n.tagName === 'FORM' && n.className === sel.slice(5);
         if (sel.startsWith('[name="')) return n.name === sel.slice(7, -2);
+        if (sel.startsWith('select[name="')) return n.tagName === 'SELECT' && n.name === sel.slice(13, -2);
         if (sel === 'button[type="submit"]') return n.tagName === 'BUTTON' && n.type === 'submit';
         if (sel === 'input[type="submit"]') return n.tagName === 'INPUT' && n.type === 'submit';
         if (sel.startsWith('[data-socle="')) return n.getAttribute('data-socle') === sel.slice(13, -2);
@@ -208,7 +209,9 @@ function jouer(page, htmlRendu) {
                 brochures: page.brochures,
                 config: { progressif: true, ordre: 'campus,niveau', champs: {} },
             },
-            location: { search: '?utm_campus=lyon', href: 'https://x/p?utm_campus=lyon' },
+            /* L'URL de la page est un parametre du test (`page.url`) : c'est
+               elle que lisent utm_campus et la preselection du campus. */
+            location: { search: page.url || '?utm_campus=lyon', href: 'https://x/p' + (page.url || '?utm_campus=lyon') },
             tracking_params: page.tracking || null,
             console: page.console || { warn() {} },
             fetch: page.fetch || undefined,
@@ -414,6 +417,44 @@ test('Le tracking de la page est recopie dans les champs caches [REGRESSION]', (
     egal(p.caches.gclid.value, 'GCL31', 'gclid perdu');
     egal(p.caches.canal.value, 'Paid Social', 'canal perdu');
     egal(p.caches.clientId.value, 'GA1.2.33', 'client_id non recopie sous clientId');
+});
+
+test('sf_campus, le nom impose par les guidelines, remplit utm_campus [AUDIT 04/09]', () => {
+    /* Les liens decores remplacent utm_ par sf_ pour ne pas polluer GA4. La
+       CloudPage traduit sf_campus en `campus`, qu'aucun formulaire ne declare :
+       UTMCampus__c restait vide (2 comptes sur toute l'org le portaient). */
+    const p = creerPage('brochure');
+    p.url = '?sf_campus=lyon';
+    jouer(p, '');
+    egal(p.caches.utm_campus.value, 'lyon', 'sf_campus non relu dans l URL');
+});
+
+test('sf_campus preselectionne le campus, comme campus= le faisait [AUDIT 04/09]', () => {
+    const p = creerPage('brochure');
+    const select = p.document.createElement('select');
+    select.name = 'Campus';
+    select.options = [{ value: '' }, { value: 'EFAP PARIS' }, { value: 'EFAP LYON' }];
+    p.form.appendChild(select);
+    p.url = '?sf_campus=lyon';
+    jouer(p, '');
+    egal(select.value, 'EFAP LYON', 'sf_campus=lyon n a pas preselectionne EFAP LYON');
+});
+
+test('Le campus HORS du form est recopie dans CampusChoisi [evenementiel, 04/09]', () => {
+    /* JPO, atelier, stage, immersion : le select de campus vit dans une zone
+       SOEUR du <form>. L'expediteur du socle ne poste que le form : sans
+       miroir, aucune cle Campus ne partait et Ecole__c restait vide — sur
+       chacune des soumissions evenementielles du journal. */
+    const p = creerPage('evenement');
+    const select = p.document.createElement('select');
+    select.name = 'Campus';
+    select.options = [{ value: '' }, { value: 'EFAP PARIS' }, { value: 'EFAP BORDEAUX' }];
+    select.value = 'EFAP BORDEAUX';
+    p.campus.appendChild(select);          // la zone campus, pas le form
+    jouer(p, '');
+    const miroir = p.form.querySelector('[name="CampusChoisi"]');
+    vrai(!!miroir, 'CampusChoisi absent du form quand le select est a cote');
+    egal(miroir && miroir.value, 'EFAP BORDEAUX', 'CampusChoisi ne porte pas le campus choisi a cote du form');
 });
 
 test('utm_campus vient de l URL, pas de tracking_params', () => {

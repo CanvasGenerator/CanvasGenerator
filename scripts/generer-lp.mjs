@@ -1,14 +1,31 @@
 /**
  * ============================================================================
- *  GENERATION DES LANDING PAGES DE RECETTE — 10 ECOLES x 6 FORMULAIRES
+ *  GENERATION DES LANDING PAGES — 10 ECOLES x 6 FORMULAIRES
  * ============================================================================
  *  Assemble le trio header + formulaire + footer de chaque ecole et publie la
- *  page dans Content Builder sous la cle `Recette_<TYPE>_<ECOLE>_V0`.
+ *  page dans Content Builder.
+ *
+ *  DEUX LOTS, DEUX JEUX DE PAGES DISTINCTS
+ *
+ *    --lot=interne  (defaut)  `Interne_<TYPE>_<ECOLE>_V0`
+ *        Nos tests a nous. On y publie librement, aussi souvent qu'on veut,
+ *        pendant qu'on developpe.
+ *
+ *    --lot=recette            `Recette_<TYPE>_<ECOLE>_V0`
+ *        Les pages que le client et les ecoles regardent. On n'y publie QUE
+ *        sur demande explicite, une fois l'interne valide. Le lot exige en
+ *        plus `--confirme-recette` : un `--push` distrait ne peut pas les
+ *        atteindre, et le drapeau doit etre tape a la main.
+ *
+ *  Les deux lots ne partagent aucune cle : publier l'un ne touche jamais
+ *  l'autre.
  *
  *  Usage :
- *      node scripts/generer-lp-recette.mjs                          simulation
- *      node scripts/generer-lp-recette.mjs --only=efap:BRCH         une seule
- *      SFMC_SYNC_ENABLED=true node scripts/generer-lp-recette.mjs --push --mid=536010339
+ *      node scripts/generer-lp.mjs                                  simulation
+ *      node scripts/generer-lp.mjs --only=efap:BRCH                 une seule
+ *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339
+ *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339 \
+ *          --lot=recette --confirme-recette
  *
  *  --mid est OBLIGATOIRE avec --push : il confirme la Business Unit visee.
  *  536010339 = RECETTE EDH · 536009308 = entreprise parente (a eviter).
@@ -52,7 +69,13 @@ const args = process.argv.slice(2);
 const PUSH = args.includes('--push');
 const MID  = (args.find((a) => a.startsWith('--mid=')) || '').split('=')[1];
 const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
-const SORTIE = path.join(process.cwd(), '.lp-recette');
+const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').split('=')[1] || '').toLowerCase();
+const CONFIRME_RECETTE = args.includes('--confirme-recette');
+
+/* Le prefixe de cle EST la separation entre les deux lots. Rien d'autre ne les
+   distingue cote SFMC : meme dossier, meme gabarit, meme socle. */
+const PREFIXES = { interne: 'Interne', recette: 'Recette' };
+const SORTIE = path.join(process.cwd(), '.lp-pages', LOT);
 
 const RACINE = process.cwd();
 
@@ -168,6 +191,21 @@ ${footer}
 }
 
 /* -- garde-fous ---------------------------------------------------------- */
+if (!PREFIXES[LOT]) {
+    console.error(`❌ --lot=${LOT || '(vide)'} inconnu. Valeurs admises : interne, recette.`);
+    process.exit(1);
+}
+
+/* La recette est ce que le client regarde : une publication y change ce qu'il
+   voit a l'instant meme, et une page publiee ne se depublie pas d'un revert.
+   Le drapeau ne peut donc pas etre devine — il faut l'avoir tape. */
+if (PUSH && LOT === 'recette' && !CONFIRME_RECETTE) {
+    console.error('❌ Publication en RECETTE demandee sans --confirme-recette.\n'
+                + '   La recette est l\'environnement du client. Valider d\'abord en interne\n'
+                + '   (--lot=interne), puis relancer avec --lot=recette --confirme-recette.');
+    process.exit(1);
+}
+
 if (PUSH) {
     if (MID !== process.env.SFMC_ACCOUNT_ID) {
         console.error(`❌ --mid=${MID || '(absent)'} ne correspond pas a SFMC_ACCOUNT_ID=${process.env.SFMC_ACCOUNT_ID}.`);
@@ -190,7 +228,7 @@ for (const ecole of ECOLES) {
     }
 }
 
-console.log(`\n  Landing pages de recette — ${travaux.length} page(s)`);
+console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
 console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}\n`);
 
@@ -201,7 +239,7 @@ const echecs = [];
 
 for (const { ecole, f } of travaux) {
     const ECOLE = ecole.id.toUpperCase().replace(/-/g, '_');
-    const nomProjet = `school-${ecole.id}__Recette_${f.code}_${ECOLE}_V0`;
+    const nomProjet = `school-${ecole.id}__${PREFIXES[LOT]}_${f.code}_${ECOLE}_V0`;
     const cle = customerKeyFor(nomProjet);
     try {
         const [header, formulaire, footer] = await Promise.all([
