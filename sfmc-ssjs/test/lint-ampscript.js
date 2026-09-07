@@ -104,7 +104,12 @@ for (const rel of CIBLES) {
     for (const m of code.matchAll(/^\s*VAR\s+(.+)$/gm)) {
         for (const v of m[1].split(',')) decl.add(v.trim());
     }
-    const utilisees = new Set([...code.matchAll(/@\w+/g)].map((m) => m[0]));
+    /* Les chaines litterales sont retirees avant la recherche : un « @ » y est
+       du texte, pas une variable. Sans cela, l'exemple d'adresse d'un message
+       d'erreur (« prenom.nom@domaine.fr ») passait pour une variable @domaine
+       non declaree — faux positif constate le 07/09, dans un commit du 06. */
+    const sansChaines = code.replace(/"[^"\n]*"/g, '""');
+    const utilisees = new Set([...sansChaines.matchAll(/@\w+/g)].map((m) => m[0]));
     const manquantes = [...utilisees].filter((v) => !decl.has(v));
     verifie(rel, manquantes.length === 0, `variables non declarees : ${manquantes.join(', ')}`);
 
