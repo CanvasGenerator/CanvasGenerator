@@ -134,6 +134,16 @@ export default function (editor, categories) {
 .imf-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .imf-row .imf-field { margin-bottom: 0; }
 .imf-field.hidden { display: none; }
+/* Un champ masqué laisse sa CELLULE de grille en place : la voisine restait
+   donc coincée dans sa colonne, avec la moitié de la ligne vide à côté. C'est
+   ce que donnait le niveau d'études sur IFA Paris, École Bleue, MoPA et 3WA,
+   qui ne proposent aucun campus.
+
+   Le socle fait le même geste sur une page publiée (ajusterRangee) : sans
+   ces deux règles, l'aperçu du builder montrerait un formulaire que personne
+   ne verra jamais en ligne. */
+.imf-row > .imf-col:has(> .imf-field.hidden) { display: none; }
+.imf-row:has(> .imf-col > .imf-field.hidden) > .imf-col { grid-column: 1 / -1; }
 .imf-label {
     font-size: 11px;
     font-weight: 700;

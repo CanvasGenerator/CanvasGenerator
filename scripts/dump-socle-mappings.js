@@ -44,7 +44,12 @@ const DE = {
     campus: 'LPB_Mapping_Campus',
     campagnes: 'LPB_Mapping_Campagnes',
     niveaux: 'LPB_Mapping_Niveaux',
-    indicatifs: 'LPB_Mapping_Indicatifs'
+    indicatifs: 'LPB_Mapping_Indicatifs',
+    /* Seule DE du socle qui ne porte PAS le préfixe LPB : elle a été créée
+       côté métier, sous « 04 Tests ». Le dossier n'a aucune importance pour
+       `DataExtension.Init`, mais le NOM en a une pour l'inventaire ci-dessous
+       — cf. `cataloguer()`, qui cherche désormais sur deux termes. */
+    ctaDoc: 'CTA_demande_documentation'
 };
 
 const args = process.argv.slice(2);
@@ -57,12 +62,21 @@ function anomalie(gravite, texte) { anomalies.push({ gravite, texte }); }
 function norm(v) { return String(v ?? '').trim().toLowerCase(); }
 function estVrai(v) { return norm(v) === 'true'; }
 
+/* Les termes à chercher dans le catalogue. « LPB » couvrait tout jusqu'à ce
+   que le métier crée `CTA_demande_documentation` : la DE existait, l'API ne la
+   renvoyait pas, et le pré-vol l'aurait déclarée ABSENTE — un BLOQUANT faux,
+   qui est exactement ce qui rend les vrais invisibles. */
+const RECHERCHES = ['LPB', 'CTA_demande_documentation'];
+
 async function cataloguer() {
-    const r = await sfmcFetch('GET', '/data/v1/customobjects?$search=LPB&$pagesize=100');
     const parNom = {};
-    (r.items || []).forEach((d) => {
-        parNom[d.name] = { key: d.key, lignes: d.rowCount };
-    });
+    for (const terme of RECHERCHES) {
+        const r = await sfmcFetch('GET',
+            `/data/v1/customobjects?$search=${encodeURIComponent(terme)}&$pagesize=100`);
+        (r.items || []).forEach((d) => {
+            parNom[d.name] = { key: d.key, lignes: d.rowCount };
+        });
+    }
     return parNom;
 }
 
