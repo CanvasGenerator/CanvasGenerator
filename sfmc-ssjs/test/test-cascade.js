@@ -1070,6 +1070,156 @@ test('Indicatif sans parentheses : garde son libelle, ne disparait pas', () => {
     egal(d.options('Indicatif'), ['Autre', '+33 (France)'], 'libelle atypique conserve');
 }, LAYOUT_AFFICHAGE);
 
+/* ============================================================================
+ *  LARGEUR DU NIVEAU D'ETUDES QUAND LE CAMPUS EST MASQUE
+ * ============================================================================
+ *  IFA Paris, Ecole Bleue, MoPA et 3WA ne proposent aucun campus. Campus et
+ *  niveau d'etudes partagent une rangee a DEUX COLONNES : masquer le campus
+ *  laissait le niveau a mi-largeur, seul contre la marge.
+ *
+ *  Le socle masquait deja le champ — ces tests-la existent depuis le 31/08 et
+ *  passaient. Ce qui manquait est ailleurs : la CELLULE de grille qui enveloppe
+ *  le porteur reste un element de grille et continue d'occuper sa colonne.
+ *
+ *  ⚠ POURQUOI LE HARNAIS A DU CHANGER POUR CES TESTS. Il ne modelisait aucune
+ *  cellule intermediaire : le porteur etait enfant direct de sa section. Sur ce
+ *  gabarit-la, masquer le porteur retire bien la colonne — le defaut etait donc
+ *  STRUCTURELLEMENT invisible ici, et un test ecrit sans la cellule aurait
+ *  passe avant comme apres le correctif. Le quatrieme membre d'une ligne de
+ *  layout nomme desormais cette cellule.
+ * ========================================================================== */
+
+/* Le markup REEL de la candidature : une `.cnd-row` a deux colonnes, et DANS
+   chaque colonne un `.cnd-col` qui enveloppe le porteur du champ. Le niveau et
+   le campus sont declares `2` — presents et VISIBLES au depart, comme leur
+   `.cnd-field` qui ne porte aucune classe `hidden`. */
+const LAYOUT_RANGEE_CELLULES = [['Email', 0],
+                                ['Campus', 2, 'cnd-row', 'cnd-col-campus'],
+                                ['StudyLevel', 2, 'cnd-row', 'cnd-col-niveau'],
+                                ['Speciality', 1], ['Consentements', 0]];
+
+/* La precandidature : meme rangee a deux colonnes, mais SANS cellule
+   intermediaire — le `.pc-field` est enfant direct du `.pc-row`, donc porteur
+   ET cellule a la fois. C'est le gabarit sur lequel le geste doit rester
+   inerte. */
+const LAYOUT_RANGEE_SANS_CELLULE = [['Email', 0],
+                                    ['Campus', 2, 'pc-row'],
+                                    ['StudyLevel', 2, 'pc-row'],
+                                    ['Speciality', 1], ['Consentements', 0]];
+
+/* Aucune rangee du tout : les formulaires JPO, atelier et stage. */
+const LAYOUT_SANS_RANGEE = [['Email', 0], ['Campus', 2], ['StudyLevel', 2],
+                            ['Speciality', 1], ['Consentements', 0]];
+
+/** La config des quatre ecoles sans campus. */
+const SANS_CAMPUS = { Campus: { visible: 'jamais', niveauMin: 0 },
+                      Speciality: { visible: 'toujours', niveauMin: 0 },
+                      Rhythm: { visible: 'toujours', niveauMin: 0 },
+                      Language: { visible: 'toujours', niveauMin: 0 } };
+
+test('Campus masque : sa cellule se retire, celle du niveau prend la ligne [REGRESSION]', (d, run) => {
+    /* Le retour client, en une assertion. Masquer le champ ne suffisait pas :
+       la cellule restait un element de grille, gardait sa colonne, et le niveau
+       d'etudes s'affichait sur une demi-largeur avec un blanc a cote. */
+    run(cfg({ champs: SANS_CAMPUS }), { StudyLevel: 'Bac+3' });
+    if (d.visible('Campus')) throw new Error('prealable : le campus est encore propose');
+    if (d.celluleVisible('Campus')) {
+        throw new Error('la cellule du campus occupe encore sa colonne');
+    }
+    if (!d.celluleVisible('StudyLevel')) {
+        throw new Error('la cellule du niveau a ete emportee avec celle du campus');
+    }
+    egal(d.largeurCellule('StudyLevel'), '1 / -1',
+         'le niveau reste a mi-largeur : sa cellule ne couvre pas la rangee');
+}, LAYOUT_RANGEE_CELLULES);
+
+test('Campus propose : les deux cellules gardent leur colonne', (d, run) => {
+    /* La contrepartie, et elle compte autant : six ecoles sur dix proposent un
+       campus, et un `1 / -1` pose a tort empilerait les deux champs. */
+    run(cfg({ champs: { Campus: { visible: 'toujours', niveauMin: 0 } } }),
+        { Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    if (!d.celluleVisible('Campus')) throw new Error('cellule du campus masquee a tort');
+    if (!d.celluleVisible('StudyLevel')) throw new Error('cellule du niveau masquee a tort');
+    egal(d.largeurCellule('StudyLevel'), '',
+         'le niveau s etale sur la rangee alors que le campus l occupe encore');
+    egal(d.largeurCellule('Campus'), '', 'le campus s etale sur la rangee');
+}, LAYOUT_RANGEE_CELLULES);
+
+test('La RANGEE elle-meme n est jamais masquee [REGRESSION]', (d, run) => {
+    /* C'est le gabarit qui decide si la ligne existe : sa requete `@media` la
+       repasse a une colonne sur mobile. Un `display` inline pose ici prendrait
+       la main sur cette regle sans le dire, et le formulaire perdrait sa
+       rangee entiere sur les quatre ecoles sans campus. */
+    run(cfg({ champs: SANS_CAMPUS }), { StudyLevel: 'Bac+3' });
+    const rangee = d.cellule('Campus').parentNode;
+    if (rangee.style.display === 'none') {
+        throw new Error('le socle a masque la rangee au lieu de la cellule');
+    }
+    if (rangee.style.gridColumn) {
+        throw new Error('le socle a impose une largeur a la rangee');
+    }
+}, LAYOUT_RANGEE_CELLULES);
+
+test('Sans cellule intermediaire, le geste ne masque rien de plus', (d, run) => {
+    /* La precandidature : le porteur EST la cellule. `afficher` l'a deja
+       masque, il n'y a pas de second niveau a retirer — et surtout rien a
+       RENDRE VISIBLE. Une cellule jugee sur son propre etat aurait ici ete vue
+       occupee (elle porte bien un champ) et le socle aurait rouvert le campus
+       qu'il venait de masquer. */
+    run(cfg({ champs: SANS_CAMPUS }), { StudyLevel: 'Bac+3' });
+    if (d.visible('Campus')) throw new Error('le campus a ete rouvert apres son masquage');
+    if (!d.celluleVisible('StudyLevel')) throw new Error('le niveau a disparu avec le campus');
+    egal(d.largeurCellule('StudyLevel'), '1 / -1',
+         'le niveau reste a mi-largeur alors qu il est seul sur la rangee');
+}, LAYOUT_RANGEE_SANS_CELLULE);
+
+test('Hors d une grille, le geste est INERTE', (d, run) => {
+    /* JPO, atelier et stage n'ont pas de rangee : le campus y vit dans sa
+       propre zone. Rien ne doit y etre pose — un `gridColumn` sur un element
+       qui n'est pas une cellule de grille ne fait rien de visible, mais il
+       signale une regle qui s'applique la ou elle n'a pas de sens. */
+    run(cfg({ champs: SANS_CAMPUS }), { StudyLevel: 'Bac+3' });
+    if (d.visible('Campus')) throw new Error('prealable : le campus est encore propose');
+    egal(d.largeurCellule('StudyLevel'), undefined,
+         'une largeur a ete posee alors qu il n y a aucune grille');
+}, LAYOUT_SANS_RANGEE);
+
+test('Une cellule videe REVIENT quand son champ revient [REGRESSION]', () => {
+    /* La precaution qui manque le plus facilement : juger une cellule sur son
+       PROPRE etat la condamnerait des le premier masquage. La cascade repasse a
+       chaque `change`, et un champ progressif s'ouvre precisement apres coup —
+       la specialite n'apparait qu'une fois le niveau renseigne.
+
+       Deux passages sur LE MEME dom, sans reset : c'est la seule facon de voir
+       l'etat laisse par le premier. */
+    const LAYOUT_PROG = [['Email', 0],
+                         ['Speciality', 1, 'cnd-row', 'cnd-col-spec'],
+                         ['StudyLevel', 2, 'cnd-row', 'cnd-col-niveau'],
+                         ['Consentements', 0]];
+    const d = creerDom(LAYOUT_PROG);
+    const passe = (selections) => {
+        Object.entries(selections).forEach(([k, v]) => { d.champs[k].value = v; });
+        vm.runInNewContext(CASCADE, {
+            window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg() }) },
+            document: d.document,
+        });
+    };
+
+    d.reset();
+    passe({ StudyLevel: '' });
+    if (d.celluleVisible('Speciality')) {
+        throw new Error('prealable : la specialite devrait etre masquee sans niveau choisi');
+    }
+
+    passe({ StudyLevel: 'Bac+3' });
+    if (!d.visible('Speciality')) throw new Error('prealable : la specialite reste masquee');
+    if (!d.celluleVisible('Speciality')) {
+        throw new Error('la cellule masquee au premier passage ne revient jamais');
+    }
+    egal(d.largeurCellule('StudyLevel'), '',
+         'le niveau garde la rangee entiere alors que la specialite est revenue a cote');
+});
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
     echecs.forEach((e) => console.error('  ✗ ' + e + '\n'));

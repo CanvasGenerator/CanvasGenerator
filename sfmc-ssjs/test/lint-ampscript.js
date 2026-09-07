@@ -19,7 +19,13 @@ const CIBLES = [
     'socle/handler-form.ampscript',
     'socle/picklist-handler.ampscript',
     'diagnostic/A-COLLER-cloudpage-ampscript.ssjs',
-    'diagnostic/A-COLLER-cloudpage-verif-salesforce.ampscript',
+    /* ⚠ NE PAS AJOUTER DE CIBLE SANS CREER LE FICHIER. Cette liste a porte
+       jusqu'au 2026-09-04 un `diagnostic/A-COLLER-cloudpage-verif-salesforce
+       .ampscript` qui n'a JAMAIS existe — `git log --all` sur ce chemin est
+       vide, et la seule trace du nom est le commit qui l'a inscrit ici. Le
+       lint sortait donc en echec a CHAQUE `npm test`, sur un « fichier
+       absent » que personne ne pouvait corriger — et un rouge permanent est
+       ce qui rend les vrais echecs invisibles. */
 ];
 
 /* Fonctions qui N'EXISTENT PAS en AMPscript mais qu'on suppose souvent.

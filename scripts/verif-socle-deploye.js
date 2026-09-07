@@ -51,6 +51,9 @@ const MARQUEURS = [
     { texte: 'LPB_Mapping_Indicatifs', quoi: 'lecture de la DE des longueurs de telephone' },
     { texte: 'function erreurLongueurTel', quoi: 'controle de longueur du telephone' },
     { texte: 'erreursTelephone(form)', quoi: '  et son refus a la soumission' },
+    { texte: 'CTA_demande_documentation', quoi: 'lecture de la DE du CTA documentation' },
+    { texte: 'function ctaDocumentation', quoi: '  et son rendu sous la confirmation' },
+    { texte: 'function ajusterRangee', quoi: 'largeur du niveau quand le campus est masque' },
 ];
 
 const args = process.argv.slice(2);

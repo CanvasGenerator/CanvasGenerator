@@ -161,6 +161,7 @@ SET @VAL_REFUSE      = "rejected"
    exacte du cadrage, accents compris : AMPscript ne sort pas d'accent sur ce
    projet, et le message client en comporte. */
 VAR @sfBlockMsg, @sfBlockRule, @candContactId, @candRows, @nCand, @candStatut, @candDecision
+VAR @candPortee
 SET @sfBlockMsg = ""
 SET @sfBlockRule = ""
 
@@ -585,7 +586,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
          R2 - refus dans l'annee (Jira 464) : une decision defavorable a deja
               ete rendue sur le meme programme la meme annee scolaire.
 
-       --- Pourquoi ce bloc est DESACTIVE par defaut ----------------------
+       --- Pourquoi ce bloc a d'abord ete livre DESACTIVE ------------------
        AMPscript n'a pas de try/catch, et un nom d'objet ou de champ invalide
        ne renvoie pas une erreur rattrapable : il REMPLACE la page. Interroger
        l'objet de candidature avec un nom non verifie ferait donc mourir la
@@ -603,7 +604,45 @@ IF IndexOf(@submitted, "true") > 0 THEN
        peut fusionner). Un candidat legitime bloque par erreur est un lead
        perdu, sans trace et sans recours. L'asymetrie tranche le defaut.
        ==================================================================== */
-    IF @REGLES_ACTIVES == "true" AND @formType == "candidature" AND NOT Empty(@ptatId) THEN
+    /* ---- LA PORTEE DE LA REGLE, ET POURQUOI ELLE VARIE -----------------
+       Le garde exigeait `NOT Empty(@ptatId)`, et c'etait LA CAUSE N.1 du faux
+       vert. `PTAT_Id` est un champ cache rempli par le NAVIGATEUR, au terme de
+       la cascade : il reste vide des que celle-ci ne reduit pas a un seul
+       programme — plusieurs programmes encore en lice, ou programme deduit
+       sans PTAT pour la rentree choisie. Ses PROPRES TESTS consacrent ces deux
+       etats comme normaux (test-cascade.js). R1 et R2 etaient donc sautees en
+       silence, la candidature s'ecrivait, et le visiteur lisait le VERT sans
+       que rien n'ait ete verifie.
+
+       Le terme est retire. La regle tourne desormais TOUJOURS sur une
+       candidature, et c'est sa PORTEE qui s'adapte :
+
+         ptat      le PTAT est resolu -> on filtre dessus. Le blocage reste
+                   propre a UN programme, et changer de programme reste permis :
+                   c'est l'identite meme d'une candidature (e-mail x programme),
+                   et le PTAT porte deja l'annee scolaire — aucun critere
+                   d'annee a ajouter, il serait redondant.
+
+         personne  le PTAT est absent -> on retombe sur un controle par
+                   PERSONNE. Plus severe : une candidature sur n'importe quel
+                   programme bloque. Mais uniquement LA OU LE PROGRAMME EST
+                   INCONNU, et l'alternative etait de ne rien controler du
+                   tout. Un doublon qui passe est rattrapable ; une regle
+                   muette ne se voit jamais.
+
+       Les deux portees sont tracees au journal, y compris quand elles laissent
+       passer : sans ca, « pourquoi celui-la est-il passe ? » n'a aucune
+       reponse. C'est ce qui a coute des heures. */
+    IF @REGLES_ACTIVES == "true" AND @formType == "candidature" THEN
+
+        IF Empty(@ptatId) THEN
+            SET @candPortee = "personne"
+        ELSE
+            SET @candPortee = "ptat"
+        ENDIF
+        IF @candPortee == "personne" THEN
+            SET @journal = Concat(@journal, " REGLES:portee=personne(ptat-absent)")
+        ENDIF
 
         /* Le lien vers la personne se fait par le Contact du Person Account.
            Sans compte existant, il ne peut y avoir de candidature anterieure :
@@ -614,10 +653,21 @@ IF IndexOf(@submitted, "true") > 0 THEN
         IF RowCount(@rows) > 0 THEN
             SET @candContactId = Field(Row(@rows,1), "PersonContactId")
 
-            SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
-                Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
-                @F_APP_PERSON, "=", @candContactId,
-                @F_APP_PTAT,   "=", @ptatId)
+            /* Deux requetes et non une : AMPscript n'a pas de filtre
+               conditionnel, l'arite de RetrieveSalesforceObjects est figee a
+               l'ecriture. Passer @ptatId vide comme valeur de filtre ne
+               chercherait pas « tous les PTAT » mais « le PTAT vide », donc
+               zero ligne — la panne serait exactement celle qu'on repare. */
+            IF @candPortee == "ptat" THEN
+                SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
+                    Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
+                    @F_APP_PERSON, "=", @candContactId,
+                    @F_APP_PTAT,   "=", @ptatId)
+            ELSE
+                SET @candRows = RetrieveSalesforceObjects(@OBJ_APPLICATION,
+                    Concat("Id,", @F_APP_STATUS, ",", @F_APP_DECISION),
+                    @F_APP_PERSON, "=", @candContactId)
+            ENDIF
             SET @nCand = RowCount(@candRows)
 
             IF @nCand > 0 THEN
@@ -640,7 +690,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ENDIF
                 NEXT @i
                 IF @sfStatus == "blocked" THEN
-                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)")
+                    SET @journal = Concat(@journal, " BLOQUE:", @nCand, "candidature(s)(portee=", @candPortee, ")")
                     /* ⚠ SANS CECI LE CANDIDAT NE VOIT RIEN DE JUSTE. Le
                        formulaire lit le commentaire « socle erreur: » et en
                        fait son message (shared/envoi-socle.js, puis alert).
@@ -670,12 +720,76 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             "Statut", "BLOQUE",
                             "Objet", @OBJ_APPLICATION,
                             "RecordId", Field(Row(@candRows, 1), "Id"),
-                            "Detail", Concat(@nCand, " candidature(s) sur le PTAT ", @ptatId, " — ", @sfBlockMsg),
+                            "Detail", Concat(@nCand, " candidature(s), portee=", @candPortee, ", ptat=", @ptatId, " - ", @sfBlockMsg),
                             "Email", @email,
                             "Ecole", @ecole,
                             "FormType", @formType)
                     ENDIF
                 ENDIF
+            ELSE
+                /* ⚠ LA REGLE A TOURNE ET N'A RIEN TROUVE. Ce n'est pas la
+                   meme chose que « la regle n'a pas tourne », et c'est ce que
+                   rien ne disait jusqu'ici : le 2026-09-04, une candidature
+                   ressortait en vert sur un e-mail deja candidat, les tests
+                   etaient verts eux aussi, et le journal ne permettait pas de
+                   distinguer laquelle des deux causes agissait.
+
+                   Lire ceci veut dire : le compte a ete trouve, la regle a
+                   tourne DANS LA PORTEE INDIQUEE, et le CRM ne porte aucune
+                   candidature. En portee `ptat`, si le candidat en a pourtant
+                   une, elle est sur un autre PTAT — donc une autre rentree ;
+                   en portee `personne`, il n'en a aucune, nulle part.
+
+                   ⚠ UN PASSAGE EN VERT SE JOURNALISE COMME UN BLOCAGE. Un
+                   blocage laissait sa ligne dans LPB_Log_Soumissions ; un
+                   passage, non — et c'est pourtant sur un passage qu'on est
+                   interroge. « Pourquoi celui-la est-il passe ? » n'avait
+                   aucune reponse, et les deux causes possibles se corrigent a
+                   l'oppose l'une de l'autre. */
+                SET @journal = Concat(@journal, " REGLES:aucune-candidature(ptat=", @ptatId, ",portee=", @candPortee, ")")
+                IF @LOG_ACTIF == "true" THEN
+                    SET @logOrdre = Add(@logOrdre, 1)
+                    InsertData("LPB_Log_Soumissions",
+                        "RowId", Concat(@runId, "-", @logOrdre),
+                        "RunId", @runId,
+                        "Ordre", @logOrdre,
+                        "Horodatage", Now(),
+                        "Etape", "21 - candidature libre",
+                        "Statut", "OK",
+                        "Objet", @OBJ_APPLICATION,
+                        "RecordId", @candContactId,
+                        "Detail", Concat("0 candidature, portee=", @candPortee, ", ptat=", @ptatId),
+                        "Email", @email,
+                        "Ecole", @ecole,
+                        "FormType", @formType)
+                ENDIF
+            ENDIF
+        ELSE
+            /* L'e-mail n'est porte par AUCUN Person Account, et la regle est
+               donc MUETTE — y compris pour un candidat que le CRM connait par
+               un autre canal. Le filtre porte sur `Account.PersonEmail` : un
+               compte importe dont l'adresse ne vit que sur ContactPointEmail
+               est invisible ici. A verifier AVANT de conclure que la regle
+               est cassee.
+
+               Journalise pour la meme raison que le cas ci-dessus : c'est une
+               issue VERTE, et elle ne se corrige pas comme les autres. */
+            SET @journal = Concat(@journal, " REGLES:email-inconnu(portee=", @candPortee, ")")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "21 - aucun compte",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", "",
+                    "Detail", Concat("aucun Account.PersonEmail, portee=", @candPortee, ", ptat=", @ptatId),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
             ENDIF
         ENDIF
     ENDIF
