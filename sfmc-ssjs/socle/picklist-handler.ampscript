@@ -812,29 +812,23 @@ IF NOT Empty(@typeEvt) THEN
            AND (Length(@prefixUp) == 0
            OR (NOT Empty(@instCampusId) AND IndexOf(@campusIdIndex, Concat(";", @instCampusId, ";")) > 0)
            OR (Empty(@instCampusId) AND IndexOf(Uppercase(@cName), @prefixUp) == 1)) THEN
-            /* `summit__Open_Registration__c` vaut false sur les ONZE instances
-               d'immersion. Sur une JPO ce drapeau ferme les inscriptions et
-               doit etre respecte ; sur l'immersion, la maitrise d'ouvrage a
-               tranche le 02/09 : il ne bloque pas.
-
-               ⚠ CE N'EST PAS SANS CONSEQUENCE, et c'est ecrit ici pour que
-               personne ne le decouvre en production : le socle creera des
-               Summit Event Registration sur des instances marquees fermees.
-               Si ce drapeau redevient un signal metier sur l'immersion, c'est
-               cette ligne qu'il faut retirer. */
+            /* `summit__Open_Registration__c` n'est PLUS un critere (decision du
+               08/09). La condition datait du 19/08 : un choix d'implementation,
+               jamais demande — ni dans le mapping v4, ni par la maitrise
+               d'ouvrage. Le reimport du 07/09 l'a laissee decochee sur les 868
+               instances : aucune date n'apparaissait plus. Le STATUT, demande
+               explicitement, est desormais le seul filtre : il ecarte les
+               brouillons, et c'est tout ce qu'on attend de lui. */
             /* ---- STATUT DE L'INSTANCE : « A venir » OU « En cours » SEULEMENT --
                Demande du 08/09 : les evenements en brouillon ne doivent pas
-               apparaitre sur les formulaires. Le statut vit sur l'INSTANCE,
-               `summit__Active_Status__c`, avec exactement ce vocabulaire :
-               Planning = A venir · Active = En cours · Inactive = Brouillon ·
-               Closed = Termine · Cancelled = Annule. On ne garde que les deux
-               premiers ; un statut VIDE est ecarte aussi — il n'est ni l'un ni
-               l'autre, et rien ne dit qu'une instance sans statut est prete.
-               Mesure du 08/09 : 868 instances, toutes en Planning — le filtre
-               ne retire rien aujourd'hui, il protege des brouillons de demain.
-               L'immersion n'est pas concernee : la demande vise JPO, ateliers
-               et stages, et l'instance d'immersion est unique par ecole — la
-               masquer casserait le formulaire sans que personne le voie. */
+               apparaitre. Le statut vit sur l'INSTANCE, `summit__Active_Status__c`,
+               avec exactement ce vocabulaire : Planning = A venir · Active = En
+               cours · Inactive = Brouillon · Closed = Termine · Cancelled = Annule.
+               On ne garde que les deux premiers ; un statut VIDE est ecarte
+               aussi. L'immersion n'est pas concernee : la demande vise JPO,
+               ateliers et stages, et l'instance d'immersion est unique par ecole.
+               C'est le SEUL filtre : `summit__Open_Registration__c` n'en est plus
+               un depuis le 08/09 (voir ci-dessus). */
             SET @statutInst = Field(@row, "summit__Active_Status__c")
             SET @statutOk = "false"
             IF @estImmersion == "true" OR @statutInst == "Planning" OR @statutInst == "Active" THEN
@@ -843,8 +837,7 @@ IF NOT Empty(@typeEvt) THEN
                 SET @nbInstStatut = Add(@nbInstStatut, 1)
             ENDIF
 
-            IF @statutOk == "true" AND (@estImmersion == "true"
-               OR Lowercase(Field(@row, "summit__Open_Registration__c")) != "false") THEN
+            IF @statutOk == "true" THEN
                 /* DateDiff sur une date VIDE tue la page, et l'immersion
                    BRASSART en doublon n'en porte aucune. */
                 SET @delta = 0
