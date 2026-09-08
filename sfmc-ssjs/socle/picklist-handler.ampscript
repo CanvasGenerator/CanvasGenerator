@@ -34,7 +34,7 @@ VAR @jsProgs, @jsCampus, @jsPtats, @jsTerms
 VAR @sepP, @sepC, @sepT, @sepR
 VAR @idIndex, @campusSeen, @termSeen, @cName, @cLabel, @pid, @tid, @nbProgs
 VAR @ptatRows, @ptatProgIndex, @nPtat, @j, @prow, @candidature
-VAR @jsInstances, @jsAppts, @nbInst, @typeEvt, @instSel, @evtParent
+VAR @jsInstances, @jsAppts, @nbInst, @nbInstStatut, @statutInst, @statutOk, @typeEvt, @instSel, @evtParent
 VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
 VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
@@ -670,12 +670,35 @@ ENDIF
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
+SET @nbInstStatut = 0
 VAR @replLibelle, @garderType, @estImmersion, @dBorne
 SET @typeEvt     = RequestParameter("TypeEvenement")
 /* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
    formulaire. Sans elle, une page evenement ouverte normalement n'affichait
    AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
 IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
+
+/* ---- LE TYPE DU FORMULAIRE N'EST PLUS CELUI DU CRM ---------------------------
+   Le 07/09 a 16:59 UTC, le CRM a reimporte l'integralite des instances Summit :
+   868 instances neuves, et un NOUVEAU vocabulaire pour `eventType__c` —
+   « Open House », « Discovery Workshop », « Internship », « Immersion Day »
+   (plus « Trade Show » et « Forum High School », sans formulaire). Les blocs,
+   eux, postent toujours JPO / Atelier_Decouverte / Stage / Immersion : la
+   requete ne trouvait plus rien, et les quatre formulaires evenementiels
+   n'affichaient plus aucune date, en interne comme en recette.
+   On traduit ici, une fois, et on garde la valeur brute en repli : si le CRM
+   revient a l'ancien vocabulaire, la requete retrouve ses instances sans
+   qu'on y touche. Cle normalisee en minuscules ; `atelier` et
+   `atelier_decouverte` designent le meme type. */
+VAR @refTypeEvt, @cleTypeEvt, @posTypeEvt, @resteTypeEvt, @typeEvtCrm
+SET @refTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
+SET @typeEvtCrm = @typeEvt
+SET @cleTypeEvt = Lowercase(Trim(@typeEvt))
+SET @posTypeEvt = IndexOf(@refTypeEvt, Concat("|", @cleTypeEvt, "="))
+IF @posTypeEvt > 0 THEN
+    SET @resteTypeEvt = Substring(@refTypeEvt, Add(Add(@posTypeEvt, Length(@cleTypeEvt)), 2))
+    SET @typeEvtCrm = Substring(@resteTypeEvt, 1, Subtract(IndexOf(@resteTypeEvt, "|"), 1))
+ENDIF
 SET @instSel     = RequestParameter("InstanceId")
 SET @evtParent   = ""
 
@@ -740,18 +763,16 @@ IF NOT Empty(@typeEvt) THEN
 
        AUTRES TYPES : le type reste le critere, il est fiable sur les JPO,
        ateliers et stages, et bien plus sur qu'une correspondance de texte. */
-    IF @estImmersion == "true" THEN
-        SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-            "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
-            "summit__Instance_Start_Date__c", ">=", @dBorne)
-        SET @replLibelle = "true"
-    ELSE
-        SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-            "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c",
-            "eventType__c",          "=",  @typeEvt,
-            "summit__Instance_Start_Date__c", ">=", @dBorne)
-        SET @replLibelle = "false"
-    ENDIF
+    /* L'immersion est desormais TYPEE (« Immersion Day ») comme les autres :
+       une seule requete pour les quatre formulaires. Le repli par libelle
+       (« immersion » dans summit__Event_Name__c) n'a plus d'objet — le champ
+       est vide sur les 868 instances du nouvel import — et reste a false.
+       Seule l'exception de date de l'immersion (@dBorne) est conservee. */
+    SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c,summit__Active_Status__c",
+        "eventType__c",          "=",  @typeEvtCrm,
+        "summit__Instance_Start_Date__c", ">=", @dBorne)
+    SET @replLibelle = "false"
     SET @n = RowCount(@rows)
 
     SET @sepI = ""
@@ -801,8 +822,29 @@ IF NOT Empty(@typeEvt) THEN
                Summit Event Registration sur des instances marquees fermees.
                Si ce drapeau redevient un signal metier sur l'immersion, c'est
                cette ligne qu'il faut retirer. */
-            IF @estImmersion == "true"
-               OR Lowercase(Field(@row, "summit__Open_Registration__c")) != "false" THEN
+            /* ---- STATUT DE L'INSTANCE : « A venir » OU « En cours » SEULEMENT --
+               Demande du 08/09 : les evenements en brouillon ne doivent pas
+               apparaitre sur les formulaires. Le statut vit sur l'INSTANCE,
+               `summit__Active_Status__c`, avec exactement ce vocabulaire :
+               Planning = A venir · Active = En cours · Inactive = Brouillon ·
+               Closed = Termine · Cancelled = Annule. On ne garde que les deux
+               premiers ; un statut VIDE est ecarte aussi — il n'est ni l'un ni
+               l'autre, et rien ne dit qu'une instance sans statut est prete.
+               Mesure du 08/09 : 868 instances, toutes en Planning — le filtre
+               ne retire rien aujourd'hui, il protege des brouillons de demain.
+               L'immersion n'est pas concernee : la demande vise JPO, ateliers
+               et stages, et l'instance d'immersion est unique par ecole — la
+               masquer casserait le formulaire sans que personne le voie. */
+            SET @statutInst = Field(@row, "summit__Active_Status__c")
+            SET @statutOk = "false"
+            IF @estImmersion == "true" OR @statutInst == "Planning" OR @statutInst == "Active" THEN
+                SET @statutOk = "true"
+            ELSE
+                SET @nbInstStatut = Add(@nbInstStatut, 1)
+            ENDIF
+
+            IF @statutOk == "true" AND (@estImmersion == "true"
+               OR Lowercase(Field(@row, "summit__Open_Registration__c")) != "false") THEN
                 /* DateDiff sur une date VIDE tue la page, et l'immersion
                    BRASSART en doublon n'en porte aucune. */
                 SET @delta = 0
@@ -1161,6 +1203,10 @@ window.SOCLE_DATA = {
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsPtats,"}")),1)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Rentr&eacute;es</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsTerms,"}")),1)=%%</b></td></tr>
+    <tr><td style="padding:5px 12px">Type CRM interrog&eacute;</td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@typeEvtCrm)=%%</b></td></tr>
+    <tr><td style="padding:5px 12px">Dates &eacute;cart&eacute;es <i>(statut ni &laquo; A venir &raquo; ni &laquo; En cours &raquo;)</i></td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@nbInstStatut)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Dates d'&eacute;v&eacute;nement %%[IF Empty(@typeEvt) THEN]%%<i>(pas de ?TypeEvenement)</i>%%[ELSE]%%<i>(prochaine dans %%=v(@minDelta)=%% j, fen&ecirc;tre J+%%=v(@minDelta)=%% &agrave; J+%%=v(@maxDelta)=%%)</i>%%[ENDIF]%%</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=v(@nbInst)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Ateliers propos&eacute;s</td>
