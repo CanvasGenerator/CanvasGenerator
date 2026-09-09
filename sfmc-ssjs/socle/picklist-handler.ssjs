@@ -853,7 +853,44 @@ try {
      * ⚠ Seul le LIBELLE change. La `value` reste la valeur d'API : c'est elle
      * qui part au CRM, et « Temps plein » dans Rhythm__c serait rejete en
      * silence, comme « fr » l'aurait ete dans PreferredLangage__c. */
+    /**
+     * Libelles imposes cote FRONT, par-dessus ceux du CRM.
+     *
+     * Demande du 09/09 : le rythme « Full-Time » doit s'afficher « Initial »,
+     * pas « Temps plein » (le libelle CRM). La VALUE reste « Full-Time » : c'est
+     * elle qui part au socle et au CRM, et la changer casserait la cascade et
+     * les ecritures. Seul l'affichage differe. Table volontairement minuscule :
+     * tout ce qui n'y figure pas garde le libelle du CRM, qui reste la source.
+     */
+    var SURCHARGES_LIBELLES = {
+        rhythm: { 'Full-Time': 'Initial' }
+    };
+
+    /**
+     * Ordre impose des valeurs d'un critere (demande du 09/09 : « Initial »
+     * d'abord, « Temps partiel » ensuite). Sans cela l'ordre est celui des
+     * programmes lus, donc arbitraire d'une ecole a l'autre. Cle par VALUE, pas
+     * par libelle : le libelle peut changer, la value est le contrat CRM. Une
+     * value absente de la liste passe apres, dans l'ordre de lecture.
+     */
+    var ORDRE_VALEURS = {
+        rhythm: ['Full-Time', 'Part-Time']
+    };
+
+    function trierSelonOrdre(prop, options) {
+        var ordre = ORDRE_VALEURS[prop];
+        if (!ordre) return options;
+        return options.slice().sort(function (a, b) {
+            var ra = ordre.indexOf(a.value), rb = ordre.indexOf(b.value);
+            if (ra === -1) ra = 99;
+            if (rb === -1) rb = 99;
+            return ra - rb;
+        });
+    }
+
     function libelleCrm(prop, valeur) {
+        var surcharge = SURCHARGES_LIBELLES[prop];
+        if (surcharge && Object.prototype.hasOwnProperty.call(surcharge, valeur)) return surcharge[valeur];
         var table = D && D.libelles && D.libelles[prop];
         return (table && table[valeur]) || '';
     }
@@ -871,7 +908,7 @@ try {
                 out.push({ value: v, label: libelleCrm(prop, v) || v });
             }
         }
-        return out;
+        return trierSelonOrdre(prop, out);
     }
 
     /**
@@ -3619,7 +3656,17 @@ try {
                      seule chose cassee de la page — et le visiteur ne pourrait
                      plus renvoyer, ce que ce retour demande justement. */
                   if (bouton) { bouton.disabled = false; bouton.innerHTML = libelle; }
-                  if (bilan.ok) { montrerSucces(form); return; }
+                  /* Sur un SUCCES, le bouton disparait (demande du 09/09) : le
+                     formulaire reste lisible, mais seul le message de
+                     confirmation subsiste comme action — plus de « Je
+                     candidate » sous une candidature deja envoyee. Sur un
+                     blocage ou un echec, il reste : le visiteur doit pouvoir
+                     corriger et renvoyer. */
+                  if (bilan.ok) {
+                      if (bouton) { bouton.style.display = 'none'; }
+                      montrerSucces(form);
+                      return;
+                  }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a
                      refuse d'ecrire, exactement comme le cadrage le demande.
                      Elle se dit sur le formulaire, pas dans une alert(), et

@@ -403,6 +403,9 @@ test('Le bouton est rendu au visiteur apres un succes [retour 2026-09-03]', () =
     p.form.__ecouteurs.submit({ preventDefault() {} });
     egal(p.bouton.disabled, false, 'bouton laisse desactive apres une confirmation');
     egal(tonEncart(p), VERT, 'confirmation absente apres un envoi fetch');
+    /* Demande du 09/09 : apres un succes, seul le message reste — le bouton
+       de soumission disparait. Rendu (non desactive) mais masque. */
+    egal(p.bouton.style.display, 'none', 'bouton de soumission encore visible apres une confirmation');
 });
 
 test('Le tracking de la page est recopie dans les champs caches [REGRESSION]', () => {
@@ -711,6 +714,8 @@ test('Le bouton est rendu au candidat apres un blocage', () => {
     jouer(p, '');
     p.form.__ecouteurs.submit({ preventDefault() {} });
     egal(p.bouton.disabled, false, 'bouton laisse desactive : le candidat ne peut plus rien tenter');
+    /* A l'inverse du succes : un blocage laisse le bouton VISIBLE, pour corriger et renvoyer. */
+    egal(p.bouton.style.display !== 'none', true, 'bouton masque apres un blocage');
 });
 
 
