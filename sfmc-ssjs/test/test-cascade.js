@@ -917,12 +917,11 @@ test('Langue : « FR »/« EN » du CRM s affichent « Français »/« Anglais �
          'values postees au socle : intactes');
 }, LAYOUT);
 
-/* ---- Rythme : « Full-Time » s'affiche « Initial », pas « Temps plein » ------
-   Demande du 09/09. Le CRM libelle « Temps plein » ; le front impose
-   « Initial ». PUREMENT VISUEL : la value postee reste « Full-Time ». Les
-   autres rythmes gardent le libelle du CRM — la surcharge ne vaut que pour
-   ce qui y est inscrit. */
-test('Rythme : « Full-Time » s affiche « Initial », la value reste « Full-Time »', () => {
+/* ---- Rythme : « Initial » / « Alternance », pas les libelles du CRM ---------
+   Demande du 09/09. Le CRM libelle « Temps plein » / « Temps partiel » ; le
+   front impose « Initial » / « Alternance ». PUREMENT VISUEL : les values
+   postees restent « Full-Time » / « Part-Time ». */
+test('Rythme : « Initial » puis « Alternance », les values restent celles du CRM', () => {
     const dom = creerDom(LAYOUT);
     dom.champs.Campus.value     = 'EFAP PARIS';
     dom.champs.Niveau.value     = 'Bac+3';
@@ -942,7 +941,7 @@ test('Rythme : « Full-Time » s affiche « Initial », la value reste « Full-T
             config: cfg() }) },
         document: dom.document,
     });
-    egal(dom.options('Rhythm'), ['Initial', 'Temps partiel'], 'libelles et ordre du rythme : Initial d abord');
+    egal(dom.options('Rhythm'), ['Initial', 'Alternance'], 'libelles et ordre du rythme : Initial puis Alternance');
     egal(dom.champs.Rhythm.options.map((o) => o.value), ['Full-Time', 'Part-Time'],
          'values postees au socle : intactes');
 }, LAYOUT);
