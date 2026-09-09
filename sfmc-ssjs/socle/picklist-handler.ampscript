@@ -1853,14 +1853,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     /**
      * Libelles imposes cote FRONT, par-dessus ceux du CRM.
      *
-     * Demande du 09/09 : le rythme « Full-Time » doit s'afficher « Initial »,
-     * pas « Temps plein » (le libelle CRM). La VALUE reste « Full-Time » : c'est
+     * Demande du 09/09 : « Full-Time » doit s'afficher « Initial » et
+     * « Part-Time » « Alternance », pas « Temps plein » / « Temps partiel »
+     * (les libelles CRM). La VALUE reste celle du CRM : c'est
      * elle qui part au socle et au CRM, et la changer casserait la cascade et
      * les ecritures. Seul l'affichage differe. Table volontairement minuscule :
      * tout ce qui n'y figure pas garde le libelle du CRM, qui reste la source.
      */
     var SURCHARGES_LIBELLES = {
-        rhythm: { 'Full-Time': 'Initial' }
+        rhythm: { 'Full-Time': 'Initial', 'Part-Time': 'Alternance' }
     };
 
     /**
