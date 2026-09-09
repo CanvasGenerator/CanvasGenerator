@@ -917,6 +917,36 @@ test('Langue : « FR »/« EN » du CRM s affichent « Français »/« Anglais �
          'values postees au socle : intactes');
 }, LAYOUT);
 
+/* ---- Rythme : « Full-Time » s'affiche « Initial », pas « Temps plein » ------
+   Demande du 09/09. Le CRM libelle « Temps plein » ; le front impose
+   « Initial ». PUREMENT VISUEL : la value postee reste « Full-Time ». Les
+   autres rythmes gardent le libelle du CRM — la surcharge ne vaut que pour
+   ce qui y est inscrit. */
+test('Rythme : « Full-Time » s affiche « Initial », la value reste « Full-Time »', () => {
+    const dom = creerDom(LAYOUT);
+    dom.champs.Campus.value     = 'EFAP PARIS';
+    dom.champs.Niveau.value     = 'Bac+3';
+    dom.champs.Speciality.value = 'Comm';
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP',
+            libelles: { rhythm: { 'Full-Time': 'Temps plein', 'Part-Time': 'Temps partiel' } },
+            /* Part-Time LU EN PREMIER, a dessein : l'ordre d'affichage ne doit
+               pas dependre de l'ordre des programmes (demande du 09/09). */
+            programs: [
+                { id: 'l2', name: 'Prog PT', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'Part-Time', language: 'FR' },
+                { id: 'l1', name: 'Prog FT', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'Full-Time', language: 'FR' },
+            ],
+            config: cfg() }) },
+        document: dom.document,
+    });
+    egal(dom.options('Rhythm'), ['Initial', 'Temps partiel'], 'libelles et ordre du rythme : Initial d abord');
+    egal(dom.champs.Rhythm.options.map((o) => o.value), ['Full-Time', 'Part-Time'],
+         'values postees au socle : intactes');
+}, LAYOUT);
+
 /* ---- Casse des libelles (retour client du 02/09) ----------------------
    « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre en
    minuscule). » Le CRM stocke « EFAP PARIS », « BAC+1 », « COLLEGE » : ses
