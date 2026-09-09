@@ -2231,7 +2231,13 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 /* Les 4 derniers champs etaient COLLECTES par le formulaire
                    mais jamais ecrits : ecart releve le 2026-08-24 contre le
                    mapping v4. Tous verifies presents sur CampaignMember. */
-                SET @cmId = CreateSalesforceObject("CampaignMember", 13,
+                /* PersonAccount__c en plus de ContactId (demande du 08/09) : c'est
+                   ce lookup que lisent les vues CRM dediees aux membres de
+                   campagne — sans lui, le membre existe mais n'y remonte pas.
+                   Mesure avant correctif : 48 des 245 membres de la campagne
+                   brochure EFAP FR l'avaient vide. */
+                SET @cmId = CreateSalesforceObject("CampaignMember", 14,
+                    "PersonAccount__c",       @paId,
                     "CampaignId",             @campaignId,
                     "ContactId",              @paContactId,
                     "UTM_Source__c",          @utmS,
