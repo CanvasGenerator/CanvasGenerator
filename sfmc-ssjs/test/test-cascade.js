@@ -917,6 +917,35 @@ test('Langue : « FR »/« EN » du CRM s affichent « Français »/« Anglais �
          'values postees au socle : intactes');
 }, LAYOUT);
 
+/* ---- Rythme : « Initial » / « Alternance », pas les libelles du CRM ---------
+   Demande du 09/09. Le CRM libelle « Temps plein » / « Temps partiel » ; le
+   front impose « Initial » / « Alternance ». PUREMENT VISUEL : les values
+   postees restent « Full-Time » / « Part-Time ». */
+test('Rythme : « Initial » puis « Alternance », les values restent celles du CRM', () => {
+    const dom = creerDom(LAYOUT);
+    dom.champs.Campus.value     = 'EFAP PARIS';
+    dom.champs.Niveau.value     = 'Bac+3';
+    dom.champs.Speciality.value = 'Comm';
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, {
+            marque: 'EFAP',
+            libelles: { rhythm: { 'Full-Time': 'Temps plein', 'Part-Time': 'Temps partiel' } },
+            /* Part-Time LU EN PREMIER, a dessein : l'ordre d'affichage ne doit
+               pas dependre de l'ordre des programmes (demande du 09/09). */
+            programs: [
+                { id: 'l2', name: 'Prog PT', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'Part-Time', language: 'FR' },
+                { id: 'l1', name: 'Prog FT', campus: 'EFAP PARIS', level: 'Bac+3',
+                  speciality: 'Comm', rhythm: 'Full-Time', language: 'FR' },
+            ],
+            config: cfg() }) },
+        document: dom.document,
+    });
+    egal(dom.options('Rhythm'), ['Initial', 'Alternance'], 'libelles et ordre du rythme : Initial puis Alternance');
+    egal(dom.champs.Rhythm.options.map((o) => o.value), ['Full-Time', 'Part-Time'],
+         'values postees au socle : intactes');
+}, LAYOUT);
+
 /* ---- Casse des libelles (retour client du 02/09) ----------------------
    « Ne rien ecrire en lettres majuscules (ex : les campus doivent etre en
    minuscule). » Le CRM stocke « EFAP PARIS », « BAC+1 », « COLLEGE » : ses
