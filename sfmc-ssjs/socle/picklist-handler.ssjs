@@ -283,6 +283,7 @@ try {
                 '.socle-instance-date{font-weight:700;font-size:13px;color:#000}',
                 '.socle-instance-lieu{font-size:12px;color:#555;line-height:1.5;',
                 'white-space:pre-line}',
+                '.socle-instance-vide{font-size:13px;color:#555;margin:4px 0}',
                 /* Meme habillage que la carte du builder pour la ligne entiere.
                    ENFANTS DIRECTS uniquement : depuis que le bloc des ateliers
                    se deplace SOUS sa date, il vit dans .jpo-dates, et un
@@ -531,6 +532,68 @@ try {
             'EDH STUDENT': { fr: 'Étudiant {marque}', en: '{marque} student' }
         }
     };
+
+    /** La marque de la page telle que le CRM la nomme (Business Brand), ou ''. */
+    function marqueAffichee() {
+        return (D && D.marque) ? String(D.marque).replace(/^\s+|\s+$/g, '') : '';
+    }
+
+    /* Retour client du 10/09 : sans date renseignee, le visiteur ne voyait
+       qu'une zone vide puis, s'il envoyait, le message d'erreur generique du
+       serveur. Une phrase, la meme pour toutes les ecoles et tous les
+       evenements dates ; l'immersion n'affiche jamais de date, donc jamais ce
+       message non plus. */
+    /**
+     * La ligne « lieu » d'une carte de date : « Marque Ville » — « EFAP Paris »,
+     * « MoPA Arles », « 3W Academy Paris » (precision d'anouar du 10/09 sur le
+     * retour client : la marque ET la ville). La marque vient de Business Brand
+     * (SOCLE_DATA.marque) ; la ville est le libelle du campus dans la liste de la
+     * page — c'est deja la ville seule, « PARIS », « ARLES » — sinon ce qui reste
+     * du nom CRM une fois la marque retiree, sinon le nom CRM entier.
+     * Sans marque connue : le campus recase, comme avant.
+     */
+    /**
+     * Le visiteur a-t-il un campus A CHOISIR sur cette page ? Non quand le champ
+     * manque, quand c'est un champ cache (ecole a campus unique : MoPA, 3W
+     * Academy), ou quand le <select> n'offre qu'une seule vraie option.
+     */
+    function campusAuChoix(el) {
+        if (!el) return false;
+        if (el.tagName !== 'SELECT') return false;
+        var reelles = 0;
+        var opts = el.options || [];
+        for (var i = 0; i < opts.length; i++) if (opts[i] && opts[i].value) reelles++;
+        return reelles > 1;
+    }
+
+    function libelleCampusCarte(campus, sansChoix) {
+        var brut = String(campus == null ? '' : campus).replace(/^\s+|\s+$/g, '');
+        var marque = marqueAffichee();
+        if (!marque) return casseLisible(brut, true);
+        /* Precision d'anouar du 11/09 : quand la page n'offre pas de choix de
+           campus (MoPA, 3W Academy...), la ville n'apporte rien — « MoPA », pas
+           « MoPA Arles ». */
+        if (sansChoix) return marque;
+        var ville = '';
+        var liste = (D && D.campus) || [];
+        for (var i = 0; i < liste.length; i++) {
+            if (cle(liste[i].value) === cle(brut) && liste[i].label) { ville = String(liste[i].label); break; }
+        }
+        if (!ville && brut) {
+            var b = cle(brut), m = cle(marque);
+            if (b.indexOf(m + ' ') === 0) ville = brut.substring(brut.length - (b.length - m.length - 1));
+            else if (b !== m) ville = brut;
+        }
+        ville = ville ? casseLisible(ville, true) : '';
+        if (!ville || cle(ville) === cle(marque)) return marque;
+        return marque + ' ' + ville;
+    }
+
+    function messageSansDate() {
+        return langueAffichage() === 'en'
+            ? 'No date is currently available for this campus.'
+            : 'Aucune date n\'est disponible pour ce campus actuellement.';
+    }
 
     function libelleMarque(name, option, langue) {
         var parChamp = MARQUE[name];
@@ -3595,6 +3658,19 @@ try {
                 return;
             }
 
+            /* ---- EVENEMENT SANS DATE ---------------------------------------
+               Sans bouton radio rendu, `required` n'existe pas et le POST
+               partait : le serveur refusait (« aucune date choisie ») et le
+               visiteur lisait un message d'erreur generique. On le lui dit ici,
+               avec la phrase de la zone des dates. L'immersion pose un champ
+               cache, elle n'est pas concernee. */
+            var zoneInst = null;
+            try { zoneInst = document.querySelector('[data-socle="instances"]'); } catch (eZi) { zoneInst = null; }
+            if (zoneInst && !estImmersion() && !form.querySelector('[name="InstanceId"]')) {
+                montrerMessage(form, [messageSansDate()], 'erreur');
+                return;
+            }
+
             var bouton = form.querySelector('button[type="submit"], input[type="submit"]');
             var libelle = bouton ? bouton.innerHTML : '';
             if (bouton) { bouton.disabled = true; bouton.textContent = 'Envoi en cours...'; }
@@ -3718,7 +3794,12 @@ try {
         }
     } catch (eSoumission) { /* les listes restent remplies, c'est l'essentiel */ }
 
-    if (D.instances && D.instances.length) {
+    /* La zone des dates est traitee des qu'elle EXISTE, instances ou pas :
+       sans instance, c'est justement le message « aucune date » qu'il faut y
+       poser (retour du 10/09). Le garde sur D.instances ne laissait rien. */
+    var zoneDatesPresente = false;
+    try { zoneDatesPresente = Boolean(document.querySelector('[data-socle="instances"]')); } catch (eZone) { zoneDatesPresente = false; }
+    if ((D.instances && D.instances.length) || zoneDatesPresente) {
         var elInst = champ('InstanceId');
         var zoneDates = document.querySelector('[data-socle="instances"]');
         var elCampus = champ('Campus');
@@ -3858,7 +3939,12 @@ try {
                         if (inst.campus) {
                             var leCampus = document.createElement('span');
                             leCampus.className = 'socle-instance-lieu';
-                            leCampus.textContent = casseLisible(inst.campus, true);
+                            /* Retour client du 10/09 : « Efap Paris », « Mopa Arles » —
+                               le campus recase par le navigateur. On veut « Marque
+                               Ville » avec la marque telle qu'elle est dans Business
+                               Brand : « EFAP Paris », « MoPA Arles », « ÉSEC Paris ».
+                               Voir libelleCampusCarte. */
+                            leCampus.textContent = libelleCampusCarte(inst.campus, !campusAuChoix(elCampus));
                             ou.appendChild(leCampus);
                         }
                         if (inst.address) {
@@ -3881,6 +3967,15 @@ try {
                     zoneDates.appendChild(wrap);
                 });
 
+                /* Aucune date pour ce campus : on le dit, au lieu de laisser
+                   une zone vide. Pas avant le choix d'un campus quand la page
+                   en propose un — « pour ce campus » n'aurait pas de sens. */
+                if (!liste.length && (!elCampus || elCampus.value)) {
+                    var vide = document.createElement('p');
+                    vide.className = 'socle-instance-vide';
+                    vide.textContent = messageSansDate();
+                    zoneDates.appendChild(vide);
+                }
 
             } else if (elInst && elInst.tagName === 'SELECT') {
                 remplir('InstanceId', liste, valeur('InstanceId'));
