@@ -28,6 +28,7 @@ require('dotenv').config();
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { injecterEnv } = require('../lib/socle-env');
 const { isSfmcConfigured, sfmcFetch, findAssetIdByCustomerKey, ensureFolder,
         resolveCategoryIdByName } = require('../lib/sfmc');
 
@@ -107,7 +108,8 @@ async function main() {
             console.error(`  ✖ ${b.fichier} introuvable`);
             process.exit(1);
         }
-        const contenu = fs.readFileSync(chemin, 'utf8');
+        /* Meme injection des jetons %%ENV:...%% que pour les pages (lib/socle-env.js). */
+        const contenu = injecterEnv(fs.readFileSync(chemin, 'utf8'));
 
         if (b.langage === 'ampscript') {
             // L'AMPscript vit dans des %%[ ]%% et NE DOIT PAS etre enferme dans
