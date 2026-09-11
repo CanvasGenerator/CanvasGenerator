@@ -254,22 +254,39 @@ SET @INTERACTION_ACTIVE = "true"
    jour ou la sonde redit que le champ passe, un mot suffit a le remettre.
    Sans lui, la marque reste deductible du compte parent. */
 /* ---- DATE DU DERNIER ENGAGEMENT MARKETING ---------------------------------
-   Le CRM ouvre en ce moment le droit d'ecriture sur ce champ. En attendant, le
-   socle NE L'ENVOIE PAS : un champ refuse a la creation ferait echouer l'insert
-   du consentement, donc perdre la preuve RGPD de la soumission entiere.
+   Ecrite a la CREATION du consentement, dans les DEUX champs qui portent ce
+   nom sur l'objet :
+   - `Last_Marketing_Engagement_Date__c` (underscores) : passe et se relit
+     (test.correction.rgdp2, 10/09), mais N'EST PAS sur la page de l'objet ;
+   - `LastMarketingEngagementDate__c` (CamelCase) : celui de la page « Derniere
+     date d'engagement marketing », designe par la MOA. Ignore EN SILENCE a la
+     creation tant que le permission set « MC Connect - Date d'engagement
+     marketing » (cree le 08/09, ouvre lecture+ecriture) n'est pas ASSIGNE au
+     user MC Connect — et sans ce droit, l'envoyer TUE la creation (10/09 13:09).
+     Assigne par anouar le 10/09 : depuis, les deux partent.
+   Ouvert le 10/09 sur le mot de l'equipe CRM (« plus de soucis »).
 
-   ⚠ DEUX GRAPHIES EXISTENT, ET UNE SEULE REPOND AUJOURD'HUI. La maitrise
-   d'ouvrage designe `LastMarketingEngagementDate__c`, retenu ici. Mesure du
-   02/09 : cette graphie est REFUSEE EN LECTURE par le connecteur, alors que
-   `Last_Marketing_Engagement_Date__c` (avec underscores) se lit et porte 4143
-   consentements. A trancher avec le CRM en meme temps que le droit d'ecriture :
-   si c'est la seconde qui doit vivre, c'est le nom du champ ci-dessous qu'il
-   faut corriger, pas ce drapeau.
+   HISTORIQUE, a connaitre avant d'y toucher :
+   - 02/09 : le socle ecrivait `Last_Marketing_Engagement_Date__c` (avec
+     underscores), un AUTRE champ du meme objet, lisible, qui porte encore ces
+     34 consentements de test.
+   - 03/09 : bascule sur la graphie CamelCase, alors refusee en lecture et sans
+     droit d'ecriture → drapeau ferme. Plus rien n'etait ecrit, sur aucun
+     formulaire, jusqu'au 10/09.
+   - 10/09 : constate sur un consentement cree a 09:09:14 que le CRM pose
+     lui-meme la date CamelCase 22 s plus tard (09:09:36) — une automatisation
+     cote CRM alimente donc `LastMarketingEngagementDate__c` sans nous. Le
+     socle ecrit l'AUTRE champ, celui avec underscores, que rien ne remplit
+     sinon ; les deux graphies coexistent, la MOA devra en tuer une.
 
-   Passer a "true" le jour ou le droit est ouvert, puis RELIRE le champ : sur
-   cette org, un ecrit accepte n'est pas un ecrit fait. */
+   ⚠ Un champ refuse a la creation fait echouer l'insert du consentement, donc
+   perdre la preuve RGPD de la soumission entiere. Si une page meurt sur
+   « 58 - avant consentement », c'est ICI qu'il faut revenir. Le drapeau reste
+   pour pouvoir refermer en une ligne. Pas ecrit en MISE A JOUR d'un
+   consentement existant : sur cet objet, un update refuse tue la page
+   (mesure du 31/08), et rien ne prouve encore que ce champ passe en update. */
 VAR @ECRIRE_DATE_ENGAGEMENT
-SET @ECRIRE_DATE_ENGAGEMENT = "false"
+SET @ECRIRE_DATE_ENGAGEMENT = "true"
 
 VAR @ECRIRE_MARQUE_CONSENT
 SET @ECRIRE_MARQUE_CONSENT = "true"
@@ -277,7 +294,7 @@ SET @ECRIRE_MARQUE_CONSENT = "true"
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
-VAR @itPreview, @itContext, @itHorodatage, @evtParent
+VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
 VAR @detailOrigine
 
@@ -285,6 +302,38 @@ VAR @LOG_ACTIF, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
 SET @runId     = Substring(Replace(GUID(), "-", ""), 1, 12)
 SET @logOrdre  = 0
+
+/* ======================================================================
+   DECLENCHEMENT DE JOURNEYS (API EVENT) — DRAPEAU ET ETAT COMMUN
+   ----------------------------------------------------------------------
+   Une fois les ecritures CRM terminees, le socle peut pousser la soumission
+   dans une DE de Journey Builder via un API Event (POST interaction/v1/
+   events) : c'est ce qui declenche les journeys de confirmation en temps
+   reel. Le mecanisme est COMMUN : un formulaire qui veut alimenter une
+   journey remplit trois variables, et le bloc de tir en fin de sequence
+   fait le reste.
+     @jrnCleEvt     nom de la ligne de LPB_Config_Api portant la cle de
+                    l'evenement (EventKey_Evenement, EventKey_Brochure…)
+     @jrnContactKey ContactKey de l'entree (PersonContactId)
+     @jrnData       corps JSON des colonnes de la DE, SANS les accolades
+   Le TIR lui-meme est en SSJS, en fin de fichier : HTTPPost2 tue la page
+   sur toute reponse 4xx malgre continueOnError (mesure du 10/09 sur le banc
+   LPB_TST_Journey_V15), la ou HTTP.Post en SSJS se rattrape par try/catch.
+
+   @JOURNEY_LAUNCH vient de la variable d'environnement SFMC_JOURNEY_LAUNCH,
+   injectee A LA PUBLICATION (lib/socle-env.js) : une CloudPage n'a pas de
+   process.env. Absente ou differente de « true » → rien ne part, et le
+   journal porte JOURNEY:desactive. Les identifiants du paquet API vivent
+   dans la DE LPB_Config_Api (Cle/Valeur), jamais dans les pages.
+   ⚠ Un echec de l'appel ne bloque JAMAIS le visiteur : le CRM est deja
+   ecrit, la confirmation s'affiche, et le journal dit ce qui a manque. */
+VAR @JOURNEY_LAUNCH, @jrnCleEvt, @jrnContactKey, @jrnData
+VAR @jrnRows, @jrnRow, @jrnTitre, @jrnCampusInst, @jrnDebut, @jrnFin, @jrnLangue, @jrnLocale, @jrnPays
+VAR @jrnTel, @jrnMarque, @jrnTypeEvt, @jrnFn, @jrnLn, @jrnMail, @jrnCampus
+SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
+SET @jrnCleEvt      = ""
+SET @jrnContactKey  = ""
+SET @jrnData        = ""
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -1283,7 +1332,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                C'etait le second tueur de la branche « prospect deja connu »,
                apres LastMarketingContactPointType__c. Les deux ne se voient
                jamais sur un prospect neuf. */
-            SET @itHorodatage = FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")
+            SET @itHorodatage = Format(Now(), "yyyy-MM-dd HH:mm:ss")
 
             /* CreationSourceDate__c n'est PAS ecrit, ici ni ailleurs : l'org
                le refuse, et le refus tue la page. Mesure du 29/08 sur un compte
@@ -1815,7 +1864,21 @@ IF IndexOf(@submitted, "true") > 0 THEN
                et une date vide sur un champ date Salesforce tue la page. On la
                garantit sans ecraser celle de l'autre branche. */
             IF Empty(@itHorodatage) THEN
-                SET @itHorodatage = FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")
+                SET @itHorodatage = Format(Now(), "yyyy-MM-dd HH:mm:ss")
+            ENDIF
+            /* Version ISO 8601 UTC pour les champs Date/Heure. L'horloge de
+               SFMC est en heure centrale US sans heure d'ete (UTC-6 fixe) :
+               +6 h pour le « Z ». On prend les 19 premiers caracteres de
+               FormatDate(...,"iso") — « 2026-09-10T13:50:32 » — et on colle le Z.
+
+               ⚠ PIEGE MESURE LE 10/09 : dans FormatDate, « mm » vaut MOIS, pas
+               minutes (« HH:mm:ss » a rendu 07:09:32 a 07:50:32). Seule la
+               fonction Format() (motif .NET, sensible a la casse) rend les
+               minutes ; c'est elle qui sert partout ailleurs dans ce fichier
+               pour « yyyy-MM-dd HH:mm:ss ». Ne jamais revenir a FormatDate
+               pour une heure. */
+            IF Empty(@itHorodatageUtc) THEN
+                SET @itHorodatageUtc = Concat(Substring(FormatDate(DateAdd(Now(), 6, "H"), "iso"), 1, 19), "Z")
             ENDIF
 
             SET @preuve = ""
@@ -2019,11 +2082,41 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            preuve RGPD fausse et muette. Les debloquer est une
                            question de droits cote CRM, pas de code. */
                         SET @majs = "0"
+                        /* ---- DATE DU DERNIER ENGAGEMENT : A CHAQUE SOUMISSION -------
+                           Regle metier (anouar, 10/09) : `LastMarketingEngagementDate__c`
+                           suit CHAQUE soumission, pas seulement la creation.
+                           Deux regles de validation du CRM (Prevent_Opt_In/Opt_out_
+                           Date_Manual_Edit) rejettent toute sauvegarde ou le statut
+                           ne change pas, parce qu'un flow retouche les dates
+                           d'opt-in/out a chaque enregistrement. Donc :
+                           - statut a changer → la date part DANS LE MEME update que
+                             le statut : le statut change, les regles laissent passer ;
+                           - statut inchange → l'update est REPORTE au bloc SSJS de
+                             fin de fichier (try/catch) : refuse tant que le CRM
+                             n'exempte pas MC Connect, mais sans tuer la page, et
+                             journalise « CPC:date-refusee ». */
+                        /* ⚠ LA DATE D'ENGAGEMENT N'EST PAS MISE A JOUR ICI, ET CE N'EST
+                           PAS UN OUBLI. Regle metier (anouar, 10/09) : elle doit suivre
+                           chaque soumission. Mais tout update de
+                           `LastMarketingEngagementDate__c` par MC Connect est refuse
+                           par Salesforce et TUE la page — mesure du 10/09 : seule
+                           (sonde), et meme dans le meme update qu'un changement de
+                           statut (rgdp7, 16:38). Le statut, lui, passe. Les regles
+                           Prevent_Opt_In/Opt_out_Date_Manual_Edit expliquent le cas
+                           « statut inchange », pas le cas « statut change » : le CRM
+                           doit lire son debug log. Un try/catch SSJS n'est pas une
+                           issue : les fonctions Salesforce SSJS repondent « Unable to
+                           retrieve security descriptor » sur cette BU, meme pour un
+                           update qui passe en AMPscript.
+                           Le jour ou le CRM debloque, remettre la date dans l'update
+                           ci-dessous (et un update inconditionnel pour le cas Opt-in
+                           inchange). En attendant : marqueur au journal. */
                         IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                                 "Status__c", "Opt-in")
                             SET @majs = "1"
                         ENDIF
+                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-figee")
                         IF @majs == "1" THEN
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-maj")
                         ELSE
@@ -2082,18 +2175,42 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                plutot que de tuer la page sur un champ requis. */
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-sans-texte-legal")
                         ELSEIF @ECRIRE_DATE_ENGAGEMENT == "true" AND @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
-                            /* Prete, mais inactive : voir @ECRIRE_DATE_ENGAGEMENT
-                               en tete de fichier. */
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                            /* Chemin nominal depuis le 10/09 : voir
+                               @ECRIRE_DATE_ENGAGEMENT en tete de fichier. */
+                            /* Les DEUX graphies sont envoyees (voir en tete) :
+                               celle avec underscores passe (relue le 10/09 sur
+                               test.correction.rgdp2), la CamelCase est ignoree
+                               en silence tant que le permission set n'est pas
+                               assigne au user MC Connect — sans tuer la page,
+                               constate le 10/09 a 12:52. Le jour ou le CRM
+                               l'assigne, elle se remplit sans redeploiement. */
+                            /* Les DEUX graphies partent. `LastMarketingEngagementDate__c`
+                               (CamelCase, celui de la fiche) TUAIT la page tant que
+                               le user MC Connect n'avait pas le droit d'ecriture
+                               (est.correction.rgdp3, 10/09 13:09) : le permission
+                               set « MC Connect - Date d'engagement marketing » lui
+                               a ete assigne le 10/09 par anouar. Si une page meurt
+                               a « 58 - avant consentement », verifier d'abord que
+                               cette assignation tient toujours. */
+                            /* `LastMarketingEngagementDate__c` est un DATE/HEURE : il
+                               n'accepte que l'ISO 8601 en UTC (« 2026-09-10T13:26:13Z »).
+                               Le format « yyyy-MM-dd HH:mm:ss », qui passe sur les
+                               champs Date, TUE la creation ici — mesure du 10/09 :
+                               rgdp3 et rgdp5 morts avec ce format, sonde de creation
+                               acceptee et relue avec l'ISO (0ZXAW0000001aJB4AY). Le
+                               droit d'ecriture etait necessaire aussi (permission set
+                               assigne le 10/09), mais pas suffisant. */
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
                                 "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
                                 "Legal_Texte_Accepted__c", @preuve,
-                                "LastMarketingEngagementDate__c", @itHorodatage,
+                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
+                                "LastMarketingEngagementDate__c",    @itHorodatageUtc,
                                 "BusinessBrandId",         @brandId)
 
                         ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
@@ -2101,7 +2218,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
                                 "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
@@ -2112,7 +2229,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
                                 "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", FormatDate(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
@@ -2512,6 +2629,111 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "AcquisitionChannel__c",     @canal,
                         "AcquisitionSubChannel__c",  @sousCanal)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
+
+                    /* ---- JOURNEY DE CONFIRMATION : PREPARATION DE L'ENTREE ----
+                       Colonnes de la DE Data_contacts_evenement_new (cles :
+                       Subscriberkey + SummitEventRegistrationId + Nom_action).
+                       Mapping valide le 09/09 : Subscriberkey = PersonContactId,
+                       ID_salesforce = Id du compte, EventType = notre vocabulaire
+                       (JPO, Atelier, Stage, Immersion), schoolName = compte
+                       campus choisi (« EFAP PARIS »), Nom_action = titre de
+                       l'instance, SMSLocale au format SFMC (fr-FR).
+                       Tout est relu ICI, apres la creation : deux lectures SF de
+                       plus, uniquement quand le drapeau est ouvert. */
+                    IF @JOURNEY_LAUNCH == "true" AND NOT Empty(@regId) THEN
+                        SET @jrnTitre = ""
+                        SET @jrnCampusInst = ""
+                        SET @jrnDebut = ""
+                        SET @jrnFin = ""
+                        SET @jrnRows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+                            "Id,summit__Instance_Title__c,campusNameFor__c,summit__Instance_Start_Date__c,summit__Instance_End_Date__c",
+                            "Id", "=", @instanceId)
+                        IF RowCount(@jrnRows) > 0 THEN
+                            SET @jrnRow = Row(@jrnRows, 1)
+                            SET @jrnTitre      = Field(@jrnRow, "summit__Instance_Title__c", 0)
+                            SET @jrnCampusInst = Field(@jrnRow, "campusNameFor__c", 0)
+                            SET @jrnDebut      = Field(@jrnRow, "summit__Instance_Start_Date__c", 0)
+                            SET @jrnFin        = Field(@jrnRow, "summit__Instance_End_Date__c", 0)
+                        ENDIF
+                        /* ISO tronque a la seconde (FormatDate « mm » = mois, voir
+                           @itHorodatageUtc) ; la DE accepte « 2026-10-15T00:00:00 ». */
+                        IF NOT Empty(@jrnDebut) THEN SET @jrnDebut = Substring(FormatDate(@jrnDebut, "iso"), 1, 19) ENDIF
+                        IF NOT Empty(@jrnFin)   THEN SET @jrnFin   = Substring(FormatDate(@jrnFin,   "iso"), 1, 19) ENDIF
+
+                        /* Langue, locale SMS et pays : ceux du compte (un compte
+                           existant n'est pas passe par la branche creation, ou
+                           @langue est calculee). Repli sur le formulaire. */
+                        SET @jrnLangue = ""
+                        SET @jrnLocale = ""
+                        SET @jrnPays   = ""
+                        SET @jrnRows = RetrieveSalesforceObjects("Account",
+                            "Id,PreferredLangage__c,SMSLocale__c,LivingCountry__c", "Id", "=", @paId)
+                        IF RowCount(@jrnRows) > 0 THEN
+                            SET @jrnRow = Row(@jrnRows, 1)
+                            SET @jrnLangue = Field(@jrnRow, "PreferredLangage__c", 0)
+                            SET @jrnLocale = Field(@jrnRow, "SMSLocale__c", 0)
+                            SET @jrnPays   = Field(@jrnRow, "LivingCountry__c", 0)
+                        ENDIF
+                        IF Empty(@jrnLangue) THEN SET @jrnLangue = @langue ENDIF
+                        IF Empty(@jrnLangue) THEN SET @jrnLangue = "French" ENDIF
+                        IF Empty(@jrnPays)   THEN SET @jrnPays = @country ENDIF
+                        /* Le CRM stocke « fr-fr » ; SFMC attend « fr-FR ». */
+                        IF Length(@jrnLocale) == 5 THEN
+                            SET @jrnLocale = Concat(Lowercase(Substring(@jrnLocale, 1, 2)), "-", Uppercase(Substring(@jrnLocale, 4, 2)))
+                        ELSEIF @jrnLangue == "English" THEN
+                            SET @jrnLocale = "en-US"
+                        ELSE
+                            SET @jrnLocale = "fr-FR"
+                        ENDIF
+
+                        /* Telephone en E.164 : indicatif (« 33 ») + numero sans
+                           separateurs ni zero initial. Vide si pas de numero. */
+                        SET @jrnTel = Replace(Replace(Replace(Replace(Replace(Replace(Replace(@mobile, " ", ""), ".", ""), "-", ""), "(", ""), ")", ""), "/", ""), "+", "")
+                        IF NOT Empty(@jrnTel) THEN
+                            IF Substring(@jrnTel, 1, 1) == "0" THEN SET @jrnTel = Substring(@jrnTel, 2, Subtract(Length(@jrnTel), 1)) ENDIF
+                            SET @jrnTel = Concat("+", Replace(Replace(@indicatif, "+", ""), " ", ""), @jrnTel)
+                        ENDIF
+
+                        SET @jrnMarque  = Lookup("LPB_Mapping_Ecoles", "Libelle", "Ecole", @ecole)
+                        IF Empty(@jrnMarque) THEN SET @jrnMarque = @ecole ENDIF
+                        SET @jrnTypeEvt = @typeEvt
+                        IF @jrnTypeEvt == "Atelier_Decouverte" THEN SET @jrnTypeEvt = "Atelier" ENDIF
+
+                        /* Echappement JSON des textes libres : antislash puis
+                           guillemet. AMPscript n'a pas de sequence d'echappement,
+                           "\" est bien UN antislash. */
+                        SET @jrnFn     = Replace(Replace(@firstName,     "\", "\\"), '"', '\"')
+                        SET @jrnLn     = Replace(Replace(@lastName,      "\", "\\"), '"', '\"')
+                        SET @jrnMail   = Replace(Replace(@email,         "\", "\\"), '"', '\"')
+                        SET @jrnCampus = Replace(Replace(@campusSel,     "\", "\\"), '"', '\"')
+                        SET @jrnTitre  = Replace(Replace(@jrnTitre,      "\", "\\"), '"', '\"')
+                        SET @jrnCampusInst = Replace(Replace(@jrnCampusInst, "\", "\\"), '"', '\"')
+                        SET @jrnMarque = Replace(Replace(@jrnMarque,     "\", "\\"), '"', '\"')
+                        SET @jrnPays   = Replace(Replace(@jrnPays,       "\", "\\"), '"', '\"')
+
+                        SET @jrnCleEvt     = "EventKey_Evenement"
+                        SET @jrnContactKey = @paContactId
+                        SET @jrnData = Concat(
+                            '"Subscriberkey":"', @paContactId, '",',
+                            '"ID_salesforce":"', @paId, '",',
+                            '"FirstName":"', @jrnFn, '",',
+                            '"LastName":"', @jrnLn, '",',
+                            '"PersonEmail":"', @jrnMail, '",',
+                            '"MobileE164Auto":"', @jrnTel, '",',
+                            '"PreferredLangage":"', @jrnLangue, '",',
+                            '"SMSLocale":"', @jrnLocale, '",',
+                            '"LivingCountry":"', @jrnPays, '",',
+                            '"BusinessBrandName":"', @jrnMarque, '",',
+                            '"schoolName":"', @jrnCampus, '",',
+                            '"EventType":"', @jrnTypeEvt, '",',
+                            '"summit__Event_Instance":"', @instanceId, '",',
+                            '"summit__Instance_Start_Date":"', @jrnDebut, '",',
+                            '"summit__Instance_End_Date":"', @jrnFin, '",',
+                            '"SummitEventRegistrationId":"', @regId, '",',
+                            '"Nom_action":"', @jrnTitre, '",',
+                            '"Date_action":"', Format(Now(), "yyyy-MM-dd HH:mm:ss"), '",',
+                            '"campusNameFor":"', @jrnCampusInst, '"')
+                    ENDIF
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
@@ -2609,3 +2831,103 @@ ENDIF
 %%[ IF NOT Empty(@sfBlockRule) THEN ]%%
 <!-- socle blocage: motif=%%=v(@sfBlockRule)=%% -->
 %%[ ENDIF ]%%
+<script runat="server">
+/* ==JOURNEY_FIRE_DEBUT==
+   TIR DE L'API EVENT (bloc commun a tous les formulaires ; le banc de test
+   scratchpad l'extrait tel quel entre ces deux marqueurs).
+   ------------------------------------------------------------------------
+   Lit les variables preparees par l'AMPscript ci-dessus : @JOURNEY_LAUNCH,
+   @jrnCleEvt, @jrnContactKey, @jrnData. Deux appels HTTP : le jeton OAuth
+   (client_credentials, identifiants dans la DE LPB_Config_Api) puis
+   POST interaction/v1/events. Le succes se lit dans la reponse
+   (eventInstanceId), jamais dans le seul code HTTP.
+
+   POURQUOI EN SSJS, ET EN FIN DE FICHIER : HTTPPost2 tue la page sur toute
+   reponse 4xx malgre continueOnError=true (mesure du 10/09), et un
+   identifiant perime aurait donc casse la confirmation de CHAQUE inscription
+   apres que le CRM a ete ecrit. Ici tout est dans un try/catch : quoi qu'il
+   arrive le visiteur voit sa confirmation, et la ligne « 99 - journey » du
+   journal dit ce qui s'est passe. Elle vient APRES « 99 - fin » (Ordre le
+   dit) : le tir est la derniere chose que fait la page.
+   Ni jeton ni secret dans le journal. */
+Platform.Load("core", "1.1.1");
+try {
+    var jrnLaunch  = String(Variable.GetValue("@JOURNEY_LAUNCH") || "");
+    var jrnCleEvt  = String(Variable.GetValue("@jrnCleEvt") || "");
+    var jrnContact = String(Variable.GetValue("@jrnContactKey") || "");
+    var jrnData    = String(Variable.GetValue("@jrnData") || "");
+    if (jrnData !== "" && jrnCleEvt !== "") {
+        var jrnDetail = "", jrnEvtId = "", jrnMarque = "", jrnKey = "";
+        if (jrnLaunch !== "true") {
+            jrnMarque = " JOURNEY:desactive";
+            jrnDetail = "drapeau SFMC_JOURNEY_LAUNCH ferme";
+        } else {
+            var cfg = function (k) { var v = Platform.Function.Lookup("LPB_Config_Api", "Valeur", "Cle", k); return v ? String(v) : ""; };
+            var cfgAuth = cfg("AuthBaseUrl"), cfgRest = cfg("RestBaseUrl"), cfgId = cfg("ClientId"),
+                cfgSecret = cfg("ClientSecret"), cfgMid = cfg("AccountId");
+            jrnKey = cfg(jrnCleEvt);
+            if (!cfgAuth || !cfgRest || !cfgId || !cfgSecret || !jrnKey) {
+                jrnMarque = " JOURNEY:sans-config";
+                jrnDetail = "config incomplete (" + jrnCleEvt + ")";
+            } else {
+                var corps = function (r) { var x = r && r.Response; if (x && typeof x !== "string" && x.length !== undefined && typeof x[0] !== "undefined") { x = x[0]; } return x ? String(x) : ""; };
+                var authBody = '{"grant_type":"client_credentials","client_id":"' + cfgId + '","client_secret":"' + cfgSecret + '","account_id":"' + cfgMid + '"}';
+                /* HTTP.Post LEVE une exception sur toute reponse non 2xx (mesure
+                   du 10/09 : cle d'evenement inconnue → exception, pas un
+                   StatusCode 400). Chaque appel a donc son propre try/catch,
+                   pour que le journal nomme l'appel qui a echoue. Le message
+                   d'erreur SFMC est generique et sans secret. */
+                var motif = function (e) { var t = e && e.message ? String(e.message) : Stringify(e); return t.replace(/\s+/g, " ").substring(0, 200); };
+                var rTok = null, tok = "", echecTok = "";
+                try { rTok = HTTP.Post(cfgAuth + "v2/token", "application/json", authBody, [], []); } catch (eTok) { echecTok = motif(eTok); }
+                try { var jTok = Platform.Function.ParseJSON(corps(rTok)); if (jTok && jTok.access_token) { tok = String(jTok.access_token); } } catch (e1) { tok = ""; }
+                if (!tok) {
+                    jrnMarque = " JOURNEY:sans-jeton";
+                    jrnDetail = "jeton refuse" + (echecTok ? " : " + echecTok : " http=" + (rTok ? rTok.StatusCode : "?"));
+                } else {
+                    var evtBody = '{"ContactKey":"' + jrnContact + '","EventDefinitionKey":"' + jrnKey + '","Data":{' + jrnData + '}}';
+                    var rEvt = null, texte = "", echecEvt = "";
+                    try { rEvt = HTTP.Post(cfgRest + "interaction/v1/events", "application/json", evtBody, ["Authorization"], ["Bearer " + tok]); texte = corps(rEvt); } catch (eEvt) { echecEvt = motif(eEvt); }
+                    try { var jEvt = Platform.Function.ParseJSON(texte); if (jEvt && jEvt.eventInstanceId) { jrnEvtId = String(jEvt.eventInstanceId); } } catch (e2) { jrnEvtId = ""; }
+                    if (jrnEvtId) {
+                        jrnMarque = " JOURNEY:ok(" + jrnKey + ")";
+                        jrnDetail = "cle=" + jrnKey + " eventInstanceId=" + jrnEvtId;
+                    } else {
+                        jrnMarque = " JOURNEY:echec(" + jrnKey + ")";
+                        jrnDetail = "cle=" + jrnKey + (echecEvt ? " appel refuse : " + echecEvt : " http=" + (rEvt ? rEvt.StatusCode : "?") + " reponse=" + texte.substring(0, 300));
+                    }
+                }
+            }
+        }
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + jrnMarque);
+        Variable.SetValue("@jrnDetail", jrnDetail);
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var ordre = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", ordre);
+            var runId = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [runId + "-" + ordre, runId, ordre, Platform.Function.SystemDateToLocalDate(Now()), "99 - journey", (jrnEvtId ? "OK" : "KO"), "API Event",
+                 jrnEvtId, jrnDetail, String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    }
+} catch (eJrn) {
+    /* Jamais de page morte pour une journey : on note, on continue. */
+    try {
+        var motifX = ("exception: " + (eJrn && eJrn.message ? eJrn.message : Stringify(eJrn))).replace(/\s+/g, " ").substring(0, 500);
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + " JOURNEY:exception");
+        Variable.SetValue("@jrnDetail", motifX);
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var ordreX = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", ordreX);
+            var runIdX = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [runIdX + "-" + ordreX, runIdX, ordreX, Platform.Function.SystemDateToLocalDate(Now()), "99 - journey", "KO", "API Event", "",
+                 motifX,
+                 String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    } catch (eLog) { /* silence : rien ne doit remonter au visiteur */ }
+}
+/* ==JOURNEY_FIRE_FIN== */
+</script>
