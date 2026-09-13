@@ -1958,14 +1958,14 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @nCpcMail = 0
             IF NOT Empty(@cpEmail) THEN
                 SET @cpcMail = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
                     "ContactPointId", "=", @cpEmail)
                 SET @nCpcMail = RowCount(@cpcMail)
             ENDIF
             SET @nCpcTel = 0
             IF NOT Empty(@cpPhone) THEN
                 SET @cpcTel = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
                     "ContactPointId", "=", @cpPhone)
                 SET @nCpcTel = RowCount(@cpcTel)
             ENDIF
@@ -2006,16 +2006,29 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         SET @nCpc = @nCpcMail
                     ENDIF
 
-                    /* Ce canal a-t-il deja son consentement ? Premiere ligne
-                       qui porte le canal : si des doublons anterieurs existent,
-                       on en tient un et on laisse les autres tranquilles — ce
-                       socle ne sait pas supprimer, le menage se fait cote CRM. */
+                    /* Ce canal a-t-il deja son consentement POUR CETTE MARQUE ?
+                       Regle metier du 11/09 : le consentement est par marque.
+                       Une meme personne qui soumet EFAP puis BRASSART doit avoir
+                       4 enregistrements EFAP ET 4 enregistrements BRASSART ; le
+                       rapprochement sur le seul canal reutilisait ceux de la
+                       premiere marque et n'en creait jamais pour la seconde.
+                       L'identite est donc (point de contact, canal, marque).
+                       Sans marque connue (page hors mapping), on retombe sur le
+                       canal seul, comme avant.
+                       Les consentements anciens SANS marque (crees avant le
+                       02/09) ne sont rapproches par aucune marque : une
+                       nouvelle soumission cree le sien, l'ancien reste — ce
+                       socle ne sait ni supprimer ni poser une marque en update,
+                       le menage se fait cote CRM. Premiere ligne qui correspond
+                       si des doublons existent. */
                     SET @cpcId = ""
                     FOR @k = 1 TO @nCpc DO
                         IF Empty(@cpcId) THEN
                             IF Field(Row(@cpcRows, @k), "Channel__c") == @canalValue THEN
-                                SET @cpcRow = Row(@cpcRows, @k)
-                                SET @cpcId  = Field(@cpcRow, "Id")
+                                IF Empty(@brandId) OR Field(Row(@cpcRows, @k), "BusinessBrandId", 0) == @brandId THEN
+                                    SET @cpcRow = Row(@cpcRows, @k)
+                                    SET @cpcId  = Field(@cpcRow, "Id")
+                                ENDIF
                             ENDIF
                         ENDIF
                     NEXT @k
@@ -2043,10 +2056,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ELSEIF NOT Empty(@cpcId) THEN
                         /* ---- LE CANAL A DEJA SON CONSENTEMENT : ON LE MET
                            A JOUR, ON N'EN CREE PAS UN AUTRE ----------------
-                           Un enregistrement par canal, quatre en tout, quel que
-                           soit le nombre de soumissions. C'est la regle voulue
-                           par la maitrise d'ouvrage le 31/08, et elle remplace
-                           le « un enregistrement par soumission » du 26/08.
+                           Un enregistrement par canal ET PAR MARQUE — quatre par
+                           marque, quel que soit le nombre de soumissions. Regle
+                           du 31/08 (un par canal) precisee le 11/09 (par marque) ;
+                           elle remplace le « un enregistrement par soumission »
+                           du 26/08. Une soumission pour une autre marque ne passe
+                           pas ici : elle cree ses quatre enregistrements.
 
                            On n'ecrit QUE ce qui differe. Une re-soumission a
                            l'identique — le cas courant — ne declenche donc
@@ -2408,11 +2423,20 @@ IF IndexOf(@submitted, "true") > 0 THEN
             IF @INTERACTION_ACTIVE != "true" THEN
                 SET @journal = Concat(@journal, " INTERACTION:desactivee")
             ELSEIF NOT Empty(@cmId) THEN
-                /* ⚠ NI CampaignMemberLink__c NI InteractionDate__c : chacun
-                   fait echouer l'insert a lui seul, sur l'ancien objet comme
-                   sur le neuf. Le lien vers le membre passe par
-                   CampaignMemberId__c, en texte ; la date est posee par
-                   Salesforce. */
+                /* ⚠ PAS de CampaignMemberLink__c : il fait echouer l'insert a
+                   lui seul. Le lien vers le membre passe par CampaignMemberId__c,
+                   en texte.
+
+                   InteractionDate__c EST envoye depuis le 11/09. Il faisait
+                   echouer l'insert le 26/08 pour la meme raison que la date
+                   d'engagement : c'est un Date/Heure, et le format
+                   « yyyy-MM-dd HH:mm:ss » est refuse ; l'ISO UTC passe (sonde
+                   LPB_TST_Sonde_Interaction_Date, relu a la seconde). Sans
+                   lui, Salesforce ne pose RIEN : le champ restait vide sur
+                   toutes les interactions creees par les formulaires. */
+                IF Empty(@itHorodatageUtc) THEN
+                    SET @itHorodatageUtc = Concat(Substring(FormatDate(DateAdd(Now(), 6, "H"), "iso"), 1, 19), "Z")
+                ENDIF
 
                 /* Preview__c — ce que la personne a demande, en clair.
                    Context__c — d'ou vient la soumission.
@@ -2428,8 +2452,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @itContext = Concat("LP Builder - CloudPage - zone ", @zone)
 
                 IF @OBJET_INTERACTION == "Interaction__c" THEN
-                    SET @n = CreateSalesforceObject("Interaction__c", 18,
+                    SET @n = CreateSalesforceObject("Interaction__c", 19,
                         "RecordTypeId",          @RT_INTERACTION_FORM,
+                        "InteractionDate__c",    @itHorodatageUtc,
                         "Campaign__c",           @campaignId,
                         "PersonAccount__c",      @paId,
                         "CampaignMemberId__c",   @cmId,
