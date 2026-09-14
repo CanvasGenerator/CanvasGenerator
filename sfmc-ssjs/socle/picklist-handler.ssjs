@@ -595,6 +595,32 @@ try {
             : 'Aucune date n\'est disponible pour ce campus actuellement.';
     }
 
+    /**
+     * L'instance d'immersion de la marque : la plus proche a venir (date ISO
+     * yyyy-mm-dd >= aujourd'hui), sinon la premiere de la liste. `null` sans
+     * instance. Independant du campus : la journee est celle de la marque.
+     */
+    function instanceImmersion(liste) {
+        if (!liste || !liste.length) return null;
+        var d = new Date();
+        var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+        var aujourdhui = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+        var retenue = null;
+        for (var i = 0; i < liste.length; i++) {
+            var date = String(liste[i].date || '');
+            if (!date || date < aujourdhui) continue;
+            if (!retenue || date < String(retenue.date || '')) retenue = liste[i];
+        }
+        return retenue || liste[0];
+    }
+
+    /** L'immersion n'est pas rattachee a un campus : la phrase parle de l'ecole. */
+    function messageSansImmersion() {
+        return langueAffichage() === 'en'
+            ? 'No immersion day is currently scheduled for this school.'
+            : 'Aucune journée d\'immersion n\'est programmée pour cette école actuellement.';
+    }
+
     function libelleMarque(name, option, langue) {
         var parChamp = MARQUE[name];
         if (!parChamp) return '';
@@ -3663,11 +3689,12 @@ try {
                partait : le serveur refusait (« aucune date choisie ») et le
                visiteur lisait un message d'erreur generique. On le lui dit ici,
                avec la phrase de la zone des dates. L'immersion pose un champ
-               cache, elle n'est pas concernee. */
+               cache quand l'ecole a une instance ; sans instance (CREAD,
+               14/09) elle est refusee comme les autres, avec sa propre phrase. */
             var zoneInst = null;
             try { zoneInst = document.querySelector('[data-socle="instances"]'); } catch (eZi) { zoneInst = null; }
-            if (zoneInst && !estImmersion() && !form.querySelector('[name="InstanceId"]')) {
-                montrerMessage(form, [messageSansDate()], 'erreur');
+            if (zoneInst && !form.querySelector('[name="InstanceId"]')) {
+                montrerMessage(form, [estImmersion() ? messageSansImmersion() : messageSansDate()], 'erreur');
                 return;
             }
 
@@ -3702,6 +3729,12 @@ try {
                ligne de journal, et un message d'erreur qui accusait le CRM.
                Reproduit et corrige le 31/08. */
             if (!vus.submitted) corps.push('submitted=true');
+            /* ---- PAS DE LISTES DANS LA REPONSE -------------------------------
+               La page se rejoue entierement sur le POST, listes Salesforce
+               comprises (7 s mesurees le 14/09), alors que seul le commentaire
+               « socle ecriture » est lu ici. Ce parametre dit au bloc des
+               listes de se taire ; le POST natif sans JS ne l'envoie pas. */
+            if (!vus.socle_fetch) corps.push('socle_fetch=1');
 
             /* ---- OPT-IN PAR CANAL, DEDUIT DE LA CASE RGPD ----------------
                Le socle d'ecriture attend HasOptedInEmail / SMS / WhatsApp /
@@ -3831,18 +3864,47 @@ try {
                    La zone reste vide de tout libelle : aucune date affichee,
                    conformement au contrat. */
                 zoneDates.innerHTML = '';
-                var instImm = liste[0];
+                /* UNE instance pour toute la marque, quel que soit le campus
+                   (regle du 14/09). Le CRM en porte parfois plusieurs datees
+                   (EFAP Montpellier : 9) : on retient la plus proche a venir,
+                   sinon la premiere, pour que deux campus de la meme marque
+                   rattachent la meme journee. */
+                var instImm = instanceImmersion(liste);
+                var porteurImm = zoneDates.closest
+                    ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
+                    : zoneDates.parentNode;
                 if (instImm) {
                     var cache = document.createElement('input');
                     cache.type = 'hidden';
                     cache.name = 'InstanceId';
                     cache.value = instImm.value;
                     zoneDates.appendChild(cache);
+                    if (porteurImm && porteurImm.style) porteurImm.style.display = 'none';
+                } else {
+                    /* ---- AUCUNE IMMERSION PROGRAMMEE POUR L'ECOLE ------------
+                       Releve le 14/09 sur CREAD : le CRM ne porte d'instance
+                       « Immersion Day » que pour quatre campus (Ecole Bleue,
+                       EFAP Montpellier, IFA Paris, BRASSART Annecy). Sans
+                       instance, le socle d'ecriture refuse l'inscription
+                       (« sans InstanceId »), et le bloc immersion neutralise
+                       son bouton des que la zone est vide — mais on masquait
+                       le porteur, donc le visiteur voyait un bouton gris sans
+                       la moindre explication.
+
+                       On dit donc pourquoi, avec la meme mecanique que les
+                       autres evenements : un paragraphe dans la zone, et le
+                       garde de soumission qui repete la phrase. La zone n'est
+                       plus vide, le bloc rend donc son bouton et son porteur ;
+                       l'intitule « Choisissez une date » n'a pas de sens en
+                       immersion, on le retire. */
+                    var videImm = document.createElement('p');
+                    videImm.className = 'socle-instance-vide';
+                    videImm.textContent = messageSansImmersion();
+                    zoneDates.appendChild(videImm);
+                    if (porteurImm && porteurImm.style) porteurImm.style.display = '';
+                    var intituleImm = (porteurImm && porteurImm.querySelector) ? porteurImm.querySelector('label') : null;
+                    if (intituleImm && intituleImm.style) intituleImm.style.display = 'none';
                 }
-                var porteurImm = zoneDates.closest
-                    ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
-                    : zoneDates.parentNode;
-                if (porteurImm && porteurImm.style) porteurImm.style.display = 'none';
 
             } else if (zoneDates) {
                 zoneDates.innerHTML = '';

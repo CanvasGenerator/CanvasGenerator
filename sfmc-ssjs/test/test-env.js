@@ -59,6 +59,24 @@ test('handler inline sans variable : drapeau ferme', () => {
     } finally { if (avant !== undefined) process.env.SFMC_JOURNEY_LAUNCH = avant; }
 });
 
+/* Le bloc des listes se tait sur un POST envoye par fetch (piste 1 du 14/09) :
+   le garde ouvre le bloc, le referme APRES le JS de cascade, et le JS envoie
+   bien le parametre qui le declenche. Un ENDIF perdu par la synchro du JS
+   rendrait la page morte : on le verifie a chaque passage. */
+test('listes inline : garde socle_fetch ouvert en tete, ferme apres la cascade, parametre envoye', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'))];
+    const { inlineSocleBlocks } = require(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'));
+    const html = String(inlineSocleBlocks('%%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%').html);
+    const garde = html.indexOf('IF @socleFetch != "1" THEN');
+    const premiereLecture = html.indexOf('RetrieveSalesforceObjects(');
+    const finCascade = html.indexOf('<!-- ===== fin JS DE CASCADE ===== -->');
+    const fermeture = html.lastIndexOf('%%[ ENDIF ]%%');
+    egal(garde > 0 && garde < premiereLecture, true, 'garde avant la premiere lecture Salesforce');
+    egal(finCascade > 0 && fermeture > finCascade, true, 'ENDIF apres la fin du JS de cascade');
+    egal(/RequestParameter\("socle_fetch"\)/.test(html), true, 'parametre lu');
+    egal(/corps\.push\('socle_fetch=1'\)/.test(html), true, 'parametre envoye par le JS');
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);
