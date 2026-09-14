@@ -468,9 +468,36 @@ test('Campus pas encore choisi : pas de message', () => {
     egal(paragraphes(d.zoneDates, 'socle-instance-vide').length, 0, 'message absent avant le choix');
 });
 
-test('Immersion : jamais de message, la zone reste vide', () => {
+test('Immersion avec instance : champ cache, aucun message, porteur masque', () => {
+    const d = jouer([], { choisirDate: false, typeEvenement: 'immersion' });
+    egal(paragraphes(d.zoneDates, 'socle-instance-vide').length, 0, 'message absent quand l ecole a une immersion');
+    const caches = d.zoneDates.enfants.filter((e) => e.type === 'hidden' && e.name === 'InstanceId');
+    egal(caches.length, 1, 'un champ cache InstanceId');
+    egal(d.zoneDates.style.display, 'none', 'porteur masque');
+});
+
+test('Immersion : une seule journee pour la marque, la plus proche a venir, quel que soit le campus [14/09]', () => {
+    const passee  = { ...INSTANCE, value: 'imm-passee',  date: '2020-01-05', campus: 'EFAP PARIS' };
+    const loin    = { ...INSTANCE, value: 'imm-loin',    date: '2099-03-01', campus: 'EFAP MONTPELLIER' };
+    const proche  = { ...INSTANCE, value: 'imm-proche',  date: '2098-11-17', campus: 'EFAP MONTPELLIER' };
+    for (const campus of ['EFAP PARIS', 'EFAP BORDEAUX', '']) {
+        const d = jouer([], { choisirDate: false, instances: [loin, passee, proche], typeEvenement: 'immersion', campus });
+        const caches = d.zoneDates.enfants.filter((e) => e.name === 'InstanceId');
+        egal(caches.length, 1, `un champ cache (campus « ${campus} »)`);
+        egal(caches[0].value, 'imm-proche', `la plus proche a venir (campus « ${campus} »)`);
+    }
+    const dPasse = jouer([], { choisirDate: false, instances: [passee], typeEvenement: 'immersion' });
+    egal(dPasse.zoneDates.enfants.filter((e) => e.name === 'InstanceId')[0].value, 'imm-passee', 'sans date a venir, la premiere');
+});
+
+test('Immersion sans aucune instance : message dedie, porteur visible [CREAD 14/09]', () => {
     const d = jouer([], { choisirDate: false, instances: [], typeEvenement: 'immersion' });
-    egal(paragraphes(d.zoneDates, 'socle-instance-vide').length, 0, 'message absent en immersion');
+    const p = paragraphes(d.zoneDates, 'socle-instance-vide');
+    egal(p.length, 1, 'un message');
+    if (!/immersion/.test(p[0].textContent)) throw new Error(`phrase inattendue : ${p[0].textContent}`);
+    if (/campus/.test(p[0].textContent)) throw new Error('la phrase ne doit pas parler de campus');
+    egal(d.zoneDates.enfants.filter((e) => e.name === 'InstanceId').length, 0, 'pas de champ cache');
+    if (d.zoneDates.style.display === 'none') throw new Error('le porteur doit rester visible pour que le message se lise');
 });
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
