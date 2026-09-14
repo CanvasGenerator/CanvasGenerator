@@ -298,7 +298,7 @@ SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
 VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
-VAR @detailOrigine
+VAR @detailOrigine, @nCpRows
 
 VAR @LOG_ACTIF, @LOG_DETAIL, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -1614,8 +1614,23 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @cpEmail = ""
             SET @cpPhone = ""
 
-            SET @rows = RetrieveSalesforceObjects("ContactPointEmail", "Id", "ParentId", "=", @paId)
-            IF RowCount(@rows) > 0 THEN
+            /* ---- COMPTE TOUT JUSTE CREE : RIEN A RELIRE -------------------
+               Un Person Account ne a l'instant n'a ni point de contact ni
+               consentement : les quatre lectures qui suivent (deux
+               ContactPoint, deux ContactPointConsent) rendaient toujours zero
+               ligne — verifie sur les journaux, « CP:email-cree CP:phone-cree
+               CPC:*-cree » a chaque creation. On ne les fait donc que sur un
+               compte existant (piste 3 du 14/09 : 3 s entre la creation du
+               compte et le premier consentement). Si le CRM se mettait un
+               jour a creer un ContactPointEmail a la volee, la creation ci-
+               dessous echouerait en doublon et tuerait la page : le journal
+               le dirait a la premiere soumission. */
+            SET @nCpRows = 0
+            IF @isNew != "true" THEN
+                SET @rows = RetrieveSalesforceObjects("ContactPointEmail", "Id", "ParentId", "=", @paId)
+                SET @nCpRows = RowCount(@rows)
+            ENDIF
+            IF @nCpRows > 0 THEN
                 SET @cpEmail = Field(Row(@rows,1), "Id")
             ELSEIF NOT Empty(@email) THEN
                 SET @cpEmail = CreateSalesforceObject("ContactPointEmail", 3,
@@ -1625,8 +1640,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @journal = Concat(@journal, " CP:email-cree")
             ENDIF
 
-            SET @rows = RetrieveSalesforceObjects("ContactPointPhone", "Id", "ParentId", "=", @paId)
-            IF RowCount(@rows) > 0 THEN
+            SET @nCpRows = 0
+            IF @isNew != "true" THEN
+                SET @rows = RetrieveSalesforceObjects("ContactPointPhone", "Id", "ParentId", "=", @paId)
+                SET @nCpRows = RowCount(@rows)
+            ENDIF
+            IF @nCpRows > 0 THEN
                 SET @cpPhone = Field(Row(@rows,1), "Id")
             ELSEIF NOT Empty(@mobile) THEN
                 SET @cpPhone = CreateSalesforceObject("ContactPointPhone", 3,
@@ -1656,14 +1675,14 @@ IF IndexOf(@submitted, "true") > 0 THEN
                filtre a deux conditions sur cet objet n'a jamais ete eprouve
                ici, et une forme de requete non eprouvee tue la page. */
             SET @nCpcMail = 0
-            IF NOT Empty(@cpEmail) THEN
+            IF NOT Empty(@cpEmail) AND @isNew != "true" THEN
                 SET @cpcMail = RetrieveSalesforceObjects("ContactPointConsent",
                     "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
                     "ContactPointId", "=", @cpEmail)
                 SET @nCpcMail = RowCount(@cpcMail)
             ENDIF
             SET @nCpcTel = 0
-            IF NOT Empty(@cpPhone) THEN
+            IF NOT Empty(@cpPhone) AND @isNew != "true" THEN
                 SET @cpcTel = RetrieveSalesforceObjects("ContactPointConsent",
                     "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
                     "ContactPointId", "=", @cpPhone)
