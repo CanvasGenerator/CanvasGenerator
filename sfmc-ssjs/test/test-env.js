@@ -24,6 +24,20 @@ test('drapeau "1" ou "oui" reste ferme', () => {
     egal(injecterEnv('%%ENV:SFMC_JOURNEY_LAUNCH%%', { SFMC_JOURNEY_LAUNCH: 'oui' }), 'false');
 });
 test('jeton inconnu hors *_LAUNCH → chaine vide', () => egal(injecterEnv('a%%ENV:AUTRE_CHOSE%%b', {}), 'ab'));
+test('SFMC_LOG_DETAIL : booleen, ferme par defaut', () => {
+    egal(injecterEnv('x=%%ENV:SFMC_LOG_DETAIL%%', {}), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_LOG_DETAIL%%', { SFMC_LOG_DETAIL: 'oui' }), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_LOG_DETAIL%%', { SFMC_LOG_DETAIL: ' True ' }), 'x=true');
+});
+test('handler inline : niveau de journal pose, lignes « avant » gardees', () => {
+    delete require.cache[require.resolve(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'))];
+    const { inlineSocleBlocks } = require(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'));
+    const html = String(inlineSocleBlocks('%%=ContentBlockByKey("LPB_Form_Handler_AG")=%%').html);
+    egal(/SET @LOG_DETAIL = "(true|false)"/.test(html), true, 'drapeau pose');
+    const gardes = (html.match(/IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN/g) || []).length;
+    egal(gardes, 7, 'sept lignes de detail gardees');
+    egal(/"Etape", "99 - fin"/.test(html), true, 'la fin reste journalisee');
+});
 test('plusieurs jetons dans un meme texte', () =>
     egal(injecterEnv('%%ENV:SFMC_JOURNEY_LAUNCH%%/%%ENV:SFMC_JOURNEY_LAUNCH%%', { SFMC_JOURNEY_LAUNCH: 'true' }), 'true/true'));
 test('jetonsRestants liste les jetons non remplaces', () => {
