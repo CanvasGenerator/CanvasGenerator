@@ -28,6 +28,7 @@ require('dotenv').config();
 
 const fs = require('node:fs');
 const path = require('node:path');
+const { injecterEnv } = require('../lib/socle-env');
 const { isSfmcConfigured, sfmcFetch, findAssetIdByCustomerKey, ensureFolder,
         resolveCategoryIdByName } = require('../lib/sfmc');
 
@@ -107,13 +108,20 @@ async function main() {
             console.error(`  ✖ ${b.fichier} introuvable`);
             process.exit(1);
         }
-        const contenu = fs.readFileSync(chemin, 'utf8');
+        /* Meme injection des jetons %%ENV:...%% que pour les pages (lib/socle-env.js). */
+        const contenu = injecterEnv(fs.readFileSync(chemin, 'utf8'));
 
         if (b.langage === 'ampscript') {
             // L'AMPscript vit dans des %%[ ]%% et NE DOIT PAS etre enferme dans
             // un <script runat="server"> : SFMC y attendrait du SSJS et le code
             // s'afficherait en clair. Meme garde-fou que dans socle-inliner.js.
-            if (/<script[^>]*runat=["']server["']/i.test(contenu)) {
+            // Un bloc SSJS APRES l'AMPscript est legitime (le tir des journeys,
+            // en fin de handler-form.ampscript, depuis le 10/09) : on ne refuse
+            // que si un <script runat="server"> s'ouvre AVANT la fin du premier
+            // bloc AMPscript, c'est-a-dire si l'AMPscript est dedans.
+            const ouvertureScript = contenu.search(/<script[^>]*runat=["']server["']/i);
+            const finPremierBloc = contenu.indexOf(']%%');
+            if (ouvertureScript >= 0 && (finPremierBloc < 0 || ouvertureScript < finPremierBloc)) {
                 console.error(`  ✖ ${b.fichier} : AMPscript enferme dans <script runat="server"> — bloc invalide`);
                 process.exit(1);
             }

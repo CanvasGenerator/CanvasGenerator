@@ -158,16 +158,19 @@ function creerDom() {
 
 function jouer(appointments, options = {}) {
     const d = creerDom();
-    vm.runInNewContext(CASCADE, {
-        window: {
-            SOCLE_DATA: {
-                school: 'efap', picklists: {}, campus: [], programs: [], ptats: [], terms: [],
-                instances: [INSTANCE], appointments,
-                config: { progressif: true, ordre: 'campus,niveau', champs: {} },
-            },
-        },
-        document: d.document,
-    });
+    if (options.campus !== undefined) d.champs.Campus.value = options.campus;
+    /* Une ecole a campus unique porte un champ CACHE, pas un <select>. */
+    if (options.campusCache) d.champs.Campus = { tagName: 'INPUT', type: 'hidden', value: options.campusCache, addEventListener() {} };
+    if (options.campusOptions) d.champs.Campus.options = options.campusOptions;
+    if (options.typeEvenement) d.champs.TypeEvenement = { tagName: 'INPUT', value: options.typeEvenement, addEventListener() {} };
+    const donnees = {
+        school: 'efap', picklists: {}, campus: [], programs: [], ptats: [], terms: [],
+        instances: options.instances !== undefined ? options.instances : [INSTANCE], appointments,
+        config: { progressif: true, ordre: 'campus,niveau', champs: {} },
+    };
+    if (options.marque) donnees.marque = options.marque;
+    if (options.campusListe) donnees.campus = options.campusListe;
+    vm.runInNewContext(CASCADE, { window: { SOCLE_DATA: donnees }, document: d.document });
 
     /* Les dates ne sont plus preselectionnees (retour du 03/09). La plupart des
        tests ci-dessous portent sur le programme d'une date RETENUE : on coche
@@ -391,6 +394,110 @@ test('Sans campus, aucune date et donc aucun sous-evenement [REGRESSION]', () =>
     });
     egal(cases(d.zone).length, 0, 'sous-evenements proposes sans campus');
     egal(d.champs.Appointments.value, '', 'champ cache renseigne sans date');
+});
+
+/** Les paragraphes d'une classe donnee, dans le sous-arbre. */
+function paragraphes(noeud, classe, out = []) {
+    (noeud.enfants || []).forEach((e) => {
+        if (e.tagName === 'P' && e.className === classe) out.push(e);
+        paragraphes(e, classe, out);
+    });
+    return out;
+}
+
+/* Le harnais n'a pas d'options de campus : sans elles, la page passerait pour
+   une ecole a campus unique (marque seule). Ces deux options simulent un vrai
+   choix. */
+const PLUSIEURS_CAMPUS = [{ value: '' }, { value: 'EFAP PARIS' }, { value: 'EFAP LILLE' }];
+
+test('La carte porte « Marque Ville », marque Business Brand [RETOUR 10/09]', () => {
+    /* « Efap Paris », « Mopa Arles » : le campus recase par le navigateur. Le
+       client veut la marque telle que le CRM la porte, suivie de la ville. Le
+       harnais n'a pas de liste de campus : la ville est ce qui reste du nom
+       CRM une fois la marque retiree. */
+    const d = jouer(APPOINTMENTS, { choisirDate: false, marque: 'EFAP', campusOptions: PLUSIEURS_CAMPUS });
+    const ou = parClasse(d.zoneDates.enfants[0], 'socle-instance-ou');
+    egal(textes(ou), ['EFAP Paris', 'Paris'], 'colonne du OU avec marque seule');
+});
+
+test('Plusieurs campus au choix : « MoPA Arles », casse de la marque conservee', () => {
+    const inst = Object.assign({}, INSTANCE, { campus: 'MOPA ARLES' });
+    const d = jouer(APPOINTMENTS, { choisirDate: false, marque: 'MoPA', instances: [inst], campus: 'MOPA ARLES',
+                                    campusOptions: [{ value: '' }, { value: 'MOPA ARLES' }, { value: 'MOPA PARIS' }] });
+    const ou = parClasse(d.zoneDates.enfants[0], 'socle-instance-ou');
+    egal(textes(ou), ['MoPA Arles', 'Paris'], 'colonne du OU MoPA');
+});
+
+test('Campus unique (champ cache) : la marque seule, « MoPA » [PRECISION 11/09]', () => {
+    const inst = Object.assign({}, INSTANCE, { campus: 'MOPA ARLES' });
+    const d = jouer(APPOINTMENTS, { choisirDate: false, marque: 'MoPA', instances: [inst], campusCache: 'MOPA ARLES' });
+    const ou = parClasse(d.zoneDates.enfants[0], 'socle-instance-ou');
+    egal(textes(ou), ['MoPA', 'Paris'], 'colonne du OU sans choix de campus');
+});
+
+test('Un <select> a une seule vraie option vaut campus unique', () => {
+    const inst = Object.assign({}, INSTANCE, { campus: 'MOPA ARLES' });
+    const d = jouer(APPOINTMENTS, { choisirDate: false, marque: 'MoPA', instances: [inst], campus: 'MOPA ARLES',
+                                    campusOptions: [{ value: '' }, { value: 'MOPA ARLES' }] });
+    const ou = parClasse(d.zoneDates.enfants[0], 'socle-instance-ou');
+    egal(textes(ou), ['MoPA', 'Paris'], 'colonne du OU avec une seule option');
+});
+
+test('Sans marque, le campus recase reste le repli', () => {
+    const d = jouer(APPOINTMENTS, { choisirDate: false });
+    const ou = parClasse(d.zoneDates.enfants[0], 'socle-instance-ou');
+    egal(textes(ou), ['Efap Paris', 'Paris'], 'colonne du OU sans marque');
+});
+
+test('Aucune instance : la zone dit qu aucune date n est disponible [RETOUR 10/09]', () => {
+    const d = jouer([], { choisirDate: false, instances: [] });
+    const p = paragraphes(d.zoneDates, 'socle-instance-vide');
+    egal(p.map((x) => x.textContent), ['Aucune date n\'est disponible pour ce campus actuellement.'], 'message');
+    egal(radios(d.zoneDates).length, 0, 'aucun bouton radio');
+});
+
+test('Des instances, mais aucune pour le campus choisi : meme message', () => {
+    const d = jouer(APPOINTMENTS, { choisirDate: false, campus: 'EFAP LILLE' });
+    const p = paragraphes(d.zoneDates, 'socle-instance-vide');
+    egal(p.length, 1, 'message present');
+    egal(radios(d.zoneDates).length, 0, 'aucune date rendue pour Lille');
+});
+
+test('Campus pas encore choisi : pas de message', () => {
+    const d = jouer(APPOINTMENTS, { choisirDate: false, campus: '' });
+    egal(paragraphes(d.zoneDates, 'socle-instance-vide').length, 0, 'message absent avant le choix');
+});
+
+test('Immersion avec instance : champ cache, aucun message, porteur masque', () => {
+    const d = jouer([], { choisirDate: false, typeEvenement: 'immersion' });
+    egal(paragraphes(d.zoneDates, 'socle-instance-vide').length, 0, 'message absent quand l ecole a une immersion');
+    const caches = d.zoneDates.enfants.filter((e) => e.type === 'hidden' && e.name === 'InstanceId');
+    egal(caches.length, 1, 'un champ cache InstanceId');
+    egal(d.zoneDates.style.display, 'none', 'porteur masque');
+});
+
+test('Immersion : une seule journee pour la marque, la plus proche a venir, quel que soit le campus [14/09]', () => {
+    const passee  = { ...INSTANCE, value: 'imm-passee',  date: '2020-01-05', campus: 'EFAP PARIS' };
+    const loin    = { ...INSTANCE, value: 'imm-loin',    date: '2099-03-01', campus: 'EFAP MONTPELLIER' };
+    const proche  = { ...INSTANCE, value: 'imm-proche',  date: '2098-11-17', campus: 'EFAP MONTPELLIER' };
+    for (const campus of ['EFAP PARIS', 'EFAP BORDEAUX', '']) {
+        const d = jouer([], { choisirDate: false, instances: [loin, passee, proche], typeEvenement: 'immersion', campus });
+        const caches = d.zoneDates.enfants.filter((e) => e.name === 'InstanceId');
+        egal(caches.length, 1, `un champ cache (campus « ${campus} »)`);
+        egal(caches[0].value, 'imm-proche', `la plus proche a venir (campus « ${campus} »)`);
+    }
+    const dPasse = jouer([], { choisirDate: false, instances: [passee], typeEvenement: 'immersion' });
+    egal(dPasse.zoneDates.enfants.filter((e) => e.name === 'InstanceId')[0].value, 'imm-passee', 'sans date a venir, la premiere');
+});
+
+test('Immersion sans aucune instance : message dedie, porteur visible [CREAD 14/09]', () => {
+    const d = jouer([], { choisirDate: false, instances: [], typeEvenement: 'immersion' });
+    const p = paragraphes(d.zoneDates, 'socle-instance-vide');
+    egal(p.length, 1, 'un message');
+    if (!/immersion/.test(p[0].textContent)) throw new Error(`phrase inattendue : ${p[0].textContent}`);
+    if (/campus/.test(p[0].textContent)) throw new Error('la phrase ne doit pas parler de campus');
+    egal(d.zoneDates.enfants.filter((e) => e.name === 'InstanceId').length, 0, 'pas de champ cache');
+    if (d.zoneDates.style.display === 'none') throw new Error('le porteur doit rester visible pour que le message se lise');
 });
 
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
