@@ -300,8 +300,18 @@ VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
 VAR @detailOrigine
 
-VAR @LOG_ACTIF, @runId, @logOrdre
+VAR @LOG_ACTIF, @LOG_DETAIL, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
+/* ---- NIVEAU DE JOURNAL ------------------------------------------------------
+   Chaque ligne de journal est un InsertData, donc un aller-retour : 17 a 19
+   par soumission, 2 a 4 s cumulees (mesure du 14/09). Les lignes « avant
+   ... » (25, 28, 35, 58, 78, 79) et le « 50 - drapeau » ne servent qu'a
+   localiser une page morte pendant un developpement : la derniere ligne
+   ecrite suffit deja a nommer l'appel fautif. Elles ne sortent que si le
+   drapeau SFMC_LOG_DETAIL vaut true a la publication (.env) ; les lignes de
+   resultat (10, 20, 21, 26, 30, 40, 60, 70, 80, 99) et d'erreur restent
+   toujours ecrites. */
+SET @LOG_DETAIL = "%%ENV:SFMC_LOG_DETAIL%%"
 SET @runId     = Substring(Replace(GUID(), "-", ""), 1, 12)
 SET @logOrdre  = 0
 
@@ -905,7 +915,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
         ENDIF
     ELSE
 
-        IF @LOG_ACTIF == "true" THEN
+        IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
             SET @logOrdre = Add(@logOrdre, 1)
             InsertData("LPB_Log_Soumissions",
                 "RowId", Concat(@runId, "-", @logOrdre),
@@ -1131,7 +1141,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @vSpec = Field(@row, "Speciality__c")
             IF NOT Empty(@specialiteOk) AND @vSpec != @specialiteOk THEN SET @vSpec = @specialiteOk SET @champsMaj = Concat(@champsMaj, " Speciality__c") ENDIF
 
-            IF @LOG_ACTIF == "true" THEN
+            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
                     "RowId", Concat(@runId, "-", @logOrdre),
@@ -1248,7 +1258,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "FormType", @formType)
             ENDIF
         ELSE
-            IF @LOG_ACTIF == "true" THEN
+            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
                     "RowId", Concat(@runId, "-", @logOrdre),
@@ -1487,7 +1497,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
            juste apres l'ecriture est donc la preuve que ca a MARCHE, pas
            l'inverse. */
         IF NOT Empty(@paId) THEN
-            IF @LOG_ACTIF == "true" THEN
+            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                 SET @logOrdre = Add(@logOrdre, 1)
                 InsertData("LPB_Log_Soumissions",
                     "RowId", Concat(@runId, "-", @logOrdre),
@@ -1723,7 +1733,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         ENDIF
                     NEXT @k
 
-                    IF @LOG_ACTIF == "true" THEN
+                    IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
                             "RowId", Concat(@runId, "-", @logOrdre),
@@ -2218,7 +2228,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    de ce qui vient de nous. Il n'est simplement plus la cle. */
                 SET @extId = Concat(@paContactId, "-", @instanceId)
 
-                IF @LOG_ACTIF == "true" THEN
+                IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
                     InsertData("LPB_Log_Soumissions",
                         "RowId", Concat(@runId, "-", @logOrdre),
@@ -2288,7 +2298,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                        verifies presents sur l'objet.
                        Pas de fbclid ici : le package Summit ne fournit que
                        summit__gclid__c, et le mapping le note explicitement. */
-                    IF @LOG_ACTIF == "true" THEN
+                    IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
                             "RowId", Concat(@runId, "-", @logOrdre),
