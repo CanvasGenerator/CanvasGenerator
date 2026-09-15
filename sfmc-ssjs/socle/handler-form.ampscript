@@ -1051,11 +1051,14 @@ IF IndexOf(@submitted, "true") > 0 THEN
                sait pas la construire a la volee.
 
                Ce qui N'EST PAS dans l'appel, et pourquoi :
-               - AcquisitionChannel__c / AcquisitionSubChannel__c : le trigger
-                 CRM (AccountAcquisitionChannelService.lockOnUpdate, GCRM-912)
-                 REFUSE tout changement apres creation d'un compte Web Form,
-                 et le refus tue la page. Le canal est celui de la creation ;
-                 un ecart est journalise (CANAL:verrouille-crm).
+               - AcquisitionChannel__c / AcquisitionSubChannel__c : le CRM en
+                 est desormais la SEULE source (recommandation du 15/09). Le
+                 trigger AccountAcquisitionChannelService les calcule a partir
+                 des UTM a la creation, et lockOnUpdate (GCRM-912) refuse tout
+                 changement ensuite. Le socle ne les envoie plus, ni a la
+                 creation ni a la mise a jour ; un ecart eventuel entre le
+                 canal du formulaire et celui du CRM est seulement journalise
+                 (CANAL:verrouille-crm), jamais ecrit.
                - DateConsentementCookies__c : champ date dont on n'a jamais vu
                  de valeur reelle d'Axeptio ; la valeur CRM relue est rendue
                  dans un format que le connecteur refuse en ecriture. Appel a
@@ -1386,7 +1389,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @vConsent = @consentVoulu
                 IF Empty(@vConsent) THEN SET @vConsent = "false" ENDIF
                 IF Empty(@typeForm) THEN
-                    SET @paId = CreateSalesforceObject("Account", 31,
+                    SET @paId = CreateSalesforceObject("Account", 29,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
                     "Ecole__c",               @schoolAccId,
@@ -1412,14 +1415,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "gclid__c",               @gclid,
                     "fbclid__c",              @fbclid,
                     "ClientID__c",            @clientId,
-                    "AcquisitionChannel__c",  @canal,
-                    "AcquisitionSubChannel__c", @sousCanal,
                     "Consent__c",             @vConsent,
                     "CreationSourceDetail__c", @detailOrigine,
                     "DateOfLastMarketingContactPoint__c", @itHorodatage,
                     "LastMarketingContactPointType__c",   "Form")
                 ELSE
-                    SET @paId = CreateSalesforceObject("Account", 32,
+                    SET @paId = CreateSalesforceObject("Account", 30,
                     "FormType__c",            @typeForm,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
                     "SourceCreation__c",      "Web Form",
@@ -1446,8 +1447,6 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "gclid__c",               @gclid,
                     "fbclid__c",              @fbclid,
                     "ClientID__c",            @clientId,
-                    "AcquisitionChannel__c",  @canal,
-                    "AcquisitionSubChannel__c", @sousCanal,
                     "Consent__c",             @vConsent,
                     "CreationSourceDetail__c", @detailOrigine,
                     "DateOfLastMarketingContactPoint__c", @itHorodatage,
