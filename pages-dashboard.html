@@ -725,14 +725,17 @@
 
         // ── Badges de langue (drapeaux) : langues disponibles pour la page ──────
         const LANG_FLAGS = { FR: '🇫🇷', EN: '🇬🇧', ES: '🇪🇸', DE: '🇩🇪', IT: '🇮🇹', PT: '🇵🇹' };
-        function getLangBadges(page) {
-            const langs = Array.isArray(page.variantLanguages) && page.variantLanguages.length
-                ? page.variantLanguages
-                : [page.lang || 'FR'];
+        function getLangBadgesFrom(langs) {
             return `<div class="cms-lang-badges" style="display:flex;flex-wrap:wrap;gap:4px;">` + langs.map(l => {
                 const code = String(l || 'FR').toUpperCase();
                 return `<span class="cms-badge cms-badge-lang" title="${escAttr(code)}">${LANG_FLAGS[code] || ''} ${escHtml(code)}</span>`;
             }).join('') + `</div>`;
+        }
+        // Colonne « Langue » de la liste : la langue DE CETTE PAGE, pas celles de ses
+        // pages sœurs — une page française reste française même si une version
+        // anglaise existe à côté.
+        function getLangBadges(page) {
+            return getLangBadgesFrom(getPageLanguages(page));
         }
 
         // ── Modèle multilingue (migration 008) ─────────────────────────────────
@@ -745,8 +748,19 @@
                 : [page.lang || 'FR'];
             return [...new Set(langs.map(l => String(l || 'FR').toUpperCase()))];
         }
+        // Langues de la traduction : celles de la page (ancien modèle à variantes)
+        // ET celles de ses pages sœurs (modèle « une page par langue »). Sert à
+        // l'onglet « Pages par traduction » et à son compteur, jamais à la colonne
+        // « Langue » de la liste.
+        function getTranslationLanguages(page) {
+            const group = Array.isArray(page.groupLanguages) ? page.groupLanguages : [];
+            return [...new Set([
+                ...getPageLanguages(page),
+                ...group.map(l => String(l || 'FR').toUpperCase())
+            ])];
+        }
         function hasTranslations(page) {
-            return getPageLanguages(page).length > 1;
+            return getTranslationLanguages(page).length > 1;
         }
 
         // ── NEW: type badge helpers ────────────────────────────────────────────
@@ -1092,7 +1106,7 @@
 
             slice.forEach(page => {
                 const origLang    = String(page.lang || 'FR').toUpperCase();
-                const langs       = getPageLanguages(page);
+                const langs       = getTranslationLanguages(page);
                 const translated  = langs.filter(l => l !== origLang);
 
                 // ==================== PAGE (toutes langues) ====================
@@ -1107,7 +1121,7 @@
                         ${getFormIdsHtml(page)}
                     </td>
                     <td><span class="cms-badge cms-badge-school">${escHtml(page.school || '—')}</span></td>
-                    <td>${getLangBadges(page)}</td>
+                    <td>${getLangBadgesFrom(langs)}</td>
                     <td><span class="cms-badge-type-translated" title="${escAttr(translated.length + ' traduction(s)')}"><i class="fas fa-language"></i> ${translated.length} traduction${translated.length > 1 ? 's' : ''}</span></td>
                     <td><span class="cms-badge ${getStatusClass(page)}">${getStatusLabel(page)}</span></td>
                     <td style="color:#9ca3af;font-size:12px;">${formatDate(page.updated_at)}</td>

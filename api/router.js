@@ -19,11 +19,14 @@ const {
     updatePageLifecycle,
     isMissingContentSchemaError,
     getPublicationSettings,
-    resolvePublicPageByHostPath
+    resolvePublicPageByHostPath,
+    getLanguageLinksForPage,
+    getLanguageLinksForProject
 } = require('./content');
 const { cleanHtmlForSfmc } = require('../lib/htmlCleaner');
 const { getSchoolLogo } = require('../lib/school-logos');
 const { handleAuthRoute, enforceAuth } = require('../lib/auth');
+const { injectLanguageSwitch } = require('../lib/lang-switch');
 
 /**
  * Rend les URLs d'assets ABSOLUES depuis la racine ("/assets/…"). Le HTML stocké
@@ -715,6 +718,14 @@ module.exports = async function handler(req, res) {
             properties.rawHtml = html;
             properties.formIds = formIds;
 
+            // Les drapeaux de traduction arrivent soit à la racine du corps (builder),
+            // soit dans `properties` (appels historiques). server.js lit la racine :
+            // on normalise ici sur `properties`, seul endroit lu par la suite.
+            if (req.body.is_original_language === false) properties.is_original_language = false;
+            if (req.body.source_project_name && !properties.page_group_id) {
+                properties.page_group_id = req.body.source_project_name;
+            }
+
             // ── Résoudre les flags de traduction ──────────────────────────────
             const existingRow = await supabaseRequest(
                 'GET',
@@ -781,7 +792,11 @@ module.exports = async function handler(req, res) {
                 contentSync = await syncLegacyProjectToContent({
                     projectName, language, html: fullHtml, css, projectData, properties,
                     // Auteur de la modification : issu de la session SFMC.
-                    actor: sfmcAuth.getActor(req)
+                    actor: sfmcAuth.getActor(req),
+                    // Duplication vers une langue : rattache la nouvelle page au groupe
+                    // de langues de la source (pages.page_group_id).
+                    isTranslation: properties.is_original_language === false,
+                    sourceProjectName: req.body.source_project_name || null
                 });
             } catch (syncErr) {
                 console.warn('⚠️  Sync structurée /api/save échouée:', syncErr.message);
@@ -1045,10 +1060,33 @@ module.exports = async function handler(req, res) {
             }
 
             res.setHeader('Content-Type', 'text/html');
-            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
             // relaxFaqSectionHeights : répare à la volée les pages DÉJÀ en base dont
             // la section FAQ porte une hauteur figée (contenu déplié qui déborde).
-            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(relaxFaqSectionHeights(ensureFormAnchors(html).html)))));
+            let previewHtml = relaxFaqSectionHeights(ensureFormAnchors(html).html);
+
+            // ── Sélecteur de langue du header ─────────────────────────────
+            // Modèle « une page par langue » : `.hdr-lang` devient un lien vers l'aperçu
+            // de la page sœur, pour tester la bascule AVANT publication.
+            // Ignoré si la page est une ANCIENNE page à variantes : son HTML bilingue
+            // embarque déjà son propre switch (lib/bilingual.js), qu'on ne touche pas.
+            if (!bilingual?.html) {
+                try {
+                    const langSwitch = await getLanguageLinksForProject(projectName, 'preview');
+                    if (langSwitch) {
+                        previewHtml = injectLanguageSwitch(previewHtml, {
+                            links: langSwitch.links,
+                            currentLanguage: langSwitch.currentLanguage
+                        });
+                    }
+                } catch (langErr) {
+                    if (!isMissingContentSchemaError(langErr)) {
+                        console.warn('Sélecteur de langue indisponible (aperçu):', langErr.message);
+                    }
+                }
+            }
+
+            // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
+            return res.status(200).send(injectPreviewViewport(ensureFontLinks(rewriteAssetsToRoot(previewHtml))));
 
         }
 
@@ -1075,8 +1113,29 @@ module.exports = async function handler(req, res) {
                     return res.status(404).send('Page version not found');
                 }
 
+                let publicHtml = relaxFaqSectionHeights(ensureFormAnchors(resolved.version.html).html);
+
+                // ── Sélecteur de langue du header → page sœur de l'autre langue ──────
+                // Calculé au moment de SERVIR : à l'enregistrement de la page FR, la page
+                // EN n'existe pas encore, et un lien gravé deviendrait faux dès qu'un
+                // slug change. Aucune page sœur publiée → le bouton reste inerte.
+                try {
+                    const langLinks = await getLanguageLinksForPage(resolved.page, {
+                        entity: resolved.entity,
+                        mode: 'public'
+                    });
+                    publicHtml = injectLanguageSwitch(publicHtml, {
+                        links: langLinks,
+                        currentLanguage: resolved.page.language
+                    });
+                } catch (langErr) {
+                    if (!isMissingContentSchemaError(langErr)) {
+                        console.warn('Sélecteur de langue indisponible (page publique):', langErr.message);
+                    }
+                }
+
                 res.setHeader('Content-Type', 'text/html');
-                return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(relaxFaqSectionHeights(ensureFormAnchors(resolved.version.html).html))));
+                return res.status(200).send(ensureFontLinks(rewriteAssetsToRoot(publicHtml)));
 
             }
         }

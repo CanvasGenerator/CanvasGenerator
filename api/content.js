@@ -102,16 +102,40 @@ function normalizeBaseUrl(value = '') {
     return String(value || '').trim().replace(/\/+$/, '');
 }
 
+/**
+ * Chemin public d'une page : la langue est TOUJOURS dans l'URL, `/fr/...` compris.
+ *
+ * Ce chemin est CALCULE (jamais stocke) : les pages francaises deja en base
+ * basculent donc sur `/fr/<slug>` sans migration ni recreation. Les liens deja
+ * diffuses sans prefixe continuent d'etre servis, voir resolvePublicPageByHostPath.
+ */
 function buildPublicPagePath({ slug = '', language = 'FR' } = {}) {
     const cleanSlug = slugify(slug) || 'page';
-    const lang = String(language || 'FR').toLowerCase();
-    return lang && lang !== 'fr' ? `/${lang}/${cleanSlug}` : `/${cleanSlug}`;
+    const lang = String(language || 'FR').trim().toLowerCase() || 'fr';
+    return `/${lang}/${cleanSlug}`;
 }
 
 function buildPublicPageUrl({ baseUrl = '', slug = '', language = 'FR' } = {}) {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     if (!normalizedBaseUrl) return '';
     return `${normalizedBaseUrl}${buildPublicPagePath({ slug, language })}`;
+}
+
+/**
+ * Decoupe un chemin public en { language, slug }.
+ *
+ * `/en/open-day`  -> EN + open-day
+ * `/fr/portes-ouvertes` -> FR + portes-ouvertes
+ * `/portes-ouvertes` -> FR + portes-ouvertes  (liens diffuses AVANT le prefixe /fr,
+ *                       toujours servis pour ne casser aucune URL existante)
+ */
+function splitLanguageAndSlug(path = '/') {
+    const segments = String(path || '').split('/').filter(Boolean);
+    const hasLangPrefix = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]);
+    return {
+        language: hasLangPrefix ? segments[0].toUpperCase() : 'FR',
+        slug: (hasLangPrefix ? segments.slice(1) : segments).join('-')
+    };
 }
 
 function parsePublicBaseUrl(baseUrl = '') {
@@ -201,6 +225,183 @@ async function findPageByLegacyProjectName(projectName) {
         `/pages?metadata->>legacyProjectName=eq.${encodeURIComponent(projectName)}&select=*&limit=1`
     );
     return Array.isArray(result) && result.length ? result[0] : null;
+}
+
+// ── Groupe de langues « une page par langue » ─────────────────────
+// Dupliquer une page vers une langue crée une PAGE à part entière (son contenu,
+// ses formulaires, son SEO, son URL /<lang>/<slug>), reliée à la page d'origine
+// par `pages.page_group_id` (migration 006). La racine du groupe est la page
+// d'origine ; toutes les traductions pointent dessus, jamais l'une sur l'autre.
+//
+// ⚠️ Ne pas confondre avec `page_variants` (migration 008), qui reste en place :
+// les pages déjà traduites en variantes gardent exactement leur comportement.
+
+function languageGroupRootId(page = {}) {
+    return page.page_group_id || page.id || null;
+}
+
+// Toutes les pages du groupe de langues, y compris la page passée en argument.
+async function listLanguageSiblings(page) {
+    const root = languageGroupRootId(page);
+    if (!root) return [];
+    const rows = await supabaseRequest(
+        'GET',
+        `/pages?or=(id.eq.${encodeURIComponent(root)},page_group_id.eq.${encodeURIComponent(root)})`
+        + '&select=id,slug,title,language,status,entity_id,metadata,is_original_language'
+    );
+    return Array.isArray(rows) ? rows : [];
+}
+
+// Id de la page à laquelle rattacher une traduction : la RACINE du groupe de la
+// source (une traduction d'une traduction reste rattachée à la page d'origine).
+async function resolveTranslationSourcePageId(sourceProjectName) {
+    if (!sourceProjectName) return null;
+    try {
+        const source = await findPageByLegacyProjectName(sourceProjectName);
+        return source ? languageGroupRootId(source) : null;
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) console.warn('resolveTranslationSourcePageId:', e.message);
+        return null;
+    }
+}
+
+/**
+ * Crée une page en la rattachant éventuellement à son groupe de langues.
+ *
+ * `is_original_language` / `page_group_id` viennent de la migration 006. Si elle
+ * n'a pas été appliquée, PostgREST rejette TOUTE la requête : on réessaie donc
+ * sans ces colonnes — perdre le lien de langue est acceptable, perdre la page ne
+ * l'est pas (même principe que patchPageWithAudit).
+ */
+async function insertPageWithLanguageLink(payload, translationOf = null) {
+    try {
+        return await insert('pages', {
+            ...payload,
+            // Écrit explicitement : la valeur par défaut de la colonne n'est pas
+            // fiable d'une base à l'autre (constaté à false en recette, ce qui
+            // faisait passer TOUTES les pages pour des traductions).
+            is_original_language: !translationOf,
+            ...(translationOf ? { page_group_id: translationOf } : {})
+        });
+    } catch (e) {
+        if (!isMissingColumnError(e, 'page_group_id') && !isMissingColumnError(e, 'is_original_language')) throw e;
+        console.warn('pages.page_group_id absent (migration 006 non appliquée) — page créée sans lien de langue.');
+        return insert('pages', payload);
+    }
+}
+
+/**
+ * Résumé des pages sœurs de langue, pour le sélecteur de langue de l'ÉDITEUR.
+ *
+ * Contrairement à getLanguageLinksForPage (qui produit des URLs publiques), on
+ * renvoie ici l'identité builder de chaque page sœur : l'éditeur en a besoin pour
+ * OUVRIR la version d'une autre langue au lieu de créer une variante.
+ */
+async function getLanguagePagesSummary(page) {
+    let siblings = [];
+    try {
+        siblings = await listLanguageSiblings(page);
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) console.warn('getLanguagePagesSummary:', e.message);
+        return [];
+    }
+    // Une page seule (pas de groupe) n'a rien à proposer : le front retombe alors
+    // sur le modèle à variantes, inchangé.
+    if (siblings.length < 2) return [];
+
+    return siblings
+        // Une page à la corbeille ne doit jamais être proposée à l'ouverture.
+        .filter(sibling => sibling.status !== 'deleted' || sibling.id === page.id)
+        .filter(sibling => sibling.metadata?.legacyProjectName)
+        .map(sibling => ({
+            language: normalizeLang(sibling.language),
+            pageId: sibling.id,
+            projectName: sibling.metadata.legacyProjectName,
+            title: sibling.title || '',
+            status: sibling.status || 'draft',
+            isOriginal: String(sibling.is_original_language) !== 'false',
+            isCurrent: sibling.id === page.id
+        }));
+}
+
+/**
+ * Liens de langue d'une page, pour le sélecteur du header et les balises hreflang.
+ *
+ * mode 'public'  : seules les pages sœurs PUBLIÉES et actives sont proposées — un
+ *                  lien mort dans un header est pire que pas de lien du tout.
+ * mode 'preview' : toutes les pages sœurs, pointées vers leur propre aperçu, pour
+ *                  pouvoir tester la bascule AVANT publication.
+ */
+async function getLanguageLinksForPage(page, { entity = null, mode = 'public' } = {}) {
+    let siblings = [];
+    try {
+        siblings = await listLanguageSiblings(page);
+    } catch (e) {
+        if (!isMissingContentSchemaError(e)) console.warn('listLanguageSiblings:', e.message);
+    }
+    if (!siblings.length) siblings = [page];
+
+    const isPreview = mode === 'preview';
+    const baseUrl = entity?.base_url || '';
+    const seen = new Set();
+    const links = [];
+
+    for (const sibling of siblings) {
+        const language = normalizeLang(sibling.language);
+        if (seen.has(language)) continue;
+        const isCurrent = sibling.id === page.id;
+
+        let path = '';
+        let url = '';
+        if (isPreview) {
+            const legacyName = sibling.metadata?.legacyProjectName;
+            if (!legacyName) continue;
+            if (!isCurrent && sibling.status === 'deleted') continue;
+            path = `/preview/${encodeURIComponent(legacyName)}`;
+        } else {
+            if (!isCurrent && sibling.status !== 'published') continue;
+            if (!isCurrent && getPublicationSettings(sibling).active === false) continue;
+            path = buildPublicPagePath({ slug: sibling.slug, language });
+            url = buildPublicPageUrl({ baseUrl, slug: sibling.slug, language });
+        }
+
+        seen.add(language);
+        links.push({
+            language,
+            isCurrent,
+            isOriginal: String(sibling.is_original_language) !== 'false',
+            path,
+            url
+        });
+    }
+    return links;
+}
+
+/**
+ * Liens de langue d'un projet legacy, pour l'aperçu dashboard et la page publique.
+ * Renvoie null si la page n'existe pas encore côté structuré (rien à câbler).
+ */
+async function getLanguageLinksForProject(projectName, mode = 'public') {
+    const page = await findPageByLegacyProjectName(projectName);
+    if (!page) return null;
+
+    let entity = null;
+    if (mode !== 'preview' && page.entity_id) {
+        try {
+            const rows = await supabaseRequest(
+                'GET',
+                `/entities?id=eq.${encodeURIComponent(page.entity_id)}&select=id,base_url&limit=1`
+            );
+            entity = Array.isArray(rows) && rows.length ? rows[0] : null;
+        } catch (e) {
+            if (!isMissingContentSchemaError(e)) console.warn('getLanguageLinksForProject entity:', e.message);
+        }
+    }
+
+    return {
+        links: await getLanguageLinksForPage(page, { entity, mode }),
+        currentLanguage: normalizeLang(page.language)
+    };
 }
 
 // ── Variantes de langue ───────────────────────────────────────────────────
@@ -487,7 +688,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
             legacyProject.project_name
         );
 
-        page = await insert('pages', {
+        page = await insertPageWithLanguageLink({
             entity_id: entity.id,
             folder_id: folder.id,
             title,
@@ -502,7 +703,7 @@ async function migrateLegacyProject(legacyProject, options = {}) {
                 campusIds: Array.isArray(legacyProject.properties?.campusIds)
                     ? legacyProject.properties.campusIds : []
             }
-        });
+        }, options.translationOf || null);
         createdPage = true;
     } else if (options.updatePageMetadata) {
         // La sélection de campus suit la page (pas la version) : on la met à jour
@@ -630,8 +831,15 @@ async function saveTranslationVariant(pageId, language, body = {}) {
     };
 }
 
-async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, reviveDeleted, actor }) {
+async function syncLegacyProjectToContent({ projectName, language, html, html_sfmc, css, projectData, properties, reviveDeleted, actor, isTranslation, sourceProjectName }) {
     try {
+        // Duplication vers une langue : la nouvelle page est rattachée au groupe de
+        // langues de la source (pages.page_group_id). Résolu ici, au moment de la
+        // création, car c'est la seule étape qui connait les deux identités.
+        const translationOf = isTranslation
+            ? await resolveTranslationSourcePageId(sourceProjectName)
+            : null;
+
         return await migrateLegacyProject({
             project_name: projectName,
             language,
@@ -640,8 +848,13 @@ async function syncLegacyProjectToContent({ projectName, language, html, html_sf
             css,
             project_data: projectData,
             properties: properties || {},
-            change_summary: 'Saved from legacy builder'
-        }, { updatePageMetadata: true, reviveDeleted: reviveDeleted === true, actor: actor || null });
+            change_summary: isTranslation ? `Duplication vers ${normalizeLang(language)}` : 'Saved from legacy builder'
+        }, {
+            updatePageMetadata: true,
+            reviveDeleted: reviveDeleted === true,
+            actor: actor || null,
+            translationOf
+        });
     } catch (e) {
         return {
             skipped: true,
@@ -743,6 +956,20 @@ async function listMigratedDashboardPages() {
         if (!isMissingContentSchemaError(e)) console.warn('page_variants list failed:', e.message);
     }
 
+    // Langues du GROUPE de pages (modèle « une page par langue ») : chaque langue est
+    // une PAGE distincte, reliée aux autres par page_group_id. Sans ceci, l'onglet
+    // « Pages par traduction » du CMS — qui ne connaît que page_variants — ne verrait
+    // aucune des pages traduites par duplication.
+    // Construit en mémoire depuis la liste déjà chargée : aucune requête supplémentaire.
+    const languagesByGroupRoot = new Map();
+    (Array.isArray(pages) ? pages : []).forEach(page => {
+        if (page.status === 'deleted') return;
+        const root = page.page_group_id || page.id;
+        const list = languagesByGroupRoot.get(root) || [];
+        list.push(normalizeLang(page.language));
+        languagesByGroupRoot.set(root, list);
+    });
+
     return (Array.isArray(pages) ? pages : [])
         .filter(page => page.metadata?.legacyProjectName)
         // Volontairement AUCUN filtre de statut ici : voir le commentaire en tête de
@@ -754,9 +981,23 @@ async function listMigratedDashboardPages() {
             const legacyProjectName = page.metadata.legacyProjectName;
             const parsed = parseLegacyProjectName(legacyProjectName);
             const language = normalizeLang(page.language || parsed?.language || 'FR');
-            // Langues disponibles (variantes). L'original est toujours présent même si
-            // aucune ligne page_variants (anciennes pages non migrées vers le modèle).
+            // Langues de la PAGE elle-même : sa langue, plus ses variantes internes
+            // (ancien modèle). C'est ce qu'affiche la colonne « Langue » du dashboard.
             const variantLanguages = [...new Set([language, ...(variantsByPage.get(page.id) || [])])];
+
+            // Langues du GROUPE, pour l'onglet « Pages par traduction » uniquement.
+            //
+            // ⚠️ Volontairement SÉPARÉ de variantLanguages : dans le modèle « une page
+            // par langue », la page FR n'est pas « en anglais » parce qu'une page EN
+            // existe à côté. Mélanger les deux affichait 🇫🇷 + 🇬🇧 sur la ligne de la
+            // page française, ce qui est faux.
+            //
+            // Seule la RACINE du groupe porte la liste complète : sinon chaque page du
+            // groupe compterait séparément et l'onglet listerait le même groupe deux fois.
+            const isGroupRoot = !page.page_group_id;
+            const groupLanguages = isGroupRoot
+                ? [...new Set([language, ...(languagesByGroupRoot.get(page.id) || [])])]
+                : [language];
             const publicPath = buildPublicPagePath({ slug: page.slug, language });
             const publicUrl = buildPublicPageUrl({
                 baseUrl: entity.base_url || '',
@@ -770,11 +1011,22 @@ async function listMigratedDashboardPages() {
                 school: (entity.metadata?.legacySchoolId || parsed?.schoolId || entity.slug || entity.name || '—').toUpperCase(),
                 lang: language,
                 variantLanguages,
+                groupLanguages,
                 seoTitle: page.seo?.title || '',
                 updated_at: page.updated_at || page.created_at,
                 updated_by_name: page.updated_by_name || null,
                 updated_by_email: page.updated_by_email || null,
                 source: 'content',
+                // Type « Originale / Traduite » DÉDUIT DU LIEN, pas du drapeau stocké.
+                //
+                // ⚠️ `pages.is_original_language` n'est pas fiable : sa valeur par défaut
+                // diffère d'une base à l'autre (trouvée à false en recette), et rien ne la
+                // réécrit sur les pages déjà créées — toutes les pages s'affichaient donc
+                // « Traduite », y compris celles jamais traduites. Le lien de groupe, lui,
+                // est structurel : une page sans parent EST une originale. Cette déduction
+                // répare aussi l'existant, sans migration de données.
+                is_original_language: !page.page_group_id,
+                page_group_id: page.page_group_id || null,
                 page_id: page.id,
                 entity_id: page.entity_id,
                 folder_id: page.folder_id,
@@ -843,6 +1095,9 @@ async function getStructuredProjectForLegacyProject(projectName) {
         response.variants = [];
         response.ready_languages = READY_LANGUAGES;
     }
+    // Modèle « une page par langue » : les pages sœurs permettent au sélecteur de
+    // l'éditeur d'OUVRIR la version d'une autre langue plutôt que d'en créer une variante.
+    response.language_pages = await getLanguagePagesSummary(structured.page);
     return response;
 }
 
@@ -1323,7 +1578,8 @@ async function getPageVariants(req, res, pageId) {
     return res.status(200).json({
         originalLanguage: normalizeLang(page.language),
         readyLanguages: READY_LANGUAGES,
-        variants
+        variants,
+        languagePages: await getLanguagePagesSummary(page)
     });
 }
 
@@ -1360,9 +1616,7 @@ async function resolvePublicPageByHostPath({ host, path = '/' } = {}) {
     const pathWithoutBase = parsedBaseUrl?.pathPrefix
         ? cleanPath.replace(new RegExp(`^${parsedBaseUrl.pathPrefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}`), '') || '/'
         : cleanPath;
-    const segments = pathWithoutBase.split('/').filter(Boolean);
-    const language = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]) ? segments[0].toUpperCase() : 'FR';
-    const slug = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]) ? segments.slice(1).join('-') : segments.join('-');
+    const { language, slug } = splitLanguageAndSlug(pathWithoutBase);
     if (!slug) return null;
 
     const pages = await supabaseRequest(
@@ -1911,6 +2165,12 @@ contentApiModule.getPublicationSettings = getPublicationSettings;
 contentApiModule.buildPublicPageUrl = buildPublicPageUrl;
 contentApiModule.buildPublicPagePath = buildPublicPagePath;
 contentApiModule.resolvePublicPageByHostPath = resolvePublicPageByHostPath;
+// Groupe de langues « une page par langue » (sélecteur de header + hreflang).
+contentApiModule.getLanguageLinksForPage = getLanguageLinksForPage;
+contentApiModule.getLanguageLinksForProject = getLanguageLinksForProject;
+contentApiModule.getLanguagePagesSummary = getLanguagePagesSummary;
+contentApiModule.listLanguageSiblings = listLanguageSiblings;
+contentApiModule.splitLanguageAndSlug = splitLanguageAndSlug;
 // Exposés pour les tests du suivi « dernière modification par ».
 contentApiModule.auditFieldsForPage = auditFieldsForPage;
 contentApiModule.auditFieldsForVersion = auditFieldsForVersion;

@@ -258,15 +258,23 @@
             <div class="modal-body" style="padding: 20px;">
                 <p id="duplicate-source-name" style="margin-bottom: 16px; font-size: 13px; color: #6B7280;">Source: ...</p>
                 
-                <!-- La traduction ne crée plus de projet : elle se fait dans l'éditeur
-                     via le switch de langue (une page = plusieurs variantes). Cette
-                     modale ne fait donc plus qu'une duplication simple (copie exacte). -->
-                <select id="select-duplicate-type" class="form-control" style="display:none;">
-                    <option value="simple" selected>Duplication simple (Copie exacte)</option>
+                <!-- Deux duplications distinctes :
+                     • « copie exacte »  : même langue, même contenu ;
+                     • « traduire »      : modèle « une page par langue » — une NOUVELLE
+                       page autonome, texte traduit, design intact, URL /<lang>/<slug>,
+                       reliée à la source pour le sélecteur de langue du header. -->
+                <label style="display:block; margin-bottom: 8px; font-weight:500;">Type de duplication :</label>
+                <select id="select-duplicate-type" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px; margin-bottom: 16px;">
+                    <option value="simple" selected>Copie exacte (même langue)</option>
+                    <option value="translate">Traduire vers une autre langue</option>
                 </select>
-                <!-- Conteneur conservé (masqué) pour compat JS. -->
-                <div id="duplicate-translate-options" class="hidden">
-                    <select id="select-duplicate-lang"><option value="EN">EN</option></select>
+
+                <div id="duplicate-translate-options" class="hidden" style="margin-bottom: 24px;">
+                    <label style="display:block; margin-bottom: 8px; font-weight:500;">Langue de la nouvelle page :</label>
+                    <select id="select-duplicate-lang" class="form-control" style="width:100%; padding: 8px; border: 1px solid #EAECF0; border-radius: 6px;"></select>
+                    <p style="margin: 10px 0 0; font-size: 12px; color: #6B7280;">
+                        Le nom et l'adresse de la page sont dérivés du titre traduit.
+                    </p>
                 </div>
 
                 <div id="duplicate-simple-options" style="margin-bottom: 24px;">
