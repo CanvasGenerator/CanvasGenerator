@@ -530,7 +530,16 @@ function auditFieldsForPage(actor) {
 
 function auditFieldsForVersion(actor) {
     if (!actor || (!actor.name && !actor.email)) return {};
-    return { created_by: actor.email || null, created_by_name: actor.name || null };
+    // ⚠️ `page_versions.created_by` est de type UUID (database/scalable-schema.sql,
+    // « created_by uuid »). Y écrire l'e-mail de l'auteur faisait échouer TOUT
+    // l'insert — « invalid input syntax for type uuid » — donc la version n'était
+    // pas enregistrée et la page repartait « écrite mais non synchronisée ».
+    // Le symptôme n'apparaissait qu'en production : en local, aucune session SFMC
+    // n'est active, `actor` est nul et aucun champ d'audit n'est envoyé.
+    //
+    // L'auteur ne vit donc que dans la colonne TEXTE `created_by_name`. `created_by`
+    // reste réservé à un véritable identifiant utilisateur, que le builder n'a pas.
+    return { created_by_name: actor.name || actor.email || null };
 }
 
 /** Retire les clés d'audit d'un payload (repli quand les colonnes manquent). */
@@ -575,7 +584,7 @@ async function createVersionForPage(page, legacyProject, versionNumber = null, v
     const nextVersionNumber = versionNumber || ((existing?.[0]?.version_number || 0) + 1);
     const projectData = parseProjectData(legacyProject.project_data);
 
-    const version = await insert('page_versions', {
+    const versionPayload = {
         page_id: page.id,
         page_variant_id: variant?.id || null,
         language,
@@ -590,7 +599,21 @@ async function createVersionForPage(page, legacyProject, versionNumber = null, v
             legacyProjectName: legacyProject.project_name
         },
         ...auditFieldsForVersion(actor)
-    });
+    };
+
+    // Même principe que patchPageWithAudit : si les colonnes d'audit manquent ou
+    // refusent la valeur, on réessaie SANS elles. Perdre l'auteur d'une version est
+    // acceptable, perdre la version — donc la page — ne l'est pas.
+    let version;
+    try {
+        version = await insert('page_versions', versionPayload);
+    } catch (e) {
+        const sansAudit = withoutAudit(versionPayload);
+        // Aucun champ d'audit dans le payload → l'erreur est réelle, on la propage.
+        if (Object.keys(sansAudit).length === Object.keys(versionPayload).length) throw e;
+        console.warn('page_versions : insert refusé avec les champs d\'auteur, nouvelle tentative sans —', e.message);
+        version = await insert('page_versions', sansAudit);
+    }
 
     // pages.current_version_id ne suit QUE la langue d'origine (rendu public par
     // défaut). Une variante de traduction ne doit PAS devenir la version courante
