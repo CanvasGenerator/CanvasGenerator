@@ -19,7 +19,9 @@ const {
     updatePageLifecycle,
     isMissingContentSchemaError,
     getPublicationSettings,
-    resolvePublicPageByHostPath
+    resolvePublicPageByHostPath,
+    getLanguageLinksForPage,
+    getLanguageLinksForProject
 } = require('./api/content');
 const { handleSchoolsRoute } = require('./api/schools');
 const cronHandler = require('./api/cron');
@@ -28,6 +30,7 @@ const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
+const { injectLanguageSwitch } = require('./lib/lang-switch');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
 const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights } = require('./lib/api-shared');
 const { handleAuthRoute, enforceAuth, isAuthEnabled } = require('./lib/auth');
@@ -1055,7 +1058,12 @@ http.createServer(async (req, res) => {
                     projectData,
                     properties,
                     // Auteur de la modification : issu de la session SFMC.
-                    actor: sfmcAuth.getActor(req)
+                    actor: sfmcAuth.getActor(req),
+                    // Duplication vers une langue : rattache la nouvelle page au groupe
+                    // de langues de la source (pages.page_group_id) pour que le sélecteur
+                    // du header et les balises hreflang trouvent la page sœur.
+                    isTranslation: is_original_language === false,
+                    sourceProjectName: source_project_name || null
                 });
 
                 // 2. On libère l'utilisateur immédiatement (réponse 200)
@@ -2744,6 +2752,27 @@ Règles importantes :
             // hauteur figée (les réponses dépliées débordaient sur le bloc suivant).
             finalHtml = relaxFaqSectionHeights(finalHtml);
 
+
+            // ── Sélecteur de langue du header ─────────────────────────────
+            // Modèle « une page par langue » : `.hdr-lang` devient un lien vers l'aperçu
+            // de la page sœur, pour tester la bascule AVANT publication.
+            // Ignoré si la page est une ANCIENNE page à variantes : son HTML bilingue
+            // embarque déjà son propre switch (lib/bilingual.js), qu'on ne touche pas.
+            if (!bilingual?.html) {
+                try {
+                    const langSwitch = await getLanguageLinksForProject(projectName, 'preview');
+                    if (langSwitch) {
+                        finalHtml = injectLanguageSwitch(finalHtml, {
+                            links: langSwitch.links,
+                            currentLanguage: langSwitch.currentLanguage
+                        });
+                    }
+                } catch (langErr) {
+                    if (!isMissingContentSchemaError(langErr)) {
+                        console.warn('⚠️  Sélecteur de langue indisponible (aperçu):', langErr.message);
+                    }
+                }
+            }
             // Aperçu dashboard : rendu à 1280px centré + logos header compacts (comme l'éditeur).
             finalHtml = injectPreviewViewport(finalHtml);
 
@@ -2804,6 +2833,25 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
 
                 // Hauteur figée sur une section FAQ → contenu déplié qui déborde.
                 finalPublicHtml = relaxFaqSectionHeights(finalPublicHtml);
+
+                // ── Sélecteur de langue du header → page sœur de l'autre langue ──────
+                // Calculé au moment de SERVIR : à l'enregistrement de la page FR, la page
+                // EN n'existe pas encore, et un lien gravé deviendrait faux dès qu'un
+                // slug change. Aucune page sœur publiée → le bouton reste inerte.
+                try {
+                    const langLinks = await getLanguageLinksForPage(resolved.page, {
+                        entity: resolved.entity,
+                        mode: 'public'
+                    });
+                    finalPublicHtml = injectLanguageSwitch(finalPublicHtml, {
+                        links: langLinks,
+                        currentLanguage: resolved.page.language
+                    });
+                } catch (langErr) {
+                    if (!isMissingContentSchemaError(langErr)) {
+                        console.warn('⚠️  Sélecteur de langue indisponible (page publique):', langErr.message);
+                    }
+                }
 
                 // Les ancres (#id) restent sur la page publiée, pas à la racine (<base href="/">).
                 finalPublicHtml = anchorLinksToPagePath(finalPublicHtml, pathname);

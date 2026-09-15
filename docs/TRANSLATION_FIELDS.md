@@ -1,5 +1,11 @@
 # Translation Fields Implementation
 
+> ⚠️ **Ce document décrit un modèle précédent.** Depuis, la traduction crée
+> **une page autonome par langue** : voir
+> [TRADUCTION_PAGE_PAR_LANGUE.md](TRADUCTION_PAGE_PAR_LANGUE.md).
+> Les colonnes `is_original_language` et `page_group_id` décrites ici sont toujours
+> utilisées — c'est désormais elles qui relient les pages sœurs de langue.
+
 ## Overview
 Implemented support for tracking page translations with two new fields in the `pages` table:
 - `is_original_language` (boolean): Indicates if a page is in its original language (default: true)

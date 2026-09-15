@@ -148,6 +148,11 @@ const tabStore = {
 let currentOriginalLanguage = 'FR';
 // Résumé des variantes renvoyé par le serveur : [{ language, isOriginal, exists, stale, status }]
 let currentPageVariants = [];
+// Pages SŒURS de langue (modèle « une page par langue ») renvoyées par le serveur :
+// [{ language, pageId, projectName, title, status, isOriginal, isCurrent }].
+// Vide → la page n'appartient à aucun groupe de langues, le switch retombe alors
+// sur le modèle à variantes (pages déjà traduites avant ce changement).
+let currentLanguagePages = [];
 // Langues « prêtes » (miroir de READY_LANGUAGES côté serveur). Seules celles-ci
 // apparaissent dans le switch. Écrasé par la valeur serveur au chargement.
 let READY_LANGUAGES = ['FR', 'EN'];
@@ -2132,9 +2137,16 @@ function applyLogoLanguage(editor, lang) {
         const wrapper = editor.getWrapper && editor.getWrapper();
         if (!wrapper || typeof wrapper.find !== 'function') return;
         const isEN = /^(en|eng|english|anglais)$/i.test(String(lang || 'FR').trim());
+        // Deux familles de header/footer : les blocs école (`hdr-` / `ft-`) et les
+        // pages issues d'une MASTER TEMPLATE déclinée (`dh-` / `df-`, cf.
+        // lib/school-blocks.js). Omettre la seconde laissait les logos et le bouton
+        // de langue intacts sur toutes les pages déclinées.
         const imgs = [].concat(
             wrapper.find('.hdr-logo-img') || [],
-            wrapper.find('.ft-logo-img') || []
+            wrapper.find('.ft-logo-img') || [],
+            wrapper.find('.dh-logo-img') || [],
+            wrapper.find('.dh-logo-img-contain') || [],
+            wrapper.find('.df-logo-img') || []
         );
         imgs.forEach(img => {
             const cur = (img.getAttributes() || {}).src || '';
@@ -2152,7 +2164,7 @@ function applyLogoLanguage(editor, lang) {
         // Le clic est intercepté dans le canvas (voir attachHdrLangSwitch).
         const cur = isEN ? 'EN' : 'FR';
         const targetLang = otherReadyLang(cur);
-        wrapper.find('.hdr-lang').forEach(el => {
+        [].concat(wrapper.find('.hdr-lang') || [], wrapper.find('.dh-lang') || []).forEach(el => {
             try {
                 if ((el.getInnerHTML && el.getInnerHTML().trim()) !== targetLang) el.components(targetLang);
                 el.addAttributes({ title: `Voir la page en ${LANG_LABELS[targetLang] || targetLang}`, 'data-lang-switch': targetLang });
@@ -2186,12 +2198,19 @@ function localizeBrandInProjectData(pd, lang) {
             attrs.src = isEN ? base.replace(/\.png($|\?)/i, '-en.png$1') : base;
         }
         // 2) Bouton de langue du header (.hdr-lang) : affiche la langue CIBLE.
-        if (hasClass(node, 'hdr-lang') && Array.isArray(node.components)) {
+        if ((hasClass(node, 'hdr-lang') || hasClass(node, 'dh-lang')) && Array.isArray(node.components)) {
             node.components.forEach(c => {
                 if (c && c.type === 'textnode' && typeof c.content === 'string') c.content = targetLang;
             });
         }
-        if (Array.isArray(node.components)) node.components.forEach(visit);
+        descend(node, visit, kids => {
+            // Enfants définis comme chaîne HTML : on bascule les logos sur place,
+            // sinon la page anglaise garderait les logos à signature française.
+            const swapped = isEN
+                ? kids.replace(/(\/?baseline-[a-z]+)(?:-en)?\.png/gi, '$1-en.png')
+                : kids.replace(/(\/?baseline-[a-z]+)-en\.png/gi, '$1.png');
+            if (swapped !== kids) node.components = swapped;
+        });
     }
     pd.pages.forEach(p => (p.frames || []).forEach(f => visit(f.component)));
 }
@@ -2225,6 +2244,24 @@ function propsToSeo(props = {}) {
     };
 }
 
+/**
+ * Descend dans les enfants d'un nœud de projectData.
+ *
+ * ⚠️ `components` n'est PAS toujours un tableau : GrapesJS accepte aussi un
+ * composant unique (objet) ou une chaîne HTML, et les templates déclinées en
+ * contiennent. Un `node.components.forEach(...)` direct plantait donc avec
+ * « forEach is not a function » dès qu'une telle page était traduite.
+ *
+ * @param {Function} onString appelé avec la chaîne quand les enfants en sont une,
+ *                            pour que chaque parcours décide quoi en faire.
+ */
+function descend(node, visitChild, onString) {
+    const kids = node && node.components;
+    if (Array.isArray(kids)) kids.forEach(visitChild);
+    else if (kids && typeof kids === 'object') visitChild(kids);
+    else if (typeof kids === 'string' && kids && onString) onString(kids);
+}
+
 // Collecte les textes traduisibles d'un projectData GrapesJS SANS toucher au markup.
 // (titres, paragraphes, boutons + attributs placeholder/alt/title/aria-label)
 function collectPdTextTargets(pd) {
@@ -2245,7 +2282,16 @@ function collectPdTextTargets(pd) {
                 }
             });
         }
-        if (node.components) node.components.forEach(walk);
+        descend(node, walk, kids => {
+            // Chaîne HTML : le serveur traduit le TEXTE sans toucher au markup,
+            // l'aller-retour est donc sûr — et la sauter laisserait des blocs
+            // entiers en français dans la page traduite.
+            // Tester le TEXTE, pas le markup : `<br>` contient les lettres « br » et
+            // partait sinon à la traduction pour rien.
+            if (/[a-zA-ZÀ-ÿ]/.test(kids.replace(/<[^>]*>/g, ''))) {
+                targets.push({ obj: node, prop: 'components' });
+            }
+        });
     }
     (pd.pages || []).forEach(p => (p.frames || []).forEach(f => walk(f.component)));
     return targets;
@@ -2284,7 +2330,341 @@ async function translateProjectDataAndSeo(pd, seoProps, targetLang) {
     seoIdx.forEach((k, i) => { seoProps[k] = all[pageStrings.length + i]; });
 }
 
+// ═══════════════════════════════════════════════════════════════════════════
+// MODÈLE « UNE PAGE PAR LANGUE » — duplication vers une autre langue
+//
+// Chaque langue est une PAGE AUTONOME : son contenu, ses blocs, ses formulaires,
+// son SEO, son URL /<lang>/<slug>. Elle est reliée à la page d'origine par
+// pages.page_group_id côté serveur, ce qui permet au bouton de langue du header
+// de rediriger vers la page sœur (lib/lang-switch.js).
+//
+// ⚠️ POURQUOI LE STYLE NE PEUT PAS CASSER : on ne réécrit JAMAIS de markup. On
+// traduit le TEXTE du projectData (lib/translate.js ne voit que des chaînes — ni
+// balise, ni classe, ni style ne part chez Gemini), on recharge ce projectData
+// dans GrapesJS, et c'est GrapesJS qui régénère le HTML : mêmes composants,
+// mêmes classes, même CSS. C'est exactement le mécanisme du switch de langue à
+// variantes, mais enregistré sous une NOUVELLE identité.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/**
+ * Bascule la langue des blocs FORMULAIRE dans un projectData.
+ *
+ * Les formulaires du projet sont DÉJÀ bilingues : `data-lang` sur le <form>
+ * pilote le dictionnaire TRANS, le texte RGPD, la liste des programmes, les
+ * messages de validation et la valeur LanguePreferee envoyée au CRM
+ * (blocks/forms/shared/*). Traduire les libellés SANS basculer cet attribut
+ * produirait un formulaire hybride : libellés anglais, runtime français, et un
+ * lead qui part avec LanguePreferee=fr.
+ *
+ * @returns {number} nombre de formulaires basculés (pour informer l'utilisateur)
+ */
+function localizeFormLangInProjectData(pd, lang) {
+    const code = normLang(lang).toLowerCase();
+    let switched = 0;
+    function walk(node) {
+        if (!node || typeof node !== 'object') return;
+        const attrs = node.attributes;
+        if (attrs && typeof attrs === 'object') {
+            if (typeof attrs['data-lang'] === 'string' && attrs['data-lang'].toLowerCase() !== code) {
+                attrs['data-lang'] = code;
+                switched += 1;
+            }
+            // Langue préférée de contact : cohérente même si le runtime du
+            // formulaire ne s'exécute pas (page servie sans JS).
+            if (attrs.name === 'LanguePreferee' && typeof attrs.value === 'string') attrs.value = code;
+        }
+        descend(node, walk, kids => {
+            // Formulaire défini comme chaîne HTML : on bascule l'attribut sur place,
+            // sinon on obtiendrait des libellés anglais sur un runtime français.
+            const swapped = kids.replace(/(data-lang\s*=\s*["'])[^"']*(["'])/gi, '$1' + code + '$2');
+            if (swapped !== kids) {
+                switched += (kids.match(/data-lang\s*=/gi) || []).length;
+                node.components = swapped;
+            }
+        });
+    }
+    (pd.pages || []).forEach(pg => (pg.frames || []).forEach(f => walk(f.component)));
+    return switched;
+}
+
+/**
+ * Modale à choix qui se résout TOUJOURS — y compris si l'utilisateur ferme par la
+ * croix de l'en-tête, câblée indépendamment des boutons d'action.
+ *
+ * ⚠️ Sans cela, fermer par la croix laisse la promesse en attente pour toujours :
+ * le `finally` qui libère `langSwitchBusy` ne s'exécute jamais et le switch de
+ * langue devient MUET jusqu'au rechargement de la page — aucun clic ne fait plus
+ * rien, sans le moindre message.
+ *
+ * @param {Array} actions [{ label, className, value }] — `value` est la valeur résolue
+ * @param {*} dismissValue valeur résolue si la modale est fermée sans choisir
+ */
+function askChoice({ title, body, actions = [], dismissValue = null }) {
+    return new Promise(resolve => {
+        let settled = false;
+        const settle = value => { if (!settled) { settled = true; resolve(value); } };
+        window.openModal({
+            title,
+            body,
+            actions: actions.map(action => ({
+                label: action.label,
+                className: action.className,
+                onClick: () => { window.closeModal(); settle(action.value); }
+            })),
+            onOpen: () => {
+                const closeBtn = document.querySelector('#modal-container .modal-header .close-modal');
+                if (closeBtn) closeBtn.addEventListener('click', () => settle(dismissValue), { once: true });
+            }
+        });
+    });
+}
+
+// Le nom de projet est une IDENTITÉ (URL d'API, clé SFMC) re-parsée comme
+// `school-<id>__<titre>__<LANG>` : un `__` dans le titre casserait ce découpage.
+function sanitizeProjectTitle(title) {
+    return String(title || '').replace(/_{2,}/g, '-').replace(/\s+/g, ' ').trim();
+}
+
+// Titre lisible d'une page à partir de son nom de projet complet.
+function displayTitleFromFullName(fullName) {
+    return String(fullName || '')
+        .replace(/^school-[a-z0-9-]+__/i, '')
+        .replace(/__[A-Z]{2}$/i, '');
+}
+
+// Le nom de projet est-il déjà pris ? (/api/project/<nom> répond 404 sinon)
+async function projectNameExists(fullName) {
+    try {
+        const res = await fetch(`/api/project/${encodeURIComponent(fullName)}`);
+        return res.ok;
+    } catch (e) {
+        return false;
+    }
+}
+
+/**
+ * Duplique une page vers une autre langue et l'enregistre comme PAGE À PART ENTIÈRE.
+ * L'éditeur pointe ensuite sur la page traduite.
+ *
+ * @returns {Promise<{ newFullName: string, newTitle: string, formsSwitched: number }>}
+ */
+async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
+    const lang = normLang(targetLang);
+    const label = LANG_LABELS[lang] || lang;
+    const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
+    const editor = window.editor;
+
+    window.showLoading(`Duplication vers ${label}...`);
+
+    // 1) Source : on part du projectData, jamais du HTML — c'est lui qui porte les
+    //    composants, donc la garantie que la mise en page est reproduite à l'identique.
+    const res = await fetch(`/api/project/${encodeURIComponent(sourceFullName)}`);
+    if (!res.ok) throw new Error(`Page source illisible (${res.status}).`);
+    const source = await res.json();
+    const pd = parseProjectData(source.project_data);
+    if (!Array.isArray(pd.pages) || !pd.pages.length) {
+        throw new Error('Le contenu de la page source est vide ou illisible (project_data).');
+    }
+
+    const sourceProps = { ...(source.properties || {}) };
+    const seoProps = {
+        seoTitle: sourceProps.seoTitle || '',
+        seoDescription: sourceProps.seoDescription || '',
+        keywords: sourceProps.keywords || '',
+        // ⚠️ La balise canonique n'est JAMAIS héritée : recopiée telle quelle, la page
+        // EN déclarerait la page FR comme version canonique et ne serait donc jamais
+        // indexée. Laissée vide, aucune balise n'est émise (buildStoredHtml) et les
+        // alternates hreflang injectés au service suffisent.
+        canonical: '',
+        schemaLd: sourceProps.schemaLd || ''
+    };
+
+    // 2) Titre traduit AVANT tout le reste : c'est lui qui donne le slug de l'URL
+    //    (le serveur le dérive de properties.title → /en/open-day), et c'est un
+    //    appel très court — inutile de traduire la page entière si l'utilisateur
+    //    annule à l'étape 3.
+    const sourceTitle = sourceProps.title || displayTitleFromFullName(sourceFullName);
+    let newTitle = sanitizeProjectTitle(sourceTitle);
+    try {
+        const [translated] = await translateStringList([sourceTitle], lang);
+        newTitle = sanitizeProjectTitle(translated) || newTitle;
+    } catch (e) {
+        console.warn('Titre non traduit, titre source conservé :', e.message);
+    }
+
+    // 3) Nom déjà pris → demander, jamais écraser en silence : la page cible peut
+    //    contenir des modifications faites à la main (c'est tout l'intérêt du modèle).
+    //
+    // Le suffixe de langue est une SÉCURITÉ, pas une convention d'affichage : sans
+    // lui, un titre dont la traduction est identique à l'original (« Open Day » →
+    // « Open Day ») produirait le même nom de projet que la source, et /api/save
+    // (on_conflict=project_name) ÉCRASERAIT la page d'origine.
+    if (await projectNameExists(`school-${schoolId}__${newTitle}__${lang}`)) {
+        window.hideLoading();
+        const choice = await askChoice({
+            title: 'Une page existe déjà',
+            body: `<p class="modal-message">La page <strong>${newTitle}</strong> (${lang}) existe déjà.`
+                + ` La remplacer écraserait les modifications qui y ont été faites à la main.</p>`,
+            actions: [
+                { label: 'Créer une page à côté', className: 'btn-primary', value: 'copy' },
+                { label: 'Remplacer son contenu', className: 'btn-secondary', value: 'replace' },
+                { label: 'Annuler', className: 'btn-secondary', value: 'cancel' }
+            ],
+            dismissValue: 'cancel'
+        });
+        if (choice === 'cancel') {
+            const cancelled = new Error('Duplication annulée.');
+            cancelled.cancelled = true;
+            throw cancelled;
+        }
+        if (choice === 'copy') {
+            let index = 2;
+            while (index < 50 && await projectNameExists(`school-${schoolId}__${newTitle} ${index}__${lang}`)) index += 1;
+            newTitle = `${newTitle} ${index}`;
+        }
+        window.showLoading(`Duplication vers ${label}...`);
+    }
+    const finalFullName = `school-${schoolId}__${newTitle}__${lang}`;
+
+    // 4) Traduction du texte de la page + du SEO (un seul appel réseau).
+    await translateProjectDataAndSeo(pd, seoProps, lang);
+
+    // 5) Header/footer/logos + formulaires dans la langue cible, AVANT le
+    //    rechargement (le swap de logo débouncé lit currentProjectLanguage).
+    currentProjectLanguage = lang;
+    localizeBrandInProjectData(pd, lang);
+    const formsSwitched = localizeFormLangInProjectData(pd, lang);
+    editor.loadProjectData(pd);
+    injectBrandVariables(editor, CURRENT_SCHOOL);
+    applyLogoLanguage(editor, lang);
+
+    // 6) Enregistrement sous la nouvelle identité. `is_original_language: false` +
+    //    `source_project_name` rattachent la page au groupe de langues côté serveur.
+    const propsToSave = { ...sourceProps, ...seoProps, title: newTitle, status: 'draft' };
+    delete propsToSave.rawHtml;   // reconstruit par le serveur
+    delete propsToSave.formIds;   // recalculé par ensureFormAnchors
+    // Ces deux drapeaux sont hérités des properties de la SOURCE : les laisser
+    // ferait résoudre au serveur le groupe de l'original au lieu de celui déduit
+    // de `source_project_name`. On les retire, la racine du corps fait foi.
+    delete propsToSave.page_group_id;
+    delete propsToSave.is_original_language;
+    const finalHtml = buildFinalHtml(editor.getHtml(), editor.getCss(), propsToSave);
+    const payload = {
+        projectName: finalFullName,
+        language: lang,
+        html: finalHtml,
+        css: editor.getCss(),
+        projectData: editor.getProjectData(),
+        properties: propsToSave,
+        is_original_language: false,
+        source_project_name: sourceFullName
+    };
+
+    const { body, mapping } = await publishInlineImagesInString(
+        JSON.stringify(payload), finalFullName, collectAssetNames(editor)
+    );
+    applyImageMapToEditor(editor, mapping);
+    const saveRes = await fetch('/api/save', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body
+    });
+    if (!saveRes.ok) throw new Error(await saveRes.text());
+    const saveData = await saveRes.json().catch(() => ({}));
+
+    // 7) L'éditeur édite désormais la page traduite, plus la source. Écrire cette
+    //    identité est CRITIQUE : sans elle, « Enregistrer » réécrirait la source.
+    tabStore.set(`reetain-builder__${schoolId}__currentFullName`, finalFullName);
+    tabStore.set(`reetain-builder__${schoolId}__currentProject`, newTitle);
+    currentProjectIsNew = false;
+    currentStructuredPageId = saveData.page_id || null;
+    currentOriginalLanguage = lang;
+    currentProjectProperties = { ...propsToSave };
+    populateProperties(propsToSave);
+    setActiveLangUI(lang);
+    if (currentStructuredPageId) await refreshVariants(currentStructuredPageId);
+    updatePageIdBadge();
+    window.hideLoading();
+
+    return { newFullName: finalFullName, newTitle, formsSwitched };
+}
+
+/**
+ * Duplication vers une langue depuis le switch : confirme (le canvas va être
+ * remplacé par la page traduite) puis exécute.
+ */
+async function confirmAndDuplicateToLanguage(targetLang) {
+    const lang = normLang(targetLang);
+    const label = LANG_LABELS[lang] || lang;
+    const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
+    const sourceFullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
+    if (!sourceFullName) {
+        await window.showAlert({
+            title: 'Enregistrez d\'abord',
+            message: 'Sauvegardez la page avant de la dupliquer dans une autre langue.'
+        });
+        return false;
+    }
+
+    const go = await askChoice({
+        title: `Dupliquer vers ${label}`,
+        body: `<p class="modal-message">Une <strong>nouvelle page</strong> en ${label} va être créée`
+            + ` à partir de celle-ci : texte traduit, mise en page et styles identiques.</p>`
+            + `<p class="modal-message">Elle aura sa propre URL <code>/${lang.toLowerCase()}/…</code>`
+            + ` et sera ensuite modifiable indépendamment. L'éditeur basculera dessus.</p>`,
+        actions: [
+            { label: `Créer la page ${lang}`, className: 'btn-primary', value: true },
+            { label: 'Annuler', className: 'btn-secondary', value: false }
+        ],
+        dismissValue: false
+    });
+    if (!go) { renderLanguageSwitch(); return false; }
+
+    try {
+        const result = await duplicatePageToLanguage({ sourceFullName, targetLang: lang });
+        if (result.formsSwitched) {
+            console.log(`[duplication] ${result.formsSwitched} formulaire(s) basculé(s) en ${lang}`);
+        }
+        const formNote = result.formsSwitched
+            ? `\n\n${result.formsSwitched} formulaire(s) basculé(s) en ${lang} : libellés, texte RGPD, `
+              + `messages de validation et langue transmise au CRM. Vous pouvez remplacer le bloc par `
+              + `le formulaire « ${label} » de la palette si vous préférez le formulaire canonique.`
+            : '';
+        await window.showAlert({
+            title: 'Page créée',
+            message: `La page ${label} « ${result.newTitle} » a été créée. Vous l'éditez maintenant.${formNote}`
+        });
+        return true;
+    } catch (e) {
+        window.hideLoading();
+        if (e && e.cancelled) { renderLanguageSwitch(); return false; }
+        console.error('duplicatePageToLanguage', e);
+        await window.showAlert({ title: 'Erreur', message: 'Échec de la duplication. ' + e.message });
+        renderLanguageSwitch();
+        return false;
+    }
+}
+window.duplicatePageToLanguage = duplicatePageToLanguage;
+window.confirmAndDuplicateToLanguage = confirmAndDuplicateToLanguage;
+
 // ── UI du switch de langue ─────────────────────────────────────────────────
+// Deux modèles cohabitent, et le switch s'adapte à la page ouverte :
+//   • page à VARIANTES (ancien modèle, déjà traduite en variantes) → le clic
+//     charge ou crée une variante dans la même page, comportement inchangé ;
+//   • page du modèle « une page par langue » → le clic OUVRE la page sœur si elle
+//     existe, sinon il propose de DUPLIQUER la page vers cette langue.
+// Une page à variantes se reconnaît à ceci : une langue autre que l'originale y
+// possède déjà une variante enregistrée.
+function pageUsesLanguageVariants() {
+    const orig = normLang(currentOriginalLanguage);
+    return currentPageVariants.some(v => v.exists && normLang(v.language) !== orig);
+}
+
+function languagePageFor(lang) {
+    const wanted = normLang(lang);
+    return currentLanguagePages.find(pg => normLang(pg.language) === wanted) || null;
+}
+
 function renderLanguageSwitch() {
     const host = document.getElementById('language-switch');
     if (!host) return;
@@ -2293,13 +2673,18 @@ function renderLanguageSwitch() {
     const byLang = new Map(currentPageVariants.map(v => [normLang(v.language), v]));
     const langs = (READY_LANGUAGES && READY_LANGUAGES.length ? READY_LANGUAGES : ['FR', 'EN']).map(normLang);
     const saved = !!currentStructuredPageId;
+    const variantMode = pageUsesLanguageVariants();
     host.innerHTML = '';
     langs.forEach(lang => {
         const v = byLang.get(lang);
         const isOriginal = lang === orig;
-        const exists = isOriginal ? saved : !!(v && v.exists);
-        const stale = !!(v && v.stale);
         const isActive = lang === cur;
+        // « Existe » = variante enregistrée (modèle à variantes) OU page sœur
+        // (modèle « une page par langue »).
+        const exists = isActive || (variantMode
+            ? (isOriginal ? saved : !!(v && v.exists))
+            : !!languagePageFor(lang));
+        const stale = variantMode && !!(v && v.stale);
         const btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'lang-seg'
@@ -2311,8 +2696,10 @@ function renderLanguageSwitch() {
         btn.title = isActive ? `Langue actuelle : ${label}`
             : !saved ? `Sauvegardez la page avant de traduire`
             : exists ? (stale ? `${label} — traduction à mettre à jour` : `Afficher en ${label}`)
-            : `Traduire en ${label}`;
-        const icon = !exists ? ' <i class="fas fa-language lang-xicon"></i>'
+            : variantMode ? `Traduire en ${label}`
+            : `Dupliquer cette page vers ${label}`;
+        const icon = !exists
+            ? (variantMode ? ' <i class="fas fa-language lang-xicon"></i>' : ' <i class="fas fa-copy lang-xicon"></i>')
             : (stale ? ' <i class="fas fa-arrows-rotate lang-xicon"></i>' : '');
         btn.innerHTML = `<span class="lang-flag">${LANG_FLAGS[lang] || ''}</span><span class="lang-code">${lang}</span>${icon}`;
         btn.addEventListener('click', () => switchLanguage(lang));
@@ -2336,6 +2723,10 @@ function applyVariantsSummary(payload = {}) {
     if (orig) currentOriginalLanguage = normLang(orig);
     currentPageVariants = Array.isArray(payload.variants)
         ? payload.variants.map(v => ({ ...v, language: normLang(v.language) }))
+        : [];
+    const langPages = payload.language_pages || payload.languagePages;
+    currentLanguagePages = Array.isArray(langPages)
+        ? langPages.map(pg => ({ ...pg, language: normLang(pg.language) }))
         : [];
     renderLanguageSwitch();
 }
@@ -2465,6 +2856,34 @@ async function switchLanguage(targetLang) {
         return;
     }
 
+    // Modèle « une page par langue » : le switch n'est pas un traducteur, c'est un
+    // NAVIGATEUR. La page sœur existe → on l'ouvre ; elle n'existe pas → on propose
+    // de dupliquer la page vers cette langue. Les pages déjà traduites en VARIANTES
+    // gardent le comportement d'origine (aucune régression sur l'existant).
+    if (!pageUsesLanguageVariants()) {
+        const sibling = languagePageFor(targetLang);
+        langSwitchBusy = true;
+        try {
+            if (sibling) {
+                window.showLoading(`Ouverture de la version ${LANG_LABELS[targetLang] || targetLang}...`);
+                await window.loadProject(
+                    sibling.projectName,
+                    sibling.title || displayTitleFromFullName(sibling.projectName)
+                );
+                window.hideLoading();
+            } else {
+                await confirmAndDuplicateToLanguage(targetLang);
+            }
+        } catch (e) {
+            window.hideLoading();
+            console.error('switchLanguage (page par langue)', e);
+            renderLanguageSwitch();
+        } finally {
+            langSwitchBusy = false;
+        }
+        return;
+    }
+
     const orig = normLang(currentOriginalLanguage);
     const v = currentPageVariants.find(x => normLang(x.language) === targetLang);
     const exists = targetLang === orig ? true : !!(v && v.exists);
@@ -2481,15 +2900,14 @@ async function switchLanguage(targetLang) {
             // Ne jamais retraduire automatiquement : proposer la mise à jour si la
             // version d'origine a changé depuis la dernière traduction.
             if (targetLang !== orig && stale) {
-                const choice = await new Promise(resolve => {
-                    window.openModal({
-                        title: 'Traduction à mettre à jour',
-                        body: `<p class="modal-message">La version ${LANG_LABELS[orig] || orig} a été modifiée depuis la dernière traduction. Souhaitez-vous mettre à jour la traduction ${LANG_LABELS[targetLang] || targetLang} ?</p>`,
-                        actions: [
-                            { label: 'Mettre à jour la traduction', className: 'btn-primary', onClick: () => { window.closeModal(); resolve('update'); } },
-                            { label: 'Conserver la traduction actuelle', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve('keep'); } }
-                        ]
-                    });
+                const choice = await askChoice({
+                    title: 'Traduction à mettre à jour',
+                    body: `<p class="modal-message">La version ${LANG_LABELS[orig] || orig} a été modifiée depuis la dernière traduction. Souhaitez-vous mettre à jour la traduction ${LANG_LABELS[targetLang] || targetLang} ?</p>`,
+                    actions: [
+                        { label: 'Mettre à jour la traduction', className: 'btn-primary', value: 'update' },
+                        { label: 'Conserver la traduction actuelle', className: 'btn-secondary', value: 'keep' }
+                    ],
+                    dismissValue: 'keep'
                 });
                 if (choice === 'update') await createOrUpdateTranslationVariant(pageId, targetLang);
             }
@@ -2513,7 +2931,7 @@ function attachHdrLangSwitch(editor) {
     try {
         const wrapper = editor && editor.getWrapper && editor.getWrapper();
         if (!wrapper || typeof wrapper.find !== 'function') return;
-        (wrapper.find('.hdr-lang') || []).forEach(bindHdrLangClick);
+        [].concat(wrapper.find('.hdr-lang') || [], wrapper.find('.dh-lang') || []).forEach(bindHdrLangClick);
     } catch (e) { console.warn('attachHdrLangSwitch', e); }
 }
 window.attachHdrLangSwitch = attachHdrLangSwitch;
@@ -4235,6 +4653,23 @@ window.duplicateProject = (fullName) => {
     const translateOpts = document.getElementById('duplicate-translate-options');
     const simpleOpts = document.getElementById('duplicate-simple-options');
 
+    // État initial explicite : la modale est réutilisée, sans reset elle rouvrait
+    // sur le dernier type choisi alors que le <select> affichait « copie exacte ».
+    typeSelect.value = 'simple';
+    translateOpts.classList.add('hidden');
+    simpleOpts.classList.remove('hidden');
+
+    // Langues proposées = langues « prêtes » (miroir de READY_LANGUAGES serveur).
+    const langSelect = document.getElementById('select-duplicate-lang');
+    if (langSelect) {
+        const langs = (READY_LANGUAGES && READY_LANGUAGES.length ? READY_LANGUAGES : ['FR', 'EN']).map(normLang);
+        langSelect.innerHTML = langs
+            .map(l => `<option value="${l}">${LANG_LABELS[l] || l} (${l})</option>`)
+            .join('');
+        // Le cas courant est FR → EN : on pré-sélectionne l'anglais s'il est prêt.
+        if (langs.includes('EN')) langSelect.value = 'EN';
+    }
+
     typeSelect.onchange = () => {
         if (typeSelect.value === 'translate') {
             translateOpts.classList.remove('hidden');
@@ -4254,71 +4689,39 @@ window.duplicateProject = (fullName) => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
 
         if (type === 'translate') {
-            const targetLang = document.getElementById('select-duplicate-lang').value;
-            const newDisplayName = await window.showPrompt({ title: 'Nom du projet traduit', message: 'Entrez le nouveau nom :', placeholder: 'nom-projet-traduit' });
-            if (!newDisplayName) {
-                showOpeningPopup();
-                return;
-            }
-
+            const targetLang = normLang(document.getElementById('select-duplicate-lang').value || 'EN');
+            // Modèle « une page par langue » : la duplication crée une PAGE autonome
+            // (URL /<lang>/<slug>, formulaires et SEO propres) reliée à la source.
+            // Le nom ET le slug sont dérivés du TITRE TRADUIT : on ne demande donc
+            // plus de nom à la main, contrairement à l'ancienne duplication.
             try {
-                window.showLoading('Traduction en cours par l\'IA Gemini... Cela peut prendre quelques secondes.');
-                
-                const response = await fetch(`/api/project/${fullName}`);
-                const sourceProject = await response.json();
-                
-                const translateRes = await fetch('/api/ai/translate', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ html: sourceProject.html, targetLang })
-                });
-
-                if (!translateRes.ok) throw new Error(await translateRes.text());
-                const translateData = await translateRes.json();
-                
-                const newFullName = `school-${schoolId}__${newDisplayName}__${targetLang}`;
-
-                // ── CHANGED: wrap translated HTML in full document with SEO ──
-                const sourceProps = sourceProject.properties || {};
-                const finalHtml = buildFinalHtml(translateData.html, sourceProject.css || '', sourceProps);
-
-                const projectData = { 
-                    projectName: newFullName, 
-                    html: finalHtml,           // full HTML with SEO meta tags
-                    css: sourceProject.css, 
-                    projectData: sourceProject.project_data,
-                    is_original_language: false,
-                    page_group_id: fullName
-                };
-
-                console.log('🔴 projectData envoyé:', JSON.stringify(projectData).substring(0, 300));
-
-                const { body: translateBody } = await publishInlineImagesInString(JSON.stringify(projectData), newFullName);
-                const saveRes = await fetch('/api/save', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: translateBody
-                });
-                if (!saveRes.ok) throw new Error(await saveRes.text());
-                
-                window.hideLoading();
-                const userChoice = await new Promise(resolve => {
+                const result = await duplicatePageToLanguage({ sourceFullName: fullName, targetLang });
+                const stayInEditor = await new Promise(resolve => {
                     window.openModal({
-                        title: 'Succès',
-                        body: `<p class="modal-message">Page ${targetLang} créée avec succès !</p>`,
+                        title: 'Page créée',
+                        body: `<p class="modal-message">La page ${LANG_LABELS[targetLang] || targetLang}`
+                            + ` <strong>${result.newTitle}</strong> a été créée avec le même design,`
+                            + ` à l'adresse <code>/${targetLang.toLowerCase()}/…</code>.</p>`
+                            + (result.formsSwitched
+                                ? `<p class="modal-message">${result.formsSwitched} formulaire(s) basculé(s) en ${targetLang}`
+                                  + ` : libellés, texte RGPD, messages de validation et langue transmise au CRM.</p>`
+                                : ''),
                         actions: [
-                            { label: 'Ouvrir la page traduite', className: 'btn-primary', onClick: () => { window.closeModal(); resolve(true); } },
-                            { label: 'Fermer', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve(false); } }
+                            { label: 'La modifier maintenant', className: 'btn-primary', onClick: () => { window.closeModal(); resolve(true); } },
+                            { label: 'Revenir à la liste', className: 'btn-secondary', onClick: () => { window.closeModal(); resolve(false); } }
                         ]
                     });
                 });
-                if (userChoice) {
-                    window.editProject(newFullName, newDisplayName);
-                } else {
-                    showOpeningPopup(); // Refresh dashboard
-                }
+                // La page traduite est DÉJÀ chargée dans l'éditeur par
+                // duplicatePageToLanguage : « la modifier » n'a donc rien à faire.
+                if (!stayInEditor) showOpeningPopup();
             } catch (e) {
                 window.hideLoading();
-                console.error(e);
-                await window.showAlert({ title: 'Erreur', message: 'Échec de la traduction. ' + e.message });
+                if (!(e && e.cancelled)) {
+                    console.error(e);
+                    await window.showAlert({ title: 'Erreur', message: 'Échec de la duplication. ' + e.message });
+                }
+                showOpeningPopup();
             }
         } else {
             const newDisplayName = document.getElementById('input-duplicate-name').value;
