@@ -1796,10 +1796,17 @@ try {
 
         /* Le vivier de chaque liste est retenu, pas seulement ses valeurs :
            `poserValeurUnique` a besoin de savoir si TOUS les programmes encore
-           en lice portent bien le critere. Cf. son commentaire. */
-        var vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
-        var vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
-        var vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
+           en lice portent bien le critere. Cf. son commentaire.
+
+           ⚠ Les viviers sont calcules PLUS BAS, chacun apres le remplissage et
+           la RELECTURE de son critere amont — et non tous en haut. Sans cela,
+           changer le niveau apres avoir choisi un couple campus+niveau laissait
+           `sel.speciality` (etc.) sur l'ANCIENNE valeur : `remplir` corrigeait
+           le <select> a l'ecran, mais le reste de la passe — viviers, `valides`,
+           rentree, programme, PTAT — filtrait encore sur la valeur perimee et
+           rendait des listes vides. Il fallait reselectionner le campus pour
+           reamorcer. Releve le 16/09 (ICART Paris : Bac+4 puis Terminale). */
+        var vivierSpec, vivierRyth, vivierLang;
 
         // chaque liste ne propose que ce qui reste possible en amont
         remplir('Niveau',     distinct(filtrer({ campus: sel.campus }), 'level'), sel.level, true);
@@ -1849,9 +1856,24 @@ try {
                 }
             }
         }
+        /* On refiltre puis RELIT chaque critere apres l'avoir rempli : si le
+           changement amont a rendu la valeur courante impossible, `remplir`
+           l'a effacee du <select>, et il faut repartir de cette valeur reelle
+           — pas de celle capturee au debut de la passe — pour tout ce qui
+           suit. Le niveau, lui, a deja ete relu ci-dessus. */
+        sel.level = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
+
+        vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
         remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
+        sel.speciality = valeur('Speciality');
+
+        vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
         remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
+        sel.rhythm = valeur('Rhythm');
+
+        vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
         remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
+        sel.language = valeur('Language');
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
