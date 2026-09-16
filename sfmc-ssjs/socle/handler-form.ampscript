@@ -298,7 +298,7 @@ SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
 VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
-VAR @detailOrigine, @nCpRows, @payload, @morceau, @pz, @offset
+VAR @detailOrigine, @nCpRows, @payload, @morceau, @morceauEncadre, @pz, @offset
 
 VAR @LOG_ACTIF, @LOG_DETAIL, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -1456,6 +1456,23 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     FOR @pz = 1 TO 3 DO
                         SET @morceau = Substring(@payload, @offset, 480)
                         SET @offset = Add(@offset, 480)
+                        /* Encadre par [ ] : un champ texte de DE rogne les
+                           espaces de bord, et un morceau qui se termine ou
+                           commence par un espace perdait ce caractere. Sans
+                           consequence entre deux champs, mais une coupure au
+                           milieu d'une valeur aurait rendu un payload faux a
+                           l'equipe CRM. Les crochets absorbent le rognage ; le
+                           lecteur les retire.
+
+                           ⚠ CALCULE ICI, PAS DANS L'APPEL. Un commentaire — et
+                           plus generalement tout ce qui n'est pas un argument —
+                           glisse au milieu de la liste d'arguments d'InsertData
+                           fait ECHOUER l'appel a l'execution, sans erreur de
+                           rendu : la page se charge, et c'est la soumission qui
+                           meurt. Mesure du 16/09, toutes les creations de compte
+                           sont tombees pendant vingt minutes. Ne jamais commenter
+                           entre deux arguments. */
+                        SET @morceauEncadre = Concat("[", @morceau, "]")
                         IF NOT Empty(@morceau) THEN
                             SET @logOrdre = Add(@logOrdre, 1)
                             InsertData("LPB_Log_Soumissions",
@@ -1467,16 +1484,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "Statut", "OK",
                                 "Objet", "Account",
                                 "RecordId", "",
-                                /* Encadre par [ ] : la DE rogne les espaces de
-                                   bord d'un champ texte, et un morceau qui se
-                                   termine ou commence par un espace perdait ce
-                                   caractere. Sans consequence entre deux champs,
-                                   mais une coupure au milieu d'une valeur
-                                   (« Luxury Communication & Strategies ») aurait
-                                   rendu un payload faux a l'equipe CRM. Les
-                                   crochets absorbent le rognage ; le lecteur les
-                                   retire. Releve le 16/09. */
-                                "Detail", Concat("[", @morceau, "]"),
+                                "Detail", @morceauEncadre,
                                 "Email", @email,
                                 "Ecole", @ecole,
                                 "FormType", @formType)
