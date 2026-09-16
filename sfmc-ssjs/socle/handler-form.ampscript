@@ -1467,7 +1467,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "Statut", "OK",
                                 "Objet", "Account",
                                 "RecordId", "",
-                                "Detail", @morceau,
+                                /* Encadre par [ ] : la DE rogne les espaces de
+                                   bord d'un champ texte, et un morceau qui se
+                                   termine ou commence par un espace perdait ce
+                                   caractere. Sans consequence entre deux champs,
+                                   mais une coupure au milieu d'une valeur
+                                   (« Luxury Communication & Strategies ») aurait
+                                   rendu un payload faux a l'equipe CRM. Les
+                                   crochets absorbent le rognage ; le lecteur les
+                                   retire. Releve le 16/09. */
+                                "Detail", Concat("[", @morceau, "]"),
                                 "Email", @email,
                                 "Ecole", @ecole,
                                 "FormType", @formType)
