@@ -298,7 +298,7 @@ SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
 VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
-VAR @detailOrigine, @nCpRows
+VAR @detailOrigine, @nCpRows, @payload, @morceau, @pz, @offset
 
 VAR @LOG_ACTIF, @LOG_DETAIL, @runId, @logOrdre
 SET @LOG_ACTIF = "true"
@@ -1388,6 +1388,93 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    porte une. */
                 SET @vConsent = @consentVoulu
                 IF Empty(@vConsent) THEN SET @vConsent = "false" ENDIF
+
+                /* ---- PAYLOAD DE CREATION, ECRIT AVANT L'APPEL ---------------
+                   Une creation refusee par le CRM ne rend pas une erreur : elle
+                   TUE la page. Tout ce qui suit est perdu, y compris le motif.
+                   Le payload est donc journalise AVANT `CreateSalesforceObject`,
+                   champ par champ et en clair, pour etre transmis tel quel a
+                   l'equipe CRM quand une soumission est bloquee.
+
+                   `Detail` fait 500 caracteres et le payload en fait ~900 : on
+                   le decoupe en morceaux de 480, meme etape, `Ordre` croissant.
+                   Se relit en concatenant les morceaux dans l'ordre.
+
+                   Ecrit a CHAQUE creation, sans dependre de SFMC_LOG_DETAIL :
+                   c'est justement quand le journal detaille est coupe, en
+                   recette, qu'on a besoin du payload. Une seule creation par
+                   visiteur, donc deux ou trois InsertData en plus, uniquement
+                   pour un compte neuf. */
+                SET @payload = Concat(
+                    "RecordTypeId=", @RT_PERSON_ACCOUNT,
+                    " | SourceCreation__c=Web Form",
+                    " | Ecole__c=", @schoolAccId,
+                    " | PTAT_Id__c=", @ptatMaj,
+                    " | PreferredLangage__c=", @langue,
+                    " | PersonEmail=", @email,
+                    " | LastName=", @lastName,
+                    " | FirstName=", @firstName)
+                SET @payload = Concat(@payload,
+                    " | LivingCountry__c=", @country,
+                    " | IndicatifPick__c=", @indicatif,
+                    " | MobileNumber__c=", @mobile,
+                    " | Academic_Level_List__c=", @studyLevel,
+                    " | PersonAccountType__c=", @vousEtes,
+                    " | Speciality__c=", @specialiteOk,
+                    " | Application_Requested__c=", @appRequested)
+                SET @payload = Concat(@payload,
+                    " | UTMSource__c=", @utmS,
+                    " | UTMMedium__c=", @utmM,
+                    " | UTMCampaign__c=", @utmC,
+                    " | UTMContent__c=", @utmCo,
+                    " | UTMTerm__c=", @utmT,
+                    " | UTMId__c=", @utmI,
+                    " | UTMCampus__c=", @utmCampus)
+                SET @payload = Concat(@payload,
+                    " | gclid__c=", @gclid,
+                    " | fbclid__c=", @fbclid,
+                    " | ClientID__c=", @clientId,
+                    " | Consent__c=", @vConsent,
+                    " | CreationSourceDetail__c=", @detailOrigine,
+                    " | DateOfLastMarketingContactPoint__c=", @itHorodatage,
+                    " | LastMarketingContactPointType__c=Form")
+                /* La variante « brochure » ajoute FormType__c en tete d'appel :
+                   le payload le dit, sinon les deux se liraient pareil. */
+                IF NOT Empty(@typeForm) THEN
+                    SET @payload = Concat("FormType__c=", @typeForm, " | ", @payload)
+                ENDIF
+                /* Canal et sous-canal ne figurent PAS dans cette liste : le
+                   socle ne les envoie plus depuis le 15/09, c'est le trigger
+                   CRM qui les calcule a partir des UTM ci-dessus. Le payload
+                   dit donc exactement ce qui part d'ici, pas ce que le compte
+                   portera apres passage des triggers. */
+                /* Offset cumule avec Add plutot que calcule avec Multiply :
+                   cette derniere n'est employee nulle part ailleurs ici, et
+                   une fonction non eprouvee tue la page au rendu. */
+                SET @offset = 1
+                IF @LOG_ACTIF == "true" THEN
+                    FOR @pz = 1 TO 3 DO
+                        SET @morceau = Substring(@payload, @offset, 480)
+                        SET @offset = Add(@offset, 480)
+                        IF NOT Empty(@morceau) THEN
+                            SET @logOrdre = Add(@logOrdre, 1)
+                            InsertData("LPB_Log_Soumissions",
+                                "RowId", Concat(@runId, "-", @logOrdre),
+                                "RunId", @runId,
+                                "Ordre", @logOrdre,
+                                "Horodatage", Now(),
+                                "Etape", "29 - payload creation compte",
+                                "Statut", "OK",
+                                "Objet", "Account",
+                                "RecordId", "",
+                                "Detail", @morceau,
+                                "Email", @email,
+                                "Ecole", @ecole,
+                                "FormType", @formType)
+                        ENDIF
+                    NEXT @pz
+                ENDIF
+
                 IF Empty(@typeForm) THEN
                     SET @paId = CreateSalesforceObject("Account", 29,
                     "RecordTypeId",           @RT_PERSON_ACCOUNT,
