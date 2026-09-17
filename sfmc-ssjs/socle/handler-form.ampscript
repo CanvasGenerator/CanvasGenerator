@@ -1932,32 +1932,39 @@ IF IndexOf(@submitted, "true") > 0 THEN
                              fin de fichier (try/catch) : refuse tant que le CRM
                              n'exempte pas MC Connect, mais sans tuer la page, et
                              journalise « CPC:date-refusee ». */
-                        /* ⚠ LA DATE D'ENGAGEMENT N'EST PAS MISE A JOUR ICI, ET CE N'EST
-                           PAS UN OUBLI. Regle metier (anouar, 10/09) : elle doit suivre
-                           chaque soumission. Mais tout update de
-                           `LastMarketingEngagementDate__c` par MC Connect est refuse
-                           par Salesforce et TUE la page — mesure du 10/09 : seule
-                           (sonde), et meme dans le meme update qu'un changement de
-                           statut (rgdp7, 16:38). Le statut, lui, passe. Les regles
-                           Prevent_Opt_In/Opt_out_Date_Manual_Edit expliquent le cas
-                           « statut inchange », pas le cas « statut change » : le CRM
-                           doit lire son debug log. Un try/catch SSJS n'est pas une
-                           issue : les fonctions Salesforce SSJS repondent « Unable to
-                           retrieve security descriptor » sur cette BU, meme pour un
-                           update qui passe en AMPscript.
-                           Le jour ou le CRM debloque, remettre la date dans l'update
-                           ci-dessous (et un update inconditionnel pour le cas Opt-in
-                           inchange). En attendant : marqueur au journal. */
+                        /* ⚠ DEBLOQUE LE 17/09 — HISTORIQUE A GARDER. Du 10 au 17/09,
+                           tout update de `LastMarketingEngagementDate__c` par MC
+                           Connect etait refuse par Salesforce et TUAIT la page :
+                           seul (sonde), et meme accompagne d'un changement de statut.
+                           Le socle se contentait donc d'un marqueur « -date-figee ».
+                           Le CRM a leve le blocage ; mesure a la sonde le 17/09 sur
+                           un consentement reel : les DEUX graphies sont acceptees et
+                           se relisent avec la nouvelle valeur.
+
+                           Les deux partent ensemble, comme a la creation :
+                           `Last_Marketing_Engagement_Date__c` est une DATE, et
+                           `LastMarketingEngagementDate__c` un DATE/HEURE qui
+                           n'accepte que l'ISO UTC termine par Z.
+
+                           Le statut rejoint LE MEME update quand il doit changer.
+                           Un seul appel, et les regles Prevent_Opt_In/Opt_out_Date_
+                           Manual_Edit voient alors un vrai changement de statut. */
                         IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                                "Status__c", "Opt-in")
+                                "Status__c", "Opt-in",
+                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
+                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
                             SET @majs = "1"
-                        ENDIF
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-figee")
-                        IF @majs == "1" THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-maj")
                         ELSE
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")
+                            SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
+                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
+                        ENDIF
+                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
+                        IF @majs == "1" THEN
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj")
+                        ELSE
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-inchange")
                         ENDIF
 
                         /* Divergences que le connecteur nous interdit de
