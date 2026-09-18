@@ -59,6 +59,7 @@ test('handler inline : drapeau ouvert, aucun jeton, bloc SSJS present', () => {
         egal(/==JOURNEY_FIRE_DEBUT==/.test(html) && /==JOURNEY_FIRE_FIN==/.test(html), true, 'bloc SSJS');
         egal(/RegExReplace\(/.test(html), false, 'RegExReplace n existe pas en AMPscript');
         egal(/HTTPPost2?\(/.test(html), false, 'aucun HTTPPost AMPscript (meurt sur 4xx)');
+        egal(/var evtBody = ascii\(/.test(html) && /\[\\u0080-\\uffff\]/.test(html), true, 'corps de l evenement echappe en ASCII (accents)');
     } finally {
         if (avant === undefined) delete process.env.SFMC_JOURNEY_LAUNCH; else process.env.SFMC_JOURNEY_LAUNCH = avant;
     }
@@ -89,6 +90,32 @@ test('listes inline : garde socle_fetch ouvert en tete, ferme apres la cascade, 
     egal(finCascade > 0 && fermeture > finCascade, true, 'ENDIF apres la fin du JS de cascade');
     egal(/RequestParameter\("socle_fetch"\)/.test(html), true, 'parametre lu');
     egal(/corps\.push\('socle_fetch=1'\)/.test(html), true, 'parametre envoye par le JS');
+});
+
+/* Les deux entrees de journey (API Event) : chaque colonne du corps JSON doit
+   exister dans la DE d'entree, sinon SFMC refuse l'evenement ENTIER. Les
+   listes ci-dessous sont les DE relues le 18/09 (Data_contacts_evenement_new,
+   Post_Demande_De_Doc_Target) ; une colonne ajoutee au handler sans exister
+   dans la DE casse ce test avant de casser la production. */
+test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', () => {
+    const fs = require('node:fs');
+    const src = fs.readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    const corps = [...src.matchAll(/SET @jrnData = Concat\(([\s\S]*?)\)\n/g)]
+        .map((m) => [...m[1].matchAll(/'"([A-Za-z0-9_]+)":"'/g)].map((c) => c[1]));
+    egal(corps.length, 2, 'deux corps JSON (evenement, brochure)');
+    const evenement = ['Subscriberkey', 'ID_salesforce', 'FirstName', 'LastName', 'PersonEmail', 'MobileNumber',
+        'PreferredLangage', 'SMSLocale', 'LivingCountry', 'BusinessBrandName', 'schoolName', 'EventType',
+        'summit__Event_Instance', 'summit__Instance_Start_Date', 'summit__Instance_End_Date',
+        'SummitEventRegistrationId', 'Nom_action', 'Date_action', 'campusNameFor'];
+    const brochure = ['Id', 'PersonContactId', 'FirstName', 'LastName', 'PersonEmail', 'MobileE164Auto', 'MobileNumber',
+        'Schoolname', 'Academic_Level_List', 'LivingCountry', 'Brand', 'PreferredLangage', 'SMSLocale', 'WhatsAppLocale',
+        'CampaignId', 'Campus', 'Ecole'];
+    egal(corps[0].join(','), evenement.join(','), 'colonnes Data_contacts_evenement_new');
+    egal(corps[1].join(','), brochure.join(','), 'colonnes Post_Demande_De_Doc_Target');
+    /* Vocabulaire des splits, releve sur les journeys le 18/09. */
+    for (const v of ['Open House', 'Discovery Workshop', 'Internship', 'Immersion Day']) egal(src.includes('=' + v + '|'), true, 'type Summit ' + v);
+    for (const v of ['ESEC', 'Ecole Bleue', '3W Academy', 'IFA Paris', 'MoPA']) egal(src.includes('=' + v + '|'), true, 'marque ' + v);
+    egal(src.includes('"MobileE164Auto":"\', @jrnTel,'), false, 'le champ Phone de l evenement s appelle MobileNumber');
 });
 
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
