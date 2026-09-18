@@ -325,7 +325,8 @@ SET @logOrdre  = 0
    journey remplit trois variables, et le bloc de tir en fin de sequence
    fait le reste.
      @jrnCleEvt     nom de la ligne de LPB_Config_Api portant la cle de
-                    l'evenement (EventKey_Evenement, EventKey_Brochure…)
+                    l'evenement : EventKey_Evenement (inscription a un
+                    evenement Summit), EventKey_Brochure (demande de brochure)
      @jrnContactKey ContactKey de l'entree (PersonContactId)
      @jrnData       corps JSON des colonnes de la DE, SANS les accolades
    Le TIR lui-meme est en SSJS, en fin de fichier : HTTPPost2 tue la page
@@ -342,6 +343,8 @@ SET @logOrdre  = 0
 VAR @JOURNEY_LAUNCH, @jrnCleEvt, @jrnContactKey, @jrnData
 VAR @jrnRows, @jrnRow, @jrnTitre, @jrnCampusInst, @jrnDebut, @jrnFin, @jrnLangue, @jrnLocale, @jrnPays
 VAR @jrnTel, @jrnMarque, @jrnTypeEvt, @jrnFn, @jrnLn, @jrnMail, @jrnCampus
+VAR @jrnRefMarque, @jrnRefTypeEvt, @jrnRefNiveau, @jrnCle, @jrnPos, @jrnReste
+VAR @jrnNiveau, @jrnTelBrut, @jrnTelE164, @jrnEcole, @jrnCampusUtm
 SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
 SET @jrnCleEvt      = ""
 SET @jrnContactKey  = ""
@@ -2322,6 +2325,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 ENDIF
                 SET @journal = Concat(@journal, " INTERACTION:creee-", @OBJET_INTERACTION)
             ENDIF
+
+            /* ---- JOURNEY POST-DEMANDE DE BROCHURE ---------------------------
+               Chaque demande de brochure designe la cle — membre cree comme
+               membre existant : un prospect qui redemande la documentation
+               attend de nouveau la reponse. L'entree (DE
+               Post_Demande_De_Doc_Target) est construite dans le bloc commun
+               en fin de sequence ; la journey garde la main sur la re-entree. */
+            IF @formType == "brochure" AND NOT Empty(@cmId) THEN
+                SET @jrnCleEvt = "EventKey_Brochure"
+            ENDIF
         ENDIF
 
         /* ====================================================================
@@ -2484,110 +2497,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "AcquisitionSubChannel__c",  @sousCanal)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
 
-                    /* ---- JOURNEY DE CONFIRMATION : PREPARATION DE L'ENTREE ----
-                       Colonnes de la DE Data_contacts_evenement_new (cles :
-                       Subscriberkey + SummitEventRegistrationId + Nom_action).
-                       Mapping valide le 09/09 : Subscriberkey = PersonContactId,
-                       ID_salesforce = Id du compte, EventType = notre vocabulaire
-                       (JPO, Atelier, Stage, Immersion), schoolName = compte
-                       campus choisi (« EFAP PARIS »), Nom_action = titre de
-                       l'instance, SMSLocale au format SFMC (fr-FR).
-                       Tout est relu ICI, apres la creation : deux lectures SF de
-                       plus, uniquement quand le drapeau est ouvert. */
-                    IF @JOURNEY_LAUNCH == "true" AND NOT Empty(@regId) THEN
-                        SET @jrnTitre = ""
-                        SET @jrnCampusInst = ""
-                        SET @jrnDebut = ""
-                        SET @jrnFin = ""
-                        SET @jrnRows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-                            "Id,summit__Instance_Title__c,campusNameFor__c,summit__Instance_Start_Date__c,summit__Instance_End_Date__c",
-                            "Id", "=", @instanceId)
-                        IF RowCount(@jrnRows) > 0 THEN
-                            SET @jrnRow = Row(@jrnRows, 1)
-                            SET @jrnTitre      = Field(@jrnRow, "summit__Instance_Title__c", 0)
-                            SET @jrnCampusInst = Field(@jrnRow, "campusNameFor__c", 0)
-                            SET @jrnDebut      = Field(@jrnRow, "summit__Instance_Start_Date__c", 0)
-                            SET @jrnFin        = Field(@jrnRow, "summit__Instance_End_Date__c", 0)
-                        ENDIF
-                        /* ISO tronque a la seconde (FormatDate « mm » = mois, voir
-                           @itHorodatageUtc) ; la DE accepte « 2026-10-15T00:00:00 ». */
-                        IF NOT Empty(@jrnDebut) THEN SET @jrnDebut = Substring(FormatDate(@jrnDebut, "iso"), 1, 19) ENDIF
-                        IF NOT Empty(@jrnFin)   THEN SET @jrnFin   = Substring(FormatDate(@jrnFin,   "iso"), 1, 19) ENDIF
-
-                        /* Langue, locale SMS et pays : ceux du compte (un compte
-                           existant n'est pas passe par la branche creation, ou
-                           @langue est calculee). Repli sur le formulaire. */
-                        SET @jrnLangue = ""
-                        SET @jrnLocale = ""
-                        SET @jrnPays   = ""
-                        SET @jrnRows = RetrieveSalesforceObjects("Account",
-                            "Id,PreferredLangage__c,SMSLocale__c,LivingCountry__c", "Id", "=", @paId)
-                        IF RowCount(@jrnRows) > 0 THEN
-                            SET @jrnRow = Row(@jrnRows, 1)
-                            SET @jrnLangue = Field(@jrnRow, "PreferredLangage__c", 0)
-                            SET @jrnLocale = Field(@jrnRow, "SMSLocale__c", 0)
-                            SET @jrnPays   = Field(@jrnRow, "LivingCountry__c", 0)
-                        ENDIF
-                        IF Empty(@jrnLangue) THEN SET @jrnLangue = @langue ENDIF
-                        IF Empty(@jrnLangue) THEN SET @jrnLangue = "French" ENDIF
-                        IF Empty(@jrnPays)   THEN SET @jrnPays = @country ENDIF
-                        /* Le CRM stocke « fr-fr » ; SFMC attend « fr-FR ». */
-                        IF Length(@jrnLocale) == 5 THEN
-                            SET @jrnLocale = Concat(Lowercase(Substring(@jrnLocale, 1, 2)), "-", Uppercase(Substring(@jrnLocale, 4, 2)))
-                        ELSEIF @jrnLangue == "English" THEN
-                            SET @jrnLocale = "en-US"
-                        ELSE
-                            SET @jrnLocale = "fr-FR"
-                        ENDIF
-
-                        /* Telephone en E.164 : indicatif (« 33 ») + numero sans
-                           separateurs ni zero initial. Vide si pas de numero. */
-                        SET @jrnTel = Replace(Replace(Replace(Replace(Replace(Replace(Replace(@mobile, " ", ""), ".", ""), "-", ""), "(", ""), ")", ""), "/", ""), "+", "")
-                        IF NOT Empty(@jrnTel) THEN
-                            IF Substring(@jrnTel, 1, 1) == "0" THEN SET @jrnTel = Substring(@jrnTel, 2, Subtract(Length(@jrnTel), 1)) ENDIF
-                            SET @jrnTel = Concat("+", Replace(Replace(@indicatif, "+", ""), " ", ""), @jrnTel)
-                        ENDIF
-
-                        SET @jrnMarque  = Lookup("LPB_Mapping_Ecoles", "Libelle", "Ecole", @ecole)
-                        IF Empty(@jrnMarque) THEN SET @jrnMarque = @ecole ENDIF
-                        SET @jrnTypeEvt = @typeEvt
-                        IF @jrnTypeEvt == "Atelier_Decouverte" THEN SET @jrnTypeEvt = "Atelier" ENDIF
-
-                        /* Echappement JSON des textes libres : antislash puis
-                           guillemet. AMPscript n'a pas de sequence d'echappement,
-                           "\" est bien UN antislash. */
-                        SET @jrnFn     = Replace(Replace(@firstName,     "\", "\\"), '"', '\"')
-                        SET @jrnLn     = Replace(Replace(@lastName,      "\", "\\"), '"', '\"')
-                        SET @jrnMail   = Replace(Replace(@email,         "\", "\\"), '"', '\"')
-                        SET @jrnCampus = Replace(Replace(@campusSel,     "\", "\\"), '"', '\"')
-                        SET @jrnTitre  = Replace(Replace(@jrnTitre,      "\", "\\"), '"', '\"')
-                        SET @jrnCampusInst = Replace(Replace(@jrnCampusInst, "\", "\\"), '"', '\"')
-                        SET @jrnMarque = Replace(Replace(@jrnMarque,     "\", "\\"), '"', '\"')
-                        SET @jrnPays   = Replace(Replace(@jrnPays,       "\", "\\"), '"', '\"')
-
-                        SET @jrnCleEvt     = "EventKey_Evenement"
-                        SET @jrnContactKey = @paContactId
-                        SET @jrnData = Concat(
-                            '"Subscriberkey":"', @paContactId, '",',
-                            '"ID_salesforce":"', @paId, '",',
-                            '"FirstName":"', @jrnFn, '",',
-                            '"LastName":"', @jrnLn, '",',
-                            '"PersonEmail":"', @jrnMail, '",',
-                            '"MobileE164Auto":"', @jrnTel, '",',
-                            '"PreferredLangage":"', @jrnLangue, '",',
-                            '"SMSLocale":"', @jrnLocale, '",',
-                            '"LivingCountry":"', @jrnPays, '",',
-                            '"BusinessBrandName":"', @jrnMarque, '",',
-                            '"schoolName":"', @jrnCampus, '",',
-                            '"EventType":"', @jrnTypeEvt, '",',
-                            '"summit__Event_Instance":"', @instanceId, '",',
-                            '"summit__Instance_Start_Date":"', @jrnDebut, '",',
-                            '"summit__Instance_End_Date":"', @jrnFin, '",',
-                            '"SummitEventRegistrationId":"', @regId, '",',
-                            '"Nom_action":"', @jrnTitre, '",',
-                            '"Date_action":"', Format(Now(), "yyyy-MM-dd HH:mm:ss"), '",',
-                            '"campusNameFor":"', @jrnCampusInst, '"')
-                    ENDIF
+                    /* ---- JOURNEY DE CONFIRMATION ---------------------------------
+                       L'entree (DE Data_contacts_evenement_new) est construite
+                       en fin de sequence, dans le bloc commun « PREPARATION DES
+                       ENTREES DE JOURNEY » : ici on ne fait que designer la cle.
+                       Une inscription EXISTANTE ne redeclenche rien. */
+                    SET @jrnCleEvt = "EventKey_Evenement"
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
@@ -2653,6 +2568,206 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         ENDIF
                     NEXT @i
                 ENDIF
+            ENDIF
+        ENDIF
+
+        /* ====================================================================
+           PREPARATION DES ENTREES DE JOURNEY (API EVENT) — BLOC COMMUN
+           ====================================================================
+           La branche metier a designe la cle (@jrnCleEvt) ; on construit ici
+           le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
+           poste sur interaction/v1/events. Deux DE, relues le 18/09 :
+             EventKey_Evenement → Data_contacts_evenement_new   (19 colonnes)
+             EventKey_Brochure  → Post_Demande_De_Doc_Target    (17 colonnes)
+           Le test test-env.js fige les deux listes de colonnes : une colonne
+           inconnue de la DE fait refuser l'evenement entier.
+
+           Ce que les journeys LISENT dans leurs splits, et donc le vocabulaire
+           a respecter a la lettre :
+             evenement : EventType ∈ Open House | Discovery Workshop |
+                         Internship | Immersion Day (vocabulaire Summit, meme
+                         table que le bloc des listes), summit__Instance_Start_Date
+             brochure  : Brand (vocabulaire de la journey, SANS accents : ESEC,
+                         Ecole Bleue, 3W Academy, IFA Paris, MoPA…) et
+                         Academic_Level_List (BAC+3, BAC+4, BAC+5, BAC+5 et +).
+           MobileNumber est un champ Phone : chiffres seuls, indicatif en tete,
+           sans « + » (format MobileConnect). MobileE164Auto garde le « + ».
+
+           Deux lectures SF de plus (compte, instance), uniquement drapeau
+           ouvert. Drapeau ferme : rien ne part, le journal le dit.
+           ==================================================================== */
+        IF NOT Empty(@jrnCleEvt) AND @JOURNEY_LAUNCH != "true" THEN
+            SET @journal = Concat(@journal, " JOURNEY:desactive")
+        ELSEIF NOT Empty(@jrnCleEvt) THEN
+            /* Langue, locale SMS et pays : ceux du compte (un compte existant
+               n'est pas passe par la branche creation, ou @langue est
+               calculee). Repli sur le formulaire. */
+            SET @jrnLangue = ""
+            SET @jrnLocale = ""
+            SET @jrnPays   = ""
+            SET @jrnRows = RetrieveSalesforceObjects("Account",
+                "Id,PreferredLangage__c,SMSLocale__c,LivingCountry__c", "Id", "=", @paId)
+            IF RowCount(@jrnRows) > 0 THEN
+                SET @jrnRow = Row(@jrnRows, 1)
+                SET @jrnLangue = Field(@jrnRow, "PreferredLangage__c", 0)
+                SET @jrnLocale = Field(@jrnRow, "SMSLocale__c", 0)
+                SET @jrnPays   = Field(@jrnRow, "LivingCountry__c", 0)
+            ENDIF
+            IF Empty(@jrnLangue) THEN SET @jrnLangue = @langue ENDIF
+            IF Empty(@jrnLangue) THEN SET @jrnLangue = "French" ENDIF
+            IF Empty(@jrnPays)   THEN SET @jrnPays = @country ENDIF
+            /* Le CRM stocke « fr-fr » ; SFMC attend « fr-FR ». */
+            IF Length(@jrnLocale) == 5 THEN
+                SET @jrnLocale = Concat(Lowercase(Substring(@jrnLocale, 1, 2)), "-", Uppercase(Substring(@jrnLocale, 4, 2)))
+            ELSEIF @jrnLangue == "English" THEN
+                SET @jrnLocale = "en-US"
+            ELSE
+                SET @jrnLocale = "fr-FR"
+            ENDIF
+
+            /* Telephone : indicatif (« 33 ») + numero sans separateurs ni zero
+               initial. @jrnTel sans « + » (champ Phone), @jrnTelE164 avec. */
+            SET @jrnTel     = ""
+            SET @jrnTelE164 = ""
+            SET @jrnTelBrut = Replace(Replace(Replace(Replace(Replace(Replace(Replace(@mobile, " ", ""), ".", ""), "-", ""), "(", ""), ")", ""), "/", ""), "+", "")
+            IF NOT Empty(@jrnTelBrut) THEN
+                IF Substring(@jrnTelBrut, 1, 1) == "0" THEN SET @jrnTelBrut = Substring(@jrnTelBrut, 2, Subtract(Length(@jrnTelBrut), 1)) ENDIF
+                SET @jrnTel     = Concat(Replace(Replace(@indicatif, "+", ""), " ", ""), @jrnTelBrut)
+                SET @jrnTelE164 = Concat("+", @jrnTel)
+            ENDIF
+
+            /* Marque : vocabulaire des journeys (splits « Brand equal … »),
+               releve le 18/09 sur Post_Demande_De_Doc. Repli sur le libelle
+               de LPB_Mapping_Ecoles pour une ecole qui manquerait ici. */
+            SET @jrnRefMarque = "|efap=EFAP|brassart=BRASSART|icart=ICART|cread=CREAD|esec=ESEC|ifa-paris=IFA Paris|mopa=MoPA|ecole-bleue=Ecole Bleue|efj=EFJ|3wa=3W Academy|"
+            SET @jrnCle = Lowercase(Trim(@ecole))
+            SET @jrnPos = IndexOf(@jrnRefMarque, Concat("|", @jrnCle, "="))
+            IF @jrnPos > 0 THEN
+                SET @jrnReste  = Substring(@jrnRefMarque, Add(Add(@jrnPos, Length(@jrnCle)), 2))
+                SET @jrnMarque = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
+            ELSE
+                SET @jrnMarque = Lookup("LPB_Mapping_Ecoles", "Libelle", "Ecole", @ecole)
+                IF Empty(@jrnMarque) THEN SET @jrnMarque = @ecole ENDIF
+            ENDIF
+
+            /* Echappement JSON des textes libres : antislash puis guillemet.
+               AMPscript n'a pas de sequence d'echappement, "\" est bien UN
+               antislash. */
+            SET @jrnFn     = Replace(Replace(@firstName, "\", "\\"), '"', '\"')
+            SET @jrnLn     = Replace(Replace(@lastName,  "\", "\\"), '"', '\"')
+            SET @jrnMail   = Replace(Replace(@email,     "\", "\\"), '"', '\"')
+            SET @jrnCampus = Replace(Replace(@campusSel, "\", "\\"), '"', '\"')
+            SET @jrnMarque = Replace(Replace(@jrnMarque, "\", "\\"), '"', '\"')
+            SET @jrnPays   = Replace(Replace(@jrnPays,   "\", "\\"), '"', '\"')
+
+            IF @jrnCleEvt == "EventKey_Evenement" THEN
+                /* ---- ENTREE EVENEMENT (Data_contacts_evenement_new) --------
+                   Cles de la DE : Subscriberkey + SummitEventRegistrationId +
+                   Nom_action. Subscriberkey = PersonContactId, ID_salesforce =
+                   Id du compte, schoolName = compte campus choisi (« EFAP
+                   PARIS »), Nom_action = titre de l'instance, campusNameFor =
+                   campus porte par l'instance. */
+                SET @jrnTitre = ""
+                SET @jrnCampusInst = ""
+                SET @jrnDebut = ""
+                SET @jrnFin = ""
+                SET @jrnRows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
+                    "Id,summit__Instance_Title__c,campusNameFor__c,summit__Instance_Start_Date__c,summit__Instance_End_Date__c",
+                    "Id", "=", @instanceId)
+                IF RowCount(@jrnRows) > 0 THEN
+                    SET @jrnRow = Row(@jrnRows, 1)
+                    SET @jrnTitre      = Field(@jrnRow, "summit__Instance_Title__c", 0)
+                    SET @jrnCampusInst = Field(@jrnRow, "campusNameFor__c", 0)
+                    SET @jrnDebut      = Field(@jrnRow, "summit__Instance_Start_Date__c", 0)
+                    SET @jrnFin        = Field(@jrnRow, "summit__Instance_End_Date__c", 0)
+                ENDIF
+                /* ISO tronque a la seconde (FormatDate « mm » = mois, voir
+                   @itHorodatageUtc) ; la DE accepte « 2026-10-15T00:00:00 ». */
+                IF NOT Empty(@jrnDebut) THEN SET @jrnDebut = Substring(FormatDate(@jrnDebut, "iso"), 1, 19) ENDIF
+                IF NOT Empty(@jrnFin)   THEN SET @jrnFin   = Substring(FormatDate(@jrnFin,   "iso"), 1, 19) ENDIF
+
+                /* Type d'evenement : du vocabulaire des pages (JPO,
+                   Atelier_Decouverte, Stage, Immersion) a celui de Summit, que
+                   le split « Type d evenement » de la journey compare. */
+                SET @jrnRefTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
+                SET @jrnCle = Lowercase(Trim(@typeEvt))
+                SET @jrnPos = IndexOf(@jrnRefTypeEvt, Concat("|", @jrnCle, "="))
+                IF @jrnPos > 0 THEN
+                    SET @jrnReste   = Substring(@jrnRefTypeEvt, Add(Add(@jrnPos, Length(@jrnCle)), 2))
+                    SET @jrnTypeEvt = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
+                ELSE
+                    SET @jrnTypeEvt = @typeEvt
+                ENDIF
+
+                SET @jrnTitre      = Replace(Replace(@jrnTitre,      "\", "\\"), '"', '\"')
+                SET @jrnCampusInst = Replace(Replace(@jrnCampusInst, "\", "\\"), '"', '\"')
+
+                SET @jrnContactKey = @paContactId
+                SET @jrnData = Concat(
+                    '"Subscriberkey":"', @paContactId, '",',
+                    '"ID_salesforce":"', @paId, '",',
+                    '"FirstName":"', @jrnFn, '",',
+                    '"LastName":"', @jrnLn, '",',
+                    '"PersonEmail":"', @jrnMail, '",',
+                    '"MobileNumber":"', @jrnTel, '",',
+                    '"PreferredLangage":"', @jrnLangue, '",',
+                    '"SMSLocale":"', @jrnLocale, '",',
+                    '"LivingCountry":"', @jrnPays, '",',
+                    '"BusinessBrandName":"', @jrnMarque, '",',
+                    '"schoolName":"', @jrnCampus, '",',
+                    '"EventType":"', @jrnTypeEvt, '",',
+                    '"summit__Event_Instance":"', @instanceId, '",',
+                    '"summit__Instance_Start_Date":"', @jrnDebut, '",',
+                    '"summit__Instance_End_Date":"', @jrnFin, '",',
+                    '"SummitEventRegistrationId":"', @regId, '",',
+                    '"Nom_action":"', @jrnTitre, '",',
+                    '"Date_action":"', Format(Now(), "yyyy-MM-dd HH:mm:ss"), '",',
+                    '"campusNameFor":"', @jrnCampusInst, '"')
+            ELSE
+                /* ---- ENTREE BROCHURE (Post_Demande_De_Doc_Target) ------------
+                   DE calquee sur le compte : Id = Id du compte (cle), colonnes
+                   Account sans suffixe. Schoolname et Ecole = compte campus
+                   choisi (« EFAP PARIS »), Campus = utm_campus (repli campus
+                   choisi), Brand = marque, CampaignId = campagne brochure.
+                   Academic_Level_List : le split de la journey compare BAC+3,
+                   BAC+4, BAC+5, « BAC+5 et + » — la valeur CRM (Bac+3,
+                   Bac+5/+…) est rapprochee, les autres passent telles quelles. */
+                SET @jrnRefNiveau = "|bac+3=BAC+3|bac+4=BAC+4|bac+5=BAC+5|bac+5/+=BAC+5 et +|bac+5 et +=BAC+5 et +|"
+                SET @jrnCle = Lowercase(Trim(@studyLevel))
+                SET @jrnPos = IndexOf(@jrnRefNiveau, Concat("|", @jrnCle, "="))
+                IF @jrnPos > 0 THEN
+                    SET @jrnReste  = Substring(@jrnRefNiveau, Add(Add(@jrnPos, Length(@jrnCle)), 2))
+                    SET @jrnNiveau = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
+                ELSE
+                    SET @jrnNiveau = @studyLevel
+                ENDIF
+                SET @jrnNiveau    = Replace(Replace(@jrnNiveau,  "\", "\\"), '"', '\"')
+                SET @jrnEcole     = @jrnCampus
+                /* @utmCampus est lu AVANT que @campusSel soit connu : son repli
+                   est vide sur une page sans utm_campus. On le refait ici. */
+                SET @jrnCampusUtm = @utmCampus
+                IF Empty(@jrnCampusUtm) THEN SET @jrnCampusUtm = @campusSel ENDIF
+                SET @jrnCampusUtm = Replace(Replace(@jrnCampusUtm, "\", "\\"), '"', '\"')
+
+                SET @jrnContactKey = @paContactId
+                SET @jrnData = Concat(
+                    '"Id":"', @paId, '",',
+                    '"PersonContactId":"', @paContactId, '",',
+                    '"FirstName":"', @jrnFn, '",',
+                    '"LastName":"', @jrnLn, '",',
+                    '"PersonEmail":"', @jrnMail, '",',
+                    '"MobileE164Auto":"', @jrnTelE164, '",',
+                    '"MobileNumber":"', @jrnTel, '",',
+                    '"Schoolname":"', @jrnCampus, '",',
+                    '"Academic_Level_List":"', @jrnNiveau, '",',
+                    '"LivingCountry":"', @jrnPays, '",',
+                    '"Brand":"', @jrnMarque, '",',
+                    '"PreferredLangage":"', @jrnLangue, '",',
+                    '"SMSLocale":"', @jrnLocale, '",',
+                    '"WhatsAppLocale":"', @jrnLocale, '",',
+                    '"CampaignId":"', @campaignId, '",',
+                    '"Campus":"', @jrnCampusUtm, '",',
+                    '"Ecole":"', @jrnEcole, '"')
             ENDIF
         ENDIF
 
@@ -2739,7 +2854,13 @@ try {
                     jrnMarque = " JOURNEY:sans-jeton";
                     jrnDetail = "jeton refuse" + (echecTok ? " : " + echecTok : " http=" + (rTok ? rTok.StatusCode : "?"));
                 } else {
-                    var evtBody = '{"ContactKey":"' + jrnContact + '","EventDefinitionKey":"' + jrnKey + '","Data":{' + jrnData + '}}';
+                    /* Tout caractere hors ASCII part en sequence JSON \uXXXX :
+                       HTTP.Post abime les accents du corps (mesure du 18/09,
+                       « Journee » stockee avec un caractere de remplacement
+                       dans Nom_action). Un corps ASCII pur ne depend plus de
+                       l'encodage choisi par la plateforme. */
+                    var ascii = function (s) { return String(s).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); }); };
+                    var evtBody = ascii('{"ContactKey":"' + jrnContact + '","EventDefinitionKey":"' + jrnKey + '","Data":{' + jrnData + '}}');
                     var rEvt = null, texte = "", echecEvt = "";
                     try { rEvt = HTTP.Post(cfgRest + "interaction/v1/events", "application/json", evtBody, ["Authorization"], ["Bearer " + tok]); texte = corps(rEvt); } catch (eEvt) { echecEvt = motif(eEvt); }
                     try { var jEvt = Platform.Function.ParseJSON(texte); if (jEvt && jEvt.eventInstanceId) { jrnEvtId = String(jEvt.eventInstanceId); } } catch (e2) { jrnEvtId = ""; }
