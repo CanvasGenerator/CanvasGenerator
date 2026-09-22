@@ -103,8 +103,10 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
     const corps = [...src.matchAll(/SET @jrnData = Concat\(([\s\S]*?)\)\n/g)]
         .map((m) => [...m[1].matchAll(/'"([A-Za-z0-9_]+)":"'/g)].map((c) => c[1]));
     egal(corps.length, 2, 'deux corps JSON (evenement, brochure)');
+    /* BrandCode : colonne relue le 22/09 sur les trois DE evenement (reelle,
+       _TEST, _TEST_LP), Text 50. Demande du 22/09 pour les splits. */
     const evenement = ['Subscriberkey', 'ID_salesforce', 'FirstName', 'LastName', 'PersonEmail', 'MobileNumber',
-        'PreferredLangage', 'SMSLocale', 'LivingCountry', 'BusinessBrandName', 'schoolName', 'EventType',
+        'PreferredLangage', 'SMSLocale', 'LivingCountry', 'BusinessBrandName', 'BrandCode', 'schoolName', 'EventType',
         'summit__Event_Instance', 'summit__Instance_Start_Date', 'summit__Instance_End_Date',
         'SummitEventRegistrationId', 'Nom_action', 'Date_action', 'campusNameFor'];
     const brochure = ['Id', 'PersonContactId', 'FirstName', 'LastName', 'PersonEmail', 'MobileE164Auto', 'MobileNumber',
@@ -115,6 +117,11 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
     /* Vocabulaire des splits, releve sur les journeys le 18/09. */
     for (const v of ['Open House', 'Discovery Workshop', 'Internship', 'Immersion Day']) egal(src.includes('=' + v + '|'), true, 'type Summit ' + v);
     for (const v of ['ESEC', 'Ecole Bleue', '3W Academy', 'IFA Paris', 'MoPA']) egal(src.includes('=' + v + '|'), true, 'marque ' + v);
+    /* BrandCode : la regle du client (CASE du 22/09) — codes sans espaces ni
+       accents, VIDE si la marque manque, ? si elle est inconnue. */
+    for (const v of ['Ecole_Bleue', 'IFA_Paris', '3WA', 'MOPA']) egal(src.includes('=' + v + '|'), true, 'code ' + v);
+    egal(src.includes('SET @jrnBrandCode = "VIDE"'), true, 'BrandCode VIDE si marque vide');
+    egal(src.includes('SET @jrnBrandCode = "?"'), true, 'BrandCode ? si marque inconnue');
     egal(src.includes('"MobileE164Auto":"\', @jrnTel,'), false, 'le champ Phone de l evenement s appelle MobileNumber');
 });
 
