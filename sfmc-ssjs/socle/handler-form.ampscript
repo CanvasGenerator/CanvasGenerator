@@ -345,6 +345,7 @@ VAR @jrnRows, @jrnRow, @jrnTitre, @jrnCampusInst, @jrnDebut, @jrnFin, @jrnLangue
 VAR @jrnTel, @jrnMarque, @jrnTypeEvt, @jrnFn, @jrnLn, @jrnMail, @jrnCampus
 VAR @jrnRefMarque, @jrnRefTypeEvt, @jrnRefNiveau, @jrnCle, @jrnPos, @jrnReste
 VAR @jrnNiveau, @jrnTelBrut, @jrnTelE164, @jrnEcole, @jrnCampusUtm
+VAR @jrnBrandCode, @jrnRefBrandCode
 SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
 SET @jrnCleEvt      = ""
 SET @jrnContactKey  = ""
@@ -2497,12 +2498,6 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "AcquisitionSubChannel__c",  @sousCanal)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
 
-                    /* ---- JOURNEY DE CONFIRMATION ---------------------------------
-                       L'entree (DE Data_contacts_evenement_new) est construite
-                       en fin de sequence, dans le bloc commun « PREPARATION DES
-                       ENTREES DE JOURNEY » : ici on ne fait que designer la cle.
-                       Une inscription EXISTANTE ne redeclenche rien. */
-                    SET @jrnCleEvt = "EventKey_Evenement"
                     IF @LOG_ACTIF == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
                         InsertData("LPB_Log_Soumissions",
@@ -2519,6 +2514,28 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             "Ecole", @ecole,
                             "FormType", @formType)
                     ENDIF
+                ENDIF
+
+                /* ---- JOURNEY DE CONFIRMATION ---------------------------------
+                   L'entree (DE Data_contacts_evenement_new) est construite en
+                   fin de sequence, dans le bloc commun « PREPARATION DES
+                   ENTREES DE JOURNEY » : ici on ne fait que designer la cle.
+
+                   ⚠ POSEE POUR LES DEUX BRANCHES depuis le 22/09. Elle vivait
+                   dans la seule branche de CREATION, avec pour commentaire
+                   « une inscription EXISTANTE ne redeclenche rien » : une
+                   personne qui se reinscrit a la meme date ne recevait donc
+                   plus rien, et le journal ne portait meme pas de ligne
+                   « 99 - journey » pour le dire. Arbitrage du 22/09 : chaque
+                   soumission vaut confirmation, comme cote brochure ou la cle
+                   est posee membre cree COMME membre existant. La journey
+                   garde la main sur la re-entree — c'est son reglage, pas le
+                   notre.
+
+                   @regId est renseigne dans les deux branches (trouve ou cree) :
+                   c'est lui qui conditionne la cle, pas la nouveaute. */
+                IF NOT Empty(@regId) THEN
+                    SET @jrnCleEvt = "EventKey_Evenement"
                 ENDIF
 
                 /* ---- Ateliers coches -------------------------------------
@@ -2577,7 +2594,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
            La branche metier a designe la cle (@jrnCleEvt) ; on construit ici
            le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
            poste sur interaction/v1/events. Deux DE, relues le 18/09 :
-             EventKey_Evenement → Data_contacts_evenement_new   (19 colonnes)
+             EventKey_Evenement → Data_contacts_evenement_new   (20 colonnes)
              EventKey_Brochure  → Post_Demande_De_Doc_Target    (17 colonnes)
            Le test test-env.js fige les deux listes de colonnes : une colonne
            inconnue de la DE fait refuser l'evenement entier.
@@ -2702,6 +2719,32 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @jrnTitre      = Replace(Replace(@jrnTitre,      "\", "\\"), '"', '\"')
                 SET @jrnCampusInst = Replace(Replace(@jrnCampusInst, "\", "\\"), '"', '\"')
 
+                /* BrandCode : code technique de la marque, demande du 22/09
+                   pour les splits de la journey evenement. Regle du client
+                   (CASE SQL sur BusinessBrand_Name) : vide → VIDE, marque
+                   inconnue → ?, sinon le code (espaces et accents retires :
+                   Ecole Bleue → Ecole_Bleue, 3W Academy → 3WA...).
+                   Derive de @jrnMarque — la valeur MEME qu'on envoie dans
+                   BusinessBrandName — pour que les deux colonnes ne puissent
+                   pas se contredire. Les variantes accentuees du CASE client
+                   (ÉSEC, École Bleue) n'existent pas ici : @jrnRefMarque a
+                   deja normalise sans accents en amont ; une marque hors
+                   table (ecole future via le repli Lookup) tombe sur « ? »,
+                   comme le ELSE du CASE. */
+                SET @jrnRefBrandCode = "|efap=EFAP|brassart=BRASSART|cread=CREAD|esec=ESEC|icart=ICART|mopa=MOPA|ecole bleue=Ecole_Bleue|ifa paris=IFA_Paris|efj=EFJ|3w academy=3WA|"
+                IF Empty(@jrnMarque) THEN
+                    SET @jrnBrandCode = "VIDE"
+                ELSE
+                    SET @jrnCle = Lowercase(Trim(@jrnMarque))
+                    SET @jrnPos = IndexOf(@jrnRefBrandCode, Concat("|", @jrnCle, "="))
+                    IF @jrnPos > 0 THEN
+                        SET @jrnReste     = Substring(@jrnRefBrandCode, Add(Add(@jrnPos, Length(@jrnCle)), 2))
+                        SET @jrnBrandCode = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
+                    ELSE
+                        SET @jrnBrandCode = "?"
+                    ENDIF
+                ENDIF
+
                 SET @jrnContactKey = @paContactId
                 SET @jrnData = Concat(
                     '"Subscriberkey":"', @paContactId, '",',
@@ -2714,6 +2757,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     '"SMSLocale":"', @jrnLocale, '",',
                     '"LivingCountry":"', @jrnPays, '",',
                     '"BusinessBrandName":"', @jrnMarque, '",',
+                    '"BrandCode":"', @jrnBrandCode, '",',
                     '"schoolName":"', @jrnCampus, '",',
                     '"EventType":"', @jrnTypeEvt, '",',
                     '"summit__Event_Instance":"', @instanceId, '",',
@@ -2861,15 +2905,61 @@ try {
                        l'encodage choisi par la plateforme. */
                     var ascii = function (s) { return String(s).replace(/[\u0080-\uffff]/g, function (c) { return '\\u' + ('0000' + c.charCodeAt(0).toString(16)).slice(-4); }); };
                     var evtBody = ascii('{"ContactKey":"' + jrnContact + '","EventDefinitionKey":"' + jrnKey + '","Data":{' + jrnData + '}}');
-                    var rEvt = null, texte = "", echecEvt = "";
-                    try { rEvt = HTTP.Post(cfgRest + "interaction/v1/events", "application/json", evtBody, ["Authorization"], ["Bearer " + tok]); texte = corps(rEvt); } catch (eEvt) { echecEvt = motif(eEvt); }
+                    /* ---- L'APPEL QUI DIT POURQUOI IL A ECHOUE ----------------
+                       Script.Util.HttpRequest, et non HTTP.Post, pour CE seul
+                       appel. Motif, mesure du 22/09 sur la recette : trois
+                       re-soumissions d'affilee refusees par l'API Event, et le
+                       journal n'a su ecrire que « An error occurred when
+                       attempting to evaluate a HTTPPost function call. See
+                       inner exception for details ». HTTP.Post LEVE sur tout
+                       statut non 2xx et emporte le corps de la reponse avec
+                       lui — or c'est ce corps, et lui seul, qui nomme la cause
+                       (attribut inconnu, cle d'evenement invalide, contact
+                       refuse...). On ne peut pas corriger ce qu'on ne lit pas.
+
+                       `continueOnError = true` rend la main au lieu de lever :
+                       on recupere le statut ET le corps, y compris sur 4xx.
+                       `retries = 0` : un evenement re-emis, c'est une entree en
+                       double dans la journey, donc un message en double.
+
+                       Repli : si la construction de la requete echoue (objet
+                       absent de la plateforme), et SEULEMENT dans ce cas —
+                       donc avant que quoi que ce soit soit parti — on retombe
+                       sur HTTP.Post. Rien n'est jamais poste deux fois.
+                       ⚠ Pas de `typeof` pour sonder l'objet : sous Jint, une
+                       methode du socle rend « clrmethodinfo », pas
+                       « function ». On construit, et on rattrape. */
+                    var rEvt = null, texte = "", echecEvt = "", httpEvt = "", req = null;
+                    try {
+                        req = new Script.Util.HttpRequest(cfgRest + "interaction/v1/events");
+                        req.emptyContentHandling = 0;
+                        req.retries = 0;
+                        req.continueOnError = true;
+                        req.method = "POST";
+                        req.contentType = "application/json";
+                        req.setHeader("Authorization", "Bearer " + tok);
+                        req.postData = evtBody;
+                    } catch (eReq) { req = null; }
+                    if (req) {
+                        /* `returnStatus` vaut 0 quand tout va bien, sinon un code
+                           d'erreur de la plateforme — ce n'est PAS le statut
+                           HTTP. On note les deux quand la reponse porte l'autre. */
+                        try { var resp = req.send(); httpEvt = String(resp.returnStatus) + (resp.statusCode ? "/" + resp.statusCode : ""); texte = String(resp.content || ""); } catch (eSend) { echecEvt = motif(eSend); }
+                    } else {
+                        try { rEvt = HTTP.Post(cfgRest + "interaction/v1/events", "application/json", evtBody, ["Authorization"], ["Bearer " + tok]); texte = corps(rEvt); httpEvt = String(rEvt ? rEvt.StatusCode : "?"); } catch (eEvt) { echecEvt = motif(eEvt); }
+                    }
                     try { var jEvt = Platform.Function.ParseJSON(texte); if (jEvt && jEvt.eventInstanceId) { jrnEvtId = String(jEvt.eventInstanceId); } } catch (e2) { jrnEvtId = ""; }
                     if (jrnEvtId) {
                         jrnMarque = " JOURNEY:ok(" + jrnKey + ")";
                         jrnDetail = "cle=" + jrnKey + " eventInstanceId=" + jrnEvtId;
                     } else {
                         jrnMarque = " JOURNEY:echec(" + jrnKey + ")";
-                        jrnDetail = "cle=" + jrnKey + (echecEvt ? " appel refuse : " + echecEvt : " http=" + (rEvt ? rEvt.StatusCode : "?") + " reponse=" + texte.substring(0, 300));
+                        /* Le corps de la reponse EN ENTIER dans la limite de la
+                           colonne Detail (500) : c'est la phrase de l'API qui
+                           sert, pas notre resume. */
+                        jrnDetail = ("cle=" + jrnKey + " http=" + (httpEvt || "?")
+                                  + (echecEvt ? " appel refuse : " + echecEvt : "")
+                                  + " reponse=" + texte).substring(0, 480);
                     }
                 }
             }
