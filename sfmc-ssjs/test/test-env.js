@@ -109,8 +109,10 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
         'PreferredLangage', 'SMSLocale', 'LivingCountry', 'BusinessBrandName', 'BrandCode', 'schoolName', 'EventType',
         'summit__Event_Instance', 'summit__Instance_Start_Date', 'summit__Instance_End_Date',
         'SummitEventRegistrationId', 'Nom_action', 'Date_action', 'campusNameFor'];
+    /* Brochure : BrandCode relu le 23/09 sur Post_Demande_De_Doc_Target (18
+       colonnes) et sur la copie sans cle. */
     const brochure = ['Id', 'PersonContactId', 'FirstName', 'LastName', 'PersonEmail', 'MobileE164Auto', 'MobileNumber',
-        'Schoolname', 'Academic_Level_List', 'LivingCountry', 'Brand', 'PreferredLangage', 'SMSLocale', 'WhatsAppLocale',
+        'Schoolname', 'Academic_Level_List', 'LivingCountry', 'Brand', 'BrandCode', 'PreferredLangage', 'SMSLocale', 'WhatsAppLocale',
         'CampaignId', 'Campus', 'Ecole'];
     egal(corps[0].join(','), evenement.join(','), 'colonnes Data_contacts_evenement_new');
     egal(corps[1].join(','), brochure.join(','), 'colonnes Post_Demande_De_Doc_Target');
