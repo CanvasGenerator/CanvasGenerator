@@ -422,7 +422,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
 
-    /* ---- CANAL D'ACQUISITION : JAMAIS UNE VALEUR INVENTEE ---------------
+    /* ---- CANAL D'ACQUISITION : PLUS AUCUNE ECRITURE DEPUIS LE 24/09 ------
+       @canal / @sousCanal ne partent PLUS au CRM, nulle part : ni compte
+       (15/09, trigger AccountAcquisitionChannelService + lockOnUpdate),
+       ni CampaignMember, ni Summit Registration (24/09). Le CRM les derive
+       des UTM, qui eux sont toujours envoyes. La traduction ci-dessous ne
+       sert plus qu'au JOURNAL (CANAL:ignore / CANAL:verrouille-crm) ; ses
+       valeurs cibles datent du releve du 31/08 et l'org a change de
+       vocabulaire depuis (releve du 24/09) — sans consequence puisque rien
+       n'est ecrit. Historique du danger, garde pour memoire :
        Ces deux champs sont des PICKLISTS, et une valeur hors value set ne
        renvoie pas d'erreur : elle TUE LA PAGE. Sans try/catch, le compte reste
        cree et tout ce qui suit disparait — c'est exactement ce qui est arrive
@@ -2201,7 +2209,17 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    campagne — sans lui, le membre existe mais n'y remonte pas.
                    Mesure avant correctif : 48 des 245 membres de la campagne
                    brochure EFAP FR l'avaient vide. */
-                SET @cmId = CreateSalesforceObject("CampaignMember", 14,
+                /* NI AcquisitionChannel__c NI AcquisitionSubChannel__c — comme
+                   sur le compte (reco du 15/09), le CRM en est la seule source,
+                   a partir des UTM envoyes ci-dessous. Decision du 24/09 : le
+                   value set de l'org a change de vocabulaire (releve du 24/09 :
+                   Paid Search, Emailing, Salon... — SEA, Email Marketing,
+                   Education Fair n'existent plus), et la table de traduction du
+                   socle produisait donc des valeurs mortes : la PREMIERE
+                   campagne payee reelle aurait tue la page a CET appel, et la
+                   soumission avec elle. On n'ecrit plus, on ne peut plus se
+                   tromper. */
+                SET @cmId = CreateSalesforceObject("CampaignMember", 12,
                     "PersonAccount__c",       @paId,
                     "CampaignId",             @campaignId,
                     "ContactId",              @paContactId,
@@ -2213,9 +2231,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "UTM_Id__c",              @utmI,
                     "gclid__c",               @gclid,
                     "fbclid__c",              @fbclid,
-                    "Client_ID__c",           @clientId,
-                    "AcquisitionChannel__c",  @canal,
-                    "AcquisitionSubChannel__c", @sousCanal)
+                    "Client_ID__c",           @clientId)
                 SET @journal = Concat(@journal, " CM:cree")
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
@@ -2480,7 +2496,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         SET @evtParent = Field(Row(@rows,1), "summit__Event__c")
                     ENDIF
 
-                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 15,
+                    /* Ni canal ni sous-canal, meme decision du 24/09 que sur
+                       le CampaignMember : source CRM, table du socle perimee. */
+                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 13,
                         "externalId__c",             @extId,
                         "summit__Event_Instance__c", @instanceId,
                         "summit__Event__c",          @evtParent,
@@ -2493,9 +2511,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "summit__utm_content__c",    @utmCo,
                         "summit__utm_term__c",       @utmT,
                         "summit__utm_id__c",         @utmI,
-                        "summit__gclid__c",          @gclid,
-                        "AcquisitionChannel__c",     @canal,
-                        "AcquisitionSubChannel__c",  @sousCanal)
+                        "summit__gclid__c",          @gclid)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
 
                     IF @LOG_ACTIF == "true" THEN
