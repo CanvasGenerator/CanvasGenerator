@@ -422,7 +422,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @canal    = RequestParameter("canal")
     SET @sousCanal = RequestParameter("sous_canal")
 
-    /* ---- CANAL D'ACQUISITION : JAMAIS UNE VALEUR INVENTEE ---------------
+    /* ---- CANAL D'ACQUISITION : PLUS AUCUNE ECRITURE DEPUIS LE 24/09 ------
+       @canal / @sousCanal ne partent PLUS au CRM, nulle part : ni compte
+       (15/09, trigger AccountAcquisitionChannelService + lockOnUpdate),
+       ni CampaignMember, ni Summit Registration (24/09). Le CRM les derive
+       des UTM, qui eux sont toujours envoyes. La traduction ci-dessous ne
+       sert plus qu'au JOURNAL (CANAL:ignore / CANAL:verrouille-crm) ; ses
+       valeurs cibles datent du releve du 31/08 et l'org a change de
+       vocabulaire depuis (releve du 24/09) — sans consequence puisque rien
+       n'est ecrit. Historique du danger, garde pour memoire :
        Ces deux champs sont des PICKLISTS, et une valeur hors value set ne
        renvoie pas d'erreur : elle TUE LA PAGE. Sans try/catch, le compte reste
        cree et tout ce qui suit disparait — c'est exactement ce qui est arrive
@@ -2201,7 +2209,17 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    campagne — sans lui, le membre existe mais n'y remonte pas.
                    Mesure avant correctif : 48 des 245 membres de la campagne
                    brochure EFAP FR l'avaient vide. */
-                SET @cmId = CreateSalesforceObject("CampaignMember", 14,
+                /* NI AcquisitionChannel__c NI AcquisitionSubChannel__c — comme
+                   sur le compte (reco du 15/09), le CRM en est la seule source,
+                   a partir des UTM envoyes ci-dessous. Decision du 24/09 : le
+                   value set de l'org a change de vocabulaire (releve du 24/09 :
+                   Paid Search, Emailing, Salon... — SEA, Email Marketing,
+                   Education Fair n'existent plus), et la table de traduction du
+                   socle produisait donc des valeurs mortes : la PREMIERE
+                   campagne payee reelle aurait tue la page a CET appel, et la
+                   soumission avec elle. On n'ecrit plus, on ne peut plus se
+                   tromper. */
+                SET @cmId = CreateSalesforceObject("CampaignMember", 12,
                     "PersonAccount__c",       @paId,
                     "CampaignId",             @campaignId,
                     "ContactId",              @paContactId,
@@ -2213,9 +2231,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "UTM_Id__c",              @utmI,
                     "gclid__c",               @gclid,
                     "fbclid__c",              @fbclid,
-                    "Client_ID__c",           @clientId,
-                    "AcquisitionChannel__c",  @canal,
-                    "AcquisitionSubChannel__c", @sousCanal)
+                    "Client_ID__c",           @clientId)
                 SET @journal = Concat(@journal, " CM:cree")
                 IF @LOG_ACTIF == "true" THEN
                     SET @logOrdre = Add(@logOrdre, 1)
@@ -2480,7 +2496,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         SET @evtParent = Field(Row(@rows,1), "summit__Event__c")
                     ENDIF
 
-                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 15,
+                    /* Ni canal ni sous-canal, meme decision du 24/09 que sur
+                       le CampaignMember : source CRM, table du socle perimee. */
+                    SET @regId = CreateSalesforceObject("summit__Summit_Events_Registration__c", 13,
                         "externalId__c",             @extId,
                         "summit__Event_Instance__c", @instanceId,
                         "summit__Event__c",          @evtParent,
@@ -2493,9 +2511,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         "summit__utm_content__c",    @utmCo,
                         "summit__utm_term__c",       @utmT,
                         "summit__utm_id__c",         @utmI,
-                        "summit__gclid__c",          @gclid,
-                        "AcquisitionChannel__c",     @canal,
-                        "AcquisitionSubChannel__c",  @sousCanal)
+                        "summit__gclid__c",          @gclid)
                     SET @journal = Concat(@journal, " REG:creee(", @typeEvt, ")")
 
                     IF @LOG_ACTIF == "true" THEN
@@ -2595,7 +2611,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
            le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
            poste sur interaction/v1/events. Deux DE, relues le 18/09 :
              EventKey_Evenement → Data_contacts_evenement_new   (20 colonnes)
-             EventKey_Brochure  → Post_Demande_De_Doc_Target    (17 colonnes)
+             EventKey_Brochure  → Post_Demande_De_Doc_Target    (19 colonnes)
            Le test test-env.js fige les deux listes de colonnes : une colonne
            inconnue de la DE fait refuser l'evenement entier.
 
@@ -2677,6 +2693,32 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @jrnMarque = Replace(Replace(@jrnMarque, "\", "\\"), '"', '\"')
             SET @jrnPays   = Replace(Replace(@jrnPays,   "\", "\\"), '"', '\"')
 
+            /* BrandCode : code technique de la marque, envoye aux DEUX entrees
+               de journey (evenement depuis le 22/09, brochure depuis le 23/09 —
+               la colonne existe sur les deux DE, relue avant chaque ajout).
+               Regle du client (CASE SQL sur BusinessBrand_Name) : vide → VIDE,
+               marque inconnue → ?, sinon le code (espaces et accents retires :
+               Ecole Bleue → Ecole_Bleue, 3W Academy → 3WA...).
+               Derive de @jrnMarque — la valeur MEME qu'on envoie dans
+               BusinessBrandName / Brand — pour que les colonnes ne puissent
+               pas se contredire. Les variantes accentuees du CASE client
+               (ÉSEC, École Bleue) n'existent pas ici : @jrnRefMarque a deja
+               normalise sans accents en amont ; une marque hors table (ecole
+               future via le repli Lookup) tombe sur « ? », comme le ELSE. */
+            SET @jrnRefBrandCode = "|efap=EFAP|brassart=BRASSART|cread=CREAD|esec=ESEC|icart=ICART|mopa=MOPA|ecole bleue=Ecole_Bleue|ifa paris=IFA_Paris|efj=EFJ|3w academy=3WA|"
+            IF Empty(@jrnMarque) THEN
+                SET @jrnBrandCode = "VIDE"
+            ELSE
+                SET @jrnCle = Lowercase(Trim(@jrnMarque))
+                SET @jrnPos = IndexOf(@jrnRefBrandCode, Concat("|", @jrnCle, "="))
+                IF @jrnPos > 0 THEN
+                    SET @jrnReste     = Substring(@jrnRefBrandCode, Add(Add(@jrnPos, Length(@jrnCle)), 2))
+                    SET @jrnBrandCode = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
+                ELSE
+                    SET @jrnBrandCode = "?"
+                ENDIF
+            ENDIF
+
             IF @jrnCleEvt == "EventKey_Evenement" THEN
                 /* ---- ENTREE EVENEMENT (Data_contacts_evenement_new) --------
                    Cles de la DE : Subscriberkey + SummitEventRegistrationId +
@@ -2719,32 +2761,6 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 SET @jrnTitre      = Replace(Replace(@jrnTitre,      "\", "\\"), '"', '\"')
                 SET @jrnCampusInst = Replace(Replace(@jrnCampusInst, "\", "\\"), '"', '\"')
 
-                /* BrandCode : code technique de la marque, demande du 22/09
-                   pour les splits de la journey evenement. Regle du client
-                   (CASE SQL sur BusinessBrand_Name) : vide → VIDE, marque
-                   inconnue → ?, sinon le code (espaces et accents retires :
-                   Ecole Bleue → Ecole_Bleue, 3W Academy → 3WA...).
-                   Derive de @jrnMarque — la valeur MEME qu'on envoie dans
-                   BusinessBrandName — pour que les deux colonnes ne puissent
-                   pas se contredire. Les variantes accentuees du CASE client
-                   (ÉSEC, École Bleue) n'existent pas ici : @jrnRefMarque a
-                   deja normalise sans accents en amont ; une marque hors
-                   table (ecole future via le repli Lookup) tombe sur « ? »,
-                   comme le ELSE du CASE. */
-                SET @jrnRefBrandCode = "|efap=EFAP|brassart=BRASSART|cread=CREAD|esec=ESEC|icart=ICART|mopa=MOPA|ecole bleue=Ecole_Bleue|ifa paris=IFA_Paris|efj=EFJ|3w academy=3WA|"
-                IF Empty(@jrnMarque) THEN
-                    SET @jrnBrandCode = "VIDE"
-                ELSE
-                    SET @jrnCle = Lowercase(Trim(@jrnMarque))
-                    SET @jrnPos = IndexOf(@jrnRefBrandCode, Concat("|", @jrnCle, "="))
-                    IF @jrnPos > 0 THEN
-                        SET @jrnReste     = Substring(@jrnRefBrandCode, Add(Add(@jrnPos, Length(@jrnCle)), 2))
-                        SET @jrnBrandCode = Substring(@jrnReste, 1, Subtract(IndexOf(@jrnReste, "|"), 1))
-                    ELSE
-                        SET @jrnBrandCode = "?"
-                    ENDIF
-                ENDIF
-
                 SET @jrnContactKey = @paContactId
                 SET @jrnData = Concat(
                     '"Subscriberkey":"', @paContactId, '",',
@@ -2775,7 +2791,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    choisi), Brand = marque, CampaignId = campagne brochure.
                    Academic_Level_List : le split de la journey compare BAC+3,
                    BAC+4, BAC+5, « BAC+5 et + » — la valeur CRM (Bac+3,
-                   Bac+5/+…) est rapprochee, les autres passent telles quelles. */
+                   Bac+5/+…) est rapprochee, les autres passent telles quelles.
+
+                   Date_telechargement_brochure : ajoutee par l'equipe le 23/09,
+                   REQUISE et 2e morceau de la cle primaire (Id + date) — c'est
+                   leur reponse aux re-soumissions refusees : une ligne par
+                   soumission. Sans elle : 400 « Required Event Data fields are
+                   missing » (6 soumissions recette du 23/09). Meme format que
+                   Date_action ; deux soumissions du meme compte dans la MEME
+                   seconde retomberaient sur la meme cle, SFMC arrondissant les
+                   Date a la seconde. */
                 SET @jrnRefNiveau = "|bac+3=BAC+3|bac+4=BAC+4|bac+5=BAC+5|bac+5/+=BAC+5 et +|bac+5 et +=BAC+5 et +|"
                 SET @jrnCle = Lowercase(Trim(@studyLevel))
                 SET @jrnPos = IndexOf(@jrnRefNiveau, Concat("|", @jrnCle, "="))
@@ -2806,12 +2831,14 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     '"Academic_Level_List":"', @jrnNiveau, '",',
                     '"LivingCountry":"', @jrnPays, '",',
                     '"Brand":"', @jrnMarque, '",',
+                    '"BrandCode":"', @jrnBrandCode, '",',
                     '"PreferredLangage":"', @jrnLangue, '",',
                     '"SMSLocale":"', @jrnLocale, '",',
                     '"WhatsAppLocale":"', @jrnLocale, '",',
                     '"CampaignId":"', @campaignId, '",',
                     '"Campus":"', @jrnCampusUtm, '",',
-                    '"Ecole":"', @jrnEcole, '"')
+                    '"Ecole":"', @jrnEcole, '",',
+                    '"Date_telechargement_brochure":"', Format(Now(), "yyyy-MM-dd HH:mm:ss"), '"')
             ENDIF
         ENDIF
 
