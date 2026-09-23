@@ -2595,7 +2595,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
            le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
            poste sur interaction/v1/events. Deux DE, relues le 18/09 :
              EventKey_Evenement → Data_contacts_evenement_new   (20 colonnes)
-             EventKey_Brochure  → Post_Demande_De_Doc_Target    (18 colonnes)
+             EventKey_Brochure  → Post_Demande_De_Doc_Target    (19 colonnes)
            Le test test-env.js fige les deux listes de colonnes : une colonne
            inconnue de la DE fait refuser l'evenement entier.
 
@@ -2775,7 +2775,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
                    choisi), Brand = marque, CampaignId = campagne brochure.
                    Academic_Level_List : le split de la journey compare BAC+3,
                    BAC+4, BAC+5, « BAC+5 et + » — la valeur CRM (Bac+3,
-                   Bac+5/+…) est rapprochee, les autres passent telles quelles. */
+                   Bac+5/+…) est rapprochee, les autres passent telles quelles.
+
+                   Date_telechargement_brochure : ajoutee par l'equipe le 23/09,
+                   REQUISE et 2e morceau de la cle primaire (Id + date) — c'est
+                   leur reponse aux re-soumissions refusees : une ligne par
+                   soumission. Sans elle : 400 « Required Event Data fields are
+                   missing » (6 soumissions recette du 23/09). Meme format que
+                   Date_action ; deux soumissions du meme compte dans la MEME
+                   seconde retomberaient sur la meme cle, SFMC arrondissant les
+                   Date a la seconde. */
                 SET @jrnRefNiveau = "|bac+3=BAC+3|bac+4=BAC+4|bac+5=BAC+5|bac+5/+=BAC+5 et +|bac+5 et +=BAC+5 et +|"
                 SET @jrnCle = Lowercase(Trim(@studyLevel))
                 SET @jrnPos = IndexOf(@jrnRefNiveau, Concat("|", @jrnCle, "="))
@@ -2812,7 +2821,8 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     '"WhatsAppLocale":"', @jrnLocale, '",',
                     '"CampaignId":"', @campaignId, '",',
                     '"Campus":"', @jrnCampusUtm, '",',
-                    '"Ecole":"', @jrnEcole, '"')
+                    '"Ecole":"', @jrnEcole, '",',
+                    '"Date_telechargement_brochure":"', Format(Now(), "yyyy-MM-dd HH:mm:ss"), '"')
             ENDIF
         ENDIF
 
