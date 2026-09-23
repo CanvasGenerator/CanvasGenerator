@@ -113,7 +113,7 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
        colonnes) et sur la copie sans cle. */
     const brochure = ['Id', 'PersonContactId', 'FirstName', 'LastName', 'PersonEmail', 'MobileE164Auto', 'MobileNumber',
         'Schoolname', 'Academic_Level_List', 'LivingCountry', 'Brand', 'BrandCode', 'PreferredLangage', 'SMSLocale', 'WhatsAppLocale',
-        'CampaignId', 'Campus', 'Ecole'];
+        'CampaignId', 'Campus', 'Ecole', 'Date_telechargement_brochure'];
     egal(corps[0].join(','), evenement.join(','), 'colonnes Data_contacts_evenement_new');
     egal(corps[1].join(','), brochure.join(','), 'colonnes Post_Demande_De_Doc_Target');
     /* Vocabulaire des splits, releve sur les journeys le 18/09. */
