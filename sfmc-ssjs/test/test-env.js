@@ -127,6 +127,73 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
     egal(src.includes('"MobileE164Auto":"\', @jrnTel,'), false, 'le champ Phone de l evenement s appelle MobileNumber');
 });
 
+/* Soumission asynchrone : drapeau ferme par defaut, et le handler porte les
+   trois pieces — capture SSJS du corps brut, accuse de reception vers la
+   file, solde de la ligne apres la garde d'ecriture. */
+test('SFMC_ASYNC_SOUMISSION : booleen, ferme par defaut', () => {
+    egal(injecterEnv('x=%%ENV:SFMC_ASYNC_SOUMISSION%%', {}), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_ASYNC_SOUMISSION%%', { SFMC_ASYNC_SOUMISSION: 'oui' }), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_ASYNC_SOUMISSION%%', { SFMC_ASYNC_SOUMISSION: 'TRUE' }), 'x=true');
+});
+test('handler inline : mode asynchrone complet, ferme sans variable', () => {
+    const avant = process.env.SFMC_ASYNC_SOUMISSION;
+    delete process.env.SFMC_ASYNC_SOUMISSION;
+    try {
+        delete require.cache[require.resolve(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'))];
+        const { inlineSocleBlocks } = require(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'));
+        const html = String(inlineSocleBlocks('%%=ContentBlockByKey("LPB_Form_Handler_AG")=%%').html);
+        egal(/SET @ASYNC_ACTIF\s*= "false"/.test(html), true, 'drapeau ferme');
+        egal(/==ASYNC_CAPTURE==/.test(html) && /Platform\.Request\.GetPostData\(\)/.test(html), true, 'capture du corps brut');
+        egal(/InsertData\("LPB_File_Soumissions"/.test(html), true, 'depot dans la file');
+        egal((html.match(/UpdateData\("LPB_File_Soumissions"/g) || []).length, 2, 'reservation puis solde de la ligne');
+        egal(/run=%%=v\(@runId\)=%% async=%%=v\(@asyncMode\)=%% journal=/.test(html), true, 'bilan : run et mode avant journal');
+        /* La reception ne doit JAMAIS ecrire dans le CRM : aucun Create/Update
+           Salesforce entre le marqueur de reception et le ELSEIF des ecritures. */
+        const deb = html.indexOf('MODE ASYNCHRONE — ACCUSE DE RECEPTION');
+        const fin = html.indexOf('ETAPE 1 — PERSON ACCOUNT', deb);
+        egal(deb > 0 && fin > deb, true, 'bloc de reception present');
+        egal(/SalesforceObject/.test(html.slice(deb, fin)), false, 'la reception n ecrit pas dans le CRM');
+    } finally { if (avant !== undefined) process.env.SFMC_ASYNC_SOUMISSION = avant; }
+});
+
+/* Cache de lecture : drapeau ferme par defaut ; le socle de lecture porte la
+   lecture SSJS avant les lectures CRM, l'ecriture apres, et chaque
+   RetrieveSalesforceObjects est sous la garde de sa famille. */
+test('SFMC_CACHE_LECTURE : booleen, ferme par defaut', () => {
+    egal(injecterEnv('x=%%ENV:SFMC_CACHE_LECTURE%%', {}), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_CACHE_LECTURE%%', { SFMC_CACHE_LECTURE: 'TRUE' }), 'x=true');
+});
+test('socle de lecture : cache DE complet, ferme sans variable', () => {
+    const avant = process.env.SFMC_CACHE_LECTURE;
+    delete process.env.SFMC_CACHE_LECTURE;
+    try {
+        delete require.cache[require.resolve(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'))];
+        const { inlineSocleBlocks } = require(path.join(__dirname, '..', '..', 'lib', 'socle-inliner'));
+        const html = String(inlineSocleBlocks('%%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%').html);
+        egal(/SET @CACHE_ACTIF\s*= "false"/.test(html), true, 'drapeau ferme');
+        const lire = html.indexOf('==CACHE_LECTURE_LIRE==');
+        const ecrire = html.lastIndexOf('==CACHE_LECTURE_ECRIRE==');
+        const premierCrm = html.indexOf('RetrieveSalesforceObjects(');
+        const dernierCrm = html.lastIndexOf('RetrieveSalesforceObjects(');
+        const emission = html.indexOf('window.SOCLE_DATA = {');
+        egal(lire > 0 && lire < premierCrm, true, 'la lecture du cache precede la premiere lecture CRM');
+        egal(ecrire > dernierCrm && ecrire < emission, true, 'l ecriture du cache suit la derniere lecture CRM et precede SOCLE_DATA');
+        egal(/LookupRows\("LPB_Cache_Lecture", "Famille"/.test(html), true, 'lecture par famille');
+        egal(/UpsertData\("LPB_Cache_Lecture", \["Cle"\]/.test(html), true, 'ecriture par cle');
+        /* Chaque lecture CRM du socle de lecture est sous une garde de cache :
+           on remonte depuis chaque RetrieveSalesforceObjects jusqu'au dernier
+           IF ouvert sur un drapeau @cache*, qui doit exister. */
+        const zone = html.slice(lire, ecrire);
+        const gardes = /IF @cache(Pick|Prog|Evt) (!= "hit"|== "hit")/g;
+        let m, positions = [];
+        while ((m = gardes.exec(zone))) positions.push(m.index);
+        const appels = [...zone.matchAll(/RetrieveSalesforceObjects\(/g)].map((x) => x.index);
+        egal(appels.length >= 14, true, 'au moins 14 lectures CRM attendues dans la zone');
+        for (const a of appels) egal(positions.some((g) => g < a), true, 'lecture CRM hors garde de cache a ' + a);
+        egal(/cache=%%=v\(@cacheEtat\)=%%/.test(html), true, 'etat du cache dans le commentaire socle ampscript');
+    } finally { if (avant !== undefined) process.env.SFMC_CACHE_LECTURE = avant; }
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);

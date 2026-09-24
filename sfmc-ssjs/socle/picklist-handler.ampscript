@@ -63,6 +63,40 @@ VAR @CTA_DOC_ACTIF, @ctaRows, @nCta, @ctaRow, @jsCtaDoc, @sepCta, @ctaUrl, @ctaT
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
 VAR @evtIndex, @evtRows, @nEvt, @e
 
+/* ==========================================================================
+   CACHE DE LECTURE — DRAPEAU ET ETAT
+   ==========================================================================
+   Drapeau SFMC_CACHE_LECTURE (injecte a la publication, lib/socle-env.js).
+   Ouvert, les blocs JS que ce socle construit depuis le CRM sont servis
+   depuis la DE LPB_Cache_Lecture tant qu'ils sont frais, par FAMILLE :
+     pick  picklists + libelles de la cascade (globaux)        TTL 24 h
+     prog  marque, programmes, campus, PTAT, rentrees (ecole)  TTL 6 h
+     evt   dates et ateliers (ecole, type, jour)               TTL 1 h
+   Un « hit » saute les 14 a 16 RetrieveSalesforceObjects et les boucles de
+   construction ; un « miss » suit le chemin historique puis ECRIT le resultat
+   (bloc ==CACHE_LECTURE_ECRIRE==) pour les visiteurs suivants. C'est la page
+   qui alimente le cache : aucune automation. Lecture et ecriture sont en
+   SSJS sous try/catch : une DE absente ne tue pas la page, elle rend
+   « erreur-lecture » et le chemin CRM reprend — mais le cache ne sert alors a
+   rien, d'ou scripts/creer-de-cache-lecture.js avant d'ouvrir le drapeau.
+   ?socle_cache=refresh force la relecture CRM et reecrit ; ?socle_cache=off
+   contourne le cache sans ecrire (pour comparer). Ferme : rien ne change. */
+VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
+VAR @cleProg, @cleEvt, @marqueCache
+/* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
+   variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
+   laisser a leur ancienne place (juste avant leur lecture CRM) effacait le
+   cache a chaque affichage — constate le 23/09, SOCLE_DATA amputee de ses
+   libelles. */
+VAR @pvRows, @nPv, @jsLibSpec, @jsLibRyth, @jsLibLang, @sepL, @valL, @libL
+SET @CACHE_ACTIF = "%%ENV:SFMC_CACHE_LECTURE%%"
+SET @cacheMode   = Lowercase(RequestParameter("socle_cache"))
+SET @cachePick   = "miss"
+SET @cacheProg   = "miss"
+SET @cacheEvt    = "miss"
+SET @cacheEtat   = "ferme"
+SET @marqueCache = ""
+
 /* ---- QUELLE ECOLE ? -----------------------------------------------------
    Trois sources, dans cet ordre.
 
@@ -107,6 +141,127 @@ SET @prefix = Lookup("LPB_Mapping_Ecoles", "CampusPrefix", "Ecole", @school)
 SET @actif  = Lookup("LPB_Mapping_Ecoles", "Actif",        "Ecole", @school)
 SET @prefixUp = Uppercase(@prefix)
 
+/* ---- Cles du cache de lecture --------------------------------------------
+   Le type d'evenement et le type de formulaire sont resolus ICI, avant la
+   lecture du cache, parce qu'ils entrent dans les cles. Le bloc du type
+   d'evenement vivait dans la famille evenement ; il n'a pas change. */
+SET @candidature = "false"
+IF @formTypePage == "candidature" THEN SET @candidature = "true" ENDIF
+VAR @replLibelle, @garderType, @estImmersion, @dBorne
+SET @typeEvt     = RequestParameter("TypeEvenement")
+/* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
+   formulaire. Sans elle, une page evenement ouverte normalement n'affichait
+   AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
+IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
+
+/* ---- LE TYPE DU FORMULAIRE N'EST PLUS CELUI DU CRM ---------------------------
+   Le 07/09 a 16:59 UTC, le CRM a reimporte l'integralite des instances Summit :
+   868 instances neuves, et un NOUVEAU vocabulaire pour `eventType__c` —
+   « Open House », « Discovery Workshop », « Internship », « Immersion Day »
+   (plus « Trade Show » et « Forum High School », sans formulaire). Les blocs,
+   eux, postent toujours JPO / Atelier_Decouverte / Stage / Immersion : la
+   requete ne trouvait plus rien, et les quatre formulaires evenementiels
+   n'affichaient plus aucune date, en interne comme en recette.
+   On traduit ici, une fois, et on garde la valeur brute en repli : si le CRM
+   revient a l'ancien vocabulaire, la requete retrouve ses instances sans
+   qu'on y touche. Cle normalisee en minuscules ; `atelier` et
+   `atelier_decouverte` designent le meme type. */
+VAR @refTypeEvt, @cleTypeEvt, @posTypeEvt, @resteTypeEvt, @typeEvtCrm
+SET @refTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
+SET @typeEvtCrm = @typeEvt
+SET @cleTypeEvt = Lowercase(Trim(@typeEvt))
+SET @posTypeEvt = IndexOf(@refTypeEvt, Concat("|", @cleTypeEvt, "="))
+IF @posTypeEvt > 0 THEN
+    SET @resteTypeEvt = Substring(@refTypeEvt, Add(Add(@posTypeEvt, Length(@cleTypeEvt)), 2))
+    SET @typeEvtCrm = Substring(@resteTypeEvt, 1, Subtract(IndexOf(@resteTypeEvt, "|"), 1))
+ENDIF
+SET @instSel     = RequestParameter("InstanceId")
+SET @evtParent   = ""
+
+SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
+
+/* prog : par ecole ET par regle de filtrage (la candidature ecarte les
+   programmes sans PTAT ou sans specialite, la brochure les garde tous).
+   evt  : par ecole, type CRM et JOUR — `jours` (ecart en jours) est cuit
+   dans le JS, la cle tombe donc d'elle-meme a minuit. */
+SET @cleProg = ""
+IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
+    SET @cleProg = Concat("programmes|", Lowercase(@school), "|", IIF(@candidature == "true", "cand", "tous"))
+ENDIF
+SET @cleEvt = ""
+IF NOT Empty(@typeEvt) THEN
+    SET @cleEvt = Concat("evenements|", Lowercase(@school), "|", Lowercase(@typeEvtCrm), "|", @d0)
+ENDIF
+]%%
+<script runat="server">
+/* ==CACHE_LECTURE_LIRE==
+   Lit la DE LPB_Cache_Lecture par famille et, si TOUTES les cles de la
+   famille sont presentes, fraiches (Epoch + TTL) et entieres (Octets), pose
+   les variables AMPscript et marque la famille « hit ». Le moindre doute vaut
+   « miss » : le chemin CRM historique reprend la main. Tout est en try/catch —
+   une DE absente ou un champ manquant ne peut pas tuer la page, ce que
+   LookupRows en AMPscript aurait fait. Aucune lecture Salesforce ici. */
+Platform.Load("core", "1.1.1");
+try {
+    var cacheActif = String(Variable.GetValue("@CACHE_ACTIF")) == "true";
+    var cacheMode  = String(Variable.GetValue("@cacheMode") || "");
+    var etats = [];
+    if (!cacheActif) {
+        etats.push("ferme");
+    } else if (cacheMode == "off") {
+        etats.push("contourne");
+    } else {
+        var familles = [
+            { tag: "pick", famille: "picklists", ttlMin: 24 * 60, drapeau: "@cachePick",
+              cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
+                      LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: 6 * 60, drapeau: "@cacheProg",
+              cles: { Marque: "@marqueCache", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
+                      NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: 60, drapeau: "@cacheEvt",
+              cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
+        ];
+        var maintenant = new Date().getTime();
+        for (var f = 0; f < familles.length; f++) {
+            var fam = familles[f];
+            if (!fam.famille) { etats.push(fam.tag + ":sans-objet"); continue; }
+            if (cacheMode == "refresh") { etats.push(fam.tag + ":refresh"); continue; }
+            var rows = Platform.Function.LookupRows("LPB_Cache_Lecture", "Famille", fam.famille) || [];
+            var parCle = {};
+            for (var r = 0; r < rows.length; r++) parCle[String(rows[r].Cle)] = rows[r];
+            var motif = "", ageMax = 0, valeurs = {};
+            for (var cle in fam.cles) {
+                var ligne = parCle[fam.famille + "|" + cle];
+                if (!ligne) { motif = "absent:" + cle; break; }
+                var age = (maintenant - Number(ligne.Epoch || 0)) / 60000;
+                if (!(age >= 0) || age > fam.ttlMin) { motif = "perime:" + Math.round(age) + "min"; break; }
+                if (age > ageMax) ageMax = age;
+                var texte = "";
+                for (var pt = 1; pt <= 16; pt++) {
+                    var morceau = ligne["Json" + pt];
+                    if (morceau === null || morceau === undefined) break;
+                    texte += String(morceau);
+                }
+                if (texte.length != Number(ligne.Octets || 0)) { motif = "octets:" + cle + ":" + texte.length + "/" + ligne.Octets; break; }
+                valeurs[cle] = texte;
+            }
+            if (motif) { etats.push(fam.tag + ":miss(" + motif + ")"); continue; }
+            for (var cle2 in fam.cles) {
+                var val = valeurs[cle2];
+                if (cle2.indexOf("Nb") === 0) val = Number(val) || 0;
+                Variable.SetValue(fam.cles[cle2], val);
+            }
+            Variable.SetValue(fam.drapeau, "hit");
+            etats.push(fam.tag + ":hit(" + Math.round(ageMax) + "min)");
+        }
+    }
+    Variable.SetValue("@cacheEtat", etats.join(" "));
+} catch (eCacheLire) {
+    Variable.SetValue("@cacheEtat", "erreur-lecture");
+}
+</script>
+%%[
+
 /* Libelle commercial de la marque — « EFAP », « ICART »... Sert UNIQUEMENT a
    l'affichage : le retour client du 02/09 demande que « Etudiant dans une
    ecole du groupe » se lise « Etudiant EFAP » sur une page EFAP.
@@ -130,7 +285,10 @@ SET @marqueCta = @marque
    Salesforce est deja partout dans ce bloc : un connecteur en panne aurait tue
    la page bien avant cette ligne. */
 SET @marqueBrandId = Lookup("LPB_Mapping_Ecoles", "BusinessBrandId", "Ecole", @school)
-IF NOT Empty(@marqueBrandId) THEN
+IF @cacheProg == "hit" THEN
+    /* Cache de lecture : le nom Business Brand a ete lu avec les programmes. */
+    IF NOT Empty(@marqueCache) THEN SET @marque = @marqueCache ENDIF
+ELSEIF NOT Empty(@marqueBrandId) THEN
     SET @bbRows = RetrieveSalesforceObjects("BusinessBrand", "Id,Name", "Id", "=", @marqueBrandId)
     IF RowCount(@bbRows) > 0 THEN
         IF NOT Empty(Field(Row(@bbRows, 1), "Name")) THEN SET @marque = Field(Row(@bbRows, 1), "Name") ENDIF
@@ -238,10 +396,13 @@ IF RowCount(@chpRows) > 0 THEN
     ENDIF
 ENDIF
 
+/* Cache de lecture : sur un « hit », ces quatre listes sont deja posees. */
+IF @cachePick != "hit" THEN
 SET @jsCountry   = ""
 SET @jsIndicatif = ""
 SET @jsLevel     = ""
 SET @jsQui       = ""
+ENDIF
 
 /* ==========================================================================
    DICTIONNAIRE D'AFFICHAGE FR -> EN
@@ -279,6 +440,9 @@ FOR @i = 1 TO @nDico DO
     ENDIF
 NEXT @i
 
+/* Cache de lecture (famille pick) : les deux value sets suivants ne sont
+   lus dans le CRM que sur un « miss ». */
+IF @cachePick != "hit" THEN
 /* ---- 1. Pays -> Account.LivingCountry__c ------------------------------- */
 SET @dur = ""
 SET @rows = RetrieveSalesforceObjects("EntityParticle", "DurableId",
@@ -331,6 +495,8 @@ IF Length(@dur) > 0 THEN
         ENDIF
     NEXT @i
 ENDIF
+
+ENDIF   /* fin cache pick : pays, indicatif */
 
 /* ---- 2bis. Longueur de numero attendue, par indicatif -------------------
    Retour client du 02/09 : « en fonction de l'indicatif renseigne, le nombre
@@ -443,6 +609,8 @@ IF @CTA_DOC_ACTIF == "true" THEN
     NEXT @i
 ENDIF
 
+/* Cache de lecture (famille pick) : niveau et « vous etes », idem. */
+IF @cachePick != "hit" THEN
 /* ---- 3. Niveau d'etudes -> Account.Academic_Level_List__c -------------- */
 SET @dur = ""
 SET @rows = RetrieveSalesforceObjects("EntityParticle", "DurableId",
@@ -503,6 +671,8 @@ IF Length(@dur) > 0 THEN
     NEXT @i
 ENDIF
 
+ENDIF   /* fin cache pick : niveau, vous etes */
+
 /* ==========================================================================
    CASCADE PROGRAMME
    ==========================================================================
@@ -518,6 +688,10 @@ ENDIF
    Cout : ~533 + ~509 iterations AMPscript. Acceptable au rendu d'une page,
    mais c'est la partie a surveiller si le catalogue grossit.
    ========================================================================== */
+/* Cache de lecture (famille prog) : sur un « hit », programmes, campus,
+   PTAT, rentrees, @nbProgs et @campusSeen sont deja poses — on ne les
+   reinitialise pas et on ne lit rien dans le CRM. */
+IF @cacheProg != "hit" THEN
 SET @jsProgs   = ""
 SET @jsCampus  = ""
 SET @jsPtats   = ""
@@ -526,8 +700,9 @@ SET @idIndex   = ";"
 SET @campusSeen = ";"
 SET @termSeen  = ";"
 SET @nbProgs   = 0
+ENDIF
 
-IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
+IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
 
     /* --- 0. PTAT : LUS EN PREMIER --------------------------------------
        Ordre voulu par le cadrage de la candidature : on part des sessions de
@@ -700,42 +875,16 @@ ENDIF
    la suivent. Les ecarts sont calcules en JOURS via DateDiff, jamais par
    comparaison de chaines : le format de date renvoye n'est pas garanti.
    ========================================================================== */
+/* Cache de lecture (famille evt) : meme regle que pour les programmes. Le
+   type d'evenement, lui, est resolu en tete de bloc (il entre dans la cle). */
+IF @cacheEvt != "hit" THEN
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
 SET @nbInstStatut = 0
-VAR @replLibelle, @garderType, @estImmersion, @dBorne
-SET @typeEvt     = RequestParameter("TypeEvenement")
-/* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
-   formulaire. Sans elle, une page evenement ouverte normalement n'affichait
-   AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
-IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
-
-/* ---- LE TYPE DU FORMULAIRE N'EST PLUS CELUI DU CRM ---------------------------
-   Le 07/09 a 16:59 UTC, le CRM a reimporte l'integralite des instances Summit :
-   868 instances neuves, et un NOUVEAU vocabulaire pour `eventType__c` —
-   « Open House », « Discovery Workshop », « Internship », « Immersion Day »
-   (plus « Trade Show » et « Forum High School », sans formulaire). Les blocs,
-   eux, postent toujours JPO / Atelier_Decouverte / Stage / Immersion : la
-   requete ne trouvait plus rien, et les quatre formulaires evenementiels
-   n'affichaient plus aucune date, en interne comme en recette.
-   On traduit ici, une fois, et on garde la valeur brute en repli : si le CRM
-   revient a l'ancien vocabulaire, la requete retrouve ses instances sans
-   qu'on y touche. Cle normalisee en minuscules ; `atelier` et
-   `atelier_decouverte` designent le meme type. */
-VAR @refTypeEvt, @cleTypeEvt, @posTypeEvt, @resteTypeEvt, @typeEvtCrm
-SET @refTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
-SET @typeEvtCrm = @typeEvt
-SET @cleTypeEvt = Lowercase(Trim(@typeEvt))
-SET @posTypeEvt = IndexOf(@refTypeEvt, Concat("|", @cleTypeEvt, "="))
-IF @posTypeEvt > 0 THEN
-    SET @resteTypeEvt = Substring(@refTypeEvt, Add(Add(@posTypeEvt, Length(@cleTypeEvt)), 2))
-    SET @typeEvtCrm = Substring(@resteTypeEvt, 1, Subtract(IndexOf(@resteTypeEvt, "|"), 1))
 ENDIF
-SET @instSel     = RequestParameter("InstanceId")
-SET @evtParent   = ""
 
-IF NOT Empty(@typeEvt) THEN
+IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) THEN
 
     SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
 
@@ -1019,8 +1168,9 @@ ENDIF
    d'API — ecrire « Temps plein » dans Rhythm__c serait rejete en silence. */
 VAR @epRows, @nEp, @iL, @rowL, @qnL
 VAR @durSpec, @durRyth, @durLang
-VAR @pvRows, @nPv, @jsLibSpec, @jsLibRyth, @jsLibLang, @sepL, @valL, @libL
 
+/* Cache de lecture (famille pick) : les libelles de la cascade aussi. */
+IF @cachePick != "hit" THEN
 SET @durSpec = ""
 SET @durRyth = ""
 SET @durLang = ""
@@ -1090,6 +1240,74 @@ IF NOT Empty(@durLang) THEN
     NEXT @iL
 ENDIF
 
+ENDIF   /* fin cache pick : libelles */
+
+]%%
+<script runat="server">
+/* ==CACHE_LECTURE_ECRIRE==
+   Pour chaque famille lue dans le CRM a ce passage (drapeau != hit), depose
+   les blocs JS construits ci-dessus dans LPB_Cache_Lecture : une ligne par
+   cle, le texte en tranches de 4 000 caracteres (Json1..Json16), Octets pour
+   verifier l'entierete a la relecture, Epoch pour le TTL. Un bloc de plus de
+   64 000 caracteres n'est pas mis en cache (note dans l'etat), la page le
+   sert quand meme. Une erreur d'ecriture est avalee : le visiteur a deja sa
+   page, le cache se remplira au passage suivant. Rien ne s'ecrit quand le
+   cache est ferme ou contourne (?socle_cache=off). */
+try {
+    var cacheActifE = String(Variable.GetValue("@CACHE_ACTIF")) == "true";
+    var cacheModeE  = String(Variable.GetValue("@cacheMode") || "");
+    if (cacheActifE && cacheModeE != "off") {
+        var famillesE = [
+            { tag: "pick", famille: "picklists", drapeau: "@cachePick",
+              cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
+                      LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), drapeau: "@cacheProg",
+              cles: { Marque: "@marque", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
+                      NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), drapeau: "@cacheEvt",
+              cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
+        ];
+        var etatE = String(Variable.GetValue("@cacheEtat") || "");
+        var ecoleE = String(Variable.GetValue("@school") || "");
+        var epochE = String(new Date().getTime());
+        var quandE = Platform.Function.Now();
+        for (var fe = 0; fe < famillesE.length; fe++) {
+            var famE = famillesE[fe];
+            if (!famE.famille) continue;
+            if (String(Variable.GetValue(famE.drapeau)) == "hit") continue;
+            var lignesE = [], tropGros = false;
+            for (var cleE in famE.cles) {
+                var vE = Variable.GetValue(famE.cles[cleE]);
+                vE = (vE === null || vE === undefined) ? "" : String(vE);
+                if (vE.length > 16 * 4000) { tropGros = true; break; }
+                lignesE.push({ cle: cleE, texte: vE });
+            }
+            if (tropGros) { etatE += " " + famE.tag + ":trop-gros"; continue; }
+            for (var le = 0; le < lignesE.length; le++) {
+                var lg = lignesE[le];
+                var cols = ["Famille", "Ecole", "MisAJour", "Epoch", "Octets"];
+                var vals = [famE.famille, ecoleE, quandE, epochE, lg.texte.length];
+                for (var pe = 1; pe <= 16; pe++) {
+                    cols.push("Json" + pe);
+                    /* ⚠ Jint : `substring(debut, fin)` avec debut >= longueur rend
+                       le DERNIER caractere, pas une chaine vide (constate le 23/09 :
+                       chaque tranche vide pesait 1 octet, Octets ne tombait jamais
+                       juste, aucun hit). On borne donc a la main. */
+                    var debT = (pe - 1) * 4000;
+                    vals.push(debT < lg.texte.length ? lg.texte.substring(debT, Math.min(debT + 4000, lg.texte.length)) : "");
+                }
+                Platform.Function.UpsertData("LPB_Cache_Lecture", ["Cle"], [famE.famille + "|" + lg.cle], cols, vals);
+            }
+            etatE += " " + famE.tag + ":ecrit";
+        }
+        Variable.SetValue("@cacheEtat", etatE);
+    }
+} catch (eCacheEcrire) {
+    Variable.SetValue("@cacheEtat", String(Variable.GetValue("@cacheEtat") || "") + " erreur-ecriture");
+}
+</script>
+%%[
+
 /* ---- EMISSION DE SOCLE_DATA ------------------------------------------------
    La balise est ASSEMBLEE A L'EXECUTION. L'API SFMC supprime toute balise de script
    litteral a l'upload : sans cette precaution, les balises disparaissaient et
@@ -1156,7 +1374,7 @@ window.SOCLE_DATA = {
 };
 %%=v(@dataFerme)=%%
 
-<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% -->
+<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% -->
 %%[ IF Length(@prefix) == 0 THEN ]%%
 <!-- ⚠ ecole absente de LPB_Mapping_Ecoles : aucun programme ne sera propose. -->
 %%[ ELSEIF Lowercase(@actif) != "true" THEN ]%%
@@ -1237,6 +1455,8 @@ window.SOCLE_DATA = {
         <td style="padding:5px 12px;text-align:right"><b>%%=v(@nbInst)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Ateliers propos&eacute;s</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsAppts,"}")),1)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Cache de lecture</b> <i>(pick / prog / evt)</i></td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@cacheEtat)=%%</b></td></tr>
   </table>
 
   <div style="margin-top:8px;color:#9aa">Campus trouv&eacute;s : %%=v(@campusSeen)=%%</div>
@@ -4087,12 +4307,55 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
         /* Meme ancrage sur `<!--` que ci-dessus, et pour la meme raison. */
         var b = /<!--\s*socle blocage:\s*motif=(\w+)/i.exec(texte);
+        /* Mode asynchrone : la reception rend son RunId et « async=reception » ;
+           c'est le signal pour relancer le traitement en arriere-plan. */
+        var r = /<!--\s*socle ecriture:[^>]*?\brun=(\w*)/i.exec(texte);
+        var a = /<!--\s*socle ecriture:[^>]*?\basync=(\w*)/i.exec(texte);
         return {
             ok: m[1] === 'success',
             bloque: m[1] === 'blocked',
             motif: b ? b[1].toLowerCase() : '',
-            message: e ? e[1] : ''
+            message: e ? e[1] : '',
+            run: r ? r[1] : '',
+            async: a ? a[1] : ''
         };
+    }
+
+    /**
+     * SOUMISSION ASYNCHRONE — second passage, sans attendre.
+     *
+     * La reception a mis la soumission en file et repondu « success » : le
+     * visiteur a deja sa confirmation. On renvoie le MEME corps avec
+     * socle_traitement=1 et socle_run=<RunId> : c'est ce passage qui ecrit
+     * dans le CRM et tire les journeys. navigator.sendBeacon part sans
+     * reponse et survit a la fermeture de l'onglet ; a defaut, un fetch
+     * keepalive. Le corps doit etre un Blob type formulaire : une chaine
+     * partirait en text/plain et le serveur n'y lirait aucun champ. Rien ici
+     * ne doit remonter au visiteur — l'automation rejoue ce qui ne part pas.
+     */
+    function lancerTraitement(corps, bilan) {
+        try {
+            if (!bilan || !bilan.ok || bilan.async !== 'reception' || !bilan.run) return false;
+            var body = corps.join('&') + '&socle_traitement=1&socle_run=' + encodeURIComponent(bilan.run);
+            var url = window.location.href;
+            var type = 'application/x-www-form-urlencoded; charset=UTF-8';
+            var nav = (typeof navigator !== 'undefined') ? navigator : null;
+            if (nav && typeof nav.sendBeacon === 'function' && typeof Blob === 'function') {
+                if (nav.sendBeacon(url, new Blob([body], { type: type }))) return true;
+            }
+            if (typeof window.fetch === 'function') {
+                var promesse = window.fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': type },
+                    body: body,
+                    keepalive: true,
+                    credentials: 'same-origin'
+                });
+                if (promesse && typeof promesse['catch'] === 'function') promesse['catch'](function () {});
+                return true;
+            }
+        } catch (eTraitement) { /* la file sera rejouee par l'automation */ }
+        return false;
     }
 
     /**
@@ -4827,6 +5090,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                   if (bilan.ok) {
                       if (bouton) { bouton.style.display = 'none'; }
                       montrerSucces(form);
+                      /* Mode asynchrone : la confirmation est affichee, le
+                         traitement CRM part maintenant, en arriere-plan. */
+                      lancerTraitement(corps, bilan);
                       return;
                   }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a

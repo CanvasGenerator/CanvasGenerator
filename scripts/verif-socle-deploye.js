@@ -54,6 +54,7 @@ const MARQUEURS = [
     { texte: 'CTA_demande_documentation', quoi: 'lecture de la DE du CTA documentation' },
     { texte: 'function ctaDocumentation', quoi: '  et son rendu sous la confirmation' },
     { texte: 'function ajusterRangee', quoi: 'largeur du niveau quand le campus est masque' },
+    { texte: '==CACHE_LECTURE_LIRE==', quoi: 'cache DE du socle de lecture (24/09)' },
 ];
 
 const args = process.argv.slice(2);
