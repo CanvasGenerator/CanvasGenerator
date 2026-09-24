@@ -194,6 +194,26 @@ test('socle de lecture : cache DE complet, ferme sans variable', () => {
     } finally { if (avant !== undefined) process.env.SFMC_CACHE_LECTURE = avant; }
 });
 
+/* Compte existant : l'update du compte part APRES les consentements. Poser
+   PTAT_Id__c avant declenchait cote CRM un tampon de date d'engagement sur les
+   consentements, que notre update suivant ne pouvait plus « faire progresser »
+   (trigger CRM) : page morte intermittente en recette, 24/09. */
+test('handler : l update du compte existant suit le bloc consentement', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    const maj = src.indexOf('"40 - maj compte terminee"');
+    const consent = src.indexOf('"60 - consentement"');
+    const etape3 = src.indexOf('ETAPE 3a');
+    egal(maj > 0 && consent > 0 && etape3 > 0, true, 'marqueurs presents');
+    egal(consent < maj && maj < etape3, true, 'ordre attendu : 60 - consentement, puis 40 - maj compte, puis etape 3a');
+    /* Essai du 24/09 : en UPDATE, seul le statut part — la date d'engagement
+       est posee par le CRM lui-meme, et son trigger refuse toute regression. */
+    const zoneCpc = src.slice(src.indexOf('FOR @i = 1 TO 5 DO'), src.indexOf('ETAPE 3a'));
+    const updates = [...zoneCpc.matchAll(/(ELSEIF @formType == "brochure" THEN|IF Field\(@cpcRow, "Status__c"\) != "Opt-in" THEN)\s*SET @n = UpdateSingleSalesforceObject\("ContactPointConsent", @cpcId,([\s\S]*?)\)/g)].map((m) => [m[1], m[2]]);
+    egal(updates.length, 2, 'deux updates de consentement : statut qui change, et brochure');
+    egal(updates.every(([, args]) => /LastMarketingEngagementDate__c/.test(args) && /@cpcHorodatageUtc/.test(args)), true, 'la date part avec le statut et sur la brochure, calculee au plus tard');
+    egal(/ELSE\s*SET @journal = Concat\(@journal, " CPC:", @canalValue, "-inchange"\)/.test(zoneCpc), true, 'hors brochure et sans changement de statut : aucun update');
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);

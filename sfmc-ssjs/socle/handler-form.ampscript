@@ -165,6 +165,13 @@ VAR @candPortee
 SET @sfBlockMsg = ""
 SET @sfBlockRule = ""
 
+/* Update du compte existant differe apres les consentements, et horodatage
+   d'engagement des consentements calcule au plus tard (voir etape 2). */
+VAR @majCompteAFaire, @vDateCookiesCrm, @cpcHorodatage, @cpcHorodatageUtc, @cpcDateCrm
+SET @majCompteAFaire = "false"
+SET @vDateCookiesCrm = ""
+SET @cpcDateCrm      = ""
+
 VAR @submitted, @email, @emailInvalide, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @speciality, @specRows, @progRows
@@ -1335,101 +1342,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @vSpec = Field(@row, "Speciality__c")
             IF NOT Empty(@specialiteOk) AND @vSpec != @specialiteOk THEN SET @vSpec = @specialiteOk SET @champsMaj = Concat(@champsMaj, " Speciality__c") ENDIF
 
-            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
-                SET @logOrdre = Add(@logOrdre, 1)
-                InsertData("LPB_Log_Soumissions",
-                    "RowId", Concat(@runId, "-", @logOrdre),
-                    "RunId", @runId,
-                    "Ordre", @logOrdre,
-                    "Horodatage", Now(),
-                    "Etape", "35 - avant maj compte",
-                    "Statut", "OK",
-                    "Objet", "Account",
-                    "RecordId", @paId,
-                    "Detail", Concat("un seul update ; champs modifies :", IIF(Empty(@champsMaj), " aucun", @champsMaj), " ; candidature=", @appRequested, IIF(Empty(@ptatMaj), "", Concat(" ptat=", @ptatMaj))),
-                    "Email", @email,
-                    "Ecole", @ecole,
-                    "FormType", @formType)
-            ENDIF
-
-            /* Dernier point de contact marketing : rafraichi a chaque
-               soumission, c'est sa raison d'etre. LastMarketingContactPointType__c
-               attend un CANAL ("Form"), pas un type de formulaire. */
-            IF NOT Empty(@ptatMaj) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId,
-                    "LastName",                 @vLast,
-                    "FirstName",                @vFirst,
-                    "LivingCountry__c",         @vPays,
-                    "IndicatifPick__c",         @vIndic,
-                    "MobileNumber__c",          @vMobile,
-                    "Academic_Level_List__c",   @vNiveau,
-                    "PersonAccountType__c",     @vType,
-                    "Ecole__c",                 @vEcole,
-                    "UTMSource__c",             @vUtmS,
-                    "UTMMedium__c",             @vUtmM,
-                    "UTMCampaign__c",           @vUtmC,
-                    "UTMContent__c",            @vUtmCo,
-                    "UTMTerm__c",               @vUtmT,
-                    "UTMId__c",                 @vUtmI,
-                    "UTMCampus__c",             @vUtmCampus,
-                    "gclid__c",                 @vGclid,
-                    "fbclid__c",                @vFbclid,
-                    "ClientID__c",              @vClient,
-                    "Consent__c",               @vConsent,
-                    "CreationSourceDetail__c",  @vDetail,
-                    "Speciality__c",            @vSpec,
-                    "Application_Requested__c", @appRequested,
-                    "PTAT_Id__c",               @ptatMaj,
-                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
-                    "LastMarketingContactPointType__c",   "Form")
-            ELSE
-                SET @n = UpdateSingleSalesforceObject("Account", @paId,
-                    "LastName",                 @vLast,
-                    "FirstName",                @vFirst,
-                    "LivingCountry__c",         @vPays,
-                    "IndicatifPick__c",         @vIndic,
-                    "MobileNumber__c",          @vMobile,
-                    "Academic_Level_List__c",   @vNiveau,
-                    "PersonAccountType__c",     @vType,
-                    "Ecole__c",                 @vEcole,
-                    "UTMSource__c",             @vUtmS,
-                    "UTMMedium__c",             @vUtmM,
-                    "UTMCampaign__c",           @vUtmC,
-                    "UTMContent__c",            @vUtmCo,
-                    "UTMTerm__c",               @vUtmT,
-                    "UTMId__c",                 @vUtmI,
-                    "UTMCampus__c",             @vUtmCampus,
-                    "gclid__c",                 @vGclid,
-                    "fbclid__c",                @vFbclid,
-                    "ClientID__c",              @vClient,
-                    "Consent__c",               @vConsent,
-                    "CreationSourceDetail__c",  @vDetail,
-                    "Speciality__c",            @vSpec,
-                    "Application_Requested__c", @appRequested,
-                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
-                    "LastMarketingContactPointType__c",   "Form")
-            ENDIF
-            /* Consentement cookies date : a part, et seulement si le
-               formulaire en porte une (voir ci-dessus). */
-            IF NOT Empty(@dateCookies) AND Field(@row, "DateConsentementCookies__c") != @dateCookies THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
-            ENDIF
-            IF @LOG_ACTIF == "true" THEN
-                SET @logOrdre = Add(@logOrdre, 1)
-                InsertData("LPB_Log_Soumissions",
-                    "RowId", Concat(@runId, "-", @logOrdre),
-                    "RunId", @runId,
-                    "Ordre", @logOrdre,
-                    "Horodatage", Now(),
-                    "Etape", "40 - maj compte terminee",
-                    "Statut", "OK",
-                    "Objet", "Account",
-                    "RecordId", @paId,
-                    "Detail", "l update unique a passe",
-                    "Email", @email,
-                    "Ecole", @ecole,
-                    "FormType", @formType)
-            ENDIF
+            /* ---- L'UPDATE DU COMPTE EST DIFFERE ----------------------------
+               Il part APRES les consentements (bloc « MISE A JOUR DU COMPTE
+               EXISTANT », a la suite de l'etape 2) : poser PTAT_Id__c ici
+               declenchait cote CRM une creation d'AcademicInterest asynchrone
+               qui tamponnait la date d'engagement des consentements AVANT
+               notre propre update, que le trigger CRM rejetait alors comme
+               une regression — page morte, une fois sur trois en recette.
+               Tout ce que l'update lit du compte est deja calcule ci-dessus. */
+            SET @majCompteAFaire = "true"
+            SET @vDateCookiesCrm = Field(@row, "DateConsentementCookies__c")
 
         ELSEIF Empty(@RT_PERSON_ACCOUNT) THEN
             /* Garde-fou : creer sans RecordType produirait un compte ENTREPRISE. */
@@ -1971,18 +1893,26 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @nCpcMail = 0
             IF NOT Empty(@cpEmail) AND @isNew != "true" THEN
                 SET @cpcMail = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c,LastMarketingEngagementDate__c",
                     "ContactPointId", "=", @cpEmail)
                 SET @nCpcMail = RowCount(@cpcMail)
             ENDIF
             SET @nCpcTel = 0
             IF NOT Empty(@cpPhone) AND @isNew != "true" THEN
                 SET @cpcTel = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c,LastMarketingEngagementDate__c",
                     "ContactPointId", "=", @cpPhone)
                 SET @nCpcTel = RowCount(@cpcTel)
             ENDIF
 
+            /* Date d'engagement des consentements calculee ICI, juste avant
+               les ecritures, et non en tete de page : le trigger CRM refuse
+               une date qui ne progresse pas, et chaque seconde gagnee sur
+               l'horodatage reduit la fenetre ou un tampon CRM concurrent
+               (soumission precedente encore en cours de traitement) nous
+               devancerait. */
+            SET @cpcHorodatage    = Format(Now(), "yyyy-MM-dd HH:mm:ss")
+            SET @cpcHorodatageUtc = Concat(Substring(FormatDate(DateAdd(Now(), 6, "H"), "iso"), 1, 19), "Z")
             FOR @i = 1 TO 5 DO
                 IF @i == 1 THEN
                     SET @canalParam = "HasOptedInEmail"
@@ -2045,6 +1975,8 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             ENDIF
                         ENDIF
                     NEXT @k
+                    SET @cpcDateCrm = ""
+                    IF NOT Empty(@cpcId) THEN SET @cpcDateCrm = Field(@cpcRow, "LastMarketingEngagementDate__c", 0) ENDIF
 
                     IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
@@ -2057,7 +1989,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             "Statut", "OK",
                             "Objet", "ContactPointConsent",
                             "RecordId", "",
-                            "Detail", Concat("canal=", @canalValue, " cp=", @cpId),
+                            "Detail", Concat("canal=", @canalValue, " cp=", @cpId, " cpc=", @cpcId, " dateCrm=", @cpcDateCrm, " notre=", @cpcHorodatageUtc),
                             "Email", @email,
                             "Ecole", @ecole,
                             "FormType", @formType)
@@ -2140,22 +2072,39 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            Le statut rejoint LE MEME update quand il doit changer.
                            Un seul appel, et les regles Prevent_Opt_In/Opt_out_Date_
                            Manual_Edit voient alors un vrai changement de statut. */
+                        /* ---- ESSAI DU 24/09 : PLUS DE DATE D'ENGAGEMENT EN UPDATE ------
+                           Le CRM la pose LUI-MEME (MarketingEngagementService, apres
+                           l'AcademicInterest ou la Summit Registration que notre
+                           soumission declenche), et son trigger refuse toute date
+                           qui ne progresse pas : notre propre envoi etait au mieux
+                           redondant, au pire la cause d'une page morte. On ne
+                           touche donc plus qu'au STATUT, et seulement s'il change.
+                           A verifier sur Interne_CAND_BRASSART_V0 : la ligne 58 du
+                           journal detaille (`dateCrm=`) doit avancer d'une
+                           soumission a l'autre sans que nous l'ecrivions. Si le
+                           CRM ne la tamponne pas sur la brochure, la decision est
+                           a revoir pour ce formulaire. */
+                        /* Regle arretee le 24/09 apres mesure (Interne BRASSART,
+                           candidature et JPO) : le CRM tamponne lui-meme la date
+                           des qu'un PTAT ou une inscription evenement existe.
+                             - statut a changer → statut ET date, dans le meme update ;
+                             - brochure → la date a chaque soumission (aucun tampon
+                               CRM sur ce formulaire, donc aucune course) ;
+                             - sinon → rien : le CRM fait progresser la date. */
                         IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                                 "Status__c", "Opt-in",
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
+                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
                             SET @majs = "1"
-                        ELSE
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj CPC:", @canalValue, "-date-maj")
+                        ELSEIF @formType == "brochure" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
-                        ENDIF
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
-                        IF @majs == "1" THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj")
+                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
                         ELSE
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-inchange")
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")
                         ENDIF
 
                         /* Divergences que le connecteur nous interdit de
@@ -2298,6 +2247,122 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ENDIF
                 ENDIF
             NEXT @i
+        ENDIF
+
+        /* ====================================================================
+           MISE A JOUR DU COMPTE EXISTANT — APRES LES CONSENTEMENTS (24/09)
+           ====================================================================
+           Cet update vivait dans la branche « account existant », AVANT les
+           consentements. Cause d'une page morte intermittente en recette, sur
+           la candidature d'un compte connu (relu dans le CRM le 24/09 :
+           AccountsTriggerHandler.afterUpdate → AcademicInterestRequestService
+           → flow asynchrone → AcademicInterest → MarketingEngagementService
+           qui pose LastMarketingEngagementDate__c sur les ContactPointConsent
+           du compte ; puis ContactPointConsentTriggerHandler.handleBeforeUpdate
+           refuse toute date qui ne PROGRESSE pas). Quand ce tampon CRM
+           arrivait avant notre update du consentement — dont la date etait
+           calculee plus tot dans la page — Salesforce repondait addError, et
+           AMPscript n'a pas de try/catch : la page entiere tombait.
+           Ordre desormais : consentements d'abord (notre date progresse sur la
+           soumission precedente), compte ensuite (le tampon CRM qui suit
+           progresse sur la notre). Le contenu de l'update est inchange.
+           ==================================================================== */
+        IF @majCompteAFaire == "true" AND NOT Empty(@paId) THEN
+            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "35 - avant maj compte",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", Concat("un seul update ; champs modifies :", IIF(Empty(@champsMaj), " aucun", @champsMaj), " ; candidature=", @appRequested, IIF(Empty(@ptatMaj), "", Concat(" ptat=", @ptatMaj))),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+
+            /* Dernier point de contact marketing : rafraichi a chaque
+               soumission, c'est sa raison d'etre. LastMarketingContactPointType__c
+               attend un CANAL ("Form"), pas un type de formulaire. */
+            IF NOT Empty(@ptatMaj) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId,
+                    "LastName",                 @vLast,
+                    "FirstName",                @vFirst,
+                    "LivingCountry__c",         @vPays,
+                    "IndicatifPick__c",         @vIndic,
+                    "MobileNumber__c",          @vMobile,
+                    "Academic_Level_List__c",   @vNiveau,
+                    "PersonAccountType__c",     @vType,
+                    "Ecole__c",                 @vEcole,
+                    "UTMSource__c",             @vUtmS,
+                    "UTMMedium__c",             @vUtmM,
+                    "UTMCampaign__c",           @vUtmC,
+                    "UTMContent__c",            @vUtmCo,
+                    "UTMTerm__c",               @vUtmT,
+                    "UTMId__c",                 @vUtmI,
+                    "UTMCampus__c",             @vUtmCampus,
+                    "gclid__c",                 @vGclid,
+                    "fbclid__c",                @vFbclid,
+                    "ClientID__c",              @vClient,
+                    "Consent__c",               @vConsent,
+                    "CreationSourceDetail__c",  @vDetail,
+                    "Speciality__c",            @vSpec,
+                    "Application_Requested__c", @appRequested,
+                    "PTAT_Id__c",               @ptatMaj,
+                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
+                    "LastMarketingContactPointType__c",   "Form")
+            ELSE
+                SET @n = UpdateSingleSalesforceObject("Account", @paId,
+                    "LastName",                 @vLast,
+                    "FirstName",                @vFirst,
+                    "LivingCountry__c",         @vPays,
+                    "IndicatifPick__c",         @vIndic,
+                    "MobileNumber__c",          @vMobile,
+                    "Academic_Level_List__c",   @vNiveau,
+                    "PersonAccountType__c",     @vType,
+                    "Ecole__c",                 @vEcole,
+                    "UTMSource__c",             @vUtmS,
+                    "UTMMedium__c",             @vUtmM,
+                    "UTMCampaign__c",           @vUtmC,
+                    "UTMContent__c",            @vUtmCo,
+                    "UTMTerm__c",               @vUtmT,
+                    "UTMId__c",                 @vUtmI,
+                    "UTMCampus__c",             @vUtmCampus,
+                    "gclid__c",                 @vGclid,
+                    "fbclid__c",                @vFbclid,
+                    "ClientID__c",              @vClient,
+                    "Consent__c",               @vConsent,
+                    "CreationSourceDetail__c",  @vDetail,
+                    "Speciality__c",            @vSpec,
+                    "Application_Requested__c", @appRequested,
+                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
+                    "LastMarketingContactPointType__c",   "Form")
+            ENDIF
+            /* Consentement cookies date : a part, et seulement si le
+               formulaire en porte une (voir ci-dessus). */
+            IF NOT Empty(@dateCookies) AND @vDateCookiesCrm != @dateCookies THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
+            ENDIF
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "40 - maj compte terminee",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", "l update unique a passe",
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
         ENDIF
 
         /* ====================================================================

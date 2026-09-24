@@ -116,6 +116,84 @@ function egal(obtenu, attendu, quoi) {
     if (a !== b) throw new Error(`${quoi}\n      obtenu  : ${a}\n      attendu : ${b}`);
 }
 
+/* ---- Page anglaise : repli quand le dictionnaire ne connait pas la valeur --- */
+/* Le harnais ne modelise pas `[data-lang]` : on le pose a la main sur le
+   document, comme le builder le pose sur le <form>. */
+function testEn(nom, fn, layout = LAYOUT) {
+    test(nom, (d, run) => {
+        const qs = d.document.querySelector.bind(d.document);
+        d.document.querySelector = (q) => (q === '[data-lang]' ? { getAttribute: () => 'en' } : qs(q));
+        fn(d, run);
+    }, layout);
+}
+testEn('Page EN : la specialite sans traduction affiche sa valeur d API, la value ne bouge pas', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    const libs = d.options('Speciality');
+    if (!libs.includes('Comm') && !libs.includes('Luxe')) throw new Error('valeurs d API attendues : ' + JSON.stringify(libs));
+    const values = d.champs.Speciality.options.map((o) => o.value);
+    if (!values.includes('Comm')) throw new Error('la value doit rester celle du CRM : ' + JSON.stringify(values));
+});
+/* Les programmes du jeu d'essai portent FT/PT ; les vraies valeurs d'API sont
+   Full-Time/Part-Time, celles que la surcharge et son pendant anglais lisent. */
+const PROGRAMMES_RYTHME_CRM = PROGRAMMES.map((p) => Object.assign({}, p, { rhythm: p.rhythm === 'FT' ? 'Full-Time' : 'Part-Time' }));
+function rythmesAffiches(d, lang) {
+    d.reset();
+    d.champs.Campus.value = 'EFAP PARIS'; d.champs.Niveau.value = 'Bac+3'; d.champs.Speciality.value = 'Comm';
+    const qs = d.document.querySelector.bind(d.document);
+    d.document.querySelector = (q) => (q === '[data-lang]' ? { getAttribute: () => lang } : qs(q));
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg(), programs: PROGRAMMES_RYTHME_CRM }) },
+        document: d.document,
+    });
+    return d.options('Rhythm').filter(Boolean);
+}
+test('Page EN : le rythme se lit Full-time / Work-study', (d) => {
+    const libs = rythmesAffiches(d, 'en');
+    if (!libs.length) throw new Error('aucun rythme propose');
+    for (const l of libs) if (l !== 'Full-time' && l !== 'Work-study') throw new Error('libelle inattendu : ' + l);
+});
+test('Page FR : le rythme garde Initial / Alternance', (d) => {
+    const libs = rythmesAffiches(d, 'fr');
+    if (!libs.length) throw new Error('aucun rythme propose');
+    for (const l of libs) if (l !== 'Initial' && l !== 'Alternance') throw new Error('libelle inattendu : ' + l);
+});
+
+/* ---- Plusieurs programmes restants : l'annee la plus haute (24/09) ---------- */
+const PROGRAMMES_GAME = [
+    { id: 'g1', name: 'Brassart Paris Année 1 Bachelor Game Design FR', campus: 'EFAP PARIS', level: 'Bac+2', speciality: 'Game', rhythm: 'FT', language: 'FR' },
+    { id: 'g3', name: 'Brassart Paris Année 3 Bachelor Game Design FR', campus: 'EFAP PARIS', level: 'Bac+2;Bac+3', speciality: 'Game', rhythm: 'FT', language: 'FR' },
+    { id: 'g4', name: 'Brassart Paris Année 4 Expertise Game Design FR', campus: 'EFAP PARIS', level: 'Bac+3', speciality: 'Game', rhythm: 'FT', language: 'FR' },
+    { id: 'g2', name: 'Brassart Paris Année 2 Bachelor Game Design FR', campus: 'EFAP PARIS', level: 'Bac+2', speciality: 'Game', rhythm: 'FT', language: 'FR' },
+];
+const PTATS_GAME = ['g1', 'g2', 'g3', 'g4'].map((id) => ({ ptatId: 't-' + id, programId: id, termId: 'T2026' }));
+function cascadeGame(d, niveau) {
+    d.reset();
+    d.champs.Campus.value = 'EFAP PARIS'; d.champs.Niveau.value = niveau;
+    vm.runInNewContext(CASCADE, {
+        window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg(), programs: PROGRAMMES_GAME, ptats: PTATS_GAME }) },
+        document: d.document,
+    });
+}
+test('Bac+3 Game Design : Annee 3 et Annee 4 restent, Annee 4 est posee avec son PTAT', (d) => {
+    cascadeGame(d, 'Bac+3');
+    egal(d.options('Programme').length, 2, 'deux programmes en lice');
+    egal(d.champs.Programme.value, 'g4', 'le programme de l annee la plus haute');
+    egal(d.champs.PTAT_Id.value, 't-g4', 'et son PTAT');
+});
+test('Bac+2 Game Design : annees 1, 2 et 3 restent, Annee 3 est posee', (d) => {
+    cascadeGame(d, 'Bac+2');
+    egal(d.options('Programme').length, 3, 'trois programmes en lice');
+    egal(d.champs.Programme.value, 'g3', 'annee 3');
+    egal(d.champs.PTAT_Id.value, 't-g3', 'PTAT de l annee 3');
+});
+test('Deux programmes sans annee dans le nom : rien n est devine', (d) => {
+    d.reset();
+    d.champs.Campus.value = 'EFAP PARIS'; d.champs.Niveau.value = 'Bac+3';
+    const sansAnnee = PROGRAMMES_GAME.filter((p) => p.id !== 'g1' && p.id !== 'g2').map((p) => Object.assign({}, p, { name: p.name.replace(/Année \d /, '') }));
+    vm.runInNewContext(CASCADE, { window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg(), programs: sansAnnee, ptats: PTATS_GAME }) }, document: d.document });
+    egal(d.champs.Programme.value, '', 'aucun programme pose');
+});
+
 /* ---- Multipicklist ----------------------------------------------------- */
 test('Un programme multi-niveaux apparait sous CHACUN de ses niveaux [REGRESSION]', (d, run) => {
     run(cfg(), { Campus: 'EFAP PARIS' });

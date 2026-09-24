@@ -2041,8 +2041,49 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            « PARIS » ne trouverait plus rien. */
         if (langue !== 'en') return casseLisible(brut, propre);
         var dico = D && D.traductions;
-        if (!dico) return casseLisible(brut, propre);
-        return casseLisible(dico[brut] || brut, propre);
+        if (dico && dico[brut]) return casseLisible(dico[brut], propre);
+        var repli = libelleAnglaisRepli(name, option);
+        return casseLisible(repli || brut, propre);
+    }
+
+    /**
+     * Repli anglais pour ce que le dictionnaire ne couvre PAS.
+     *
+     * Constate le 24/09 sur Interne_CAND_EN_EFAP_V0 : specialite, rythme et
+     * rentree s'affichaient en francais. Le dictionnaire LPB_Dico_Traductions
+     * est alimente par les value sets du COMPTE (pays, niveau, vous etes) ;
+     * les criteres de la cascade viennent des PROGRAMMES et n'y figurent pas.
+     *
+     *   - Speciality : la VALUE d'API est anglaise par construction du CRM
+     *     (« Strategic Marketing & Brand Management » pour le libelle
+     *     « Marketing strategique et Brand Management ») — c'est elle qu'on
+     *     affiche. Value et libelle identiques = rien a faire.
+     *   - Rhythm : la surcharge front « Initial » / « Alternance » (09/09) a son
+     *     pendant anglais ici. Vocabulaire a valider par le metier.
+     *   - Rentree : le nom de l'AcademicTerm est francais (« Rentree Sept. /
+     *     Oct. 2026 ») ; on ne traduit que le mot et les mois abreges.
+     *
+     * Toujours l'AFFICHAGE seul : la value postee ne bouge pas.
+     */
+    var RYTHME_EN = { 'Full-Time': 'Full-time', 'Part-Time': 'Work-study' };
+    var MOIS_EN = [
+        [/\bJanv?\.?/g, 'Jan.'], [/\bF\u00e9vr?\.?/g, 'Feb.'], [/\bMars\b/g, 'Mar.'], [/\bAvr\.?/g, 'Apr.'],
+        [/\bMai\b/g, 'May'], [/\bJuin\b/g, 'June'], [/\bJuil\.?/g, 'July'], [/\bAo\u00fbt\b/g, 'Aug.'],
+        [/\bD\u00e9c\.?/g, 'Dec.']
+    ];
+    function libelleAnglaisRepli(name, option) {
+        if (name === 'Rhythm') return RYTHME_EN[option.value] || '';
+        if (name === 'Speciality') {
+            return (option.value && option.value !== option.label) ? String(option.value) : '';
+        }
+        if (name === 'Rentree') {
+            var t = String(option.label || '');
+            if (!/^Rentr[e\u00e9]e\b/i.test(t)) return '';
+            t = t.replace(/^Rentr[e\u00e9]e\s*/i, 'Intake ');
+            for (var m = 0; m < MOIS_EN.length; m++) t = t.replace(MOIS_EN[m][0], MOIS_EN[m][1]);
+            return t;
+        }
+        return '';
     }
 
     /**
@@ -3232,6 +3273,20 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (elProg) {
             var reellesProg = optionsReelles(elProg);
             if (reellesProg.length === 1) elProg.value = reellesProg[0].value;
+            else if (reellesProg.length > 1) {
+                /* ---- PLUSIEURS PROGRAMMES : L'ANNEE LA PLUS HAUTE --------
+                   Demande du 24/09. Le trou de donnees n'est plus l'exception
+                   mesuree le 31/08 : BRASSART Paris, Bac+3, Game Design laisse
+                   « Annee 3 Bachelor » ET « Annee 4 Expertise » ; Bac+2 laisse
+                   les annees 1, 2 et 3. Le formulaire partait alors sans
+                   programme, donc sans PTAT — aucune candidature cote CRM.
+                   Regle : on retient le programme dont le NOM porte l'annee la
+                   plus elevee (« Annee 4 » > « Annee 3 »). Sans annee lisible,
+                   ou a egalite, on ne devine pas : le champ reste vide comme
+                   avant, et le journal du socle dira PTAT:absent. */
+                var meilleur = programmeAnneeLaPlusHaute(reellesProg);
+                if (meilleur) elProg.value = meilleur.value;
+            }
             afficher('Programme', false);
         }
         programme = valeur('Programme');
@@ -3253,6 +3308,26 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             }
             cible.value = trouve ? trouve.ptatId : '';
         }
+    }
+
+    /**
+     * Parmi plusieurs programmes, celui dont le nom porte l'annee la plus
+     * haute (« Annee 4 Expertise » avant « Annee 3 Bachelor »). Null si aucun
+     * nom ne porte d'annee, ou si deux programmes se disputent la plus haute.
+     */
+    function anneeDuNom(texte) {
+        var m = /ann[e\u00e9]e\s*(\d{1,2})\b/i.exec(String(texte || ''));
+        return m ? parseInt(m[1], 10) : 0;
+    }
+    function programmeAnneeLaPlusHaute(options) {
+        var meilleur = null, max = 0, exAequo = false;
+        for (var i = 0; i < options.length; i++) {
+            var a = anneeDuNom(options[i].label || options[i].textContent || '');
+            if (!a) continue;
+            if (a > max) { max = a; meilleur = options[i]; exAequo = false; }
+            else if (a === max) { exAequo = true; }
+        }
+        return (meilleur && !exAequo) ? meilleur : null;
     }
 
     /** Ce programme est-il ouvert a cette rentree ? */
