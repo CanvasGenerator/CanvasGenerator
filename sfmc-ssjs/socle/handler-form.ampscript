@@ -346,10 +346,50 @@ VAR @jrnTel, @jrnMarque, @jrnTypeEvt, @jrnFn, @jrnLn, @jrnMail, @jrnCampus
 VAR @jrnRefMarque, @jrnRefTypeEvt, @jrnRefNiveau, @jrnCle, @jrnPos, @jrnReste
 VAR @jrnNiveau, @jrnTelBrut, @jrnTelE164, @jrnEcole, @jrnCampusUtm
 VAR @jrnBrandCode, @jrnRefBrandCode
+
+/* ======================================================================
+   SOUMISSION ASYNCHRONE — DRAPEAU ET ETAT
+   ----------------------------------------------------------------------
+   Drapeau SFMC_ASYNC_SOUMISSION (injecte a la publication, lib/socle-env.js).
+   Ouvert, le POST du visiteur ne fait plus qu'un ACCUSE DE RECEPTION : les
+   regles de blocage tournent, la soumission complete (corps brut du POST)
+   est deposee dans la DE LPB_File_Soumissions, et la page repond
+   « success » en une a deux secondes. Le navigateur renvoie alors le meme
+   corps avec socle_traitement=1 et socle_run=<RunId> (beacon, sans attendre
+   la reponse) : c'est ce second passage qui execute toute la sequence
+   d'ecriture ci-dessous et tire les journeys. L'automation
+   LPB_Rejouer_File_Soumissions rejoue ce qui n'est pas arrive.
+   Etats d'une ligne de la file : a_traiter → en_cours → traitee | erreur.
+   Ferme : comportement historique, tout est ecrit pendant le POST. */
+VAR @ASYNC_ACTIF, @modeTraitement, @runReception, @asyncMode, @asyncDoublon
+VAR @postBrut, @postUrl, @pageId, @payload2, @payload3
+VAR @fileRows, @fileStatut, @fileTentatives, @fileDetail
 SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
 SET @jrnCleEvt      = ""
 SET @jrnContactKey  = ""
 SET @jrnData        = ""
+SET @ASYNC_ACTIF    = "%%ENV:SFMC_ASYNC_SOUMISSION%%"
+SET @asyncMode      = ""
+SET @asyncDoublon   = "false"
+SET @postBrut       = ""
+SET @postUrl        = ""
+]%%
+<script runat="server">
+/* ==ASYNC_CAPTURE== Corps brut du POST, tel que le navigateur l'a envoye
+   (application/x-www-form-urlencoded). AMPscript n'y a pas acces ; c'est ce
+   corps que la file conserve et que le traitement rejoue a l'identique, sans
+   dependre de la liste des champs du formulaire. Vide sur un GET. */
+Platform.Load("core", "1.1.1");
+try {
+    var brutPost = Platform.Request.GetPostData();
+    Variable.SetValue("@postBrut", brutPost ? String(brutPost) : "");
+    Variable.SetValue("@postUrl", String(Platform.Request.RequestURL() || ""));
+} catch (eCap) {
+    Variable.SetValue("@postBrut", "");
+    Variable.SetValue("@postUrl", "");
+}
+</script>
+%%[
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -885,8 +925,147 @@ IF IndexOf(@submitted, "true") > 0 THEN
     ENDIF
 
     /* Un blocage arrete TOUT : ni compte, ni consentement, ni campagne. Le
-       candidat doit passer par les admissions, pas alimenter un doublon. */
-    IF @sfStatus != "blocked" THEN
+       candidat doit passer par les admissions, pas alimenter un doublon.
+       ==GARDE_ECRITURE== : les regles s'arretent ici, tout ce qui suit ecrit
+       (file d'attente ou CRM) et est garde par @sfStatus != "blocked". Le
+       test test-regles-blocage.js s'ancre sur ce marqueur. */
+
+    /* ====================================================================
+       MODE ASYNCHRONE — TRAITEMENT D'UNE LIGNE DE LA FILE
+       ====================================================================
+       socle_traitement=1 + socle_run=<RunId de la reception> : c'est le
+       second passage (beacon du navigateur, ou rejeu par l'automation). On
+       reserve la ligne (en_cours, Tentatives+1) avant d'ecrire, pour qu'un
+       rejeu concurrent la voie prise, et on ne retraite jamais une ligne
+       deja « traitee ». Le solde (traitee | erreur) est pose apres la
+       garde d'ecriture, quoi qu'il arrive au CRM.
+       ==================================================================== */
+    SET @modeTraitement = RequestParameter("socle_traitement")
+    SET @runReception   = RequestParameter("socle_run")
+    IF @sfStatus != "blocked" AND @modeTraitement == "1" AND NOT Empty(@runReception) THEN
+        SET @asyncMode = "traitement"
+        SET @fileTentatives = 0
+        SET @fileRows = LookupRows("LPB_File_Soumissions", "RunId", @runReception)
+        IF RowCount(@fileRows) > 0 THEN
+            SET @fileStatut = Field(Row(@fileRows, 1), "Statut")
+            SET @fileTentatives = Field(Row(@fileRows, 1), "Tentatives")
+            IF Empty(@fileTentatives) THEN SET @fileTentatives = 0 ENDIF
+            IF @fileStatut == "traitee" THEN
+                SET @asyncDoublon = "true"
+                SET @journal = Concat(@journal, " ASYNC:deja-traitee")
+            ELSE
+                SET @fileTentatives = Add(@fileTentatives, 1)
+                UpdateData("LPB_File_Soumissions", 1, "RunId", @runReception,
+                    "Statut", "en_cours",
+                    "Tentatives", @fileTentatives,
+                    "DerniereTentative", Now(),
+                    "RunTraitement", @runId)
+                SET @journal = Concat(@journal, " ASYNC:traitement(", @fileTentatives, ")")
+            ENDIF
+        ELSE
+            SET @journal = Concat(@journal, " ASYNC:file-inconnue")
+        ENDIF
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "16 - traitement de la file",
+                "Statut", "OK",
+                "Objet", "LPB_File_Soumissions",
+                "RecordId", @runReception,
+                "Detail", Concat("reception=", @runReception, " statut=", @fileStatut, " tentative=", @fileTentatives),
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
+    ENDIF
+
+    IF @sfStatus != "blocked" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN
+        /* ================================================================
+           MODE ASYNCHRONE — ACCUSE DE RECEPTION
+           ================================================================
+           Rien n'est ecrit dans le CRM ici. On verifie ce qui ferait echouer
+           la creation a coup sur (e-mail), on depose le corps brut du POST
+           dans la file, et on repond « success ». Le corps fait ~1 000 a
+           2 500 octets ; trois colonnes de 4 000 laissent de la marge, et un
+           depassement est note plutot que perdu en silence.
+           ================================================================ */
+        SET @asyncMode = "reception"
+        SET @emailInvalide = "false"
+        IF NOT Empty(@email) AND Empty(RegExMatch(@email, "^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$", 0)) THEN
+            SET @emailInvalide = "true"
+        ENDIF
+        IF Empty(@email) OR @emailInvalide == "true" THEN
+            SET @sfStatus = "error"
+            IF @emailInvalide == "true" THEN
+                SET @sfErrorMsg = "Adresse e-mail invalide : verifiez le format (exemple : prenom.nom@domaine.fr)."
+            ELSE
+                SET @sfErrorMsg = "Adresse e-mail obligatoire."
+            ENDIF
+        ELSEIF Empty(@postBrut) THEN
+            SET @sfStatus = "error"
+            SET @sfErrorMsg = "Soumission non recue : le corps de la requete est vide."
+        ELSE
+            SET @pageId   = RequestParameter("id")
+            SET @payload2 = ""
+            SET @payload3 = ""
+            SET @fileDetail = ""
+            IF Length(@postBrut) > 4000 THEN SET @payload2 = Substring(@postBrut, 4001, 4000) ENDIF
+            IF Length(@postBrut) > 8000 THEN SET @payload3 = Substring(@postBrut, 8001, 4000) ENDIF
+            IF Length(@postBrut) > 12000 THEN SET @fileDetail = Concat("payload tronque : ", Length(@postBrut), " octets") ENDIF
+            InsertData("LPB_File_Soumissions",
+                "RunId", @runId,
+                "Horodatage", Now(),
+                "Url", @postUrl,
+                "PageId", @pageId,
+                "Ecole", @ecole,
+                "FormType", @formType,
+                "Email", @email,
+                "Statut", "a_traiter",
+                "Tentatives", 0,
+                "Detail", @fileDetail,
+                "Payload1", Substring(@postBrut, 1, 4000),
+                "Payload2", @payload2,
+                "Payload3", @payload3)
+            SET @sfStatus = "success"
+            SET @journal = Concat(@journal, " ASYNC:recue")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "15 - soumission mise en file",
+                    "Statut", "OK",
+                    "Objet", "LPB_File_Soumissions",
+                    "RecordId", @runId,
+                    "Detail", Concat("octets=", Length(@postBrut), " page=", @pageId),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+                /* La reception a sa propre fin : les lecteurs du journal
+                   tiennent un RunId sans « 99 - fin » pour une page morte. */
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "99 - fin",
+                    "Statut", @sfStatus,
+                    "Objet", "-",
+                    "RecordId", "",
+                    "Detail", Concat("journal=", @journal),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+        ENDIF
+    ELSEIF @sfStatus != "blocked" AND @asyncDoublon != "true" THEN
     /* ====================================================================
        ETAPE 1 — PERSON ACCOUNT, upsert sur PersonEmail
        Pas d'email = pas de dedoublonnage possible = on n'ecrit rien. C'est la
@@ -2861,10 +3040,26 @@ IF IndexOf(@submitted, "true") > 0 THEN
         ENDIF
     ENDIF
     ENDIF   /* fin du garde-fou : rien n'est ecrit si @sfStatus == "blocked" */
+
+    /* Solde de la ligne de la file, hors garde d'ecriture : un blocage ou une
+       erreur se soldent aussi. Une page tuee par le CRM n'arrive pas ici : la
+       ligne reste « en_cours », et l'automation la rejouera (3 tentatives). */
+    IF @asyncMode == "traitement" AND @asyncDoublon != "true" THEN
+        SET @fileStatut = "erreur"
+        IF @sfStatus == "success" THEN SET @fileStatut = "traitee" ENDIF
+        SET @fileDetail = @sfErrorMsg
+        IF @sfStatus == "blocked" THEN SET @fileDetail = Concat("bloque : ", @sfBlockRule) ENDIF
+        UpdateData("LPB_File_Soumissions", 1, "RunId", @runReception,
+            "Statut", @fileStatut,
+            "DerniereTentative", Now(),
+            "RecordId", @paId,
+            "Journal", Substring(@journal, 1, 500),
+            "Detail", Substring(@fileDetail, 1, 500))
+    ENDIF
 ENDIF
 ]%%
 
-<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% journal=%%=v(@journal)=%% -->
+<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% journal=%%=v(@journal)=%% -->
 %%[ IF NOT Empty(@sfErrorMsg) THEN ]%%
 <!-- socle erreur: %%=v(@sfErrorMsg)=%% -->
 %%[ ENDIF ]%%

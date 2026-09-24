@@ -3057,12 +3057,55 @@ try {
         var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
         /* Meme ancrage sur `<!--` que ci-dessus, et pour la meme raison. */
         var b = /<!--\s*socle blocage:\s*motif=(\w+)/i.exec(texte);
+        /* Mode asynchrone : la reception rend son RunId et « async=reception » ;
+           c'est le signal pour relancer le traitement en arriere-plan. */
+        var r = /<!--\s*socle ecriture:[^>]*?\brun=(\w*)/i.exec(texte);
+        var a = /<!--\s*socle ecriture:[^>]*?\basync=(\w*)/i.exec(texte);
         return {
             ok: m[1] === 'success',
             bloque: m[1] === 'blocked',
             motif: b ? b[1].toLowerCase() : '',
-            message: e ? e[1] : ''
+            message: e ? e[1] : '',
+            run: r ? r[1] : '',
+            async: a ? a[1] : ''
         };
+    }
+
+    /**
+     * SOUMISSION ASYNCHRONE — second passage, sans attendre.
+     *
+     * La reception a mis la soumission en file et repondu « success » : le
+     * visiteur a deja sa confirmation. On renvoie le MEME corps avec
+     * socle_traitement=1 et socle_run=<RunId> : c'est ce passage qui ecrit
+     * dans le CRM et tire les journeys. navigator.sendBeacon part sans
+     * reponse et survit a la fermeture de l'onglet ; a defaut, un fetch
+     * keepalive. Le corps doit etre un Blob type formulaire : une chaine
+     * partirait en text/plain et le serveur n'y lirait aucun champ. Rien ici
+     * ne doit remonter au visiteur — l'automation rejoue ce qui ne part pas.
+     */
+    function lancerTraitement(corps, bilan) {
+        try {
+            if (!bilan || !bilan.ok || bilan.async !== 'reception' || !bilan.run) return false;
+            var body = corps.join('&') + '&socle_traitement=1&socle_run=' + encodeURIComponent(bilan.run);
+            var url = window.location.href;
+            var type = 'application/x-www-form-urlencoded; charset=UTF-8';
+            var nav = (typeof navigator !== 'undefined') ? navigator : null;
+            if (nav && typeof nav.sendBeacon === 'function' && typeof Blob === 'function') {
+                if (nav.sendBeacon(url, new Blob([body], { type: type }))) return true;
+            }
+            if (typeof window.fetch === 'function') {
+                var promesse = window.fetch(url, {
+                    method: 'POST',
+                    headers: { 'Content-Type': type },
+                    body: body,
+                    keepalive: true,
+                    credentials: 'same-origin'
+                });
+                if (promesse && typeof promesse['catch'] === 'function') promesse['catch'](function () {});
+                return true;
+            }
+        } catch (eTraitement) { /* la file sera rejouee par l'automation */ }
+        return false;
     }
 
     /**
@@ -3797,6 +3840,9 @@ try {
                   if (bilan.ok) {
                       if (bouton) { bouton.style.display = 'none'; }
                       montrerSucces(form);
+                      /* Mode asynchrone : la confirmation est affichee, le
+                         traitement CRM part maintenant, en arriere-plan. */
+                      lancerTraitement(corps, bilan);
                       return;
                   }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a

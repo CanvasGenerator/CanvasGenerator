@@ -1063,6 +1063,54 @@ test('La DE de documentation prime sur l ancien contrat `brochures`', () => {
     egal(cta(p).getAttribute('href'), 'https://x/doc.pdf', 'l ancien contrat a pris le pas');
 });
 
+/* ============================================================================
+ *  SOUMISSION ASYNCHRONE — le second passage part sans attendre
+ * ============================================================================
+ *  La reception repond « success » avec run=<RunId> et async=reception : le
+ *  visiteur a sa confirmation, et le MEME corps doit repartir aussitot avec
+ *  socle_traitement=1 + socle_run pour l'ecriture CRM. Le harnais n'a ni
+ *  navigator ni Blob : c'est le repli fetch keepalive qui est observe ici.
+ * ========================================================================== */
+const RECU = '<!-- socle ecriture: statut=success pa= nouveau=false run=abc123def456 async=reception journal= ASYNC:recue -->';
+
+test('Apres une reception asynchrone, le traitement repart en arriere-plan', () => {
+    const p = creerPage('brochure');
+    const appels = [];
+    p.fetch = (u, o) => {
+        appels.push({ url: u, body: (o && o.body) || '', keepalive: !!(o && o.keepalive) });
+        return promesseSync({ text: () => promesseSync(appels.length === 1 ? RECU : '') });
+    };
+    jouer(p, '');
+    p.form.__ecouteurs.submit({ preventDefault() {} });
+    egal(appels.length, 2, 'deux POST attendus : reception puis traitement');
+    egal(tonEncart(p), VERT, 'la confirmation doit etre affichee des la reception');
+    const t = appels[1];
+    vrai(/(^|&)socle_traitement=1(&|$)/.test(t.body), 'socle_traitement absent : ' + t.body);
+    vrai(/(^|&)socle_run=abc123def456(&|$)/.test(t.body), 'socle_run absent : ' + t.body);
+    vrai(/(^|&)submitted=true(&|$)/.test(t.body) && /(^|&)socle_fetch=1(&|$)/.test(t.body), 'le corps de la reception doit repartir tel quel');
+    egal(t.body.indexOf(appels[0].body), 0, 'le traitement repart avec le meme corps, complete en queue');
+    vrai(t.keepalive, 'le repli fetch doit etre keepalive');
+    egal(t.url, appels[0].url, 'meme page cible');
+});
+
+test('Sans mode asynchrone, un succes ne provoque aucun second POST', () => {
+    const p = creerPage('brochure');
+    let n = 0;
+    p.fetch = () => { n++; return promesseSync({ text: () => promesseSync(SUCCES) }); };
+    jouer(p, '');
+    p.form.__ecouteurs.submit({ preventDefault() {} });
+    egal(n, 1, 'un seul POST en mode synchrone');
+});
+
+test('Une reception en erreur ne relance rien', () => {
+    const p = creerPage('brochure');
+    let n = 0;
+    p.fetch = () => { n++; return promesseSync({ text: () => promesseSync('<!-- socle ecriture: statut=error pa= nouveau=false run=abc async=reception journal= -->') }); };
+    jouer(p, '');
+    p.form.__ecouteurs.submit({ preventDefault() {} });
+    egal(n, 1, 'aucun traitement sur une reception refusee');
+});
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 echecs.forEach((e) => console.log(`  ✗ ${e}\n`));
 process.exit(echecs.length ? 1 : 0);

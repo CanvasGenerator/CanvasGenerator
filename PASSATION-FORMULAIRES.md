@@ -125,6 +125,24 @@ travail est **RECETTE EDH (536010339)**.
 
 ---
 
+### Temps de réponse — deux optimisations derrière drapeau (23–24/09)
+
+Mesures sur `Interne_*_EFAP_V0`, drapeaux fermés : **8–13 s** pour afficher la
+page, **16–20 s** entre « Envoyer » et la confirmation. Les deux leviers sont
+indépendants, injectés à la publication (`lib/socle-env.js`), fermés par défaut.
+
+| Drapeau | Ce qu'il change | Gain mesuré |
+|---|---|---|
+| `SFMC_ASYNC_SOUMISSION` | Le POST du visiteur ne fait que les règles de blocage + dépose le corps brut dans `LPB_File_Soumissions`, répond `success` ; le navigateur renvoie le même corps en `sendBeacon` (`socle_traitement=1&socle_run=`) et c'est ce second passage qui écrit CRM + journey, puis solde la ligne (`traitee`/`erreur`). Filet : automation `LPB_Rejouer_File_Soumissions` (`sfmc-ssjs/automations/`), **à planifier** — elle existe, statut Ready, non planifiée au 24/09. | confirmation en **4–5 s** au lieu de 16–20 |
+| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 4 000 car.), par famille : `pick` 24 h, `prog` 6 h, `evt` 1 h (clé datée : tombe à minuit). La page écrit elle-même le cache au premier passage après expiration ; aucune automation. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans `?socleDebug=1`. DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
+
+Pièges rencontrés en l'implémentant, à ne pas redécouvrir :
+- un `VAR` AMPscript **réinitialise** la variable : tout `VAR` d'une variable
+  servie par le cache doit être déclaré AVANT le bloc de lecture ;
+- Jint : `"abc".substring(5, 9)` rend `"c"`, pas `""` — borner à la main ;
+- le CRM renvoie les value sets dans un ordre aléatoire : comparer hit et live
+  sur les éléments triés, pas octet à octet.
+
 ## 3. Ce que le socle écrit
 
 | # | Objet | Opération |

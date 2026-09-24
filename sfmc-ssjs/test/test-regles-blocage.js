@@ -43,10 +43,11 @@ function egal(a, b, quoi) {
     if (a !== b) throw new Error(`${quoi}\n      obtenu  : ${JSON.stringify(a)}\n      attendu : ${JSON.stringify(b)}`);
 }
 
-/* La regle vit entre son garde d'entree et le garde-fou d'ecriture. Tout ce
-   qui suit ce dernier est ecriture, donc hors sujet ici. */
+/* La regle vit entre son garde d'entree et le marqueur ==GARDE_ECRITURE== du
+   handler. Tout ce qui suit ce dernier ecrit — file d'attente du mode
+   asynchrone, puis CRM — et est garde par @sfStatus != "blocked". */
 const DEBUT_REGLE = ECRITURE.indexOf('IF @REGLES_ACTIVES == "true" AND @formType == "candidature" THEN');
-const GARDE_ECRITURE = ECRITURE.indexOf('IF @sfStatus != "blocked" THEN');
+const GARDE_ECRITURE = ECRITURE.indexOf('==GARDE_ECRITURE==');
 const REGLE = ECRITURE.slice(DEBUT_REGLE, GARDE_ECRITURE);
 
 /* ---- Position et armement ---------------------------------------------- */
