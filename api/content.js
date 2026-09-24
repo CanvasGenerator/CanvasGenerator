@@ -926,7 +926,7 @@ async function getStructuredStatusByLegacyName() {
 async function listLegacyProjectsWithStatus() {
     const projects = await supabaseRequest(
         'GET',
-        '/Projects?select=project_name,created_at,status:properties->>status'
+        '/Projects?select=project_name,created_at,status:properties->>status,sfmcKey:properties->>sfmcKey'
     ) || [];
 
     const structuredPages = await getStructuredStatusByLegacyName();
