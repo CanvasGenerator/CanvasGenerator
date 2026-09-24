@@ -200,8 +200,9 @@ function updatePageIdBadge() {
     const fullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
     
     if (fullName && !currentProjectIsNew) {
-        // Strip the school prefix to match SFMC logic (e.g. school-mopa__MyPage__FR -> MyPage__FR)
-        const sfmcName = fullName.replace(new RegExp(`^school-[^_]+__`), '');
+        // Nom du bloc tel qu'il est publié dans SFMC (école_id_langue), pour
+        // toutes les pages — les listes, elles, gardent l'affichage d'origine.
+        const sfmcName = window.lpSfmcPublishKey(fullName, currentProjectProperties && currentProjectProperties.sfmcKey);
         
         badge.innerText = 'Nom SFMC : ' + sfmcName;
         badge.style.display = 'inline-block';
@@ -1081,6 +1082,92 @@ function initEditor(schoolId) {
         }
     });
 
+    // Les réponses sont saisies dans un <textarea> (retours à la ligne réels).
+    // Injectées telles quelles dans un <p>, les \n sont avalés par le HTML et
+    // les puces "- ..." se retrouvent collées sur une seule ligne. On convertit
+    // donc chaque retour à la ligne en <br> (une ligne vide → deux <br>).
+    function faqAnswerToHtml(answer) {
+        return String(answer == null ? '' : answer)
+            .replace(/\r\n?/g, '\n')
+            .split('\n')
+            .map(line => escapeHtml(line.trim()))
+            .join('<br>');
+    }
+
+    // Écrit les questions dans un bloc ma-faq-section : ids mémorisés dans
+    // data-faq-ids (dans l'ordre) + HTML statique de la liste.
+    function renderFaqSection(component, faqs) {
+        component.addAttributes({ 'data-faq-ids': faqs.map(f => f.id).join(',') });
+        if (!faqs.length) return;
+        const listComp = component.find('.ma-list')[0];
+        if (!listComp) return;
+        const itemsHtml = faqs.map((faq, i) => {
+            const first = i === 0;
+            return `<div class="ma-item${first ? ' ma-open' : ''}">
+                <div class="ma-q">
+                    <span>${escapeHtml(faq.question)}</span>
+                    <button class="ma-toggle" aria-label="Toggle">${first ? '&#8722;' : '&#43;'}</button>
+                </div>
+                <div class="ma-a"${first ? '' : ' style="display:none"'}>
+                    <p>${faqAnswerToHtml(faq.answer)}</p>
+                </div>
+            </div>`;
+        }).join('');
+        listComp.components(itemsHtml);
+        // Re-verrouiller tous les enfants après mise à jour du contenu.
+        // Exceptions : le titre (styling) et la réponse .ma-a (gras via RTE)
+        // restent éditables. Pour la réponse, on NE descend PAS le verrou
+        // dans ses enfants (le <p> reste éditable pour appliquer le gras).
+        const lockAll = (comp) => {
+            comp.get('components').each(child => {
+                if (isFaqTitle(child) || isFaqAnswer(child)) {
+                    child.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
+                } else {
+                    child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
+                    lockAll(child);
+                }
+            });
+        };
+        lockAll(component);
+    }
+
+    // Bascule tous les blocs FAQ du canvas vers leurs équivalents dans une
+    // langue (base FAQ de cette langue, via source_faq_id). Utilisé à la
+    // duplication d'une page vers une autre langue, à la place de la traduction
+    // IA du texte. Pour une école, une question sans équivalent est traduite et
+    // ajoutée à sa base ; si rien n'a pu être résolu, le bloc reste tel quel.
+    editor.Commands.add('faq-switch-language', {
+        async run(ed, sender, { lang } = {}) {
+            const sections = ed.getWrapper().find('*').filter(c => c.get('type') === 'ma-faq-section');
+            let switched = 0;
+            let missing = 0;
+            for (const section of sections) {
+                const ids = (section.getAttributes()['data-faq-ids'] || '').split(',').filter(Boolean);
+                if (!ids.length) continue;
+                const schoolId = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id;
+                // École : équivalents garantis dans sa base (traduits + cochés s'ils
+                // manquent). Master : simple correspondance, rien n'est écrit.
+                const res = (schoolId && schoolId !== 'master')
+                    ? await fetch(`/api/faq/school/${encodeURIComponent(schoolId)}/ensure`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids, lang })
+                    })
+                    : await fetch('/api/faq/map', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ ids, lang })
+                    });
+                if (!res.ok) throw new Error(await res.text());
+                const data = await res.json();
+                if ((data.faqs || []).length) renderFaqSection(section, data.faqs);
+                switched += (data.faqs || []).length;
+                missing += (data.missing || []).length;
+            }
+            return { sections: sections.length, switched, missing };
+        }
+    });
+
     // ── Commande GrapesJS : sélecteur de FAQs ──────────────────────────
     // Déclenchée par le bouton ❓ dans la toolbar du composant ma-faq-section.
     // Ouvre un modal avec toutes les FAQs de la BDD sous forme de checkboxes.
@@ -1096,7 +1183,7 @@ function initEditor(schoolId) {
             const selCountEl = document.getElementById('faq-config-selected-count');
 
             // Récupérer les IDs déjà sélectionnés (stockés dans data-faq-ids)
-            const existingIds = (component.getAttributes()['data-faq-ids'] || '')
+            let existingIds = (component.getAttributes()['data-faq-ids'] || '')
                 .split(',').filter(Boolean);
 
             modal.style.display = 'flex';
@@ -1113,20 +1200,44 @@ function initEditor(schoolId) {
                     : '';
             }
 
-            // Ne proposer que les FAQs associées à l'école courante (école parente de la page).
-            // 'master' n'a pas d'associations → on retombe sur toute la banque.
+            // Ne proposer que les FAQs associées à l'école courante (école parente de la page),
+            // dans la langue de la page : une page EN puise dans la base FAQ anglaise.
+            // 'master' n'a pas d'associations → on retombe sur toute la banque de cette langue.
             const currentSchoolId = CURRENT_SCHOOL?.id || window.CURRENT_SCHOOL?.id;
-            const faqUrl = (currentSchoolId && currentSchoolId !== 'master')
-                ? `/api/faq/school/${encodeURIComponent(currentSchoolId)}`
-                : '/api/faq';
+            const faqLang = encodeURIComponent(normLang(currentProjectLanguage));
+            const isSchoolScoped = currentSchoolId && currentSchoolId !== 'master';
+            const faqUrl = isSchoolScoped
+                ? `/api/faq/school/${encodeURIComponent(currentSchoolId)}?lang=${faqLang}`
+                : `/api/faq?lang=${faqLang}`;
 
-            fetch(faqUrl)
+            // Page traduite (hors FR) : le bloc peut encore référencer les questions
+            // FR d'origine (traduction IA du texte). On les remplace par leurs
+            // équivalents de la base de la langue (créés et cochés pour l'école
+            // s'ils manquent), pour qu'ils apparaissent cochés, dans l'ordre du bloc.
+            const pageLang = normLang(currentProjectLanguage);
+            const prepare = (isSchoolScoped && pageLang !== 'FR' && existingIds.length)
+                ? fetch(`/api/faq/school/${encodeURIComponent(currentSchoolId)}/ensure`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ ids: existingIds, lang: pageLang })
+                })
+                    .then(r => (r.ok ? r.json() : null))
+                    .then(data => {
+                        if (data && Array.isArray(data.faqs) && data.faqs.length) {
+                            existingIds = data.faqs.map(f => f.id);
+                        }
+                    })
+                    .catch(e => console.warn('FAQ : équivalents non résolus, sélection d\'origine conservée :', e.message))
+                : Promise.resolve();
+
+            prepare
+                .then(() => fetch(faqUrl))
                 .then(r => r.json())
                 .then(rows => {
                     // /api/faq/school renvoie des associations { faq: {...} } → extraire + dédupliquer par id.
                     // /api/faq renvoie directement les FAQs.
                     let faqs;
-                    if (faqUrl === '/api/faq') {
+                    if (!isSchoolScoped) {
                         faqs = Array.isArray(rows) ? rows : [];
                     } else {
                         const seen = new Set();
@@ -1138,7 +1249,9 @@ function initEditor(schoolId) {
                     countEl.textContent = `${faqs.length} FAQ${faqs.length > 1 ? 's' : ''} disponible${faqs.length > 1 ? 's' : ''}`;
 
                     if (!faqs.length) {
-                        body.innerHTML = '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucune FAQ dans la base de données.</div>';
+                        body.innerHTML = normLang(currentProjectLanguage) === 'FR'
+                            ? '<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucune FAQ dans la base de données.</div>'
+                            : `<div style="padding:32px;text-align:center;color:#9ca3af;font-size:13px;">Aucune FAQ en ${escapeHtml(normLang(currentProjectLanguage))} pour cette école.<br>Ajoutez-les depuis la fiche école → Gérer les FAQs → onglet « FAQ anglais ».</div>`;
                         return;
                     }
 
@@ -1202,18 +1315,6 @@ function initEditor(schoolId) {
                 updateSelCount();
             };
 
-            // Les réponses sont saisies dans un <textarea> (retours à la ligne réels).
-            // Injectées telles quelles dans un <p>, les \n sont avalés par le HTML et
-            // les puces "- ..." se retrouvent collées sur une seule ligne. On convertit
-            // donc chaque retour à la ligne en <br> (une ligne vide → deux <br>).
-            function faqAnswerToHtml(answer) {
-                return String(answer == null ? '' : answer)
-                    .replace(/\r\n?/g, '\n')
-                    .split('\n')
-                    .map(line => escapeHtml(line.trim()))
-                    .join('<br>');
-            }
-
             function confirmSelection() {
                 // Ordre = ordre des lignes dans le picker (modifiable via ▲/▼).
                 const orderedIds = [...body.querySelectorAll('.faq-row')].map(r => r.getAttribute('data-id'));
@@ -1222,43 +1323,7 @@ function initEditor(schoolId) {
                 const byId         = new Map(allFaqs.map(f => [f.id, f]));
                 const selectedFaqs = selectedIds.map(id => byId.get(id)).filter(Boolean);
 
-                // Stocker les IDs sélectionnés (dans l'ordre choisi)
-                component.addAttributes({ 'data-faq-ids': selectedIds.join(',') });
-
-                // Reconstruire le HTML statique de la liste
-                if (selectedFaqs.length) {
-                    const listComp = component.find('.ma-list')[0];
-                    if (listComp) {
-                        const itemsHtml = selectedFaqs.map((faq, i) => {
-                            const first = i === 0;
-                            return `<div class="ma-item${first ? ' ma-open' : ''}">
-                                <div class="ma-q">
-                                    <span>${escapeHtml(faq.question)}</span>
-                                    <button class="ma-toggle" aria-label="Toggle">${first ? '&#8722;' : '&#43;'}</button>
-                                </div>
-                                <div class="ma-a"${first ? '' : ' style="display:none"'}>
-                                    <p>${faqAnswerToHtml(faq.answer)}</p>
-                                </div>
-                            </div>`;
-                        }).join('');
-                        listComp.components(itemsHtml);
-                        // Re-verrouiller tous les enfants après mise à jour du contenu.
-                        // Exceptions : le titre (styling) et la réponse .ma-a (gras via RTE)
-                        // restent éditables. Pour la réponse, on NE descend PAS le verrou
-                        // dans ses enfants (le <p> reste éditable pour appliquer le gras).
-                        const lockAll = (comp) => {
-                            comp.get('components').each(child => {
-                                if (isFaqTitle(child) || isFaqAnswer(child)) {
-                                    child.set({ editable: true, selectable: true, hoverable: true, droppable: false, removable: false, copyable: false });
-                                } else {
-                                    child.set({ editable: false, selectable: false, hoverable: false, droppable: false });
-                                    lockAll(child);
-                                }
-                            });
-                        };
-                        lockAll(component);
-                    }
-                }
+                renderFaqSection(component, selectedFaqs);
                 closeModal();
             }
 
@@ -2538,6 +2603,18 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
     injectBrandVariables(editor, CURRENT_SCHOOL);
     applyLogoLanguage(editor, lang);
 
+    // 5 bis) Blocs FAQ : on reprend les questions de la base FAQ de la langue
+    //    cible (équivalents via source_faq_id) plutôt que la traduction IA du
+    //    texte faite à l'étape 4. Ainsi la page EN affiche la FAQ anglaise
+    //    gérée dans la fiche école, et les retouches faites sur cette base
+    //    s'appliquent. En cas d'échec, la traduction IA reste en place.
+    let faqSwitch = null;
+    try {
+        faqSwitch = await editor.Commands.run('faq-switch-language', { lang });
+    } catch (e) {
+        console.warn('FAQ non basculée vers la base ' + lang + ', traduction IA conservée :', e.message);
+    }
+
     // 6) Enregistrement sous la nouvelle identité. `is_original_language: false` +
     //    `source_project_name` rattachent la page au groupe de langues côté serveur.
     const propsToSave = { ...sourceProps, ...seoProps, title: newTitle, status: 'draft' };
@@ -2579,14 +2656,14 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
     currentProjectIsNew = false;
     currentStructuredPageId = saveData.page_id || null;
     currentOriginalLanguage = lang;
-    currentProjectProperties = { ...propsToSave };
+    currentProjectProperties = { ...propsToSave, sfmcKey: saveData.sfmcKey || null };
     populateProperties(propsToSave);
     setActiveLangUI(lang);
     if (currentStructuredPageId) await refreshVariants(currentStructuredPageId);
     updatePageIdBadge();
     window.hideLoading();
 
-    return { newFullName: finalFullName, newTitle, formsSwitched };
+    return { newFullName: finalFullName, newTitle, formsSwitched, faqSwitch };
 }
 
 /**
@@ -2630,9 +2707,14 @@ async function confirmAndDuplicateToLanguage(targetLang) {
               + `messages de validation et langue transmise au CRM. Vous pouvez remplacer le bloc par `
               + `le formulaire « ${label} » de la palette si vous préférez le formulaire canonique.`
             : '';
+        const faq = result.faqSwitch;
+        const faqNote = faq && faq.missing
+            ? `\n\nFAQ : ${faq.missing} question(s) n'ont pas encore de version ${lang} dans la base FAQ. `
+              + `Ajoutez-les dans la fiche école → Gérer les FAQs → onglet « FAQ anglais », puis rouvrez le sélecteur FAQ.`
+            : '';
         await window.showAlert({
             title: 'Page créée',
-            message: `La page ${label} « ${result.newTitle} » a été créée. Vous l'éditez maintenant.${formNote}`
+            message: `La page ${label} « ${result.newTitle} » a été créée. Vous l'éditez maintenant.${formNote}${faqNote}`
         });
         return true;
     } catch (e) {
@@ -2808,6 +2890,14 @@ async function createOrUpdateTranslationVariant(pageId, targetLang) {
         window.editor.loadProjectData(pd);
         injectBrandVariables(window.editor, CURRENT_SCHOOL);
         applyLogoLanguage(window.editor, targetLang);
+
+        // 3 bis) Blocs FAQ : questions de la base de la langue cible plutôt que la
+        //    traduction IA (même logique que la duplication vers une langue).
+        try {
+            await window.editor.Commands.run('faq-switch-language', { lang: targetLang });
+        } catch (e) {
+            console.warn('FAQ non basculée vers la base ' + targetLang + ', traduction IA conservée :', e.message);
+        }
 
         // 4) Enregistrer comme variante de la même page (structuré uniquement).
         const bodyHtml = window.editor.getHtml();
@@ -4006,6 +4096,8 @@ function initUI(editor) {
                 }
                 currentProjectLanguage = selectedLanguage;
                 currentProjectProperties.status = 'draft';
+                // Nom SFMC tel que fixé par le serveur (nouvelle page seulement).
+                if (saveData.sfmcKey) currentProjectProperties.sfmcKey = saveData.sfmcKey;
                 updatePageIdBadge();
                 // Rafraîchir les variantes : les traductions existantes deviennent
                 // « à mettre à jour » (stale) puisque l'original vient de changer.
@@ -4125,6 +4217,8 @@ function initUI(editor) {
                         currentProjectIsNew = false;
                         currentProjectLanguage = lang;
                         currentProjectProperties.status = 'draft';
+                        // Nom SFMC tel que fixé par le serveur à la création.
+                        currentProjectProperties.sfmcKey = saveData.sfmcKey || null;
                         tabStore.set(`reetain-builder__${schoolId}__currentFullName`, fullName);
                         tabStore.set(`reetain-builder__${schoolId}__currentProject`, finalProjectTitle);
                         setActiveLangUI(lang);
@@ -4180,7 +4274,7 @@ function initUI(editor) {
         const confirmed = await new Promise(resolve => {
             openModal({
                 title: 'Publier sur SFMC',
-                body: `<p class="modal-message">Cette action publie la page <strong>${fullName}</strong> sur Salesforce Marketing Cloud (création ou mise à jour de l'asset).<br><br>Assurez-vous d'avoir sauvegardé votre travail. Continuer ?</p>`,
+                body: `<p class="modal-message">Cette action publie la page sur Salesforce Marketing Cloud sous le bloc <strong>${escapeHtml(window.lpSfmcPublishKey(fullName, currentProjectProperties && currentProjectProperties.sfmcKey))}</strong> (création ou mise à jour).<br><br>Assurez-vous d'avoir sauvegardé votre travail. Continuer ?</p>`,
                 actions: [
                     { label: 'Annuler', className: 'btn-secondary', onClick: () => { closeModal(); resolve(false); } },
                     { label: 'Publier', className: 'btn-primary', onClick: () => { closeModal(); resolve(true); } }
@@ -4201,7 +4295,7 @@ function initUI(editor) {
 
             const data = await res.json();
             const action = data?.sfmc?.action === 'created' ? 'créée' : 'mise à jour';
-            const assetName = data?.sfmc?.name || fullName;
+            const assetName = data?.sfmc?.customerKey || data?.sfmc?.name || fullName;
 
             // Marquer la page comme publiée dans l'UI.
             currentProjectProperties.status = 'published';
@@ -4210,7 +4304,7 @@ function initUI(editor) {
             hideLoading();
             await showAlert({
                 title: 'Publication réussie',
-                message: `La page « ${assetName} » a été ${action} sur Salesforce Marketing Cloud.`
+                message: `Le bloc « ${escapeHtml(assetName)} » a été ${action} sur Salesforce Marketing Cloud.`
             });
         } catch (e) {
             hideLoading();
@@ -4466,7 +4560,7 @@ function initUI(editor) {
                             <i class="fas fa-folder-open"></i>
                             <div class="form-list-item-content">
                                 <div class="form-list-item-name">
-                                    ${displayName}
+                                    ${escapeHtml(window.lpSfmcName(p.sfmcKey, displayName))}
                                     <span class="language-badge" style="background: #EAF6F1; color: #1A7A5E; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${lang}</span>
                                 </div>
                                 <div class="form-list-item-meta">Dernière modification : ${date}</div>
@@ -4609,7 +4703,7 @@ async function showOpeningPopup() {
                         <i class="fas fa-folder-open"></i>
                         <div class="form-list-item-content">
                             <div class="form-list-item-name" style="font-size: 14px;">
-                                ${displayName}
+                                ${escapeHtml(window.lpSfmcName(p.sfmcKey, displayName))}
                                 <span class="language-badge" style="background: #EAF6F1; color: #1A7A5E; padding: 2px 6px; border-radius: 4px; font-size: 11px; margin-left: 8px;">${lang}</span>
                             </div>
                             <div class="form-list-item-meta" style="font-size: 12px;">Modifié le ${date}${author}</div>

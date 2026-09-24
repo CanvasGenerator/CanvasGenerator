@@ -194,11 +194,13 @@ export default function(editor, categories) {
     /* ══════════════════════════════════════════════════════
        BLOC GrapesJS : Onglets Admission
     ══════════════════════════════════════════════════════ */
+    // La palette dépose la VERSION 2 (même contenu, même CSS, fonctionnement
+    // enrichi) ; le type d'origine reste déclaré pour les pages existantes.
     editor.BlockManager.add('master-tabs', {
         label: 'Onglets Admission',
         category: cat,
         content: {
-            type: 'mc-tabs-admission',
+            type: 'mc-tabs-admission-v2',
             styles: `
                 /* ── Container ── */
                 .mta-section {
@@ -421,6 +423,86 @@ export default function(editor, categories) {
                             if (icon) icon.textContent = open ? '˄' : '˅';
                         });
                     });
+                }
+            }
+        }
+    });
+
+    /* ══════════════════════════════════════════════════════
+       TYPE mc-tabs-admission-v2 — blocs déposés à partir de maintenant.
+       Même contenu et même CSS que la version d'origine ; seul le
+       fonctionnement change : on peut ajouter / supprimer des étapes dans
+       chaque onglet sans casser la mise en page. Le script compte les étapes
+       de chaque grille et règle le nombre de colonnes :
+         • desktop (> 1024px) : 1 à 4 étapes sur une ligne, 5+ par rangées de 3 ;
+         • tablette (769–1024px) : 2 colonnes ;
+         • mobile (≤ 768px) : rien n'est imposé, le CSS du bloc (1 colonne) s'applique.
+       Recalcul au redimensionnement et à chaque ajout/suppression d'étape.
+    ══════════════════════════════════════════════════════ */
+    editor.DomComponents.addType('mc-tabs-admission-v2', {
+        extend: 'mc-tabs-admission',
+        model: {
+            defaults: {
+                script: function() {
+                    var root = this;
+                    var wrapper = root.querySelector('.mta-wrapper') || root;
+
+                    var tabHds  = wrapper.querySelectorAll('.mta-tab-hd');
+                    var panes   = wrapper.querySelectorAll('.mta-pane');
+                    var mobTabs = wrapper.querySelectorAll('.mta-mob-tab');
+
+                    function switchTab(idx) {
+                        tabHds.forEach(function(h)  { h.classList.remove('mta-active'); });
+                        panes.forEach(function(p)   { p.classList.remove('mta-pane-active'); });
+                        mobTabs.forEach(function(m) { m.classList.remove('mta-active'); });
+
+                        var activeHd = wrapper.querySelector('.mta-tab-hd[data-tab="' + idx + '"]');
+                        if (activeHd) activeHd.classList.add('mta-active');
+
+                        var pane = wrapper.querySelector('.mta-pane[data-pane="' + idx + '"]');
+                        if (pane) pane.classList.add('mta-pane-active');
+
+                        var mobActive = wrapper.querySelector('.mta-mob-tab[data-tab="' + idx + '"]');
+                        if (mobActive) mobActive.classList.add('mta-active');
+                    }
+
+                    tabHds.forEach(function(hd) {
+                        hd.addEventListener('click', function() { switchTab(hd.getAttribute('data-tab')); });
+                    });
+                    mobTabs.forEach(function(mob) {
+                        mob.addEventListener('click', function() { switchTab(mob.getAttribute('data-tab')); });
+                    });
+
+                    wrapper.querySelectorAll('[data-expandable="true"]').forEach(function(label) {
+                        label.addEventListener('click', function() {
+                            var details = label.parentElement.querySelector('.mta-step-details');
+                            var icon    = label.querySelector('.mta-expand-icon');
+                            if (!details) return;
+                            var open = details.classList.toggle('mta-open');
+                            if (icon) icon.textContent = open ? '˄' : '˅';
+                        });
+                    });
+
+                    // Colonnes selon le nombre d'étapes et la largeur d'écran.
+                    var win = root.ownerDocument.defaultView || window;
+                    function layout() {
+                        var w = win.innerWidth;
+                        wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
+                            var steps = grid.querySelectorAll(':scope > .mta-step');
+                            steps.forEach(function(s) { s.style.minWidth = '0'; });
+                            if (w <= 768) { grid.style.gridTemplateColumns = ''; return; }
+                            var n = steps.length || 1;
+                            var cols = w <= 1024 ? Math.min(n, 2) : (n <= 4 ? n : 3);
+                            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+                        });
+                    }
+                    layout();
+                    win.addEventListener('resize', layout);
+                    if (win.MutationObserver) {
+                        wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
+                            new win.MutationObserver(layout).observe(grid, { childList: true });
+                        });
+                    }
                 }
             }
         }

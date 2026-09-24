@@ -10,11 +10,13 @@ export default function(editor, categories) {
     // infère bien le type), donc seuls certains textes du bloc résistent.
 
     // ── Carrousel 1 : Cards programmes (variante A – image + header + body) ──
+    // La palette dépose la VERSION 2 (même contenu, même CSS, fonctionnement
+    // enrichi) ; le type d'origine reste déclaré pour les pages existantes.
     editor.BlockManager.add('master-carousel-programmes', {
         label: 'Carrousel Programmes',
         category: cat,
         content: {
-            type: 'mc-programmes',
+            type: 'mc-programmes-v2',
             styles: `
                 .mcp-section { padding: 48px 20px; background: var(--brand-background, #ffffff); font-family: var(--brand-font, 'Inter', sans-serif); }
                 .mcp-viewport { max-width: 1100px; margin: 0 auto; overflow: hidden; }
@@ -99,6 +101,69 @@ export default function(editor, categories) {
                     prev.addEventListener('click', function() { var m = maxIdx(); if (!m) return; idx = idx > 0 ? idx-1 : m; update(); });
                     window.addEventListener('resize', update);
                     update();
+                }
+            }
+        }
+    });
+
+    /*
+     * VERSION 2 du Carrousel Programmes — blocs déposés à partir de maintenant.
+     * Même contenu et même CSS ; seul le fonctionnement change : quand il y a
+     * moins de cartes que de places visibles (ex. 2 programmes sur desktop, où
+     * le CSS prévoit 3 cartes), le script les répartit sur la largeur (50 %
+     * chacune, centrées) au lieu de laisser un grand vide. Recalcul au
+     * redimensionnement et à chaque ajout/suppression de carte.
+     */
+    editor.DomComponents.addType('mc-programmes-v2', {
+        extend: 'mc-programmes',
+        model: {
+            defaults: {
+                script: function() {
+                    var el = this;
+                    var track = el.querySelector('.mcp-track');
+                    var next = el.querySelector('.mcp-next');
+                    var prev = el.querySelector('.mcp-prev');
+                    if (!track || !next || !prev) return;
+                    var win = el.ownerDocument.defaultView || window;
+                    var idx = 0;
+                    function visible() {
+                        var first = track.firstElementChild;
+                        var wrap = track.parentElement;
+                        if (!first || !first.offsetWidth || !wrap) return 1;
+                        return Math.max(1, Math.round(wrap.offsetWidth / first.offsetWidth));
+                    }
+                    // Peu de cartes : on mesure d'abord la disposition prévue par le
+                    // CSS (styles en ligne retirés), puis on élargit si besoin.
+                    function fit() {
+                        var cards = Array.prototype.slice.call(track.children);
+                        cards.forEach(function(c) { c.style.flex = ''; });
+                        track.style.justifyContent = '';
+                        var slots = visible();
+                        if (cards.length && cards.length < slots) {
+                            var basis = (100 / Math.max(cards.length, 2)) + '%';
+                            cards.forEach(function(c) { c.style.flex = '0 0 ' + basis; });
+                            track.style.justifyContent = 'center';
+                        }
+                    }
+                    function maxIdx() { return Math.max(0, track.children.length - visible()); }
+                    function update() {
+                        var first = track.firstElementChild;
+                        if (!first) return;
+                        var max = maxIdx();
+                        idx = Math.min(Math.max(idx,0), max);
+                        track.style.transform = 'translateX(-' + (idx * first.offsetWidth) + 'px)';
+                        var idle = max === 0;
+                        [prev, next].forEach(function(b) {
+                            b.setAttribute('aria-disabled', idle ? 'true' : 'false');
+                            b.style.opacity = idle ? '0.35' : '';
+                        });
+                    }
+                    function refresh() { fit(); update(); }
+                    next.addEventListener('click', function() { var m = maxIdx(); if (!m) return; idx = idx < m ? idx+1 : 0; update(); });
+                    prev.addEventListener('click', function() { var m = maxIdx(); if (!m) return; idx = idx > 0 ? idx-1 : m; update(); });
+                    win.addEventListener('resize', refresh);
+                    if (win.MutationObserver) new win.MutationObserver(refresh).observe(track, { childList: true });
+                    refresh();
                 }
             }
         }

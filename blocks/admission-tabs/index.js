@@ -12,6 +12,7 @@
  */
 export default function (editor, categories) {
     const TYPE = 'admission-tabs';
+    const TYPE_V2 = 'admission-tabs-v2';
 
     // Icônes SVG réutilisées (étape 1 = doc, étape 2 = badge, étape 3 = avion papier)
     const ICO_DOC = `<svg viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg" style="width:40px;height:40px;stroke:#000;fill:none;stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round"><rect x="6" y="8" width="26" height="30" rx="2"/><line x1="6" y1="42" x2="32" y2="42"/><line x1="19" y1="38" x2="19" y2="42"/><line x1="11" y1="15" x2="14" y2="15"/><line x1="17" y1="15" x2="27" y2="15"/><line x1="11" y1="22" x2="14" y2="22"/><line x1="17" y1="22" x2="27" y2="22"/><line x1="11" y1="29" x2="14" y2="29"/><line x1="17" y1="29" x2="27" y2="29"/><circle cx="38" cy="16" r="2"/><circle cx="42" cy="26" r="2"/><circle cx="37" cy="34" r="2"/><line x1="32" y1="15" x2="36" y2="16"/><line x1="40" y1="17" x2="41" y2="24"/><line x1="41" y1="28" x2="38" y2="32"/></svg>`;
@@ -112,10 +113,13 @@ export default function (editor, categories) {
       </style>
     </section>`;
 
+    // La palette dépose la VERSION 2 (même HTML, même CSS, fonctionnement
+    // enrichi) ; le type d'origine reste déclaré pour les pages existantes, qui
+    // gardent ainsi leur fonctionnement inchangé.
     editor.BlockManager.add(TYPE, {
         label: 'Onglets Admission',
         category: categories.MASTER,
-        content: { type: TYPE },
+        content: { type: TYPE_V2 },
         attributes: { class: 'fa fa-folder-open' }
     });
 
@@ -146,6 +150,74 @@ export default function (editor, categories) {
                             if (detail) detail.classList.toggle('ouvert');
                         };
                     });
+                }
+            }
+        }
+    });
+
+    /*
+     * VERSION 2 — blocs déposés depuis la palette à partir de maintenant.
+     * Même HTML et même CSS que la version d'origine ; seul le fonctionnement
+     * change : on peut ajouter / supprimer des étapes dans chaque onglet sans
+     * casser la mise en page. Le script compte les étapes de chaque grille et
+     * règle le nombre de colonnes :
+     *   • desktop (> 1024px) : 1 à 4 étapes sur une ligne, 5+ par rangées de 3 ;
+     *   • tablette (769–1024px) : 2 colonnes ;
+     *   • mobile (≤ 768px) : rien n'est imposé, le CSS du bloc (1 colonne) s'applique.
+     * Recalcul au redimensionnement et à chaque ajout/suppression d'étape.
+     * Repérée par data-block-version="2" ; déclarée APRÈS la version d'origine
+     * pour être reconnue en priorité.
+     */
+    editor.DomComponents.addType(TYPE_V2, {
+        extend: TYPE,
+        isComponent: el => el.classList && el.classList.contains('integration')
+            && el.getAttribute('data-block-version') === '2',
+        model: {
+            defaults: {
+                name: 'Onglets Admission',
+                components: CONTENT.replace('<section class="integration">', '<section class="integration" data-block-version="2">'),
+                script: function () {
+                    var root = this;
+                    var btns = root.querySelectorAll('.onglet-btn');
+                    var panels = root.querySelectorAll('.onglet-panneau');
+                    btns.forEach(function (btn) {
+                        btn.onclick = function () {
+                            btns.forEach(function (b) { b.classList.remove('actif'); });
+                            panels.forEach(function (p) { p.classList.remove('actif'); });
+                            btn.classList.add('actif');
+                            var tab = btn.getAttribute('data-tab');
+                            var target = root.querySelector('.onglet-panneau[data-panel="' + tab + '"]');
+                            if (target) target.classList.add('actif');
+                        };
+                    });
+                    root.querySelectorAll('.lien-epreuves').forEach(function (lien) {
+                        lien.onclick = function () {
+                            var etape = lien.closest('.etape');
+                            var detail = etape && etape.querySelector('.epreuves-detail');
+                            if (detail) detail.classList.toggle('ouvert');
+                        };
+                    });
+
+                    // Colonnes selon le nombre d'étapes et la largeur d'écran.
+                    var win = root.ownerDocument.defaultView || window;
+                    function layout() {
+                        var w = win.innerWidth;
+                        root.querySelectorAll('.etapes-grille').forEach(function (grid) {
+                            var steps = grid.querySelectorAll(':scope > .etape');
+                            steps.forEach(function (s) { s.style.minWidth = '0'; });
+                            if (w <= 768) { grid.style.gridTemplateColumns = ''; return; }
+                            var n = steps.length || 1;
+                            var cols = w <= 1024 ? Math.min(n, 2) : (n <= 4 ? n : 3);
+                            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+                        });
+                    }
+                    layout();
+                    win.addEventListener('resize', layout);
+                    if (win.MutationObserver) {
+                        root.querySelectorAll('.etapes-grille').forEach(function (grid) {
+                            new win.MutationObserver(layout).observe(grid, { childList: true });
+                        });
+                    }
                 }
             }
         }

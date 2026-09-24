@@ -30,6 +30,8 @@ const { cleanHtmlForSfmc } = require('./lib/htmlCleaner');
 const { getSchoolLogo } = require('./lib/school-logos');
 const { normalizeBranding, fontStackById } = require('./js/fonts');
 const { translateHtml } = require('./lib/translate');
+const faqStore = require('./lib/faq');
+const { withSfmcKey } = require('./lib/lp-naming');
 const { injectLanguageSwitch } = require('./lib/lang-switch');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
 const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights } = require('./lib/api-shared');
@@ -977,6 +979,9 @@ http.createServer(async (req, res) => {
                 // Toute sauvegarde repasse la page en brouillon.
                 if (properties) properties.status = 'draft';
 
+                // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+                if (properties) await withSfmcKey(projectName, properties);
+
                 const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
                 // ── Résoudre les flags de traduction + group_id ───────────────────────────
@@ -1071,6 +1076,7 @@ http.createServer(async (req, res) => {
                 res.end(JSON.stringify({
                     message: 'Project saved! Background tasks started.',
                     projectName,
+                    sfmcKey: (properties && properties.sfmcKey) || null,
                     page_id: contentSync?.pageId || null,
                     sfmc: { action: 'pending_background' },
                     content: contentSync
@@ -1504,6 +1510,8 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+                        // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+                        await withSfmcKey(newProjectName, newProps);
 
                         // Remplacer header/footer générique du master par les VRAIS
                         // header (baseline) + footer de l'école (logos PNG maquette).
@@ -2080,16 +2088,7 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                 res.writeHead(400, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: 'school_id requis' }));
             }
-            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
-            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
-            if (school && school.show_faq === false) {
-                res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify([]));
-            }
-            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
-            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
-            const rows = await supabaseRequest('GET', url).catch(() => []);
-            const faqs = (Array.isArray(rows) ? rows : []).map(r => r.faq).filter(Boolean);
+            const faqs = await faqStore.renderSchoolFaqs(school_id, { pageType: page_type, lang: params.get('lang') }).catch(() => []);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify(faqs));
         } catch (e) {
@@ -2101,9 +2100,9 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
     // ── API: FAQ — liste toute la banque ──────────────────────────────
     if (req.method === 'GET' && pathname === '/api/faq') {
         try {
-            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
+            const result = await faqStore.listFaqs(params.get('lang'));
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify(result || []));
+            return res.end(JSON.stringify(result));
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: e.message }));
@@ -2116,14 +2115,14 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
         req.on('data', chunk => { body += chunk.toString(); });
         req.on('end', async () => {
             try {
-                const { question, answer } = JSON.parse(body || '{}');
+                const { question, answer, language } = JSON.parse(body || '{}');
                 if (!question || !answer) {
                     res.writeHead(400, { 'Content-Type': 'application/json' });
                     return res.end(JSON.stringify({ error: 'question et answer requis' }));
                 }
-                const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
+                const result = await faqStore.createFaq({ question, answer, language });
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                return res.end(JSON.stringify(Array.isArray(result) ? result[0] : result));
+                return res.end(JSON.stringify(result));
             } catch (e) {
                 res.writeHead(500, { 'Content-Type': 'application/json' });
                 return res.end(JSON.stringify({ error: e.message }));
@@ -2159,7 +2158,7 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
     if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
         try {
             const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
-            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            await faqStore.deleteFaq(id);
             res.writeHead(200, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ message: 'FAQ supprimée' }));
         } catch (e) {
@@ -2172,13 +2171,73 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
     if (req.method === 'GET' && pathname.startsWith('/api/faq/school/') && !pathname.includes('/', '/api/faq/school/'.length)) {
         try {
             const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
-            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
+            const rows = await faqStore.listSchoolFaqLinks(schoolId, params.get('lang')).catch(() => []);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            return res.end(JSON.stringify(Array.isArray(rows) ? rows : []));
+            return res.end(JSON.stringify(rows));
         } catch (e) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
             return res.end(JSON.stringify({ error: e.message }));
         }
+    }
+
+    // ── API: FAQ — remplir la base EN d'une école depuis sa base FR ───
+    if (req.method === 'POST' && pathname.startsWith('/api/faq/school/') && pathname.endsWith('/translate') && pathname.split('/').length === 6) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const schoolId = decodeURIComponent(pathname.split('/')[4]);
+                const { from = 'FR', to = 'EN' } = JSON.parse(body || '{}');
+                const result = await faqStore.translateSchoolFaqs(schoolId, {
+                    from, to, apiKey: process.env.GEMINI_API_KEY_TRANSLATION
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(result));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: FAQ — questions d'un bloc garanties dans la base <lang> de l'école ─
+    if (req.method === 'POST' && pathname.startsWith('/api/faq/school/') && pathname.endsWith('/ensure') && pathname.split('/').length === 6) {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const schoolId = decodeURIComponent(pathname.split('/')[4]);
+                const { ids, lang } = JSON.parse(body || '{}');
+                const result = await faqStore.ensureSchoolFaqsInLang(schoolId, ids, {
+                    lang, apiKey: process.env.GEMINI_API_KEY_TRANSLATION
+                });
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(result));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
+    }
+
+    // ── API: FAQ — équivalents d'une liste de questions dans une langue ─
+    if (req.method === 'POST' && pathname === '/api/faq/map') {
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            try {
+                const { ids, lang } = JSON.parse(body || '{}');
+                const result = await faqStore.mapFaqsToLang(ids, lang);
+                res.writeHead(200, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify(result));
+            } catch (e) {
+                res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });
+                return res.end(JSON.stringify({ error: e.message }));
+            }
+        });
+        return;
     }
 
     // ── API: FAQ — ajouter une association ────────────────────────────
@@ -2485,6 +2544,7 @@ Règles importantes :
 
                 return {
                     project_name:         p.project_name,
+                    sfmcKey:              props.sfmcKey || null,
                     title:                props.title || displayName,
                     school,
                     lang,
@@ -2575,6 +2635,8 @@ Règles importantes :
 
                 const sourceProps = source.properties || {};
                 const newProps = { ...sourceProps, title: newTitle };
+                // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+                await withSfmcKey(newProjectName, newProps);
 
                 // Récupérer ou générer le group_id de la source
                 const groupId = await resolveOrCreateGroupId(sourceProjectName);

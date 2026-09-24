@@ -4,6 +4,8 @@ const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { normalizeBranding, fontStackById } = require('../js/fonts');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
 const { translateHtml } = require('../lib/translate');
+const faqStore = require('../lib/faq');
+const { withSfmcKey } = require('../lib/lp-naming');
 const cheerio = require('cheerio');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('../lib/school-blocks');
 const sfmcAuth = require('../lib/sfmc-auth');
@@ -281,6 +283,7 @@ module.exports = async function handler(req, res) {
 
                 return {
                     project_name:        p.project_name,
+                    sfmcKey:             props.sfmcKey || null,
                     title:               props.title || parts[0] || p.project_name,
                     school,
 
@@ -364,6 +367,8 @@ module.exports = async function handler(req, res) {
                 page_group_id:        groupId,
             };
             if (newLanguage) newProps.language = newLanguage;
+            // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+            await withSfmcKey(targetName, newProps);
 
             const insertResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                 project_name: targetName,
@@ -511,28 +516,20 @@ module.exports = async function handler(req, res) {
             const school_id = req.query.school_id;
             const page_type = req.query.page_type;
             if (!school_id) return res.status(400).json({ error: 'school_id requis' });
-            const schoolRows = await supabaseRequest('GET', `/Schools?id=eq.${encodeURIComponent(school_id)}&select=show_faq&limit=1`).catch(() => []);
-            const school = Array.isArray(schoolRows) ? schoolRows[0] : null;
-            if (school && school.show_faq === false) return res.status(200).json([]);
-            let url = `/school_page_faq?school_id=eq.${encodeURIComponent(school_id)}&order=sort_order.asc,created_at.asc&select=faq_id,sort_order,faq(id,question,answer)`;
-            if (page_type) url += `&page_type=eq.${encodeURIComponent(page_type)}`;
-            const rows = await supabaseRequest('GET', url).catch(() => []);
-            const faqs = (Array.isArray(rows) ? rows : []).map(r => r.faq).filter(Boolean);
+            const faqs = await faqStore.renderSchoolFaqs(school_id, { pageType: page_type, lang: req.query.lang }).catch(() => []);
             return res.status(200).json(faqs);
         }
 
-        // GET /api/faq — toute la banque de questions
+        // GET /api/faq[?lang=FR|EN] — toute la banque, ou une langue
         if (req.method === 'GET' && pathname === '/api/faq') {
-            const result = await supabaseRequest('GET', '/faq?order=created_at.asc');
-            return res.status(200).json(result || []);
+            return res.status(200).json(await faqStore.listFaqs(req.query.lang));
         }
 
         // POST /api/faq — créer une question
         if (req.method === 'POST' && pathname === '/api/faq') {
-            const { question, answer } = req.body || {};
+            const { question, answer, language } = req.body || {};
             if (!question || !answer) return res.status(400).json({ error: 'question et answer requis' });
-            const result = await supabaseRequest('POST', '/faq', { question, answer }, { 'Prefer': 'return=representation' });
-            return res.status(200).json(Array.isArray(result) ? result[0] : result);
+            return res.status(200).json(await faqStore.createFaq({ question, answer, language }));
         }
 
         // PUT /api/faq/:id — modifier une question
@@ -547,15 +544,49 @@ module.exports = async function handler(req, res) {
         // DELETE /api/faq/:id — supprimer une question
         if (req.method === 'DELETE' && pathname.startsWith('/api/faq/') && !pathname.startsWith('/api/faq/school/') && pathname !== '/api/faq/render') {
             const id = decodeURIComponent(pathname.replace('/api/faq/', ''));
-            await supabaseRequest('DELETE', `/faq?id=eq.${encodeURIComponent(id)}`);
+            await faqStore.deleteFaq(id);
             return res.status(200).json({ message: 'FAQ supprimée' });
         }
 
-        // GET /api/faq/school/:schoolId — associations d'une école
+        // GET /api/faq/school/:schoolId[?lang=FR|EN] — associations d'une école
         if (req.method === 'GET' && pathname.startsWith('/api/faq/school/') && !pathname.slice('/api/faq/school/'.length).includes('/')) {
             const schoolId = decodeURIComponent(pathname.replace('/api/faq/school/', ''));
-            const rows = await supabaseRequest('GET', `/school_page_faq?school_id=eq.${encodeURIComponent(schoolId)}&select=id,faq_id,page_type,sort_order,faq(id,question,answer)&order=sort_order.asc`).catch(() => []);
-            return res.status(200).json(Array.isArray(rows) ? rows : []);
+            const rows = await faqStore.listSchoolFaqLinks(schoolId, req.query.lang).catch(() => []);
+            return res.status(200).json(rows);
+        }
+
+        // POST /api/faq/school/:schoolId/translate — remplir la base EN depuis la base FR
+        if (req.method === 'POST' && pathname.startsWith('/api/faq/school/') && pathname.endsWith('/translate') && pathname.split('/').length === 6) {
+            const schoolId = decodeURIComponent(pathname.split('/')[4]);
+            const { from = 'FR', to = 'EN' } = req.body || {};
+            try {
+                const result = await faqStore.translateSchoolFaqs(schoolId, {
+                    from, to, apiKey: process.env.GEMINI_API_KEY_TRANSLATION
+                });
+                return res.status(200).json(result);
+            } catch (e) {
+                return res.status(e.status || 500).json({ error: e.message });
+            }
+        }
+
+        // POST /api/faq/school/:schoolId/ensure — questions d'un bloc garanties dans la base <lang> de l'école
+        if (req.method === 'POST' && pathname.startsWith('/api/faq/school/') && pathname.endsWith('/ensure') && pathname.split('/').length === 6) {
+            const schoolId = decodeURIComponent(pathname.split('/')[4]);
+            const { ids, lang } = req.body || {};
+            try {
+                const result = await faqStore.ensureSchoolFaqsInLang(schoolId, ids, {
+                    lang, apiKey: process.env.GEMINI_API_KEY_TRANSLATION
+                });
+                return res.status(200).json(result);
+            } catch (e) {
+                return res.status(e.status || 500).json({ error: e.message });
+            }
+        }
+
+        // POST /api/faq/map — équivalents d'une liste de questions dans une langue
+        if (req.method === 'POST' && pathname === '/api/faq/map') {
+            const { ids, lang } = req.body || {};
+            return res.status(200).json(await faqStore.mapFaqsToLang(ids, lang));
         }
 
         // POST /api/faq/school/:schoolId — ajouter une association
@@ -753,6 +784,9 @@ module.exports = async function handler(req, res) {
             properties.status = 'draft';
 
             // ── Construire le HTML lisible pour l'aperçu (rapide, juste du texte) ──
+            // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+            await withSfmcKey(projectName, properties);
+
             const fullHtml = buildStoredHtml({ projectName, html, css, properties });
 
             // ── Sauvegarde immédiate en BD (sans nettoyage lourd ni sync structurée) ──
@@ -811,6 +845,7 @@ module.exports = async function handler(req, res) {
             return res.status(200).json({
                 message: 'Saved',
                 page_id: contentSync?.pageId || null,
+                sfmcKey: properties.sfmcKey || null,
                 sfmc:    jobResult,
                 content: contentSync || { queued: jobResult.action === 'queued', inline: jobResult.action === 'processed_inline' },
                 translation_info: {
@@ -1224,6 +1259,8 @@ module.exports = async function handler(req, res) {
 
                         // Code marketing : école cible (commun) + code page hérité du master
                         await applyCustomMarketingCode(newProjectName, newProps);
+                        // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
+                        await withSfmcKey(newProjectName, newProps);
 
                         // Remplacer header/footer master par les VRAIS blocs école (baseline).
                         const schoolHeaderHtml = renderSchoolHeaderHtml(schoolId);
