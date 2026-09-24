@@ -434,6 +434,41 @@ rien afficher.
 Le socle intercepte, poste en `fetch`, lit le bilan, et **ajoute un encart de
 message au-dessus du bouton**. Le POST natif reste le repli.
 
+### Page morte intermittente sur la candidature d'un compte connu — 24/09
+
+Symptôme remonté par la recette (ESEC, BRASSART) : « Landing page indisponible »
+une fois sur trois, uniquement en **candidature**, uniquement sur un **compte
+déjà connu** (re-soumission). Le journal s'arrêtait après « 40 - maj compte
+terminee », avant le premier « 60 - consentement ».
+
+Cause, relue dans l'Apex du CRM via `LPB_TST_Sonde_Valeurs`
+(`o=ApexClass&f=Body&w=Name&wv=…`) :
+
+1. notre update du compte pose `PTAT_Id__c` → `AccountsTriggerHandler.afterUpdate`
+   → `AcademicInterestRequestService` (tampon) → flow asynchrone →
+   `AcademicInterest` → `MarketingEngagementService.updateFromAcademicInterest`
+   pose `LastMarketingEngagementDate__c` (= maintenant, côté CRM) sur les
+   `ContactPointConsent` du compte ;
+2. notre update du consentement suivait 1 à 2 s plus tard avec une date
+   calculée **en tête de page**, donc antérieure ;
+3. `ContactPointConsentTriggerHandler.handleBeforeUpdate` →
+   `isManualDateRegression` → `addError(« …ne peut que progresser »)` ; AMPscript
+   n'a pas de try/catch : la page tombe. Intermittent parce que le flow est
+   asynchrone : il gagnait la course une fois sur trois.
+
+Correctif (`handler-form.ampscript`) : l'update du compte existant part
+**après** le bloc consentement (bloc « MISE À JOUR DU COMPTE EXISTANT »,
+`@majCompteAFaire`), et la date d'engagement des consentements est calculée
+juste avant leurs écritures (`@cpcHorodatage`, `@cpcHorodatageUtc`). Le
+journal détaillé (`SFMC_LOG_DETAIL=true`) trace désormais sur la ligne 58 la
+date déjà posée par le CRM (`dateCrm=`) et la nôtre (`notre=`). Test :
+`test-env.js` fige l'ordre 60 → 40 → étape 3a.
+
+Reste possible, plus rare : deux soumissions du même compte à quelques
+secondes d'intervalle, le tampon CRM de la première dépassant la date de la
+seconde. La parade complète est côté CRM : exempter l'utilisateur MC Connect
+du contrôle (`BypassContactPointConsentTriggers`) ou tolérer l'égalité.
+
 ### L'encart de message — retour client du 03/09
 
 **Le formulaire ne disparaît plus.** Jusqu'au 03/09, une confirmation masquait la

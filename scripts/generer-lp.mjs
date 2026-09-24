@@ -20,8 +20,14 @@
  *  Les deux lots ne partagent aucune cle : publier l'un ne touche jamais
  *  l'autre.
  *
+ *  LANGUE : --lang=en publie la variante ANGLAISE des blocs (`form-<type>-en`,
+ *  meme module, meme socle) sous la cle `<Lot>_<TYPE>_EN_<ECOLE>_V0`, avec
+ *  `<html lang="en">`. Le francais reste le defaut et sa cle ne change pas.
+ *  En-tete et pied de page sont ceux de l'ecole, sans variante de langue.
+ *
  *  Usage :
  *      node scripts/generer-lp.mjs                                  simulation
+ *      node scripts/generer-lp.mjs --lang=en --only=efap:BRCH       brochure anglaise
  *      node scripts/generer-lp.mjs --only=efap:BRCH                 une seule
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339 \
@@ -71,6 +77,8 @@ const MID  = (args.find((a) => a.startsWith('--mid=')) || '').split('=')[1];
 const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
 const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').split('=')[1] || '').toLowerCase();
 const CONFIRME_RECETTE = args.includes('--confirme-recette');
+const LANG = ((args.find((a) => a.startsWith('--lang=')) || '--lang=fr').split('=')[1] || 'fr').toLowerCase();
+const LANGUES = { fr: { suffixeBloc: '', suffixeCle: '' }, en: { suffixeBloc: '-en', suffixeCle: '_EN' } };
 
 /* Le prefixe de cle EST la separation entre les deux lots. Rien d'autre ne les
    distingue cote SFMC : meme dossier, meme gabarit, meme socle. */
@@ -174,9 +182,9 @@ function cssPourImages(html) {
     });
 }
 
-function page({ titre, header, formulaire, footer }) {
+function page({ titre, header, formulaire, footer, lang = 'fr' }) {
     return `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${lang}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -193,6 +201,10 @@ ${footer}
 /* -- garde-fous ---------------------------------------------------------- */
 if (!PREFIXES[LOT]) {
     console.error(`❌ --lot=${LOT || '(vide)'} inconnu. Valeurs admises : interne, recette.`);
+    process.exit(1);
+}
+if (!LANGUES[LANG]) {
+    console.error(`❌ --lang=${LANG} inconnu. Valeurs admises : fr, en.`);
     process.exit(1);
 }
 
@@ -228,7 +240,7 @@ for (const ecole of ECOLES) {
     }
 }
 
-console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — ${travaux.length} page(s)`);
+console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — langue ${LANG.toUpperCase()} — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
 console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}\n`);
 
@@ -239,15 +251,15 @@ const echecs = [];
 
 for (const { ecole, f } of travaux) {
     const ECOLE = ecole.id.toUpperCase().replace(/-/g, '_');
-    const nomProjet = `school-${ecole.id}__${PREFIXES[LOT]}_${f.code}_${ECOLE}_V0`;
+    const nomProjet = `school-${ecole.id}__${PREFIXES[LOT]}_${f.code}${LANGUES[LANG].suffixeCle}_${ECOLE}_V0`;
     const cle = customerKeyFor(nomProjet);
     try {
         const [header, formulaire, footer] = await Promise.all([
             rendreBloc(`blocks/header-${ecole.id}/index.js`, `header-${ecole.id}`),
-            rendreBloc(f.bloc, f.id),
+            rendreBloc(f.bloc, f.id + LANGUES[LANG].suffixeBloc),
             rendreBloc(`blocks/footer-${ecole.id}/index.js`, `footer-${ecole.id}`),
         ]);
-        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer })));
+        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer, lang: LANG })));
 
         if (!PUSH) {
             fs.writeFileSync(path.join(SORTIE, `${cle}.html`), html);
