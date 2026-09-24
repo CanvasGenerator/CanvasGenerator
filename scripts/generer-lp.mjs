@@ -28,6 +28,7 @@
  *  Usage :
  *      node scripts/generer-lp.mjs                                  simulation
  *      node scripts/generer-lp.mjs --lang=en --only=efap:BRCH       brochure anglaise
+ *      node scripts/generer-lp.mjs --lang=en --types=BRCH,CAND     lot anglais (2 formulaires)
  *      node scripts/generer-lp.mjs --only=efap:BRCH                 une seule
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339 \
@@ -75,6 +76,10 @@ const args = process.argv.slice(2);
 const PUSH = args.includes('--push');
 const MID  = (args.find((a) => a.startsWith('--mid=')) || '').split('=')[1];
 const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
+/* --types=BRCH,CAND : ne publier que ces formulaires (les blocs evenement
+   n'ont pas de variante anglaise, un lot --lang=en sans ce filtre echouerait
+   sur quatre pages par ecole). */
+const TYPES = ((args.find((a) => a.startsWith('--types=')) || '').split('=')[1] || '').split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
 const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').split('=')[1] || '').toLowerCase();
 const CONFIRME_RECETTE = args.includes('--confirme-recette');
 const LANG = ((args.find((a) => a.startsWith('--lang=')) || '--lang=fr').split('=')[1] || 'fr').toLowerCase();
@@ -236,6 +241,7 @@ const travaux = [];
 for (const ecole of ECOLES) {
     for (const f of FORMULAIRES) {
         if (ONLY && ONLY.toLowerCase() !== `${ecole.id}:${f.code}`.toLowerCase()) continue;
+        if (TYPES.length && !TYPES.includes(f.code)) continue;
         travaux.push({ ecole, f });
     }
 }
