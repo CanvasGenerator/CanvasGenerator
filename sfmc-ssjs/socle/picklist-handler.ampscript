@@ -83,6 +83,7 @@ VAR @evtIndex, @evtRows, @nEvt, @e
    contourne le cache sans ecrire (pour comparer). Ferme : rien ne change. */
 VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
 VAR @cleProg, @cleEvt, @marqueCache
+VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @deSyncEtat
 /* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
    variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
    laisser a leur ancienne place (juste avant leur lecture CRM) effacait le
@@ -95,6 +96,10 @@ SET @cachePick   = "miss"
 SET @cacheProg   = "miss"
 SET @cacheEvt    = "miss"
 SET @cacheEtat   = "ferme"
+SET @DE_SYNC_ACTIF = "%%ENV:SFMC_LECTURE_DE_SYNC%%"
+SET @evtDeSync   = "false"
+SET @bbDeSync    = "false"
+SET @deSyncEtat  = "ferme"
 SET @marqueCache = ""
 
 /* ---- QUELLE ECOLE ? -----------------------------------------------------
@@ -295,9 +300,32 @@ IF @cacheProg == "hit" THEN
     /* Cache de lecture : le nom Business Brand a ete lu avec les programmes. */
     IF NOT Empty(@marqueCache) THEN SET @marque = @marqueCache ENDIF
 ELSEIF NOT Empty(@marqueBrandId) THEN
-    SET @bbRows = RetrieveSalesforceObjects("BusinessBrand", "Id,Name", "Id", "=", @marqueBrandId)
-    IF RowCount(@bbRows) > 0 THEN
-        IF NOT Empty(Field(Row(@bbRows, 1), "Name")) THEN SET @marque = Field(Row(@bbRows, 1), "Name") ENDIF
+    ]%%
+    <script runat="server">
+    /* ==LECTURE_DE_SYNC_MARQUE== Nom de marque depuis la DE synchronisee
+       (BusinessBrand_Salesforce, partagee par l'Enterprise : prefixe ENT.).
+       En echec — DE non partagee, connecteur — on retombe sur le CRM. */
+    try {
+        if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true") {
+            var bbDe = Platform.Function.LookupRows("ENT.BusinessBrand_Salesforce", "Id", String(Variable.GetValue("@marqueBrandId") || ""));
+            if (bbDe && bbDe.length) {
+                if (bbDe[0].Name) Variable.SetValue("@marque", String(bbDe[0].Name));
+                Variable.SetValue("@bbDeSync", "true");
+                Variable.SetValue("@deSyncEtat", "marque:de");
+            } else {
+                Variable.SetValue("@deSyncEtat", "marque:absente");
+            }
+        }
+    } catch (eDeSyncBb) {
+        Variable.SetValue("@deSyncEtat", "marque:erreur(" + String(eDeSyncBb.message || eDeSyncBb).substring(0, 60) + ")");
+    }
+    </script>
+    %%[
+    IF @bbDeSync != "true" THEN
+        SET @bbRows = RetrieveSalesforceObjects("BusinessBrand", "Id,Name", "Id", "=", @marqueBrandId)
+        IF RowCount(@bbRows) > 0 THEN
+            IF NOT Empty(Field(Row(@bbRows, 1), "Name")) THEN SET @marque = Field(Row(@bbRows, 1), "Name") ENDIF
+        ENDIF
     ENDIF
 ENDIF
 
@@ -890,7 +918,124 @@ SET @nbInst      = 0
 SET @nbInstStatut = 0
 ENDIF
 
-IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) THEN
+]%%
+<script runat="server">
+/* ==LECTURE_DE_SYNC_EVT== Dates d'evenement et ateliers depuis les DE
+   synchronisees Salesforce (Enterprise, prefixe ENT., ~15 min) : memes
+   filtres que le chemin CRM ci-dessous — evenements du type demande, instances
+   des campus de l'ecole (Campus__c, sinon campusNameFor__c), date >= borne,
+   statut Planning/Active (l'immersion echappe aux deux) — et memes blocs JS.
+   Ce qui differe, et pourquoi :
+   - `label` = summit__Instance_Title__c : le Name (S-011411) n'est pas
+     synchronise ; le JS n'affiche le label qu'a defaut de date.
+   - heures : la DE porte un Date/Heure a l'heure serveur SFMC (UTC-6, sans
+     ete) ; le CRM rendait « 07:00:00.000Z ». On ajoute 6 h.
+   - ateliers : summit__Date_Available_Start__c / _End__c et
+     summit__Required_Appointment__c ne sont PAS synchronises (a ajouter a la
+     synchro) : debut/fin vides, required a false. Sans debut, le JS ne met
+     aucune conference en avant, et trie les ateliers par Sort_Order.
+   - repli par nom de campus : egalite avec les noms de LPB_Mapping_Campus
+     (LookupRows ne sait pas faire « commence par »).
+   En echec (DE non partagee, connecteur), @evtDeSync reste a false et le
+   chemin CRM s'execute tel quel. */
+try {
+    if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true"
+        && String(Variable.GetValue("@cacheEvt")) != "hit"
+        && String(Variable.GetValue("@typeEvt") || "") != "") {
+        var tDe0 = new Date().getTime();
+        var typeEvtCrmDe = String(Variable.GetValue("@typeEvtCrm") || "");
+        var estImmersionDe = String(Variable.GetValue("@typeEvt") || "").toLowerCase() == "immersion";
+        var prefixUpDe = String(Variable.GetValue("@prefixUp") || "");
+        var schoolDe = String(Variable.GetValue("@school") || "");
+        var aujDe = new Date();
+        var d0Utc = Date.UTC(aujDe.getFullYear(), aujDe.getMonth(), aujDe.getDate());
+        function deux(n) { return (n < 10 ? "0" : "") + n; }
+        var dBorneDe = estImmersionDe ? "1900-01-01" : (aujDe.getFullYear() + "-" + deux(aujDe.getMonth() + 1) + "-" + deux(aujDe.getDate()));
+        function escDe(v) { return String(v === null || v === undefined ? "" : v).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+        function jourDe(v) { v = String(v || ""); return v.length >= 10 ? v.substring(0, 10) : ""; }
+        function heureDe(v) {
+            /* ⚠ Jint : les groupes de capture de RegExp.exec() reviennent
+               undefined (constate le 25/09) — on decoupe la chaine. */
+            v = String(v || "");
+            var i = v.indexOf("T");
+            if (i < 0 || v.length < i + 9) return "";
+            var hh = Number(v.substring(i + 1, i + 3));
+            if (isNaN(hh)) return "";
+            return deux((hh + 6) % 24) + ":" + v.substring(i + 4, i + 6) + ":" + v.substring(i + 7, i + 9) + ".000Z";
+        }
+        /* Campus de l'ecole : Ids (Campus__c) et noms (repli). */
+        var campusRowsDe = Platform.Function.LookupRows("LPB_Mapping_Campus", "Ecole", schoolDe) || [];
+        var campusNomDe = {}, campusIdsDe = [], campusNomsDe = [];
+        for (var c = 0; c < campusRowsDe.length; c++) {
+            var cid = String(campusRowsDe[c].SchoolAccountId || ""), cn = String(campusRowsDe[c].Campus || "");
+            if (cid) { campusIdsDe.push(cid); campusNomDe[cid] = cn; }
+            if (cn) campusNomsDe.push(cn);
+        }
+        /* Evenements du type : le type vit sur l'evenement parent dans la DE. */
+        var evRowsDe = Platform.Function.LookupRows("ENT.summit__Summit_Events__c_Salesforce_1", "EventType__c", typeEvtCrmDe) || [];
+        var evTypeDe = {};
+        for (var e = 0; e < evRowsDe.length; e++) evTypeDe[String(evRowsDe[e].Id)] = true;
+        var vuesDe = {}, instDe = [];
+        function ajouterDe(rows) {
+            for (var i = 0; rows && i < rows.length; i++) {
+                var id = String(rows[i].Id || "");
+                if (!id || vuesDe[id]) continue;
+                vuesDe[id] = true; instDe.push(rows[i]);
+            }
+        }
+        if (prefixUpDe.length == 0) {
+            for (var e2 = 0; e2 < evRowsDe.length; e2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "summit__Event__c", String(evRowsDe[e2].Id)));
+        } else {
+            for (var k = 0; k < campusIdsDe.length; k++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "Campus__c", campusIdsDe[k]));
+            for (var k2 = 0; k2 < campusNomsDe.length; k2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "campusNameFor__c", campusNomsDe[k2]));
+        }
+        var jsInstDe = [], evtIndexDe = {}, evtListeDe = [], nbInstDe = 0, nbStatutDe = 0;
+        for (var j = 0; j < instDe.length; j++) {
+            var r = instDe[j];
+            var evId = String(r.summit__Event__c || "");
+            if (!evTypeDe[evId]) continue;
+            var cidR = String(r.Campus__c || ""), cNameR = String(r.campusNameFor__c || "");
+            /* Meme regle que le chemin CRM : Campus__c de l'ecole, sinon nom qui commence par le prefixe. */
+            if (prefixUpDe.length > 0 && !(cidR && campusNomDe[cidR] !== undefined) && !(!cidR && cNameR.toUpperCase().indexOf(prefixUpDe) == 0)) continue;
+            var dateR = jourDe(r.summit__Instance_Start_Date__c);
+            if (!dateR || dateR < dBorneDe) continue;
+            var statutR = String(r.summit__Active_Status__c || "");
+            if (!(estImmersionDe || statutR == "Planning" || statutR == "Active")) { nbStatutDe++; continue; }
+            var deltaR = Math.round((Date.UTC(Number(dateR.substring(0, 4)), Number(dateR.substring(5, 7)) - 1, Number(dateR.substring(8, 10))) - d0Utc) / 86400000);
+            if (!estImmersionDe && deltaR < 0) continue;
+            if (!cNameR && cidR && campusNomDe[cidR]) cNameR = campusNomDe[cidR];
+            nbInstDe++;
+            jsInstDe.push("{value:'" + escDe(r.Id) + "',label:'" + escDe(r.summit__Instance_Title__c) + "',date:'" + dateR
+                + "',heure:'" + heureDe(r.summit__Instance_Start_Time__c) + "',heureFin:'" + heureDe(r.summit__Instance_End_Time__c)
+                + "',campus:'" + escDe(cNameR) + "',address:'" + escDe(r.summit__Location_Address_Override__c)
+                + "',evenement:'" + escDe(evId) + "',jours:" + deltaR + "}");
+            if (evId && !evtIndexDe[evId]) { evtIndexDe[evId] = true; evtListeDe.push(evId); }
+        }
+        var jsApptsDe = [];
+        for (var a = 0; a < evtListeDe.length; a++) {
+            var apDe = Platform.Function.LookupRows("ENT.summit__Summit_Events_Appointment_Type__c_Salesforce", "summit__Summit_Events__c", evtListeDe[a]) || [];
+            for (var b = 0; b < apDe.length; b++) {
+                var t = apDe[b];
+                var lDe = String(t.summit__Title__c || "") || String(t.Name || "");
+                jsApptsDe.push("{value:'" + escDe(t.Id) + "',label:'" + escDe(lDe) + "',evenement:'" + escDe(evtListeDe[a])
+                    + "',instance:'" + escDe(t.summit__Restrict_To_Instance_Title__c) + "',type:'" + escDe(t.summit__Appointment_Type__c)
+                    + "',debut:'',fin:'',ordre:'" + escDe(t.summit__Sort_Order__c) + "',required:false}");
+            }
+        }
+        Variable.SetValue("@jsInstances", jsInstDe.join(","));
+        Variable.SetValue("@jsAppts", jsApptsDe.join(","));
+        Variable.SetValue("@nbInst", nbInstDe);
+        Variable.SetValue("@nbInstStatut", nbStatutDe);
+        Variable.SetValue("@evtDeSync", "true");
+        Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " evt:de(" + evRowsDe.length + "evt/" + instDe.length + "lues/" + nbInstDe + "gardees/" + jsApptsDe.length + "ateliers " + (new Date().getTime() - tDe0) + "ms)");
+    }
+} catch (eDeSyncEvt) {
+    Variable.SetValue("@evtDeSync", "false");
+    Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " evt:erreur(" + String(eDeSyncEvt.message || eDeSyncEvt).substring(0, 80) + ")");
+}
+</script>
+%%[
+IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
 
     SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
 
@@ -1386,7 +1531,7 @@ window.SOCLE_DATA = {
 };
 %%=v(@dataFerme)=%%
 
-<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% -->
+<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% desync=%%=v(@deSyncEtat)=%% -->
 %%[ IF Length(@prefix) == 0 THEN ]%%
 <!-- ⚠ ecole absente de LPB_Mapping_Ecoles : aucun programme ne sera propose. -->
 %%[ ELSEIF Lowercase(@actif) != "true" THEN ]%%
