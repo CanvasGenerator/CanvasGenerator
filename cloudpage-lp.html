@@ -471,10 +471,11 @@ var TEST_CASES = [
         for (var k in P) { if (Object.prototype.hasOwnProperty.call(P, k)) { KEYS.push(k); } }
 
         function nowStamp() {
-            var d = new Date();
-            function p(n) { return (n < 10 ? "0" : "") + n; }
-            return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " +
-                   p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
+            /* ISO UTC avec Z : c'est le seul format que le CRM accepte pour
+               DateConsentementCookies__c (Date/Heure). L'ancien « AAAA-MM-JJ HH:MM:SS »
+               local tuait la deuxieme soumission de tout visiteur ayant accepte
+               les cookies (25/09). Le socle normalise aussi de son cote. */
+            return new Date().toISOString().slice(0, 19) + "Z";
         }
         function getCookie(name) {
             var m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()\[\]\\\/+^])/g, "\\$1") + "=([^;]*)"));
