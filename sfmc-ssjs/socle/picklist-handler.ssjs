@@ -730,6 +730,10 @@ try {
            qui suit. Deja capitale (sigle en tete) : on n'y touche pas. */
         var i = sortie.search(RE_LETTRE);
         if (i === -1) return sortie;
+        /* Sauf un suffixe ordinal colle a son chiffre : « 1st », « 2nd »,
+           « 4th », « 3e » restent tels quels. Constate le 25/09 sur les
+           niveaux anglais : « 1St year of Higher Education ». */
+        if (i > 0 && /[0-9]/.test(sortie.charAt(i - 1))) return sortie;
         return sortie.substring(0, i) + sortie.charAt(i).toUpperCase() + sortie.substring(i + 1);
     }
 
