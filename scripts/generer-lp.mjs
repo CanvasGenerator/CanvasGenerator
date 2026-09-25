@@ -149,6 +149,10 @@ const RACINE = process.cwd();
    variable oubliee publierait 60 pages sur du vieux code, sans que rien ne le
    dise. */
 process.env.SOCLE_INLINE = 'true';
+/* Le socle inline est depouille (commentaires, indentation) a la publication :
+   ~470 Ko parses par SFMC a chaque affichage, dont la moitie de prose.
+   SFMC_SOCLE_DEPOUILLE=false pour publier le texte commente. */
+if (String(process.env.SFMC_SOCLE_DEPOUILLE || '').trim() === '') process.env.SFMC_SOCLE_DEPOUILLE = 'true';
 
 /** Editeur factice : il ne sait qu'une chose, retenir ce qu'on lui ajoute. */
 function stubEditor(recolte) {
@@ -307,6 +311,7 @@ for (const ecole of ECOLES) {
 
 console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — langue ${LANG.toUpperCase()} — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
+console.log(`  Socle inline : ${process.env.SFMC_SOCLE_DEPOUILLE === 'true' ? 'depouille (commentaires et indentation retires)' : 'texte complet'}`);
 console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}\n`);
 
 if (!PUSH) fs.mkdirSync(SORTIE, { recursive: true });
