@@ -134,14 +134,20 @@ indépendants, injectés à la publication (`lib/socle-env.js`), fermés par dé
 | Drapeau | Ce qu'il change | Gain mesuré |
 |---|---|---|
 | `SFMC_ASYNC_SOUMISSION` | Le POST du visiteur ne fait que les règles de blocage + dépose le corps brut dans `LPB_File_Soumissions`, répond `success` ; le navigateur renvoie le même corps en `sendBeacon` (`socle_traitement=1&socle_run=`) et c'est ce second passage qui écrit CRM + journey, puis solde la ligne (`traitee`/`erreur`). Filet : automation `LPB_Rejouer_File_Soumissions` (`sfmc-ssjs/automations/`), **à planifier** — elle existe, statut Ready, non planifiée au 24/09. | confirmation en **4–5 s** au lieu de 16–20 |
-| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 4 000 car.), par famille : `pick` 24 h, `prog` 6 h, `evt` 1 h (clé datée : tombe à minuit). La page écrit elle-même le cache au premier passage après expiration ; aucune automation. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans `?socleDebug=1`. DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
+| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 3 998 car. entre sentinelles `~`), par famille : `pick` 24 h, `prog` 6 h, `evt` 1 h (clé datée : tombe à minuit). La page écrit elle-même le cache au premier passage après expiration ; aucune automation. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans `?socleDebug=1`. DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
 
 Pièges rencontrés en l'implémentant, à ne pas redécouvrir :
 - un `VAR` AMPscript **réinitialise** la variable : tout `VAR` d'une variable
   servie par le cache doit être déclaré AVANT le bloc de lecture ;
 - Jint : `"abc".substring(5, 9)` rend `"c"`, pas `""` — borner à la main ;
 - le CRM renvoie les value sets dans un ordre aléatoire : comparer hit et live
-  sur les éléments triés, pas octet à octet.
+  sur les éléments triés, pas octet à octet ;
+- **SFMC supprime les espaces de fin d'un champ texte de DE** : une tranche
+  coupée à 4 000 sur un espace revenait à 3 999 (« Mastère Animation » relu
+  « MastèreAnimation »), `Octets` ne tombait plus juste et la famille restait
+  en miss (25/09). Chaque tranche est donc écrite entre deux `~` (3 998
+  caractères utiles), retirés à la lecture ; une ligne de l'ancien format
+  tombe en miss une fois et se réécrit.
 
 ## 3. Ce que le socle écrit
 
