@@ -646,7 +646,9 @@ IF @CTA_DOC_ACTIF == "true" THEN
                 Replace(Replace(Field(@ctaRow, "cursus"), "\", "\\"), "'", "\'"), "',titre:'",
                 Replace(Replace(@ctaTitre, "\", "\\"), "'", "\'"), "',fond:'",
                 Replace(Replace(Field(@ctaRow, "couleur_fond_CTA_doc"), "\", "\\"), "'", "\'"), "',police:'",
-                Replace(Replace(Field(@ctaRow, "couleur_police_CTA_doc"), "\", "\\"), "'", "\'"), "',url:'",
+                Replace(Replace(Field(@ctaRow, "couleur_police_CTA_doc"), "\", "\\"), "'", "\'"), "',langue:'",
+                Replace(Replace(Field(@ctaRow, "language"), "\", "\\"), "'", "\'"), "',pays:'",
+                Replace(Replace(Field(@ctaRow, "pays"), "\", "\\"), "'", "\'"), "',url:'",
                 Replace(Replace(@ctaUrl, "\", "\\"), "'", "\'"), "'}")
             SET @sepCta = ","
         ENDIF
@@ -4019,6 +4021,31 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         }
     };
 
+    /* Les formulaires ANGLAIS, textes fournis par le metier le 25/09 au mot
+       pres. `texte` accepte une chaine ou une liste de paragraphes. Pas de
+       version anglaise pour evenement et immersion : aucune page anglaise de
+       ces familles n'existe, le francais reste le repli. */
+    var MESSAGES_EN = {
+        brochure: {
+            titre: 'Your brochure is ready!',
+            texte: ['You can download it now. We\u2019ve also sent a copy to your '
+                        + 'email address. Don\u2019t forget to check your spam folder.',
+                    'We remain at your disposal for any further information.']
+        },
+        candidature: {
+            titre: 'We\u2019ve received your application request.',
+            texte: 'To complete and submit your application, please create your '
+                 + 'applicant account using the link sent to your email address '
+                 + '(please make sure to check your spam folder).'
+        }
+    };
+
+    /** Le message de confirmation dans la langue de la page. */
+    function messageSucces(famille) {
+        if (langueAffichage() === 'en' && MESSAGES_EN[famille]) return MESSAGES_EN[famille];
+        return MESSAGES[famille];
+    }
+
     /* La coche du message de confirmation. Elle ouvre la premiere ligne de
        l'encart vert : le visiteur doit reconnaitre un succes AVANT de lire. */
     var COCHE = '\u2714\ufe0f';
@@ -4415,12 +4442,41 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         var lignes = D && D.ctaDoc;
         if (!lignes || !lignes.length) return null;
 
+        /* --- Langue et pays de la brochure, retour du 25/09 ---------------
+           Deux colonnes ajoutees a la DE : `language` (FR | EN) et `pays`
+           (France | International).
+             formulaire anglais   → les lignes language = EN, pays indifferent ;
+             formulaire francais  → language = FR, et pays = France si le
+                                    visiteur reside en France (champ Country),
+                                    International sinon.
+           Meme doctrine que les autres criteres : une cellule VIDE ne contraint
+           rien, une cellule remplie doit correspondre et rend la ligne plus
+           precise. Tant que le metier n'a pas rempli ces colonnes (vides sur
+           les 111 lignes au 25/09), le bouton reste celui d'aujourd'hui ; des
+           qu'une ligne les porte, elle l'emporte. */
+        var langueForm = langueAffichage() === 'en' ? 'EN' : 'FR';
+        var paysForm = '';
+        if (langueForm === 'FR') {
+            var paysSaisi = cle(valeurChamp(form, 'Country'));
+            if (paysSaisi) paysForm = paysSaisi === 'FRANCE' ? 'FRANCE' : 'INTERNATIONAL';
+        }
+
         var meilleure = null, meilleurScore = -1;
         for (var i = 0; i < lignes.length; i++) {
             var ligne = lignes[i];
             if (!ligne) continue;
 
             var score = 0, retenue = true;
+            var langueLigne = cle(ligne.langue);
+            if (langueLigne) {
+                if (langueLigne !== langueForm) continue;
+                score++;
+            }
+            var paysLigne = cle(ligne.pays);
+            if (langueForm === 'FR' && paysLigne && paysForm) {
+                if (paysLigne !== paysForm) continue;
+                score++;
+            }
             for (var c = 0; c < CRITERES_DOC.length; c++) {
                 var attendu = ligne[CRITERES_DOC[c].cle];
                 if (!attendu) continue;                 // colonne vide = ne contraint rien
@@ -4471,9 +4527,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      * cette porte doit rester ouverte.
      */
     function montrerSucces(form) {
-        var msg = MESSAGES[familleDe(form)];
+        var msg = messageSucces(familleDe(form));
         var lignes = [COCHE + ' ' + msg.titre];
-        if (msg.texte) lignes.push(msg.texte);
+        var corps = msg.texte ? [].concat(msg.texte) : [];
+        for (var k = 0; k < corps.length; k++) lignes.push(corps[k]);
         /* Le CTA, quand une DE le fournit. Sinon rien : le message reste ce
            qu'il etait.
 
@@ -4529,6 +4586,25 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         ]
     };
 
+    /* Formulaires ANGLAIS. R1 : texte fourni par le metier le 25/09, au mot
+       pres (premiere phrase en titre, comme en francais). R2 : pas de texte
+       fourni, traduction fidele du francais — a faire valider. */
+    var MESSAGES_BLOCAGE_EN = {
+        r1: [
+            'Your application request has already been submitted.',
+            'We have already received an application request associated with your '
+                + 'details. Therefore, you do not need to resubmit this form. Please '
+                + 'check the email previously sent to you to access your applicant '
+                + 'account and continue with your process.'
+        ],
+        r2: [
+            'Your previous application to this programme received an unfavourable '
+                + 'decision. A new application to the same programme is not possible '
+                + 'before next year. For any questions, please contact the admissions '
+                + 'office.'
+        ]
+    };
+
     /** Affiche le message du cadrage correspondant au motif renvoye. */
     function montrerBlocage(form, motif) {
         /* Motif absent : une page publiee avant que le socle d'ecriture ne
@@ -4536,7 +4612,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            prejuge d'aucune decision de jury — c'est le defaut le moins faux.
            Le motif sert AUSSI de ton : orange pour r1, rouge pour r2. */
         var cle = MESSAGES_BLOCAGE[motif] ? motif : 'r1';
-        montrerMessage(form, MESSAGES_BLOCAGE[cle], cle);
+        var table = langueAffichage() === 'en' ? MESSAGES_BLOCAGE_EN : MESSAGES_BLOCAGE;
+        montrerMessage(form, table[cle] || MESSAGES_BLOCAGE[cle], cle);
     }
 
     /** Efface l'encart avant une nouvelle tentative : tout a pu changer. */
