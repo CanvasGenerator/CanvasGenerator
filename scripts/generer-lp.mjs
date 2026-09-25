@@ -25,6 +25,13 @@
  *  `<html lang="en">`. Le francais reste le defaut et sa cle ne change pas.
  *  En-tete et pied de page sont ceux de l'ecole, sans variante de langue.
  *
+ *  --gtm : TEMPORAIRE (24/09). Injecte le conteneur Google Tag Manager de la
+ *  marque (serveur sGTM + id, table GTM ci-dessous) : le script en tete du
+ *  <head>, le <noscript> juste apres <body>. En production les pages sortent
+ *  du builder, qui porte le code GTM dans les proprietes de la page ; pour les
+ *  lots Interne et Recette, generes ici, c'est le seul moyen de tester le
+ *  tracking. A retirer quand les pages viendront du builder.
+ *
  *  Usage :
  *      node scripts/generer-lp.mjs                                  simulation
  *      node scripts/generer-lp.mjs --lang=en --only=efap:BRCH       brochure anglaise
@@ -84,6 +91,46 @@ const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').spli
 const CONFIRME_RECETTE = args.includes('--confirme-recette');
 const LANG = ((args.find((a) => a.startsWith('--lang=')) || '--lang=fr').split('=')[1] || 'fr').toLowerCase();
 const LANGUES = { fr: { suffixeBloc: '', suffixeCle: '' }, en: { suffixeBloc: '-en', suffixeCle: '_EN' } };
+const GTM_ACTIF = args.includes('--gtm');
+
+/* Conteneurs GTM par ecole (liste fournie le 24/09) : serveur sGTM et id. */
+const GTM = {
+    'efap':        { hote: 'sgtm.efap.com',        id: 'GTM-NM7G8V9' },
+    'brassart':    { hote: 'sgtm.brassart.fr',     id: 'GTM-52GFCN3' },
+    'icart':       { hote: 'sgtm.icart.fr',        id: 'GTM-W944F2W' },
+    'efj':         { hote: 'sgtm.efj.fr',          id: 'GTM-5CVJCTF' },
+    'ifa-paris':   { hote: 'sgtm.ifaparis.com',    id: 'GTM-NBXZRK8' },
+    'cread':       { hote: 'sgtm.cread.fr',        id: 'GTM-MJRTDTJ' },
+    'mopa':        { hote: 'sgtm.ecole-mopa.fr',   id: 'GTM-TX6KR8J' },
+    '3wa':         { hote: 'sgtm.3wacademy.fr',    id: 'GTM-M9LVS7DR' },
+    'ecole-bleue': { hote: 'sgtm.ecole-bleue.fr',  id: 'GTM-K8Q4NDRX' },
+    'esec':        { hote: 'sgtm.esec.fr',         id: 'GTM-WMND2GN' },
+};
+
+/** Les deux morceaux GTM d'une ecole, tels que fournis par Google (sGTM).
+ *
+ *  ⚠ La balise <script> est ASSEMBLEE A L'EXECUTION par AMPscript, comme
+ *  celles du socle : l'API SFMC supprime toute balise de script litterale a
+ *  l'upload — constate le 24/09 sur les 20 pages EN, le commentaire GTM
+ *  arrivait en ligne vide de son script. Le <noscript>, lui, passe. */
+function gtmPour(ecoleId) {
+    const g = GTM[ecoleId];
+    if (!GTM_ACTIF || !g) return { head: '', body: '' };
+    return {
+        head: `%%[ VAR @gtmOuvre, @gtmFerme SET @gtmOuvre = Concat("<scr", "ipt>") SET @gtmFerme = Concat("</scr", "ipt>") ]%%
+<!-- Google Tag Manager -->
+%%=v(@gtmOuvre)=%%(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://${g.hote}/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
+})(window,document,'script','dataLayer','${g.id}');%%=v(@gtmFerme)=%%
+<!-- End Google Tag Manager -->`,
+        body: `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://${g.hote}/ns.html?id=${g.id}"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`,
+    };
+}
 
 /* Le prefixe de cle EST la separation entre les deux lots. Rien d'autre ne les
    distingue cote SFMC : meme dossier, meme gabarit, meme socle. */
@@ -187,15 +234,17 @@ function cssPourImages(html) {
     });
 }
 
-function page({ titre, header, formulaire, footer, lang = 'fr' }) {
+function page({ titre, header, formulaire, footer, lang = 'fr', gtm = { head: '', body: '' } }) {
     return `<!DOCTYPE html>
 <html lang="${lang}">
 <head>
+${gtm.head}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${titre}</title>
 </head>
 <body>
+${gtm.body}
 ${header}
 ${formulaire}
 ${footer}
@@ -248,12 +297,16 @@ for (const ecole of ECOLES) {
 
 console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — langue ${LANG.toUpperCase()} — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
-console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}\n`);
+console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}\n`);
 
 if (!PUSH) fs.mkdirSync(SORTIE, { recursive: true });
 
 const liens = [];
 const echecs = [];
+if (GTM_ACTIF) {
+    const sansGtm = [...new Set(travaux.map((t) => t.ecole.id))].filter((id) => !GTM[id]);
+    if (sansGtm.length) { console.error(`❌ --gtm : pas de conteneur connu pour ${sansGtm.join(', ')}`); process.exit(1); }
+}
 
 for (const { ecole, f } of travaux) {
     const ECOLE = ecole.id.toUpperCase().replace(/-/g, '_');
@@ -265,7 +318,7 @@ for (const { ecole, f } of travaux) {
             rendreBloc(f.bloc, f.id + LANGUES[LANG].suffixeBloc),
             rendreBloc(`blocks/footer-${ecole.id}/index.js`, `footer-${ecole.id}`),
         ]);
-        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer, lang: LANG })));
+        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer, lang: LANG, gtm: gtmPour(ecole.id) })));
 
         if (!PUSH) {
             fs.writeFileSync(path.join(SORTIE, `${cle}.html`), html);
