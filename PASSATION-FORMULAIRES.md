@@ -684,6 +684,25 @@ reste ne l'était que sur la branche « déjà connu ». Corrigé, sauf
 `DateConsentementCookies__c` — champ date, aucune valeur réelle d'Axeptio à
 valider, et un format refusé tue la page.
 
+**dataLayer `form_sent`** (push à la soumission, dans la CloudPage) : `form_lang`,
+`user_data_country` (minuscules), `user_data_email`, `user_data_phone` (E.164),
+et depuis le 24/09 **`user_campus`** — le campus retenu (`Campus`, sinon
+`CampusChoisi`, sinon l'URL), valeur CRM telle quelle.
+
+⚠ La CloudPage `landingpage` n'est **pas** dans Content Builder : elle ne se
+déploie pas par l'API. `sfmc-ssjs/diagnostic/CP-lpbuilder.ssjs` en est la copie
+de référence, à recoller à la main dans CloudPages. Relevé du 24/09 : la page en
+ligne est **en retard** sur cette copie (pas de `campus` dans
+`tracking_params`, téléphone non E.164, pays non minusculisé, pas de
+`user_campus`).
+
+**GTM temporaire sur les lots générés** (24/09) : `generer-lp.mjs --gtm`
+injecte le conteneur sGTM de chaque école (table `GTM` dans le script : hôte +
+id) en tête du `<head>` et le `<noscript>` après `<body>`. Provisoire : les
+pages du builder porteront le code GTM par leurs propriétés ; retirer l'option
+quand les lots Interne/Recette en viendront. La copie de la CloudPage
+maintenue par anouar est `cloudpage-lp.html` à la racine (avec `user_campus`).
+
 **Défaut hors de notre portée** — la table d'attribution de la CloudPage est
 lacunaire :
 
