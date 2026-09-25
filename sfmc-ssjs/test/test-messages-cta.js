@@ -113,6 +113,21 @@ test('Blocage anglais R1, au mot pres', () => {
     egal(ctx.r1, 'Your application request has already been submitted. We have already received an application request associated with your details. Therefore, you do not need to resubmit this form. Please check the email previously sent to you to access your applicant account and continue with your process.');
 });
 
+/* Niveaux anglais du 25/09 : la mise en casse ne doit pas faire « 1St ». */
+test('Casse des libelles : ordinaux intacts, phrases capitalisees', () => {
+    const lignes = src.split('\n');
+    const deb = lignes.findIndex((l) => /^    var SIGLES = \{/.test(l));
+    const fin = lignes.findIndex((l, i) => i > deb && /^    function casseLisible\(/.test(l));
+    const casse = lignes.slice(deb, fin).join('\n') + '\n' + fonction('casseLisible');
+    const r = (t) => { const ctx = { t, r: null }; vm.runInNewContext(casse + '\nr = casseLisible(t, false);', ctx); return ctx.r; };
+    egal(r('1st year of Higher Education'), '1st year of Higher Education');
+    egal(r('2nd Year of High School'), '2nd Year of High School');
+    egal(r('4th year of Higher Education'), '4th year of Higher Education');
+    egal(r("Bachelor's Degree (or equivalent)"), "Bachelor's Degree (or equivalent)");
+    egal(r('middle school'), 'Middle school');
+    egal(r('BAC OBTENU OU PREPA'), 'Bac obtenu ou prepa');
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);
