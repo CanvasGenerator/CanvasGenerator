@@ -198,6 +198,27 @@ test('socle de lecture : cache DE complet, ferme sans variable', () => {
     } finally { if (avant !== undefined) process.env.SFMC_CACHE_LECTURE = avant; }
 });
 
+/* DE synchronisees : drapeau ferme par defaut ; ouvert, le socle de lecture
+   lit evenements, instances, ateliers et nom de marque dans les DE ENT.* et
+   ne passe au CRM qu'en repli. */
+test('SFMC_LECTURE_DE_SYNC : booleen, ferme par defaut', () => {
+    egal(injecterEnv('x=%%ENV:SFMC_LECTURE_DE_SYNC%%', {}), 'x=false');
+    egal(injecterEnv('x=%%ENV:SFMC_LECTURE_DE_SYNC%%', { SFMC_LECTURE_DE_SYNC: 'TRUE' }), 'x=true');
+});
+test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM en repli', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'picklist-handler.ampscript'), 'utf8');
+    const bloc = src.indexOf('==LECTURE_DE_SYNC_EVT==');
+    const garde = src.indexOf('IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN');
+    const crm = src.indexOf('RetrieveSalesforceObjects("summit__Summit_Events_Instance__c"');
+    egal(bloc > 0 && garde > bloc && crm > garde, true, 'bloc DE, puis garde, puis chemin CRM');
+    for (const de of ['ENT.summit__Summit_Events__c_Salesforce_1', 'ENT.summit__Summit_Events_Instance__c_Salesforce_1', 'ENT.summit__Summit_Events_Appointment_Type__c_Salesforce', 'ENT.BusinessBrand_Salesforce']) {
+        egal(src.includes('LookupRows("' + de + '"'), true, 'lecture de ' + de);
+    }
+    egal(/catch \(eDeSyncEvt\) \{\s*Variable\.SetValue\("@evtDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
+    egal(src.includes('IF @bbDeSync != "true" THEN'), true, 'marque : CRM en repli');
+    egal(src.includes('desync=%%=v(@deSyncEtat)=%%'), true, 'etat dans le commentaire socle ampscript');
+});
+
 /* Compte existant : l'update du compte part APRES les consentements. Poser
    PTAT_Id__c avant declenchait cote CRM un tampon de date d'engagement sur les
    consentements, que notre update suivant ne pouvait plus « faire progresser »
