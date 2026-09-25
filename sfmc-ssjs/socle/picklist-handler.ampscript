@@ -231,9 +231,15 @@ try {
               cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
         ];
         var maintenant = new Date().getTime();
+        var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";
         for (var f = 0; f < familles.length; f++) {
             var fam = familles[f];
             if (!fam.famille) { etats.push(fam.tag + ":sans-objet"); continue; }
+            /* Les dates d'evenement viennent des DE synchronisees (~15 min) quand
+               SFMC_LECTURE_DE_SYNC est ouvert : un cache d'une heure par-dessus
+               les vieillirait pour rien. La famille reste en « miss » ; si la DE
+               echoue, le chemin CRM reprend et le cache s'ecrit comme avant. */
+            if (fam.tag == "evt" && deSyncActif) { etats.push("evt:de-sync"); continue; }
             if (cacheMode == "refresh") { etats.push(fam.tag + ":refresh"); continue; }
             var rows = Platform.Function.LookupRows("LPB_Cache_Lecture", "Famille", fam.famille) || [];
             var parCle = {};
@@ -1442,6 +1448,8 @@ try {
             var famE = famillesE[fe];
             if (!famE.famille) continue;
             if (String(Variable.GetValue(famE.drapeau)) == "hit") continue;
+            /* Servie par la DE synchronisee : rien a mettre en cache. */
+            if (famE.tag == "evt" && String(Variable.GetValue("@evtDeSync")) == "true") continue;
             var lignesE = [], tropGros = false;
             for (var cleE in famE.cles) {
                 var vE = Variable.GetValue(famE.cles[cleE]);

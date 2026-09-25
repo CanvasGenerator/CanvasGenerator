@@ -13,7 +13,11 @@ const vm = require('node:vm');
 const { creerDom } = require('./harness-dom');
 
 const SRC = path.join(__dirname, '..', 'socle', 'picklist-handler.ssjs');
-const blocs = [...fs.readFileSync(SRC, 'utf8').matchAll(/<script>([\s\S]*?)<\/script>/g)];
+/* SOCLE_DEPOUILLE_TEST=1 : la meme cascade, lue dans le texte tel qu'il est
+   publie (lib/socle-depouillement.js) — lance par test-depouillement.js. */
+let SOURCE = fs.readFileSync(SRC, 'utf8');
+if (process.env.SOCLE_DEPOUILLE_TEST === '1') SOURCE = require('../../lib/socle-depouillement').depouiller(SOURCE);
+const blocs = [...SOURCE.matchAll(/<script>([\s\S]*?)<\/script>/g)];
 const CASCADE = blocs[blocs.length - 1][1];
 
 const LAYOUT = [['Email', 0], ['Campus', 1], ['Niveau', 1], ['Speciality', 1],
