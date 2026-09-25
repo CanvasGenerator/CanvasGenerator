@@ -238,6 +238,7 @@ function page({ titre, header, formulaire, footer, lang = 'fr', gtm = { head: ''
     return `<!DOCTYPE html>
 <html lang="${lang}">
 <head>
+<script runat="server">try { Variable.SetValue("@tPage0", new Date().getTime()); } catch (e) {}</script>
 ${gtm.head}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -248,6 +249,15 @@ ${gtm.body}
 ${header}
 ${formulaire}
 ${footer}
+<script runat="server">
+/* Chronos de la page entiere, en complement des chronos par famille du socle
+   de lecture (commentaire « socle ampscript ») : ou part le temps d'affichage. */
+try {
+    var tFin = new Date().getTime(), t0 = Number(Variable.GetValue("@tPage0")) || tFin, tDeb = Number(Variable.GetValue("@tDeb")) || t0, tLib = Number(Variable.GetValue("@tLib")) || tDeb;
+    Variable.SetValue("@tPageEtat", "avant-socle:" + (tDeb - t0) + "ms socle-lecture:" + (tLib - tDeb) + "ms apres:" + (tFin - tLib) + "ms page:" + (tFin - t0) + "ms");
+} catch (e) { Variable.SetValue("@tPageEtat", "?"); }
+</script>
+<!-- socle page: %%=v(@tPageEtat)=%% -->
 </body>
 </html>`;
 }
