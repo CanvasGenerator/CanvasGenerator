@@ -218,6 +218,21 @@ test('handler : l update du compte existant suit le bloc consentement', () => {
     egal(/ELSE\s*SET @journal = Concat\(@journal, " CPC:", @canalValue, "-inchange"\)/.test(zoneCpc), true, 'hors brochure et sans changement de statut : aucun update');
 });
 
+/* Date de consentement cookies : Axeptio via la CloudPage envoie
+   « AAAA-MM-JJ HH:MM:SS » ; le CRM n'accepte que l'ISO UTC avec Z et un format
+   refuse tue la page — toute deuxieme soumission plantait (25/09). */
+test('handler : la date de consentement cookies est normalisee en ISO UTC avant l update', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    const lecture = src.indexOf('SET @dateCookies = RequestParameter("date_consentement_cookies")');
+    const ecriture = src.indexOf('UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)');
+    egal(lecture > 0 && ecriture > lecture, true, 'lecture puis ecriture');
+    const zone = src.slice(lecture, ecriture);
+    egal(/RegExMatch\(@dateCookies, "\^\\d\{4\}-\\d\{2\}-\\d\{2\}\[ T\]\\d\{2\}:\\d\{2\}:\\d\{2\}\$", 0\)/.test(zone), true, 'le format avec espace est reconnu');
+    egal(/Concat\(Substring\(@dateCookies, 1, 10\), "T", Substring\(@dateCookies, 12, 8\), "Z"\)/.test(zone), true, 'et converti en ISO UTC avec Z');
+    egal(/ELSE\s*SET @journal = Concat\(@journal, " COOKIES:date-ignoree"\)\s*SET @dateCookies = ""/.test(zone), true, 'un format inconnu n est pas ecrit et se journalise');
+    egal((src.match(/"DateConsentementCookies__c", @dateCookies\)/g) || []).length, 1, 'une seule ecriture du champ');
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);

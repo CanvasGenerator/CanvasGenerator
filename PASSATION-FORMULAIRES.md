@@ -687,8 +687,15 @@ l'URL, car la page expose `campus`, qui est le campus **présélectionné**).
 
 Sur un compte **neuf**, seuls `UTMSource__c` et `ClientID__c` étaient écrits ; le
 reste ne l'était que sur la branche « déjà connu ». Corrigé, sauf
-`DateConsentementCookies__c` — champ date, aucune valeur réelle d'Axeptio à
-valider, et un format refusé tue la page.
+`DateConsentementCookies__c`, écrit seulement sur la branche « déjà connu ».
+**25/09 :** avec le GTM, Axeptio arrive sur les pages et la CloudPage remplit
+`date_consentement_cookies` en « AAAA-MM-JJ HH:MM:SS » ; le champ est un
+Date/Heure que le connecteur n'accepte qu'en ISO UTC avec `Z` (la date seule
+est refusée aussi, sonde `LPB_TST_Sonde_Ecriture`). Toute deuxième soumission
+d'un visiteur ayant accepté les cookies mourait après la mise à jour du compte.
+Le socle normalise désormais la valeur (formats avec espace, `T`, date seule)
+et ignore un format inconnu (`COOKIES:date-ignoree` dans le journal) ;
+`cloudpage-lp.html` émet directement de l'ISO UTC (à recoller dans la CloudPage).
 
 **dataLayer `form_sent`** (push à la soumission, dans la CloudPage) : `form_lang`,
 `user_data_country` (minuscules), `user_data_email`, `user_data_phone` (E.164),

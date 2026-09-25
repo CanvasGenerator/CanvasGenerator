@@ -550,6 +550,28 @@ IF IndexOf(@submitted, "true") > 0 THEN
     IF Empty(@utmCampus) THEN SET @utmCampus = @campusSel ENDIF
     SET @consent   = RequestParameter("consent")
     SET @dateCookies = RequestParameter("date_consentement_cookies")
+    /* Axeptio → CloudPage → ici : « 2026-09-25 11:24:00 » (heure du navigateur),
+       rempli des qu'un cookie Axeptio existe — donc des que le GTM charge
+       Axeptio sur la page (25/09). DateConsentementCookies__c est un
+       Date/Heure : le connecteur n'accepte que l'ISO UTC avec Z (sonde du
+       25/09 : la date seule et le format avec espace tuent la page, ce qui
+       tuait toute DEUXIEME soumission d'un visiteur ayant accepte les
+       cookies). On normalise ; un format inconnu n'est pas ecrit. */
+    IF NOT Empty(@dateCookies) THEN
+        SET @dateCookies = Trim(@dateCookies)
+        IF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 19), "Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 10), "T", Substring(@dateCookies, 12, 8), "Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 10), "T", Substring(@dateCookies, 12, 5), ":00Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(@dateCookies, "T00:00:00Z")
+        ELSE
+            SET @journal = Concat(@journal, " COOKIES:date-ignoree")
+            SET @dateCookies = ""
+        ENDIF
+    ENDIF
 
     /* Marque et Account ecole depuis la DE de correspondance, jamais en dur. */
     IF Empty(@brandId) AND NOT Empty(@ecole) THEN
@@ -2342,9 +2364,11 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "DateOfLastMarketingContactPoint__c", @itHorodatage,
                     "LastMarketingContactPointType__c",   "Form")
             ENDIF
-            /* Consentement cookies date : a part, et seulement si le
-               formulaire en porte une (voir ci-dessus). */
-            IF NOT Empty(@dateCookies) AND @vDateCookiesCrm != @dateCookies THEN
+            /* Consentement cookies date : a part, seulement si le formulaire en
+               porte une, deja normalisee en ISO UTC (voir la lecture des
+               parametres). Le CRM relit « ...:00.000Z », on compare sur les
+               19 premiers caracteres. */
+            IF NOT Empty(@dateCookies) AND Substring(Concat(@vDateCookiesCrm, "                   "), 1, 19) != Substring(@dateCookies, 1, 19) THEN
                 SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
             ENDIF
             IF @LOG_ACTIF == "true" THEN
