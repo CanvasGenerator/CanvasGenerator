@@ -180,6 +180,10 @@ test('socle de lecture : cache DE complet, ferme sans variable', () => {
         egal(ecrire > dernierCrm && ecrire < emission, true, 'l ecriture du cache suit la derniere lecture CRM et precede SOCLE_DATA');
         egal(/LookupRows\("LPB_Cache_Lecture", "Famille"/.test(html), true, 'lecture par famille');
         egal(/UpsertData\("LPB_Cache_Lecture", \["Cle"\]/.test(html), true, 'ecriture par cle');
+        /* SFMC supprime les espaces de fin d'un champ texte (25/09) : chaque
+           tranche part entre deux sentinelles et les perd a la relecture. */
+        egal(/"~" \+ lg\.texte\.substring\(debT, Math\.min\(debT \+ 3998, lg\.texte\.length\)\) \+ "~"/.test(html), true, 'tranches ecrites entre sentinelles, 3 998 utiles');
+        egal(/texte \+= morceau\.substring\(1, morceau\.length - 1\)/.test(html), true, 'sentinelles retirees a la lecture');
         /* Chaque lecture CRM du socle de lecture est sous une garde de cache :
            on remonte depuis chaque RetrieveSalesforceObjects jusqu'au dernier
            IF ouvert sur un drapeau @cache*, qui doit exister. */

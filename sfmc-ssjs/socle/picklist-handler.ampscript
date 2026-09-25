@@ -240,7 +240,13 @@ try {
                 for (var pt = 1; pt <= 16; pt++) {
                     var morceau = ligne["Json" + pt];
                     if (morceau === null || morceau === undefined) break;
-                    texte += String(morceau);
+                    morceau = String(morceau);
+                    if (morceau === "") break;
+                    /* Chaque tranche est ecrite entre deux sentinelles (voir
+                       l'ecriture) : on les retire. Une ligne ecrite sans
+                       sentinelles (ancien format) perd deux caracteres, tombe
+                       en miss sur Octets et se reecrit. */
+                    texte += morceau.substring(1, morceau.length - 1);
                 }
                 if (texte.length != Number(ligne.Octets || 0)) { motif = "octets:" + cle + ":" + texte.length + "/" + ligne.Octets; break; }
                 valeurs[cle] = texte;
@@ -1247,7 +1253,7 @@ ENDIF   /* fin cache pick : libelles */
 /* ==CACHE_LECTURE_ECRIRE==
    Pour chaque famille lue dans le CRM a ce passage (drapeau != hit), depose
    les blocs JS construits ci-dessus dans LPB_Cache_Lecture : une ligne par
-   cle, le texte en tranches de 4 000 caracteres (Json1..Json16), Octets pour
+   cle, le texte en tranches de 3 998 caracteres entre sentinelles (Json1..Json16), Octets pour
    verifier l'entierete a la relecture, Epoch pour le TTL. Un bloc de plus de
    64 000 caracteres n'est pas mis en cache (note dans l'etat), la page le
    sert quand meme. Une erreur d'ecriture est avalee : le visiteur a deja sa
@@ -1279,7 +1285,7 @@ try {
             for (var cleE in famE.cles) {
                 var vE = Variable.GetValue(famE.cles[cleE]);
                 vE = (vE === null || vE === undefined) ? "" : String(vE);
-                if (vE.length > 16 * 4000) { tropGros = true; break; }
+                if (vE.length > 16 * 3998) { tropGros = true; break; }
                 lignesE.push({ cle: cleE, texte: vE });
             }
             if (tropGros) { etatE += " " + famE.tag + ":trop-gros"; continue; }
@@ -1292,9 +1298,15 @@ try {
                     /* ⚠ Jint : `substring(debut, fin)` avec debut >= longueur rend
                        le DERNIER caractere, pas une chaine vide (constate le 23/09 :
                        chaque tranche vide pesait 1 octet, Octets ne tombait jamais
-                       juste, aucun hit). On borne donc a la main. */
-                    var debT = (pe - 1) * 4000;
-                    vals.push(debT < lg.texte.length ? lg.texte.substring(debT, Math.min(debT + 4000, lg.texte.length)) : "");
+                       juste, aucun hit). On borne donc a la main.
+                       ⚠ SFMC supprime les espaces de fin d'un champ texte : une
+                       coupe a 4 000 tombee sur un espace perdait un caractere
+                       (« Mastère Animation » relu « MastèreAnimation », 25/09),
+                       Octets ne tombait plus juste, la famille restait en miss.
+                       Chaque tranche est donc ecrite entre deux sentinelles « ~ »,
+                       3 998 caracteres utiles, retirees a la lecture. */
+                    var debT = (pe - 1) * 3998;
+                    vals.push(debT < lg.texte.length ? "~" + lg.texte.substring(debT, Math.min(debT + 3998, lg.texte.length)) + "~" : "");
                 }
                 Platform.Function.UpsertData("LPB_Cache_Lecture", ["Cle"], [famE.famille + "|" + lg.cle], cols, vals);
             }
