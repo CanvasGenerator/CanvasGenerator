@@ -17,6 +17,7 @@ const etapes = [
     ['Champs requis',            ['test-requis.js']],
     ['Envoi au socle',           ['test-envoi.js']],
     ['Depouillement du socle',   ['test-depouillement.js']],
+    ['Messages EN et CTA',       ['test-messages-cta.js']],
     ['Confirmation',             ['test-confirmation.js']],
     ['Regles de blocage',        ['test-regles-blocage.js']],
 ];
