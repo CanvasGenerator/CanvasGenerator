@@ -84,6 +84,7 @@ VAR @evtIndex, @evtRows, @nEvt, @e
 VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
 VAR @cleProg, @cleEvt, @marqueCache
 VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @deSyncEtat
+VAR @tDeb, @tPick, @tProg, @tEvt, @tLib, @tempsEtat
 /* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
    variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
    laisser a leur ancienne place (juste avant leur lecture CRM) effacait le
@@ -145,6 +146,9 @@ IF Empty(@formTypePage) THEN SET @formTypePage = Lowercase(@LPB_TYPE_FORM) ENDIF
 SET @prefix = Lookup("LPB_Mapping_Ecoles", "CampusPrefix", "Ecole", @school)
 SET @actif  = Lookup("LPB_Mapping_Ecoles", "Actif",        "Ecole", @school)
 SET @prefixUp = Uppercase(@prefix)
+]%%
+<script runat="server">Variable.SetValue("@tDeb", new Date().getTime());</script>
+%%[
 
 /* ---- Cles du cache de lecture --------------------------------------------
    Le type d'evenement et le type de formulaire sont resolus ICI, avant la
@@ -706,6 +710,9 @@ IF Length(@dur) > 0 THEN
 ENDIF
 
 ENDIF   /* fin cache pick : niveau, vous etes */
+]%%
+<script runat="server">Variable.SetValue("@tPick", new Date().getTime());</script>
+%%[
 
 /* ==========================================================================
    CASCADE PROGRAMME
@@ -911,6 +918,9 @@ ENDIF
    ========================================================================== */
 /* Cache de lecture (famille evt) : meme regle que pour les programmes. Le
    type d'evenement, lui, est resolu en tete de bloc (il entre dans la cle). */
+]%%
+<script runat="server">Variable.SetValue("@tProg", new Date().getTime());</script>
+%%[
 IF @cacheEvt != "hit" THEN
 SET @jsInstances = ""
 SET @jsAppts     = ""
@@ -1298,6 +1308,9 @@ IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
     NEXT @e
 ENDIF
 
+]%%
+<script runat="server">Variable.SetValue("@tEvt", new Date().getTime());</script>
+%%[
 /* ---- LIBELLES DES PICKLISTS DE LearningProgram -----------------------------
    Les listes de la cascade sont construites a partir des PROGRAMMES, qui ne
    portent que la valeur d'API : « Full-Time », « FR », « Editing &
@@ -1392,6 +1405,9 @@ IF NOT Empty(@durLang) THEN
 ENDIF
 
 ENDIF   /* fin cache pick : libelles */
+]%%
+<script runat="server">Variable.SetValue("@tLib", new Date().getTime());</script>
+%%[
 
 ]%%
 <script runat="server">
@@ -1465,6 +1481,15 @@ try {
 </script>
 %%[
 
+]%%
+<script runat="server">
+/* Chronos par famille, pour le commentaire « socle ampscript » : ou part le temps d'affichage. */
+try {
+    var tD = Number(Variable.GetValue("@tDeb")), tP = Number(Variable.GetValue("@tPick")), tR = Number(Variable.GetValue("@tProg")), tE = Number(Variable.GetValue("@tEvt")), tL = Number(Variable.GetValue("@tLib")), tF = new Date().getTime();
+    Variable.SetValue("@tempsEtat", "pick:" + (tP - tD) + "ms prog:" + (tR - tP) + "ms evt:" + (tE - tR) + "ms libelles:" + (tL - tE) + "ms total:" + (tF - tD) + "ms");
+} catch (eTemps) { Variable.SetValue("@tempsEtat", "?"); }
+</script>
+%%[
 /* ---- EMISSION DE SOCLE_DATA ------------------------------------------------
    La balise est ASSEMBLEE A L'EXECUTION. L'API SFMC supprime toute balise de script
    litteral a l'upload : sans cette precaution, les balises disparaissaient et
@@ -1531,7 +1556,7 @@ window.SOCLE_DATA = {
 };
 %%=v(@dataFerme)=%%
 
-<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% desync=%%=v(@deSyncEtat)=%% -->
+<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% desync=%%=v(@deSyncEtat)=%% temps=%%=v(@tempsEtat)=%% -->
 %%[ IF Length(@prefix) == 0 THEN ]%%
 <!-- ⚠ ecole absente de LPB_Mapping_Ecoles : aucun programme ne sera propose. -->
 %%[ ELSEIF Lowercase(@actif) != "true" THEN ]%%
