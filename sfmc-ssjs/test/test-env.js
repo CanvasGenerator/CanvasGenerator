@@ -146,7 +146,7 @@ test('handler inline : mode asynchrone complet, ferme sans variable', () => {
         egal(/==ASYNC_CAPTURE==/.test(html) && /Platform\.Request\.GetPostData\(\)/.test(html), true, 'capture du corps brut');
         egal(/InsertData\("LPB_File_Soumissions"/.test(html), true, 'depot dans la file');
         egal((html.match(/UpdateData\("LPB_File_Soumissions"/g) || []).length, 2, 'reservation puis solde de la ligne');
-        egal(/run=%%=v\(@runId\)=%% async=%%=v\(@asyncMode\)=%% journal=/.test(html), true, 'bilan : run et mode avant journal');
+        egal(/run=%%=v\(@runId\)=%% async=%%=v\(@asyncMode\)=%% traitement=%%=v\(@PAGE_TRAITEMENT\)=%% journal=/.test(html), true, 'bilan : run, mode et page de traitement avant journal');
         /* La reception ne doit JAMAIS ecrire dans le CRM : aucun Create/Update
            Salesforce entre le marqueur de reception et le ELSEIF des ecritures. */
         const deb = html.indexOf('MODE ASYNCHRONE — ACCUSE DE RECEPTION');
@@ -217,6 +217,21 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
     egal(/catch \(eDeSyncEvt\) \{\s*Variable\.SetValue\("@evtDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
     egal(src.includes('IF @bbDeSync != "true" THEN'), true, 'marque : CRM en repli');
     egal(src.includes('desync=%%=v(@deSyncEtat)=%%'), true, 'etat dans le commentaire socle ampscript');
+});
+
+/* Page de traitement dediee : la cle est injectee a la publication, le
+   handler l'annonce dans son marqueur et l'ecrit comme Url de rejeu. */
+test('SFMC_PAGE_TRAITEMENT : chaine libre, vide par defaut', () => {
+    egal(injecterEnv('x=%%ENV:SFMC_PAGE_TRAITEMENT%%', {}), 'x=');
+    egal(injecterEnv('x=%%ENV:SFMC_PAGE_TRAITEMENT%%', { SFMC_PAGE_TRAITEMENT: 'Interne_TRAITEMENT_V0' }), 'x=Interne_TRAITEMENT_V0');
+});
+test('handler : page de traitement annoncee, Url de rejeu, refus des soumissions directes', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    egal(src.includes('SET @PAGE_TRAITEMENT = "%%ENV:SFMC_PAGE_TRAITEMENT%%"'), true, 'drapeau lu');
+    egal(src.includes('traitement=%%=v(@PAGE_TRAITEMENT)=%%'), true, 'annonce dans le marqueur socle ecriture');
+    egal(src.includes('"Url", @urlTraitement,'), true, 'la file porte l URL de traitement');
+    egal(/IF NOT Empty\(@PAGE_TRAITEMENT\) AND RequestParameter\("id"\) == @PAGE_TRAITEMENT AND @modeTraitement != "1" THEN\s*SET @sfStatus\s*= "error"/.test(src), true, 'soumission directe refusee sur la page de traitement');
+    egal(src.includes('IF @sfStatus != "blocked" AND @sfStatus != "error" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN'), true, 'le refus n entre pas en reception');
 });
 
 /* Compte existant : l'update du compte part APRES les consentements. Poser

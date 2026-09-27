@@ -9,7 +9,9 @@
  *    - a_traiter depuis plus de 2 minutes   (le beacon n'est jamais parti)
  *    - en_cours  depuis plus de 10 minutes  (la page de traitement est morte
  *                                            avant le solde, CRM en echec)
- *  Il reposte le corps brut conserve (Payload1..3) sur l'URL d'origine, avec
+ *  Il reposte le corps brut conserve (Payload1..3) sur l'URL de la colonne Url
+ *  — la page de traitement dediee (<Lot>_TRAITEMENT_V0) depuis le 27/09, la
+ *  page d'origine pour les lignes plus anciennes — avec
  *  socle_traitement=1 et socle_run=<RunId> : c'est la page qui ecrit et qui
  *  solde la ligne (traitee | erreur). Au-dela de 3 tentatives la ligne passe
  *  en erreur, pour ne pas marteler le CRM avec une soumission qu'il refuse.

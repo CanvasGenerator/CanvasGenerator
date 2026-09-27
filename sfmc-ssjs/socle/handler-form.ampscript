@@ -369,6 +369,7 @@ VAR @jrnBrandCode, @jrnRefBrandCode
    Etats d'une ligne de la file : a_traiter → en_cours → traitee | erreur.
    Ferme : comportement historique, tout est ecrit pendant le POST. */
 VAR @ASYNC_ACTIF, @modeTraitement, @runReception, @asyncMode, @asyncDoublon
+VAR @PAGE_TRAITEMENT, @urlTraitement, @posQ
 VAR @postBrut, @postUrl, @pageId, @payload2, @payload3
 VAR @fileRows, @fileStatut, @fileTentatives, @fileDetail
 SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
@@ -376,6 +377,14 @@ SET @jrnCleEvt      = ""
 SET @jrnContactKey  = ""
 SET @jrnData        = ""
 SET @ASYNC_ACTIF    = "%%ENV:SFMC_ASYNC_SOUMISSION%%"
+/* Page de traitement dediee (cle Content Builder, ex. Interne_TRAITEMENT_V0),
+   posee a la publication par generer-lp quand le mode asynchrone est ouvert.
+   Renseignee : le beacon du navigateur et le rejeu visent cette page — le
+   handler seul, sans socle de lecture ni gabarit, soit ~70 Ko parses au lieu
+   de ~180 — et jamais la page du visiteur. Vide : comportement d'avant, le
+   traitement repasse par la page d'origine. */
+SET @PAGE_TRAITEMENT = "%%ENV:SFMC_PAGE_TRAITEMENT%%"
+SET @urlTraitement  = ""
 SET @asyncMode      = ""
 SET @asyncDoublon   = "false"
 SET @postBrut       = ""
@@ -971,6 +980,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
        ==================================================================== */
     SET @modeTraitement = RequestParameter("socle_traitement")
     SET @runReception   = RequestParameter("socle_run")
+    /* Sur la page de traitement dediee (le `id` de la CloudPage est la cle
+       de traitement), on ne recoit que des traitements, jamais une
+       soumission de visiteur : un POST direct y est refuse sans rien ecrire
+       ni mettre en file. */
+    IF NOT Empty(@PAGE_TRAITEMENT) AND RequestParameter("id") == @PAGE_TRAITEMENT AND @modeTraitement != "1" THEN
+        SET @sfStatus   = "error"
+        SET @sfErrorMsg = "Page de traitement : soumission directe refusee."
+        SET @journal    = Concat(@journal, " TRAITEMENT:refus-direct")
+    ENDIF
     IF @sfStatus != "blocked" AND @modeTraitement == "1" AND NOT Empty(@runReception) THEN
         SET @asyncMode = "traitement"
         SET @fileTentatives = 0
@@ -1012,7 +1030,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
         ENDIF
     ENDIF
 
-    IF @sfStatus != "blocked" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN
+    IF @sfStatus != "blocked" AND @sfStatus != "error" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN
         /* ================================================================
            MODE ASYNCHRONE — ACCUSE DE RECEPTION
            ================================================================
@@ -1039,6 +1057,18 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @sfErrorMsg = "Soumission non recue : le corps de la requete est vide."
         ELSE
             SET @pageId   = RequestParameter("id")
+            /* L'URL que le rejeu repostera : la page de traitement dediee si
+               elle est posee (meme hote, meme chemin, ?id= remplace), sinon
+               la page d'origine avec sa query string. */
+            SET @urlTraitement = @postUrl
+            IF NOT Empty(@PAGE_TRAITEMENT) AND NOT Empty(@postUrl) THEN
+                SET @posQ = IndexOf(@postUrl, "?")
+                IF @posQ > 0 THEN
+                    SET @urlTraitement = Concat(Substring(@postUrl, 1, Subtract(@posQ, 1)), "?id=", @PAGE_TRAITEMENT)
+                ELSE
+                    SET @urlTraitement = Concat(@postUrl, "?id=", @PAGE_TRAITEMENT)
+                ENDIF
+            ENDIF
             SET @payload2 = ""
             SET @payload3 = ""
             SET @fileDetail = ""
@@ -1048,7 +1078,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
             InsertData("LPB_File_Soumissions",
                 "RunId", @runId,
                 "Horodatage", Now(),
-                "Url", @postUrl,
+                "Url", @urlTraitement,
                 "PageId", @pageId,
                 "Ecole", @ecole,
                 "FormType", @formType,
@@ -1094,7 +1124,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     "FormType", @formType)
             ENDIF
         ENDIF
-    ELSEIF @sfStatus != "blocked" AND @asyncDoublon != "true" THEN
+    ELSEIF @sfStatus != "blocked" AND @sfStatus != "error" AND @asyncDoublon != "true" THEN
     /* ====================================================================
        ETAPE 1 — PERSON ACCOUNT, upsert sur PersonEmail
        Pas d'email = pas de dedoublonnage possible = on n'ecrit rien. C'est la
@@ -3148,7 +3178,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
 ENDIF
 ]%%
 
-<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% journal=%%=v(@journal)=%% -->
+<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% traitement=%%=v(@PAGE_TRAITEMENT)=%% journal=%%=v(@journal)=%% -->
 %%[ IF NOT Empty(@sfErrorMsg) THEN ]%%
 <!-- socle erreur: %%=v(@sfErrorMsg)=%% -->
 %%[ ENDIF ]%%

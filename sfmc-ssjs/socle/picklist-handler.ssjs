@@ -3215,13 +3215,17 @@ try {
            c'est le signal pour relancer le traitement en arriere-plan. */
         var r = /<!--\s*socle ecriture:[^>]*?\brun=(\w*)/i.exec(texte);
         var a = /<!--\s*socle ecriture:[^>]*?\basync=(\w*)/i.exec(texte);
+        /* La page de traitement dediee, quand la publication en a pose une :
+           c'est elle que le beacon vise, jamais la page du visiteur. */
+        var t = /<!--\s*socle ecriture:[^>]*?\btraitement=([\w-]*)/i.exec(texte);
         return {
             ok: m[1] === 'success',
             bloque: m[1] === 'blocked',
             motif: b ? b[1].toLowerCase() : '',
             message: e ? e[1] : '',
             run: r ? r[1] : '',
-            async: a ? a[1] : ''
+            async: a ? a[1] : '',
+            traitement: t ? t[1] : ''
         };
     }
 
@@ -3237,11 +3241,24 @@ try {
      * partirait en text/plain et le serveur n'y lirait aucun champ. Rien ici
      * ne doit remonter au visiteur — l'automation rejoue ce qui ne part pas.
      */
+    /**
+     * Ou envoyer le traitement : la page dediee (meme CloudPage, `?id=` de
+     * la cle de traitement, sans les parametres du visiteur) quand la
+     * reception l'annonce, sinon la page courante, telle quelle.
+     */
+    function urlTraitement(bilan) {
+        var loc = window.location;
+        var cle = bilan && bilan.traitement ? String(bilan.traitement) : '';
+        if (!cle) return loc.href;
+        var base = String(loc.href).split('#')[0].split('?')[0];
+        return base + '?id=' + encodeURIComponent(cle);
+    }
+
     function lancerTraitement(corps, bilan) {
         try {
             if (!bilan || !bilan.ok || bilan.async !== 'reception' || !bilan.run) return false;
             var body = corps.join('&') + '&socle_traitement=1&socle_run=' + encodeURIComponent(bilan.run);
-            var url = window.location.href;
+            var url = urlTraitement(bilan);
             var type = 'application/x-www-form-urlencoded; charset=UTF-8';
             var nav = (typeof navigator !== 'undefined') ? navigator : null;
             if (nav && typeof nav.sendBeacon === 'function' && typeof Blob === 'function') {

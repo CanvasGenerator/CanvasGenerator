@@ -37,6 +37,7 @@
  *      node scripts/generer-lp.mjs --lang=en --only=efap:BRCH       brochure anglaise
  *      node scripts/generer-lp.mjs --lang=en --types=BRCH,CAND     lot anglais (2 formulaires)
  *      node scripts/generer-lp.mjs --only=efap:BRCH                 une seule
+ *      node scripts/generer-lp.mjs --traitement                     page de traitement seule
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339 \
  *          --lot=recette --confirme-recette
@@ -87,6 +88,13 @@ const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
    n'ont pas de variante anglaise, un lot --lang=en sans ce filtre echouerait
    sur quatre pages par ecole). */
 const TYPES = ((args.find((a) => a.startsWith('--types=')) || '').split('=')[1] || '').split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
+/* --traitement : ne publie QUE la page de traitement des soumissions du lot. */
+const SEUL_TRAITEMENT = args.includes('--traitement');
+/* Page de traitement dediee : publiee avec le lot des que le mode asynchrone
+   est ouvert, et sa cle est injectee dans le handler de chaque page
+   (SFMC_PAGE_TRAITEMENT) pour que le beacon et le rejeu la visent. */
+const ASYNC_OUVERT = String(process.env.SFMC_ASYNC_SOUMISSION || '').trim().toLowerCase() === 'true';
+const PAGE_TRAITEMENT = ASYNC_OUVERT || SEUL_TRAITEMENT;
 const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').split('=')[1] || '').toLowerCase();
 const CONFIRME_RECETTE = args.includes('--confirme-recette');
 const LANG = ((args.find((a) => a.startsWith('--lang=')) || '--lang=fr').split('=')[1] || 'fr').toLowerCase();
@@ -300,8 +308,33 @@ if (PUSH) {
 }
 
 /* -- execution ----------------------------------------------------------- */
+const CLE_TRAITEMENT = `${PREFIXES[LOT]}_TRAITEMENT_V0`;
+if (PAGE_TRAITEMENT) process.env.SFMC_PAGE_TRAITEMENT = CLE_TRAITEMENT;
+
+/**
+ * La page de traitement des soumissions : le handler d'ecriture seul, sans
+ * gabarit ni socle de lecture. Le beacon du navigateur et l'automation de
+ * rejeu y repostent le corps de la soumission avec socle_traitement=1 ;
+ * le handler reconnait cette page a son `id` et y refuse toute soumission directe.
+ */
+function pageTraitement() {
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Traitement des soumissions</title>
+</head>
+<body>
+%%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
+<!-- page de traitement des soumissions (${LOT}) : aucun contenu visible -->
+</body>
+</html>`;
+}
+
 const travaux = [];
 for (const ecole of ECOLES) {
+    if (SEUL_TRAITEMENT) break;
     for (const f of FORMULAIRES) {
         if (ONLY && ONLY.toLowerCase() !== `${ecole.id}:${f.code}`.toLowerCase()) continue;
         if (TYPES.length && !TYPES.includes(f.code)) continue;
@@ -312,7 +345,8 @@ for (const ecole of ECOLES) {
 console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — langue ${LANG.toUpperCase()} — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
 console.log(`  Socle inline : ${process.env.SFMC_SOCLE_DEPOUILLE === 'true' ? 'depouille (commentaires et indentation retires)' : 'texte complet'}`);
-console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}\n`);
+console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}`);
+console.log(`  Traitement asynchrone : ${PAGE_TRAITEMENT ? `page dediee ${CLE_TRAITEMENT} (publiee avec le lot)` : 'ferme, ou sur la page du visiteur'}\n`);
 
 if (!PUSH) fs.mkdirSync(SORTIE, { recursive: true });
 
@@ -347,6 +381,24 @@ for (const { ecole, f } of travaux) {
     } catch (e) {
         echecs.push({ cle, message: e.message });
         console.log(`  ✗ ${cle.padEnd(34)} ${e.message.slice(0, 90)}`);
+    }
+}
+
+if (PAGE_TRAITEMENT) {
+    const nomProjet = `school-socle__${CLE_TRAITEMENT}`;
+    try {
+        const html = pageTraitement();
+        if (!PUSH) {
+            fs.writeFileSync(path.join(SORTIE, `${CLE_TRAITEMENT}.html`), html);
+            console.log(`  ○ ${CLE_TRAITEMENT.padEnd(34)} ${String(html.length).padStart(7)} car. (page de traitement)`);
+        } else {
+            const r = await syncProjectToSfmc({ projectName: nomProjet, fullHtml: html });
+            if (r.skipped) throw new Error(`ignore par la lib : ${r.error || 'synchro desactivee'}`);
+            console.log(`  ✓ ${CLE_TRAITEMENT.padEnd(34)} ${r.action || 'ok'} (page de traitement)`);
+        }
+    } catch (e) {
+        echecs.push({ cle: CLE_TRAITEMENT, message: e.message });
+        console.log(`  ✗ ${CLE_TRAITEMENT.padEnd(34)} ${e.message.slice(0, 90)}`);
     }
 }
 
