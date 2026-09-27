@@ -988,6 +988,24 @@ IF IndexOf(@submitted, "true") > 0 THEN
         SET @sfStatus   = "error"
         SET @sfErrorMsg = "Page de traitement : soumission directe refusee."
         SET @journal    = Concat(@journal, " TRAITEMENT:refus-direct")
+        /* Le journal dit le refus, sinon un run sans « 99 - fin » passerait
+           pour une page morte. */
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "99 - fin",
+                "Statut", "error",
+                "Objet", "-",
+                "RecordId", "",
+                "Detail", "soumission directe sur la page de traitement : refusee, rien n'est ecrit ni mis en file",
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
     ENDIF
     IF @sfStatus != "blocked" AND @modeTraitement == "1" AND NOT Empty(@runReception) THEN
         SET @asyncMode = "traitement"
