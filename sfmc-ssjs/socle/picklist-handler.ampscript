@@ -4508,6 +4508,33 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                  fond: meilleure.fond, police: meilleure.police };
     }
 
+    /**
+     * Les formes sous lesquelles une valeur postee peut apparaitre dans la DE.
+     *
+     * Le formulaire poste la VALEUR du value set (« BAC+3 », « BAC obtenu ou
+     * Prepa ») ; la DE est saisie a la main et ecrit tantot la valeur, tantot
+     * le libelle (« Bac obtenu »), et — lignes anglaises, import du 27/09 —
+     * le libelle ANGLAIS du dictionnaire (« Bachelor's Degree (or
+     * equivalent) »). On compare donc a la valeur, au libelle de l'option, et
+     * a leur traduction quand SOCLE_DATA en porte une.
+     */
+    function variantesDoc(champ, saisi) {
+        var formes = [saisi];
+        try {
+            var listes = (D && D.picklists) || {};
+            var options = listes[champ] || [];
+            for (var i = 0; i < options.length; i++) {
+                var o = options[i];
+                if (o && String(o.value) === String(saisi) && o.label && o.label !== saisi) formes.push(String(o.label));
+            }
+            var dico = (D && D.traductions) || {};
+            for (var k = formes.length - 1; k >= 0; k--) {
+                if (dico[formes[k]]) formes.push(String(dico[formes[k]]));
+            }
+        } catch (eVar) { /* la valeur seule suffit alors */ }
+        return formes;
+    }
+
     /** Le critere est-il satisfait par l'un des champs qui peuvent le porter ? */
     function critereDocSatisfait(form, critere, attendu) {
         for (var j = 0; j < critere.champs.length; j++) {
@@ -4516,7 +4543,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             /* `contient` : la colonne est en Text(4000) et accepte plusieurs
                valeurs separees par « ; ». La fonction est celle de la cascade,
                reutilisee telle quelle, avec la normalisation du critere. */
-            if (contient(attendu, saisi, critere.norme)) return true;
+            var formes = variantesDoc(critere.champs[j], saisi);
+            for (var f = 0; f < formes.length; f++) {
+                if (contient(attendu, formes[f], critere.norme)) return true;
+            }
         }
         return false;
     }
