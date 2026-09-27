@@ -39,7 +39,7 @@ const code = [
     variable('MESSAGES'), variable('MESSAGES_EN'),
     variable('MESSAGES_BLOCAGE'), variable('MESSAGES_BLOCAGE_EN'),
     fonction('cle'), fonction('texteBrut'), fonction('contient'), fonction('canonNiveauDoc'), fonction('canonDoc'),
-    fonction('valeurChamp'), fonction('critereDocSatisfait'), fonction('ctaDocumentation'), fonction('messageSucces'),
+    fonction('valeurChamp'), fonction('variantesDoc'), fonction('critereDocSatisfait'), fonction('ctaDocumentation'), fonction('messageSucces'),
 ].join('\n');
 
 function formulaire(champs) {
@@ -48,8 +48,10 @@ function formulaire(champs) {
         return m && champs[m[1]] !== undefined ? { value: champs[m[1]] } : null;
     } };
 }
+const PICKLISTS = { StudyLevel: [{ value: 'BAC+3', label: 'BAC+3' }, { value: 'BAC obtenu ou Prépa', label: 'Bac obtenu' }, { value: 'CAP', label: 'CAP' }] };
+const TRADUCTIONS = { 'BAC+3': "Bachelor's Degree (or equivalent)", 'Bac obtenu': 'High School Diploma obtained', 'CAP': 'Vocational Qualification' };
 function cta(lignes, champs, langue) {
-    const ctx = { D: { ctaDoc: lignes }, langueAffichage: () => langue, familleDe: () => 'brochure', resultat: null,
+    const ctx = { D: { ctaDoc: lignes, picklists: PICKLISTS, traductions: TRADUCTIONS }, langueAffichage: () => langue, familleDe: () => 'brochure', resultat: null,
                   form: formulaire(champs) };
     vm.runInNewContext(code + '\nresultat = ctaDocumentation(form);', ctx);
     return ctx.resultat && ctx.resultat.href;
@@ -93,6 +95,15 @@ test('Casse et accents indifferents dans la DE', () => {
 });
 test('Les criteres existants (niveau) tiennent toujours', () => {
     egal(cta([L('b3', 'FR', 'France', 'BAC+3'), L('b5', 'FR', 'France', 'BAC+5 et +')], { Country: 'France', StudyLevel: 'BAC+5 et +' }, 'fr'), 'https://x/b5');
+});
+
+test('Lignes EN de la DE : le niveau est ecrit en anglais, le formulaire poste la valeur CRM', () => {
+    const DE2 = [L('en-b3', 'EN', 'International', "Bachelor's Degree (or equivalent)"), L('en-bac', 'EN', 'International', 'High School Diploma obtained'), L('en-cap', 'EN', 'International', 'Vocational Qualification'), L('fr-b3', 'FR', 'France', 'BAC+3')];
+    egal(cta(DE2, { Country: 'England', StudyLevel: 'BAC+3' }, 'en'), 'https://x/en-b3');
+    egal(cta(DE2, { Country: 'England', StudyLevel: 'BAC obtenu ou Prépa' }, 'en'), 'https://x/en-bac', 'valeur → libelle → traduction');
+    egal(cta(DE2, { Country: 'England', StudyLevel: 'CAP' }, 'en'), 'https://x/en-cap');
+    egal(cta(DE2, { Country: 'France', StudyLevel: 'BAC+3' }, 'fr'), 'https://x/fr-b3', 'le francais ne change pas');
+    egal(cta(DE2, { Country: 'England', StudyLevel: 'BAC+4' }, 'en'), null, 'niveau sans ligne : rien');
 });
 
 test('Messages anglais : brochure et candidature, au mot pres', () => {
