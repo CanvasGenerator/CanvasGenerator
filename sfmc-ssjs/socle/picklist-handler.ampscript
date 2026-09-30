@@ -70,9 +70,15 @@ VAR @evtIndex, @evtRows, @nEvt, @e
    Drapeau SFMC_CACHE_LECTURE (injecte a la publication, lib/socle-env.js).
    Ouvert, les blocs JS que ce socle construit depuis le CRM sont servis
    depuis la DE LPB_Cache_Lecture tant qu'ils sont frais, par FAMILLE :
-     pick  picklists + libelles de la cascade (globaux)        TTL 24 h
+     pick  picklists + libelles de la cascade (globaux)        cle du JOUR
      prog  marque, programmes, campus, PTAT, rentrees (ecole)  TTL 6 h
      evt   dates et ateliers (ecole, type, jour)               TTL 1 h
+   La famille pick porte la DATE dans sa cle (« picklists|2026-09-30 »,
+   demande du 30/09) : le premier affichage du jour relit le CRM et ecrit la
+   ligne du jour, les suivants la servent, et les lignes des trois jours
+   precedents sont purgees a cette ecriture. Le jour est celui du serveur
+   SFMC (UTC-6). Les familles prog et evt sortent du cache quand
+   SFMC_LECTURE_DE_SYNC les sert depuis les DE synchronisees (~15 min).
    Un « hit » saute les 14 a 16 RetrieveSalesforceObjects et les boucles de
    construction ; un « miss » suit le chemin historique puis ECRIT le resultat
    (bloc ==CACHE_LECTURE_ECRIRE==) pour les visiteurs suivants. C'est la page
@@ -84,7 +90,8 @@ VAR @evtIndex, @evtRows, @nEvt, @e
    contourne le cache sans ecrire (pour comparer). Ferme : rien ne change. */
 VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
 VAR @cleProg, @cleEvt, @marqueCache
-VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @deSyncEtat
+VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @progDeSync, @deSyncEtat
+VAR @clePick, @clePickJ1, @clePickJ2, @clePickJ3
 VAR @tDeb, @tPick, @tProg, @tEvt, @tLib, @tempsEtat
 /* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
    variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
@@ -100,6 +107,7 @@ SET @cacheEvt    = "miss"
 SET @cacheEtat   = "ferme"
 SET @DE_SYNC_ACTIF = "%%ENV:SFMC_LECTURE_DE_SYNC%%"
 SET @evtDeSync   = "false"
+SET @progDeSync  = "false"
 SET @bbDeSync    = "false"
 SET @deSyncEtat  = "ferme"
 SET @marqueCache = ""
@@ -198,6 +206,12 @@ SET @cleProg = ""
 IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
     SET @cleProg = Concat("programmes|", Lowercase(@school), "|", IIF(@candidature == "true", "cand", "tous"))
 ENDIF
+/* pick : cle du JOUR. La date du serveur y entre telle quelle ; les cles des
+   trois jours precedents servent a la purge dans ==CACHE_LECTURE_ECRIRE==. */
+SET @clePick   = Concat("picklists|", @d0)
+SET @clePickJ1 = Concat("picklists|", FormatDate(DateAdd(Now(), -1, "D"), "yyyy-MM-dd"))
+SET @clePickJ2 = Concat("picklists|", FormatDate(DateAdd(Now(), -2, "D"), "yyyy-MM-dd"))
+SET @clePickJ3 = Concat("picklists|", FormatDate(DateAdd(Now(), -3, "D"), "yyyy-MM-dd"))
 SET @cleEvt = ""
 IF NOT Empty(@typeEvt) THEN
     SET @cleEvt = Concat("evenements|", Lowercase(@school), "|", Lowercase(@typeEvtCrm), "|", @d0)
@@ -222,7 +236,8 @@ try {
         etats.push("contourne");
     } else {
         var familles = [
-            { tag: "pick", famille: "picklists", ttlMin: 24 * 60, drapeau: "@cachePick",
+            /* Cle du jour : le TTL ne sert plus que de garde-fou, la cle change a minuit (heure serveur). */
+            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), ttlMin: 48 * 60, drapeau: "@cachePick",
               cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
                       LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
             { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: 6 * 60, drapeau: "@cacheProg",
@@ -241,6 +256,9 @@ try {
                les vieillirait pour rien. La famille reste en « miss » ; si la DE
                echoue, le chemin CRM reprend et le cache s'ecrit comme avant. */
             if (fam.tag == "evt" && deSyncActif) { etats.push("evt:de-sync"); continue; }
+            /* Meme regle pour les programmes, PTAT et rentrees depuis le 30/09
+               (bloc ==LECTURE_DE_SYNC_PROG==) : la DE est plus fraiche que 6 h de cache. */
+            if (fam.tag == "prog" && deSyncActif) { etats.push("prog:de-sync"); continue; }
             if (cacheMode == "refresh") { etats.push(fam.tag + ":refresh"); continue; }
             var rows = Platform.Function.LookupRows("LPB_Cache_Lecture", "Famille", fam.famille) || [];
             var parCle = {};
@@ -752,7 +770,118 @@ SET @termSeen  = ";"
 SET @nbProgs   = 0
 ENDIF
 
-IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
+]%%
+<script runat="server">
+/* ==LECTURE_DE_SYNC_PROG== Programmes, campus, PTAT et rentrees depuis les
+   DE synchronisees Salesforce (Enterprise, prefixe ENT., ~15 min) :
+   ENT.LearningProgram_Salesforce_1, ENT.ProgramTermApplnTimeline_Salesforce,
+   ENT.AcademicTerm_Salesforce. Memes regles que le chemin CRM ci-dessous et
+   memes blocs JS : programmes dont le campus commence par le prefixe de
+   l'ecole (actifs ET inactifs, comme le CRM) ; en candidature, ni programme
+   sans specialite ni programme sans PTAT ; et depuis le 30/09, seuls les PTAT
+   d'une rentree ACTIVE (AcademicTerm.IsActive).
+   Pourquoi tout passe par LookupRows : c'est la seule primitive qui lit une
+   DE partagee « ENT. » depuis la BU (Rows.Retrieve rend null, WSProxy ne la
+   voit pas — sonde LPB_TST_Sonde_DeSync du 30/09). LookupRows ne sait que
+   l'egalite, d'ou les lectures par valeur booleenne : rentrees IsActive
+   True, PTAT par rentree active (2 lookups pour 552 lignes), programmes
+   IsActive True puis False (551 lignes en 2 lookups) filtres ici par
+   prefixe. Mesure : 500 a 660 ms, contre 1,4 a 2,7 s en CRM.
+   Les PTAT des rentrees fermees ne sont lus pour AUCUN formulaire : le
+   navigateur ne s'en sert que par les champs Rentree / PTAT_Id, propres a
+   la candidature.
+   En echec (DE non partagee, connecteur), @progDeSync reste a false et le
+   chemin CRM s'execute tel quel. */
+try {
+    if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true"
+        && String(Variable.GetValue("@cacheProg")) != "hit"
+        && String(Variable.GetValue("@prefixUp") || "").length > 0
+        && String(Variable.GetValue("@actif") || "").toLowerCase() == "true") {
+        var tPr0 = new Date().getTime();
+        var prefixUpDe = String(Variable.GetValue("@prefixUp"));
+        var prefixDe   = String(Variable.GetValue("@prefix") || "");
+        var candDe     = String(Variable.GetValue("@candidature")) == "true";
+        /* ⚠ Jint : ni litteral regex ni antislash litteral dans ce bloc. Le
+           trim `/^\s+|\s+$/g` faisait echouer la COMPILATION de tout le bloc
+           (NullReferenceException Antlr3, page morte, 30/09) ; et un antislash
+           dans une chaine ou un regex empeche de tester le bloc par une sonde
+           « code snippet ». L'antislash vient donc de fromCharCode, et le trim
+           est ecrit a la main. */
+        var bsDe = String.fromCharCode(92);
+        var echDe = function (v) { return String(v === null || v === undefined ? "" : v).split(bsDe).join(bsDe + bsDe).split("'").join(bsDe + "'"); };
+        var trimDe = function (v) { v = String(v); while (v.length && v.charAt(0) == " ") v = v.substring(1); while (v.length && v.charAt(v.length - 1) == " ") v = v.substring(0, v.length - 1); return v; };
+        /* Rentrees actives : la regle, et les libelles. */
+        var termsDe = Platform.Function.LookupRows("ENT.AcademicTerm_Salesforce", "IsActive", "True") || [];
+        var termNomDe = {};
+        for (var ta = 0; ta < termsDe.length; ta++) termNomDe[String(termsDe[ta].Id)] = String(termsDe[ta].Name || "");
+        /* PTAT des rentrees actives : un lookup par rentree. */
+        var ptatsDe = [];
+        for (var tb = 0; tb < termsDe.length; tb++) {
+            var prDe = Platform.Function.LookupRows("ENT.ProgramTermApplnTimeline_Salesforce", "AcademicTermId", String(termsDe[tb].Id)) || [];
+            for (var pk = 0; pk < prDe.length; pk++) ptatsDe.push(prDe[pk]);
+        }
+        var ptatProgDe = {};
+        for (var pc = 0; pc < ptatsDe.length; pc++) ptatProgDe[String(ptatsDe[pc].LearningProgramId)] = true;
+        /* Programmes : actifs puis inactifs — le CRM ne filtre pas IsActive. */
+        var progsDe = [];
+        var lotsDe = [Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "True") || [],
+                      Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False") || []];
+        for (var lo = 0; lo < lotsDe.length; lo++) {
+            for (var lp = 0; lp < lotsDe[lo].length; lp++) progsDe.push(lotsDe[lo][lp]);
+        }
+        var jsProgsDe = [], jsCampusDe = [], idIndexDe = ";", campusSeenDe = ";", nbProgsDe = 0;
+        for (var ip = 0; ip < progsDe.length; ip++) {
+            var pDe = progsDe[ip];
+            var cNameDe = String(pDe.campusNameFor__c || "");
+            var pidDe = String(pDe.Id || "");
+            if (candDe && !ptatProgDe[pidDe]) continue;
+            if (candDe && !String(pDe.Speciality__c || "").length) continue;
+            if (!cNameDe.length || cNameDe.toUpperCase().indexOf(prefixUpDe) !== 0) continue;
+            idIndexDe += pidDe + ";";
+            nbProgsDe++;
+            jsProgsDe.push("{id:'" + pidDe + "',name:'" + echDe(pDe.Name) + "',campus:'" + echDe(cNameDe)
+                + "',level:'" + echDe(pDe.Academic_Level_List__c) + "',speciality:'" + echDe(pDe.Speciality__c)
+                + "',rhythm:'" + echDe(pDe.Rhythm__c) + "',language:'" + echDe(pDe.InstructionLanguage__c) + "'}");
+            if (campusSeenDe.indexOf(";" + cNameDe + ";") < 0) {
+                campusSeenDe += cNameDe + ";";
+                /* Valeur = libelle complet, libelle = la ville seule (voir le chemin CRM). */
+                var cLabelDe = cNameDe;
+                if (cNameDe.length > prefixDe.length + 1) cLabelDe = trimDe(cNameDe.substring(prefixDe.length));
+                jsCampusDe.push("{value:'" + echDe(cNameDe) + "',label:'" + echDe(cLabelDe) + "'}");
+            }
+        }
+        /* PTAT des programmes retenus, puis libelles des rentrees vues. */
+        var jsPtatsDe = [], termSeenDe = {}, jsTermsDe = [];
+        for (var iq = 0; iq < ptatsDe.length; iq++) {
+            var tDe = ptatsDe[iq];
+            var tpidDe = String(tDe.LearningProgramId || ""), ttidDe = String(tDe.AcademicTermId || "");
+            if (idIndexDe.indexOf(";" + tpidDe + ";") < 0) continue;
+            jsPtatsDe.push("{ptatId:'" + String(tDe.Id) + "',programId:'" + tpidDe + "',termId:'" + ttidDe + "'}");
+            if (ttidDe && !termSeenDe[ttidDe]) {
+                termSeenDe[ttidDe] = true;
+                jsTermsDe.push("{value:'" + ttidDe + "',label:'" + echDe(termNomDe[ttidDe] || ttidDe) + "'}");
+            }
+        }
+        Variable.SetValue("@jsProgs", jsProgsDe.join(","));
+        Variable.SetValue("@jsCampus", jsCampusDe.join(","));
+        Variable.SetValue("@jsPtats", jsPtatsDe.join(","));
+        Variable.SetValue("@jsTerms", jsTermsDe.join(","));
+        Variable.SetValue("@idIndex", idIndexDe);
+        Variable.SetValue("@campusSeen", campusSeenDe);
+        Variable.SetValue("@nbProgs", nbProgsDe);
+        Variable.SetValue("@progDeSync", "true");
+        Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " prog:de(" + progsDe.length + "lus/" + nbProgsDe + "gardes/" + jsPtatsDe.length + "ptat/" + termsDe.length + "rentrees " + (new Date().getTime() - tPr0) + "ms)");
+    }
+} catch (eDeSyncProg) {
+    Variable.SetValue("@progDeSync", "false");
+    Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " prog:erreur(" + String(eDeSyncProg.message || eDeSyncProg).substring(0, 80) + ")");
+}
+</script>
+%%[
+
+/* Chemin CRM historique. Il ne tourne que si ni le cache ni la DE
+   synchronisee n'ont servi les programmes. */
+IF @cacheProg != "hit" AND @progDeSync != "true" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
 
     /* --- 0. PTAT : LUS EN PREMIER --------------------------------------
        Ordre voulu par le cadrage de la candidature : on part des sessions de
@@ -1474,7 +1603,7 @@ try {
     var cacheModeE  = String(Variable.GetValue("@cacheMode") || "");
     if (cacheActifE && cacheModeE != "off") {
         var famillesE = [
-            { tag: "pick", famille: "picklists", drapeau: "@cachePick",
+            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), drapeau: "@cachePick",
               cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
                       LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
             { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), drapeau: "@cacheProg",
@@ -1493,6 +1622,7 @@ try {
             if (String(Variable.GetValue(famE.drapeau)) == "hit") continue;
             /* Servie par la DE synchronisee : rien a mettre en cache. */
             if (famE.tag == "evt" && String(Variable.GetValue("@evtDeSync")) == "true") continue;
+            if (famE.tag == "prog" && String(Variable.GetValue("@progDeSync")) == "true") continue;
             var lignesE = [], tropGros = false;
             for (var cleE in famE.cles) {
                 var vE = Variable.GetValue(famE.cles[cleE]);
@@ -1523,6 +1653,16 @@ try {
                 Platform.Function.UpsertData("LPB_Cache_Lecture", ["Cle"], [famE.famille + "|" + lg.cle], cols, vals);
             }
             etatE += " " + famE.tag + ":ecrit";
+            /* Cle du jour : la ligne d'hier ne sera plus jamais lue, on purge les
+               trois jours precedents (un jour sans visiteur laisse un trou, d'ou
+               trois). Une purge en echec ne change rien pour le visiteur. */
+            if (famE.tag == "pick") {
+                var purgeesE = 0;
+                for (var pj = 1; pj <= 3; pj++) {
+                    try { purgeesE += Number(Platform.Function.DeleteData("LPB_Cache_Lecture", ["Famille"], [String(Variable.GetValue("@clePickJ" + pj) || "")])) || 0; } catch (ePurge) {}
+                }
+                etatE += ":purge(" + purgeesE + ")";
+            }
         }
         Variable.SetValue("@cacheEtat", etatE);
     }

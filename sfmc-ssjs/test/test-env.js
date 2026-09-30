@@ -218,6 +218,30 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
     egal(src.includes('IF @bbDeSync != "true" THEN'), true, 'marque : CRM en repli');
     egal(src.includes('desync=%%=v(@deSyncEtat)=%%'), true, 'etat dans le commentaire socle ampscript');
 });
+/* 30/09 : programmes, campus, PTAT et rentrees depuis les trois DE partagees
+   par la synchro (LearningProgram_Salesforce_1, ProgramTermApplnTimeline_Salesforce,
+   AcademicTerm_Salesforce), par LookupRows seulement ; la famille prog sort
+   du cache quand la DE la sert ; le cache picklists porte la date du jour. */
+test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache prog exclu, cache picklists au jour', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'picklist-handler.ampscript'), 'utf8');
+    const reset = src.indexOf('IF @cacheProg != "hit" THEN\nSET @jsProgs   = ""');
+    const bloc = src.indexOf('/* ==LECTURE_DE_SYNC_PROG==');
+    const garde = src.indexOf('IF @cacheProg != "hit" AND @progDeSync != "true" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN');
+    const crm = src.indexOf('RetrieveSalesforceObjects("ProgramTermApplnTimeline"');
+    egal(reset > 0 && bloc > reset && garde > bloc && crm > garde, true, 'remise a zero, bloc DE, garde, puis chemin CRM');
+    for (const de of ['ENT.AcademicTerm_Salesforce', 'ENT.ProgramTermApplnTimeline_Salesforce', 'ENT.LearningProgram_Salesforce_1']) {
+        egal(src.includes('LookupRows("' + de + '"'), true, 'lecture de ' + de);
+    }
+    egal(src.includes('LookupRows("ENT.AcademicTerm_Salesforce", "IsActive", "True")'), true, 'seules les rentrees actives');
+    egal(src.includes('LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False")'), true, 'programmes inactifs lus aussi, comme le CRM');
+    egal(/if \(candDe && !ptatProgDe\[pidDe\]\) continue;\s*if \(candDe && !String\(pDe\.Speciality__c \|\| ""\)\.length\) continue;/.test(src), true, 'candidature : ni programme sans PTAT ni sans specialite');
+    egal(/catch \(eDeSyncProg\) \{\s*Variable\.SetValue\("@progDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
+    egal(src.includes('if (fam.tag == "prog" && deSyncActif) { etats.push("prog:de-sync"); continue; }'), true, 'famille prog hors cache quand la DE la sert');
+    egal(src.includes('if (famE.tag == "prog" && String(Variable.GetValue("@progDeSync")) == "true") continue;'), true, 'famille prog non ecrite quand la DE la sert');
+    egal(src.includes('SET @clePick   = Concat("picklists|", @d0)'), true, 'cle picklists au jour');
+    egal((src.match(/famille: String\(Variable\.GetValue\("@clePick"\) \|\| ""\)/g) || []).length, 2, 'cle du jour a la lecture et a l ecriture');
+    egal(/DeleteData\("LPB_Cache_Lecture", \["Famille"\], \[String\(Variable\.GetValue\("@clePickJ" \+ pj\) \|\| ""\)\]\)/.test(src), true, 'purge des trois jours precedents');
+});
 
 /* Page de traitement dediee : la cle est injectee a la publication, le
    handler l'annonce dans son marqueur et l'ecrit comme Url de rejeu. */
