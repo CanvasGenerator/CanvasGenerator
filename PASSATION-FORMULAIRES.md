@@ -230,6 +230,15 @@ Le programme vient des **programmes**, pas des PTAT : un programme sans PTAT
 apparaît, et la liste ne dépend plus d'une rentrée choisie. Le PTAT est déduit à
 la fin.
 
+> ✅ **Rentrées actives seulement — 30/09.** En candidature, un PTAT dont la
+> rentrée (`AcademicTerm.IsActive`) est fermée n'est plus émis, ni dans la liste
+> des rentrées ni pour écarter/retenir un programme. Les rentrées sont lues une
+> fois, avant les PTAT, et la même lecture sert aux libellés. Au 30/09, 2
+> rentrées actives sur 19 (Décalée Jan.-Fév. 2026-2027, Sept./Oct. 2027) ;
+> Sept./Oct. 2026 est fermée mais chaque programme a son double sur 2027 : la
+> règle ne vide aucun programme ni campus, elle retire des rentrées. Brochure
+> non concernée (pas de PTAT).
+
 ### Configuration par école — 4 DE
 
 | DE | Rôle |
