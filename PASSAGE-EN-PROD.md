@@ -116,8 +116,8 @@ l'automation existe, statut Ready, **jamais planifiée**).
 |---|---|---|
 | `SFMC_JOURNEY_LAUNCH` | `true` | tir des API Events des journeys de prod (`LPB_Config_Api`) |
 | `SFMC_ASYNC_SOUMISSION` | `true` | réception immédiate, traitement sur la page dédiée + rejeu |
-| `SFMC_CACHE_LECTURE` | `true` | picklists 24 h, programmes 6 h dans `LPB_Cache_Lecture` |
-| `SFMC_LECTURE_DE_SYNC` | `true` | événements et marque depuis les DE synchronisées `ENT.*` (partagées par l'Enterprise : en prod, vérifier qu'elles sont visibles de la BU cible) |
+| `SFMC_CACHE_LECTURE` | `true` | picklists sous une clé du jour dans `LPB_Cache_Lecture` (programmes et dates y restent en repli si la DE synchronisée manque) |
+| `SFMC_LECTURE_DE_SYNC` | `true` | événements, marque, programmes, PTAT et rentrées depuis les DE synchronisées `ENT.*` : `BusinessBrand_Salesforce`, `summit__Summit_Events__c_Salesforce_1`, `summit__Summit_Events_Instance__c_Salesforce_1`, `summit__Summit_Events_Appointment_Type__c_Salesforce`, `LearningProgram_Salesforce_1`, `ProgramTermApplnTimeline_Salesforce`, `AcademicTerm_Salesforce` (jeu partagé 32716 de l'Enterprise : en prod, vérifier qu'elles existent avec ces noms et sont visibles de la BU cible, sinon le socle retombe sur le CRM page par page) |
 | `SFMC_SOCLE_DEPOUILLE` | `true` (défaut) | socle inliné sans commentaires hors SSJS |
 | `SFMC_LOG_DETAIL` | `false` | lignes de journal « avant … » (diagnostic seulement) |
 
