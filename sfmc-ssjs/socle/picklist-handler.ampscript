@@ -50,6 +50,7 @@ VAR @jsProgs, @jsCampus, @jsPtats, @jsTerms
 VAR @sepP, @sepC, @sepT, @sepR
 VAR @idIndex, @campusSeen, @termSeen, @cName, @cLabel, @pid, @tid, @nbProgs
 VAR @ptatRows, @ptatProgIndex, @nPtat, @j, @prow, @candidature
+VAR @termRows, @nTerm, @termActifIndex, @ptatGarde
 VAR @jsInstances, @jsAppts, @nbInst, @nbInstStatut, @statutInst, @statutOk, @typeEvt, @instSel, @evtParent
 VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
@@ -775,6 +776,28 @@ IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true"
     SET @candidature = "false"
     IF @formTypePage == "candidature" THEN SET @candidature = "true" ENDIF
 
+    /* Rentrees ACTIVES seulement (regle du 30/09). Un PTAT dont la rentree
+       (AcademicTerm.IsActive) est fermee ne doit plus etre propose en
+       candidature : il ferait candidater sur une session que le CRM ne tient
+       plus ouverte. Les rentrees sont donc lues ICI, avant les PTAT, et la
+       lecture est reutilisee en etape 3 pour leurs libelles — une seule
+       lecture au lieu de deux. Etat du 30/09 : 2 rentrees actives sur 19
+       (Decalee Jan.-Fev. 2026-2027, Sept./Oct. 2027) ; Sept./Oct. 2026 est
+       fermee et chaque programme a son double sur 2027, donc la regle ne
+       vide aucun programme, elle ne retire que des rentrees.
+       Candidature seulement : la brochure ne lit pas les PTAT. */
+    SET @termActifIndex = ";"
+    SET @nTerm = 0
+    IF @candidature == "true" THEN
+        SET @termRows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name,IsActive", "Id", "!=", "")
+        SET @nTerm = RowCount(@termRows)
+        FOR @j = 1 TO @nTerm DO
+            IF Lowercase(Field(Row(@termRows, @j), "IsActive")) == "true" THEN
+                SET @termActifIndex = Concat(@termActifIndex, Field(Row(@termRows, @j), "Id"), ";")
+            ENDIF
+        NEXT @j
+    ENDIF
+
     SET @ptatProgIndex = ";"
     SET @ptatRows = RetrieveSalesforceObjects("ProgramTermApplnTimeline",
         "Id,LearningProgramId,AcademicTermId", "Id", "!=", "")
@@ -782,7 +805,12 @@ IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true"
 
     FOR @j = 1 TO @nPtat DO
         SET @pid = Field(Row(@ptatRows, @j), "LearningProgramId")
-        IF NOT Empty(@pid) AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
+        SET @tid = Field(Row(@ptatRows, @j), "AcademicTermId")
+        SET @ptatGarde = "true"
+        IF @candidature == "true" AND IndexOf(@termActifIndex, Concat(";", @tid, ";")) == 0 THEN
+            SET @ptatGarde = "false"
+        ENDIF
+        IF @ptatGarde == "true" AND NOT Empty(@pid) AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
             SET @ptatProgIndex = Concat(@ptatProgIndex, @pid, ";")
         ENDIF
     NEXT @j
@@ -874,8 +902,15 @@ IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true"
             SET @row = Row(@ptatRows, @i)
             SET @pid = Field(@row, "LearningProgramId")
 
-            IF IndexOf(@idIndex, Concat(";", @pid, ";")) > 0 THEN
-                SET @tid = Field(@row, "AcademicTermId")
+            SET @tid = Field(@row, "AcademicTermId")
+            /* Meme regle qu'en etape 0 : en candidature, un PTAT sur une
+               rentree fermee n'est pas emis. */
+            SET @ptatGarde = "true"
+            IF @candidature == "true" AND IndexOf(@termActifIndex, Concat(";", @tid, ";")) == 0 THEN
+                SET @ptatGarde = "false"
+            ENDIF
+
+            IF @ptatGarde == "true" AND IndexOf(@idIndex, Concat(";", @pid, ";")) > 0 THEN
                 SET @jsPtats = Concat(@jsPtats, @sepR, "{ptatId:'", Field(@row,"Id"),
                     "',programId:'", @pid, "',termId:'", @tid, "'}")
                 SET @sepR = ","
@@ -891,8 +926,14 @@ IF @cacheProg != "hit" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true"
        Une seule lecture globale puis filtrage : une lecture par terme
        ferait autant d'allers-retours Salesforce que de rentrees. */
     IF Length(@termSeen) > 1 THEN
-        SET @rows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name", "Id", "!=", "")
-        SET @n = RowCount(@rows)
+        /* En candidature les rentrees ont deja ete lues en etape 0. */
+        IF @candidature == "true" THEN
+            SET @rows = @termRows
+            SET @n = @nTerm
+        ELSE
+            SET @rows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name", "Id", "!=", "")
+            SET @n = RowCount(@rows)
+        ENDIF
         SET @sepT = ""
         FOR @i = 1 TO @n DO
             SET @row = Row(@rows, @i)
