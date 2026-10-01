@@ -3289,11 +3289,11 @@ Platform.Load("core", "1.1.1");
 try {
     var opBrut = String(Variable.GetValue("@optoutCpcIds") || "");
     if (opBrut !== "") {
-        var opIds = opBrut.split(","), opNb = 0, opDetail = "", opCles = "";
+        var opIds = opBrut.split(","), opNb = 0, opDetail = "", opCle1 = "";
         for (var oi = 0; oi < opIds.length; oi++) {
             var opId = opIds[oi];
             if (!opId) { continue; }
-            opCles += (opCles ? "," : "") + opId;
+            if (!opCle1) { opCle1 = opId; }
             var opRows = Platform.Function.LookupRows("Journey_OptOut_Entry_DE", "ConsentId", opId);
             if (!opRows || opRows.length === 0) { continue; }
             var opN = Number(Platform.Function.DeleteData("Journey_OptOut_Entry_DE", ["ConsentId"], [opId]) || 0);
@@ -3310,7 +3310,7 @@ try {
             Platform.Function.InsertData("LPB_Log_Soumissions",
                 ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
                 [opRun + "-" + opOrdre, opRun, opOrdre, Platform.Function.SystemDateToLocalDate(Now()), "97 - optout-purge", "OK", "Journey_OptOut_Entry_DE",
-                 opCles.substring(0, 200), opDetail.substring(0, 500), String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+                 opCle1, opDetail.substring(0, 500), String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
         }
     }
 } catch (eOp) {
