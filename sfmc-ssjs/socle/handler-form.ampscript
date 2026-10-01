@@ -406,6 +406,15 @@ try {
 }
 </script>
 %%[
+/* Reabonnement SFMC (niveau BU) : leve a "1" par l'etape 2 quand le
+   consentement Email est ecrit (ou confirme) en Opt-in sur un compte deja
+   connu. Un desabonne (lien de pied d'email, ou One-Click Gmail qui ne
+   touche pas Salesforce) reste bloque dans _BusinessUnitUnsubscribes meme
+   une fois son ContactPointConsent repasse en Opt-in : sans ce reabonnement,
+   la journey de confirmation ne lui envoie rien. Voir le bloc « 98 -
+   reabonnement » en fin de fichier, execute AVANT le tir de l'API Event. */
+VAR @reaboEmail
+SET @reaboEmail     = ""
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -2188,6 +2197,11 @@ IF IndexOf(@submitted, "true") > 0 THEN
                         ELSE
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")
                         ENDIF
+                        /* Reabonnement SFMC : la case Email est cochee sur un
+                           compte connu. Leve meme si Salesforce etait deja
+                           Opt-in : le One-Click Gmail desabonne dans SFMC sans
+                           toucher Salesforce. */
+                        IF @canalValue == "Email" THEN SET @reaboEmail = "1" ENDIF
 
                         /* Divergences que le connecteur nous interdit de
                            reparer. Signalees, jamais corrigees en silence. */
@@ -2309,6 +2323,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            suivi de « CPC:Email-cree », qui disait l'inverse. */
                         IF NOT Empty(@cpcId) THEN
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                            /* Compte deja connu : il a pu se desabonner via une
+                               autre marque de la BU. Un compte tout juste cree
+                               n'a jamais recu d'email, rien a lever. */
+                            IF @canalValue == "Email" AND @isNew != "true" THEN SET @reaboEmail = "1" ENDIF
                         ENDIF
                     ENDIF
                     IF @LOG_ACTIF == "true" THEN
@@ -3239,6 +3257,60 @@ ENDIF
    dit) : le tir est la derniere chose que fait la page.
    Ni jeton ni secret dans le journal. */
 Platform.Load("core", "1.1.1");
+/* ==REABONNEMENT== REABONNEMENT SFMC (niveau BU), AVANT LE TIR DE L'API EVENT.
+   Le Subscriber (SubscriberKey = PersonContactId, standard MC Connect)
+   repasse a Active dans la BU : Client.ID = AccountId de LPB_Config_Api,
+   c'est lui qui vise le desabonnement de la BU (_BusinessUnitUnsubscribes)
+   et non All Subscribers. Try/catch dedie : un echec n'empeche ni le tir ni
+   la confirmation, et la ligne « 98 - reabonnement » du journal dit ce qui
+   s'est passe. Status=Active leve aussi un « Held » (adresse en rebond) :
+   choix assume, la personne vient de redonner son adresse et son
+   consentement. Implementation reprise du document du 01/10. */
+try {
+    if (String(Variable.GetValue("@reaboEmail") || "") === "1") {
+        var rbKey = String(Variable.GetValue("@paContactId") || "");
+        var rbMarque = "", rbDetail = "", rbOk = false;
+        if (!rbKey) {
+            rbMarque = " REABO:sans-cle";
+            rbDetail = "PersonContactId vide";
+        } else {
+            var rbMid = String(Platform.Function.Lookup("LPB_Config_Api", "Valeur", "Cle", "AccountId") || "");
+            var rbSub = { SubscriberKey: rbKey, Status: "Active" };
+            if (rbMid) { rbSub.Client = { ID: Number(rbMid) }; }
+            var rbRes = new Script.Util.WSProxy().updateItem("Subscriber", rbSub);
+            var rbSt  = rbRes && rbRes.Status ? String(rbRes.Status) : "?";
+            var rbMsg = (rbRes && rbRes.Results && rbRes.Results.length) ? String(rbRes.Results[0].StatusMessage || "") : "";
+            rbOk = rbSt === "OK";
+            rbMarque = rbOk ? " REABO:ok" : " REABO:echec";
+            rbDetail = ("mid=" + (rbMid || "page") + " status=" + rbSt + (rbMsg ? " " + rbMsg : "")).substring(0, 480);
+        }
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + rbMarque);
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var rbOrdre = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", rbOrdre);
+            var rbRun = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [rbRun + "-" + rbOrdre, rbRun, rbOrdre, Platform.Function.SystemDateToLocalDate(Now()), "98 - reabonnement", (rbOk ? "OK" : "KO"), "Subscriber",
+                 rbKey, rbDetail, String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    }
+} catch (eRb) {
+    try {
+        var rbMotif = ("exception: " + (eRb && eRb.message ? eRb.message : Stringify(eRb))).replace(/\s+/g, " ").substring(0, 500);
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + " REABO:exception");
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var rbOrdreX = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", rbOrdreX);
+            var rbRunX = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [rbRunX + "-" + rbOrdreX, rbRunX, rbOrdreX, Platform.Function.SystemDateToLocalDate(Now()), "98 - reabonnement", "KO", "Subscriber", "",
+                 rbMotif,
+                 String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    } catch (eRbLog) { /* silence : rien ne doit remonter au visiteur */ }
+}
 try {
     var jrnLaunch  = String(Variable.GetValue("@JOURNEY_LAUNCH") || "");
     var jrnCleEvt  = String(Variable.GetValue("@jrnCleEvt") || "");

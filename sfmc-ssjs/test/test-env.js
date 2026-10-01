@@ -286,6 +286,18 @@ test('handler : variante reception seule sur la page du visiteur, handler comple
     }
 });
 
+/* 01/10 : reabonnement SFMC (niveau BU) avant le tir de l'API Event, quand
+   la case Email est cochee sur un compte deja connu. */
+test('handler : reabonnement SFMC du Subscriber avant le tir de journey', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    egal(src.includes('VAR @reaboEmail\nSET @reaboEmail     = ""'), true, 'drapeau declare et vide');
+    egal(/CPC:", @canalValue, "-inchange"\)\s*ENDIF\s*(\/\*[\s\S]*?\*\/\s*)?IF @canalValue == "Email" THEN SET @reaboEmail = "1" ENDIF/.test(src), true, 'leve apres la mise a jour du consentement, quel que soit le sous-cas');
+    egal(/CPC:", @canalValue, "-cree"\)\s*(\/\*[\s\S]*?\*\/\s*)?IF @canalValue == "Email" AND @isNew != "true" THEN SET @reaboEmail = "1" ENDIF/.test(src), true, 'leve a la creation d un consentement sur un compte connu seulement');
+    const debut = src.indexOf('==JOURNEY_FIRE_DEBUT=='), reabo = src.indexOf('==REABONNEMENT=='), tir = src.indexOf('var jrnLaunch  = String(Variable.GetValue("@JOURNEY_LAUNCH")'), fin = src.indexOf('==JOURNEY_FIRE_FIN==');
+    egal(debut > 0 && reabo > debut && tir > reabo && fin > tir, true, 'bloc de reabonnement dans le bloc journey, avant le tir');
+    egal(src.includes('new Script.Util.WSProxy().updateItem("Subscriber", rbSub)') && src.includes('Lookup("LPB_Config_Api", "Valeur", "Cle", "AccountId")') && src.includes('"98 - reabonnement"'), true, 'updateItem Subscriber, MID de LPB_Config_Api, ligne 98 du journal');
+});
+
 /* Compte existant : l'update du compte part APRES les consentements. Poser
    PTAT_Id__c avant declenchait cote CRM un tampon de date d'engagement sur les
    consentements, que notre update suivant ne pouvait plus « faire progresser »

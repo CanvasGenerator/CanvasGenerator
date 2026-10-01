@@ -753,6 +753,26 @@ dans les picklists de l'org.
 
 ---
 
+### Réabonnement SFMC d'un désabonné — 01/10
+
+Un contact désabonné (lien de pied d'email → `LogUnsubEvent`, ou One-Click Gmail
+qui ne touche pas Salesforce) reste bloqué dans `_BusinessUnitUnsubscribes` même
+quand une nouvelle soumission repasse son ContactPointConsent Email en Opt-in :
+la journey de confirmation ne lui envoyait rien. Désormais, **si la case Email
+est cochée sur un compte déjà connu** (`@reaboEmail = "1"`, posé à l'étape 2 en
+mise à jour comme en création du consentement — un compte tout juste créé n'a
+jamais été désabonné), le bloc SSJS `==REABONNEMENT==` repasse le Subscriber
+(`SubscriberKey = PersonContactId`) à `Active` **au niveau de la BU**
+(`Client.ID = AccountId` de `LPB_Config_Api`), par `WSProxy.updateItem`, **avant**
+le tir de l'API Event. Ligne « 98 - reabonnement » (OK/KO) dans
+`LPB_Log_Soumissions` ; un échec n'empêche ni la confirmation ni la journey.
+`Status=Active` lève aussi un « Held » (rebonds) : choix assumé. Vérifié en
+Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
+document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
+vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
+
+---
+
 ## 6. Sondes SFMC (dossier `LPBuilder`, BU RECETTE)
 
 Toutes en `?contentkey=<clé>` sur `cloud.groupe-edh.net/mini-blocks-recette`.
