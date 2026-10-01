@@ -505,6 +505,46 @@ test('Ordre IFA : la langue passe avant la specialite [REGRESSION]', (d, run) =>
         'ordre des champs');
 });
 
+/* 01/10 : candidature EN — la langue d'enseignement juste apres le niveau,
+   pour toutes les ecoles, et les specialites filtrees par la langue choisie.
+   Les pages FR et les autres formulaires gardent l'ordre de l'ecole. */
+testEn('Candidature EN : la langue passe juste apres le niveau, meme sans config d ecole', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const o = d.ordre();
+    egal(o.slice(o.indexOf('Campus'), o.indexOf('Campus') + 5), ['Campus', 'StudyLevel', 'Language', 'Speciality', 'Rhythm'], 'ordre des champs');
+    egal(d.champs.Language.options.map((x) => x.value).filter(Boolean).sort(), ['EN', 'FR'], 'les deux langues des programmes Bac+3 sont proposees');
+}, LAYOUT_CANDIDATURE);
+testEn('Candidature EN : la langue choisie restreint les specialites', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3', Language: 'EN' });
+    egal(d.champs.Speciality.options.map((x) => x.value).filter(Boolean), ['Luxe'], 'specialites en anglais seulement');
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3', Language: 'FR' });
+    egal(d.champs.Speciality.options.map((x) => x.value).filter(Boolean), ['Comm'], 'specialites en francais seulement');
+}, LAYOUT_CANDIDATURE);
+testEn('Candidature EN : l ordre de l ecole est respecte apres la langue', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,rhythm,speciality,language,rentree' }), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const o = d.ordre();
+    egal(o.slice(o.indexOf('Campus'), o.indexOf('Campus') + 5), ['Campus', 'StudyLevel', 'Language', 'Rhythm', 'Speciality'], 'langue en 3e, puis l ordre de l ecole');
+}, LAYOUT_CANDIDATURE);
+test('Candidature FR : l ordre standard ne bouge pas [REGRESSION]', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
+    const o = d.ordre();
+    egal(o.slice(o.indexOf('Campus'), o.indexOf('Campus') + 5), ['Campus', 'StudyLevel', 'Speciality', 'Rhythm', 'Language'], 'ordre standard');
+}, LAYOUT_CANDIDATURE);
+testEn('Brochure EN : pas de regle candidature, l ordre standard reste [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
+    const o = d.ordre();
+    egal(o.slice(o.indexOf('Campus'), o.indexOf('Campus') + 5), ['Campus', 'Niveau', 'Speciality', 'Rhythm', 'Language'], 'ordre standard');
+});
+test('Ordre IFA : la langue choisie restreint desormais les specialites', (d, run) => {
+    run(cfg({ ordre: 'campus,niveau,language,speciality,rhythm,rentree' }), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Language: 'EN' });
+    egal(d.champs.Speciality.options.map((x) => x.value).filter(Boolean), ['Luxe'], 'specialites de la langue choisie');
+});
+test('Ordre standard : la chaine de filtrage historique est inchangee [REGRESSION]', (d, run) => {
+    run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3', Speciality: 'Comm' });
+    egal(d.champs.Rhythm.options.map((x) => x.value).filter(Boolean), ['FT'], 'rythme filtre par la specialite');
+    egal(d.champs.Language.options.map((x) => x.value).filter(Boolean), ['FR'], 'langue filtree par la specialite et le rythme');
+});
+
 /* Le markup REEL de la candidature : campus et niveau cote a cote dans un
    `.cnd-row`, les quatre champs de cascade enfants directs du formulaire. */
 const LAYOUT_DEUX_SECTIONS = [['Email', 0], ['Campus', 1, 'row'], ['StudyLevel', 1, 'row'],

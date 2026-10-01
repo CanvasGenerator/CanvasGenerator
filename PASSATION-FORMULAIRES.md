@@ -215,10 +215,18 @@ Trois comportements à ne pas confondre :
 - **une seule valeur** — champ **masqué mais renseigné**, la valeur part au CRM ;
 - **ordre par école** — IFA Paris demande la langue avant la spécialité.
 
-> ⚠ La chaîne de **filtrage** reste codée en dur (campus → niveau → spécialité →
-> rythme → langue) et **ne suit pas `OrdreChamps`**. Chez IFA Paris, les
-> spécialités ne sont donc pas restreintes par la langue choisie. **Non corrigé**
-> — c'est l'ordre d'AFFICHAGE qui l'a été, pas l'ordre de filtrage.
+> ✅ **Le filtrage suit `OrdreChamps` depuis le 01/10.** Chaque liste
+> conditionnelle est filtrée par le campus, le niveau et les champs qui la
+> précèdent dans l'ordre d'affichage. Dans l'ordre standard, c'est la chaîne
+> historique ; chez IFA Paris (langue avant spécialité), les spécialités
+> proposées sont désormais celles de la langue choisie.
+
+> ✅ **Candidature EN — 01/10.** Sur les formulaires de candidature anglais de
+> toutes les écoles (`data-lang="en"` + `TypeFormulaire=candidature`), l'ordre
+> devient : campus, niveau, **langue d'enseignement**, puis la suite de l'ordre
+> de l'école (spécialité, rythme, rentrée). Règle de code (`ordreCandidatureEn`),
+> pas de configuration : `OrdreChamps` continue de régir les pages FR et les
+> autres formulaires. Les spécialités sont filtrées par la langue choisie.
 
 > ✅ **`OrdreChamps` fonctionne depuis le 31/08.** Il n'avait effectivement aucun
 > effet : `appliquerOrdre` exigeait que tous les porteurs partagent le même
