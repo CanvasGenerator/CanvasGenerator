@@ -1158,6 +1158,35 @@ try {
     /* -- Matrice des champs conditionnels par ecole -------------------- */
     var CFG = D.config || null;
 
+    /* ---- CANDIDATURE EN : LA LANGUE D'ENSEIGNEMENT JUSTE APRES LE NIVEAU --
+       Regle du 01/10, pour les formulaires de candidature anglais de TOUTES
+       les ecoles : campus, niveau, puis la langue d'enseignement, puis la
+       specialite et la suite de l'ordre de l'ecole. Un candidat anglophone
+       choisit d'abord la langue dans laquelle il veut etudier ; les
+       specialites qui suivent sont alors celles qui existent dans cette
+       langue (le filtrage suit l'ordre, voir les viviers plus bas).
+       On recopie la config plutot que de la modifier : SOCLE_DATA reste
+       lisible tel quel dans la console. Les autres formulaires et les pages
+       francaises gardent l'ordre de leur ecole (OrdreChamps). */
+    function ordreCandidatureEn(ordre) {
+        var base = String(ordre || 'campus,niveau,speciality,rhythm,language,rentree').split(',');
+        var tete = [], reste = [];
+        for (var i = 0; i < base.length; i++) {
+            var cle = base[i].replace(/^\s+|\s+$/g, '');
+            if (!cle || cle === 'language') continue;
+            if (cle === 'campus' || cle === 'niveau') tete.push(cle); else reste.push(cle);
+        }
+        return tete.concat(['language'], reste).join(',');
+    }
+    (function appliquerRegleCandidatureEn() {
+        var typeF = champ('TypeFormulaire');
+        if (langueAffichage() !== 'en' || !typeF || Lowercase_(typeF.value) !== 'candidature') return;
+        var copie = {};
+        for (var k in (CFG || {})) { if (CFG.hasOwnProperty(k)) copie[k] = CFG[k]; }
+        copie.ordre = ordreCandidatureEn(CFG && CFG.ordre);
+        CFG = copie;
+    })();
+
     /** Ordinal du niveau choisi. 0 si inconnu : aucune regle ne se declenche. */
     function ordreNiveauChoisi() {
         var v = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
@@ -1908,17 +1937,26 @@ try {
            suit. Le niveau, lui, a deja ete relu ci-dessus. */
         sel.level = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
 
-        vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
-        remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
-        sel.speciality = valeur('Speciality');
-
-        vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
-        remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
-        sel.rhythm = valeur('Rhythm');
-
-        vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
-        remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
-        sel.language = valeur('Language');
+        /* ---- LE FILTRAGE SUIT L'ORDRE DE L'ECOLE (01/10) ------------------
+           Chaque liste conditionnelle ne propose que ce qui reste possible
+           compte tenu du campus, du niveau ET des champs qui la PRECEDENT
+           dans l'ordre d'affichage. Dans l'ordre standard (specialite,
+           rythme, langue) c'est exactement la chaine historique ; quand la
+           langue passe devant (IFA Paris, candidature EN), les specialites
+           proposees sont celles qui existent dans la langue choisie — ce que
+           le commentaire de `appliquerOrdre` promettait sans que le code le
+           fasse (la chaine de filtrage etait figee, cf. PASSATION §Cascade). */
+        var CLE_VIVIER = { Speciality: 'speciality', Rhythm: 'rhythm', Language: 'language' };
+        var viviers = {}, criteres = { campus: sel.campus, level: sel.level };
+        var ordreCond = ordonner(['Speciality', 'Rhythm', 'Language']);
+        for (var oc = 0; oc < ordreCond.length; oc++) {
+            var nomCond = ordreCond[oc], cleCond = CLE_VIVIER[nomCond];
+            viviers[nomCond] = filtrer(criteres);
+            remplir(nomCond, distinct(viviers[nomCond], cleCond), sel[cleCond], true);
+            sel[cleCond] = valeur(nomCond);
+            criteres[cleCond] = sel[cleCond];
+        }
+        vivierSpec = viviers.Speciality; vivierRyth = viviers.Rhythm; vivierLang = viviers.Language;
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
