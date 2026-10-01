@@ -298,6 +298,24 @@ test('handler : reabonnement SFMC du Subscriber avant le tir de journey', () => 
     egal(src.includes('new Script.Util.WSProxy().updateItem("Subscriber", rbSub)') && src.includes('Lookup("LPB_Config_Api", "Valeur", "Cle", "AccountId")') && src.includes('"98 - reabonnement"'), true, 'updateItem Subscriber, MID de LPB_Config_Api, ligne 98 du journal');
 });
 
+/* 01/10 : un opt-out en attente dans Journey_OptOut_Entry_DE (file de
+   l'automation de desabonnement, cle ConsentId) est leve quand la personne
+   recoche le canal : l'opt-in est plus recent, la journey ne doit pas repasser
+   le CRM en Opt-out. Suppression par cle exacte, jamais par SubscriberKey. */
+test('handler : purge de l opt-out en attente quand le consentement repasse Opt-in', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    egal(src.includes('VAR @optoutCpcIds\nSET @optoutCpcIds   = ""'), true, 'liste declaree et vide');
+    egal(/IF @canalValue == "Email" THEN SET @reaboEmail = "1" ENDIF\s*(\/\*[\s\S]*?\*\/\s*)?IF NOT Empty\(@cpcId\) THEN SET @optoutCpcIds = Concat\(@optoutCpcIds, @cpcId, ","\) ENDIF/.test(src), true, 'l Id du consentement existant est collecte, tout canal, juste apres le drapeau de reabonnement');
+    egal(/CPC:", @canalValue, "-cree"\)[\s\S]{0,600}?ENDIF/.test(src) && !/CPC:", @canalValue, "-cree"\)[\s\S]{0,600}?@optoutCpcIds/.test(src), true, 'un consentement tout juste cree n est pas collecte');
+    const debut = src.indexOf('==JOURNEY_FIRE_DEBUT=='), purge = src.indexOf('==OPTOUT_PURGE=='), reabo = src.indexOf('==REABONNEMENT=='), fin = src.indexOf('==JOURNEY_FIRE_FIN==');
+    egal(debut > 0 && purge > debut && reabo > purge && fin > reabo, true, 'bloc de purge dans le bloc journey, avant le reabonnement');
+    egal(src.includes('Platform.Function.LookupRows("Journey_OptOut_Entry_DE", "ConsentId", opId)') && src.includes('Platform.Function.DeleteData("Journey_OptOut_Entry_DE", ["ConsentId"], [opId])'), true, 'lecture puis suppression par ConsentId exact');
+    egal(/DeleteData\("Journey_OptOut_Entry_DE", \["SubscriberKey"/.test(src), false, 'jamais de suppression par SubscriberKey');
+    egal(src.includes('"97 - optout-purge"') && src.includes('" OPTOUT:purge("') && src.includes('" OPTOUT:aucun"'), true, 'ligne 97 et marques du journal');
+    const bloc = src.slice(purge, reabo);
+    egal(/\/\^\\s\+\|\\s\+\$\/g/.test(bloc), false, 'pas de regex de trim dans le bloc (Jint)');
+});
+
 /* Compte existant : l'update du compte part APRES les consentements. Poser
    PTAT_Id__c avant declenchait cote CRM un tampon de date d'engagement sur les
    consentements, que notre update suivant ne pouvait plus « faire progresser »

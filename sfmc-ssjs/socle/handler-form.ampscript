@@ -415,6 +415,14 @@ try {
    reabonnement » en fin de fichier, execute AVANT le tir de l'API Event. */
 VAR @reaboEmail
 SET @reaboEmail     = ""
+/* Desabonnement en attente (Journey_OptOut_Entry_DE) : Ids des
+   ContactPointConsent que l'etape 2 ecrit ou confirme en Opt-in, separes par
+   des virgules. Le bloc « 97 - optout-purge » (fin de fichier, avant le
+   reabonnement) retire leur ligne de la file de l'automation de
+   desabonnement : l'opt-in d'aujourd'hui est plus recent que l'opt-out
+   que la journey n'a pas encore porte dans le CRM. */
+VAR @optoutCpcIds
+SET @optoutCpcIds   = ""
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -2202,6 +2210,12 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            Opt-in : le One-Click Gmail desabonne dans SFMC sans
                            toucher Salesforce. */
                         IF @canalValue == "Email" THEN SET @reaboEmail = "1" ENDIF
+                        /* Ce consentement est (ou reste) Opt-in : s'il attend
+                           dans Journey_OptOut_Entry_DE un passage en Opt-out
+                           cote CRM, cette attente est perimee. Cle exacte
+                           (Id du consentement de ce canal et de cette marque),
+                           levee par le bloc « 97 - optout-purge ». */
+                        IF NOT Empty(@cpcId) THEN SET @optoutCpcIds = Concat(@optoutCpcIds, @cpcId, ",") ENDIF
 
                         /* Divergences que le connecteur nous interdit de
                            reparer. Signalees, jamais corrigees en silence. */
@@ -3257,6 +3271,64 @@ ENDIF
    dit) : le tir est la derniere chose que fait la page.
    Ni jeton ni secret dans le journal. */
 Platform.Load("core", "1.1.1");
+/* ==OPTOUT_PURGE== DESABONNEMENT EN ATTENTE ANNULE PAR UN NOUVEL OPT-IN.
+   Journey_OptOut_Entry_DE (DE de la BU, cle ConsentId) est la file de
+   l'automation de desabonnement : une ligne par ContactPointConsent a passer
+   en Opt-out dans le CRM (One-Click Gmail, lien de pied d'email), consommee
+   plus tard par la journey de mise a jour du CRM. Si, entre les deux, la
+   personne resoumet un formulaire en recochant le canal, son consentement le
+   plus recent est l'opt-in : la ligne est supprimee ici, par cle exacte (l'Id
+   du consentement de CE canal et de CETTE marque, que l'etape 2 vient
+   d'ecrire ou de confirmer en Opt-in), pour que la journey ne repasse pas le
+   CRM en Opt-out par-dessus. Un consentement tout juste cree n'a pas de
+   ligne : l'etape 2 ne le liste pas. Jamais de suppression par SubscriberKey
+   seul : les opt-out des autres marques restent. Try/catch dedie ; ligne
+   « 97 - optout-purge » du journal quand une ligne est levee ou en erreur,
+   marque OPTOUT:purge(n) / OPTOUT:aucun dans le journal court. Pas de regex
+   ici (Jint) : decoupage et tri a la main. */
+try {
+    var opBrut = String(Variable.GetValue("@optoutCpcIds") || "");
+    if (opBrut !== "") {
+        var opIds = opBrut.split(","), opNb = 0, opDetail = "", opCles = "";
+        for (var oi = 0; oi < opIds.length; oi++) {
+            var opId = opIds[oi];
+            if (!opId) { continue; }
+            opCles += (opCles ? "," : "") + opId;
+            var opRows = Platform.Function.LookupRows("Journey_OptOut_Entry_DE", "ConsentId", opId);
+            if (!opRows || opRows.length === 0) { continue; }
+            var opN = Number(Platform.Function.DeleteData("Journey_OptOut_Entry_DE", ["ConsentId"], [opId]) || 0);
+            opNb += opN;
+            opDetail += (opDetail ? " ; " : "") + opId + " ecole=" + String(opRows[0]["CodeEcole"] || "")
+                + " type=" + String(opRows[0]["UpdateType"] || "") + " valeur=" + String(opRows[0]["NewValue"] || "")
+                + " dateSfmc=" + String(opRows[0]["DateSFMC"] || "") + " supprime=" + opN;
+        }
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + (opNb > 0 ? " OPTOUT:purge(" + opNb + ")" : " OPTOUT:aucun"));
+        if (opNb > 0 && String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var opOrdre = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", opOrdre);
+            var opRun = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [opRun + "-" + opOrdre, opRun, opOrdre, Platform.Function.SystemDateToLocalDate(Now()), "97 - optout-purge", "OK", "Journey_OptOut_Entry_DE",
+                 opCles.substring(0, 200), opDetail.substring(0, 500), String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    }
+} catch (eOp) {
+    try {
+        var opMotif = ("exception: " + (eOp && eOp.message ? eOp.message : Stringify(eOp))).replace(/\s+/g, " ").substring(0, 500);
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + " OPTOUT:exception");
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var opOrdreX = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", opOrdreX);
+            var opRunX = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [opRunX + "-" + opOrdreX, opRunX, opOrdreX, Platform.Function.SystemDateToLocalDate(Now()), "97 - optout-purge", "KO", "Journey_OptOut_Entry_DE", "",
+                 opMotif,
+                 String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    } catch (eOpLog) { /* silence : rien ne doit remonter au visiteur */ }
+}
 /* ==REABONNEMENT== REABONNEMENT SFMC (niveau BU), AVANT LE TIR DE L'API EVENT.
    Le Subscriber (SubscriberKey = PersonContactId, standard MC Connect)
    repasse a Active dans la BU : Client.ID = AccountId de LPB_Config_Api,

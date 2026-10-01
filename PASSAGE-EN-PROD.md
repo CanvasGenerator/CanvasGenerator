@@ -71,6 +71,7 @@ la page (voir `PASSATION-FORMULAIRES.md` §1.3).
 | `LPB_Log_Soumissions` | `RowId*` T60, `RunId` T20, `Ordre` Num, `Horodatage` Date, `Etape` T60, `Statut` T20, `Objet` T60, `RecordId` T20, `Detail` T500, `Email` T120, `Ecole` T40, `FormType` T30 | journal de chaque soumission (`scripts/journal-soumission.js`). Prévoir une purge (2 500+ lignes en recette après un mois). |
 | `LPB_File_Soumissions` | `RunId*` T50, `Horodatage` Date, `Url` T500, `PageId` T100, `Ecole` T40, `FormType` T30, `Email` T254, `Statut` T20, `Tentatives` Num, `DerniereTentative` Date, `RunTraitement` T50, `RecordId` T18, `Journal` T500, `Detail` T500, `Payload1..3` T4000 | file du mode asynchrone |
 | `LPB_Cache_Lecture` | `Cle*` T120, `Famille` T120, `Ecole` T40, `MisAJour` Date, `Epoch` T20, `Octets` Num, `Json1..16` T4000 | cache des picklists et programmes (`scripts/creer-de-cache-lecture.js --push`) |
+| `Journey_OptOut_Entry_DE` | `ConsentId*` T18, `SubscriberKey` T18, `CodeEcole` T50, `ListID` Num, `UpdateType` T20, `NewValue` T20, `DateSFMC` Date | **existe déjà** (file de l'automation de désabonnement, pas à recréer) : le handler y **supprime** la ligne du consentement qu'il vient de repasser en Opt-in (bloc « 97 - optout-purge »). Doit être visible de la BU où tournent les pages. |
 
 ### 2.5 Déjà en prod
 
