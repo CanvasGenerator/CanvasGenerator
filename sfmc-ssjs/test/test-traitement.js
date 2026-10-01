@@ -20,7 +20,7 @@ function fonction(nom) {
     }
     return src.substring(i, j + 1);
 }
-const code = [fonction('bilanDe'), fonction('urlTraitement'), fonction('lancerTraitement')].join('\n');
+const code = ['var DELAIS_TRAITEMENT = [2000, 6000];', fonction('bilanDe'), fonction('urlTraitement'), fonction('lancerTraitement')].join('\n');
 
 function navigateur(href) {
     const envois = [];
@@ -63,6 +63,32 @@ test('Sans page dediee : la page courante, query string comprise (comportement d
         vm.runInNewContext(code + '\nresultat = lancerTraitement(["a=1"], bilanDe(M));', Object.assign(ctx, { M: marqueur }));
         egal(ctx.envois[0].url, 'https://cloud.groupe-edh.net/landingpage?id=Interne_CAND_EFAP_V0&campus=lyon');
     }
+});
+/* 01/10 : fetch d'abord, parce que sa reponse se lit ; 429 (limitation de
+   debit SFMC, vu en repasse) ou 5xx → nouvel essai apres 2 s puis 6 s. */
+function navigateurFetch(href, statuts) {
+    const ctx = navigateur(href);
+    ctx.appels = []; ctx.delais = [];
+    ctx.window.fetch = (url, opts) => { ctx.appels.push({ url, body: opts.body, keepalive: opts.keepalive }); const s = statuts.shift(); return { then: (ok, ko) => (s === 'reseau' ? ko(new Error('reseau')) : ok({ status: s })) }; };
+    ctx.window.setTimeout = (fn, ms) => { ctx.delais.push(ms); fn(); };
+    return ctx;
+}
+test('fetch keepalive d abord : un seul envoi quand la page de traitement repond 200', () => {
+    const ctx = navigateurFetch('https://cloud.groupe-edh.net/landingpage?id=Interne_CAND_EFAP_V0', [200]);
+    vm.runInNewContext(code + '\nresultat = lancerTraitement(["a=1"], bilanDe(RECU));', Object.assign(ctx, { RECU }));
+    egal(ctx.resultat, true); egal(ctx.appels.length, 1); egal(ctx.envois.length, 0, 'pas de sendBeacon quand fetch existe');
+    egal(ctx.appels[0].url, 'https://cloud.groupe-edh.net/landingpage?id=Interne_TRAITEMENT_V0'); egal(ctx.appels[0].keepalive, true);
+    egal(ctx.appels[0].body, 'a=1&socle_traitement=1&socle_run=abc123');
+});
+test('429 puis 200 : un nouvel essai apres 2 s, puis plus rien', () => {
+    const ctx = navigateurFetch('https://x/p?id=A', [429, 200]);
+    vm.runInNewContext(code + '\nresultat = lancerTraitement(["a=1"], bilanDe(RECU));', Object.assign(ctx, { RECU }));
+    egal(ctx.appels.length, 2); egal(JSON.stringify(ctx.delais), '[2000]');
+});
+test('429, coupure reseau, 503 : trois essais en tout (2 s puis 6 s), puis l automation', () => {
+    const ctx = navigateurFetch('https://x/p?id=A', [429, 'reseau', 503, 200]);
+    vm.runInNewContext(code + '\nresultat = lancerTraitement(["a=1"], bilanDe(RECU));', Object.assign(ctx, { RECU }));
+    egal(ctx.appels.length, 3); egal(JSON.stringify(ctx.delais), '[2000,6000]');
 });
 test('Pas de second passage sans reception asynchrone reussie', () => {
     const ctx = navigateur('https://x/p?id=A');
