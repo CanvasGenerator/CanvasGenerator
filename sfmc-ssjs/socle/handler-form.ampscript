@@ -1007,6 +1007,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 "FormType", @formType)
         ENDIF
     ENDIF
+    /* ==TRAITEMENT_SEUL_DEBUT== Reservation de la ligne de la file.
+       Les regions ==TRAITEMENT_SEUL_*== ne servent qu'au second passage
+       (page de traitement dediee, ou rejeu). Quand la publication pose
+       SFMC_SOCLE_RECEPTION_SEULE=true — generer-lp le fait pour les pages du
+       visiteur des qu'une page de traitement existe — lib/socle-inliner les
+       RETIRE du texte publie : la page du visiteur ne porte que la reception
+       (contexte, campagne, regles de blocage, mise en file), soit ~70 Ko
+       d'AMPscript de moins a analyser a chaque affichage (01/10). Chaque
+       region est un bloc complet (IF...ENDIF ou <script>...</script>) : son
+       retrait laisse l'AMPscript equilibre. */
     IF @sfStatus != "blocked" AND @modeTraitement == "1" AND NOT Empty(@runReception) THEN
         SET @asyncMode = "traitement"
         SET @fileTentatives = 0
@@ -1047,6 +1057,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 "FormType", @formType)
         ENDIF
     ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
 
     IF @sfStatus != "blocked" AND @sfStatus != "error" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN
         /* ================================================================
@@ -1143,6 +1154,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
             ENDIF
         ENDIF
     ELSEIF @sfStatus != "blocked" AND @sfStatus != "error" AND @asyncDoublon != "true" THEN
+    /* ==TRAITEMENT_SEUL_DEBUT== Sequence d'ecriture CRM (etapes 1 a 9, journal, entrees de journey). */
     /* ====================================================================
        ETAPE 1 — PERSON ACCOUNT, upsert sur PersonEmail
        Pas d'email = pas de dedoublonnage possible = on n'ecrit rien. C'est la
@@ -3176,11 +3188,13 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 "FormType", @formType)
         ENDIF
     ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
     ENDIF   /* fin du garde-fou : rien n'est ecrit si @sfStatus == "blocked" */
 
     /* Solde de la ligne de la file, hors garde d'ecriture : un blocage ou une
        erreur se soldent aussi. Une page tuee par le CRM n'arrive pas ici : la
        ligne reste « en_cours », et l'automation la rejouera (3 tentatives). */
+    /* ==TRAITEMENT_SEUL_DEBUT== Solde de la ligne de la file. */
     IF @asyncMode == "traitement" AND @asyncDoublon != "true" THEN
         SET @fileStatut = "erreur"
         IF @sfStatus == "success" THEN SET @fileStatut = "traitee" ENDIF
@@ -3193,16 +3207,18 @@ IF IndexOf(@submitted, "true") > 0 THEN
             "Journal", Substring(@journal, 1, 500),
             "Detail", Substring(@fileDetail, 1, 500))
     ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
 ENDIF
 ]%%
 
-<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% traitement=%%=v(@PAGE_TRAITEMENT)=%% journal=%%=v(@journal)=%% -->
+<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% traitement=%%=v(@PAGE_TRAITEMENT)=%% reception-seule=%%ENV:SFMC_SOCLE_RECEPTION_SEULE%% journal=%%=v(@journal)=%% -->
 %%[ IF NOT Empty(@sfErrorMsg) THEN ]%%
 <!-- socle erreur: %%=v(@sfErrorMsg)=%% -->
 %%[ ENDIF ]%%
 %%[ IF NOT Empty(@sfBlockRule) THEN ]%%
 <!-- socle blocage: motif=%%=v(@sfBlockRule)=%% -->
 %%[ ENDIF ]%%
+<!-- ==TRAITEMENT_SEUL_DEBUT== tir de l'API Event -->
 <script runat="server">
 /* ==JOURNEY_FIRE_DEBUT==
    TIR DE L'API EVENT (bloc commun a tous les formulaires ; le banc de test
@@ -3355,3 +3371,4 @@ try {
 }
 /* ==JOURNEY_FIRE_FIN== */
 </script>
+<!-- ==TRAITEMENT_SEUL_FIN== -->

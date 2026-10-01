@@ -346,6 +346,7 @@ console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*)
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
 console.log(`  Socle inline : ${process.env.SFMC_SOCLE_DEPOUILLE === 'true' ? 'depouille (commentaires et indentation retires)' : 'texte complet'}`);
 console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}`);
+console.log(`  Handler des pages : ${PAGE_TRAITEMENT ? 'reception seule (regions de traitement retirees, handler complet sur la page dediee)' : 'complet'}`);
 console.log(`  Traitement asynchrone : ${PAGE_TRAITEMENT ? `page dediee ${CLE_TRAITEMENT} (publiee avec le lot)` : 'ferme, ou sur la page du visiteur'}\n`);
 
 if (!PUSH) fs.mkdirSync(SORTIE, { recursive: true });
@@ -367,6 +368,9 @@ for (const { ecole, f } of travaux) {
             rendreBloc(f.bloc, f.id + LANGUES[LANG].suffixeBloc),
             rendreBloc(`blocks/footer-${ecole.id}/index.js`, `footer-${ecole.id}`),
         ]);
+        /* Une page de traitement dediee porte seule l'ecriture CRM : la page du
+           visiteur publie le handler en variante « reception seule ». */
+        process.env.SFMC_SOCLE_RECEPTION_SEULE = PAGE_TRAITEMENT ? 'true' : 'false';
         const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer, lang: LANG, gtm: gtmPour(ecole.id) })));
 
         if (!PUSH) {
@@ -387,6 +391,7 @@ for (const { ecole, f } of travaux) {
 if (PAGE_TRAITEMENT) {
     const nomProjet = `school-socle__${CLE_TRAITEMENT}`;
     try {
+        process.env.SFMC_SOCLE_RECEPTION_SEULE = 'false';
         const html = pageTraitement();
         if (!PUSH) {
             fs.writeFileSync(path.join(SORTIE, `${CLE_TRAITEMENT}.html`), html);

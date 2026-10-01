@@ -146,7 +146,7 @@ test('handler inline : mode asynchrone complet, ferme sans variable', () => {
         egal(/==ASYNC_CAPTURE==/.test(html) && /Platform\.Request\.GetPostData\(\)/.test(html), true, 'capture du corps brut');
         egal(/InsertData\("LPB_File_Soumissions"/.test(html), true, 'depot dans la file');
         egal((html.match(/UpdateData\("LPB_File_Soumissions"/g) || []).length, 2, 'reservation puis solde de la ligne');
-        egal(/run=%%=v\(@runId\)=%% async=%%=v\(@asyncMode\)=%% traitement=%%=v\(@PAGE_TRAITEMENT\)=%% journal=/.test(html), true, 'bilan : run, mode et page de traitement avant journal');
+        egal(/run=%%=v\(@runId\)=%% async=%%=v\(@asyncMode\)=%% traitement=%%=v\(@PAGE_TRAITEMENT\)=%% reception-seule=(true|false) journal=/.test(html), true, 'bilan : run, mode, page de traitement et variante avant journal');
         /* La reception ne doit JAMAIS ecrire dans le CRM : aucun Create/Update
            Salesforce entre le marqueur de reception et le ELSEIF des ecritures. */
         const deb = html.indexOf('MODE ASYNCHRONE — ACCUSE DE RECEPTION');
@@ -256,6 +256,34 @@ test('handler : page de traitement annoncee, Url de rejeu, refus des soumissions
     egal(src.includes('"Url", @urlTraitement,'), true, 'la file porte l URL de traitement');
     egal(/IF NOT Empty\(@PAGE_TRAITEMENT\) AND RequestParameter\("id"\) == @PAGE_TRAITEMENT AND @modeTraitement != "1" THEN\s*SET @sfStatus\s*= "error"/.test(src), true, 'soumission directe refusee sur la page de traitement');
     egal(src.includes('IF @sfStatus != "blocked" AND @sfStatus != "error" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN'), true, 'le refus n entre pas en reception');
+});
+
+/* 01/10 : avec une page de traitement dediee, la page du visiteur publie le
+   handler sans ses regions de traitement (ecriture CRM, journey, file). */
+test('handler : variante reception seule sur la page du visiteur, handler complet sur la page de traitement', () => {
+    const avant = { r: process.env.SFMC_SOCLE_RECEPTION_SEULE, t: process.env.SFMC_PAGE_TRAITEMENT, d: process.env.SFMC_SOCLE_DEPOUILLE };
+    const inliner = path.join(__dirname, '..', '..', 'lib', 'socle-inliner');
+    const rendre = (receptionSeule) => {
+        process.env.SFMC_SOCLE_RECEPTION_SEULE = receptionSeule ? 'true' : 'false';
+        process.env.SFMC_PAGE_TRAITEMENT = 'Test_TRAITEMENT_V0';
+        process.env.SFMC_SOCLE_DEPOUILLE = 'true';
+        delete require.cache[require.resolve(inliner)];
+        return String(require(inliner).inlineSocleBlocks('%%=ContentBlockByKey("LPB_Form_Handler_AG")=%%').html);
+    };
+    const equilibre = (html) => (html.match(/\bIF\b/g) || []).length === (html.match(/\bENDIF\b/g) || []).length;
+    try {
+        const complet = rendre(false), reception = rendre(true);
+        egal(complet.includes('CreateSalesforceObject(') && complet.includes('==JOURNEY_FIRE_DEBUT==') && complet.includes('"Statut", @fileStatut'), true, 'page de traitement : handler complet');
+        egal(complet.includes('reception-seule=false'), true, 'marqueur complet');
+        egal(reception.includes('CreateSalesforceObject(') || reception.includes('==JOURNEY_FIRE_DEBUT==') || reception.includes('"Statut", @fileStatut') || reception.includes('RetrieveSalesforceObjects("ContactPointConsent"'), false, 'page du visiteur : ni ecriture CRM, ni journey, ni file');
+        egal(reception.includes('InsertData("LPB_File_Soumissions"') && reception.includes('socle ecriture: statut=') && reception.includes('RetrieveSalesforceObjects("Account", "Id,PersonContactId",'), true, 'page du visiteur : mise en file, marqueur, regles de blocage conserves');
+        egal(reception.includes('reception-seule=true'), true, 'marqueur reception seule');
+        egal(equilibre(complet) && equilibre(reception), true, 'IF / ENDIF equilibres dans les deux variantes');
+        egal(reception.length < complet.length * 0.6, true, 'variante reception au moins 40 % plus legere (' + reception.length + ' / ' + complet.length + ')');
+    } finally {
+        for (const [k, v] of [['SFMC_SOCLE_RECEPTION_SEULE', avant.r], ['SFMC_PAGE_TRAITEMENT', avant.t], ['SFMC_SOCLE_DEPOUILLE', avant.d]]) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
+        delete require.cache[require.resolve(inliner)];
+    }
 });
 
 /* Compte existant : l'update du compte part APRES les consentements. Poser
