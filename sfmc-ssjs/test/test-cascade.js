@@ -525,6 +525,19 @@ testEn('Candidature EN : l ordre de l ecole est respecte apres la langue', (d, r
     const o = d.ordre();
     egal(o.slice(o.indexOf('Campus'), o.indexOf('Campus') + 5), ['Campus', 'StudyLevel', 'Language', 'Rhythm', 'Speciality'], 'langue en 3e, puis l ordre de l ecole');
 }, LAYOUT_CANDIDATURE);
+testEn('Candidature EN : la langue reste AFFICHEE meme a valeur unique, et posee', (d, run) => {
+    /* EFAP PARIS x Terminale : un seul programme (p1), en francais seulement. */
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Terminale' });
+    egal(d.champs.Language.options.map((x) => x.value).filter(Boolean), ['FR'], 'une seule langue possible');
+    egal(d.visible('Language'), true, 'le champ langue reste visible');
+    egal(d.champs.Language.value, 'FR', 'la valeur unique est posee');
+    egal(d.visible('Rhythm'), false, 'les autres champs a valeur unique restent masques');
+}, LAYOUT_CANDIDATURE);
+test('Candidature FR : la langue a valeur unique reste masquee [REGRESSION]', (d, run) => {
+    run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Terminale', Speciality: 'Comm', Rhythm: 'FT' });
+    egal(d.visible('Language'), false, 'masquee en FR');
+    egal(d.champs.Language.value, 'FR', 'mais posee');
+}, LAYOUT_CANDIDATURE);
 test('Candidature FR : l ordre standard ne bouge pas [REGRESSION]', (d, run) => {
     run(cfg(), { TypeFormulaire: 'candidature', Campus: 'EFAP PARIS', StudyLevel: 'Bac+3' });
     const o = d.ordre();
