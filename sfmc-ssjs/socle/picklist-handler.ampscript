@@ -830,6 +830,11 @@ try {
             for (var lp = 0; lp < lotsDe[lo].length; lp++) progsDe.push(lotsDe[lo][lp]);
         }
         var jsProgsDe = [], jsCampusDe = [], idIndexDe = ";", campusSeenDe = ";", nbProgsDe = 0;
+        /* La DE peut garder l'ancienne casse d'un campus renomme (01/10 : un
+           programme inactif en « BRASSART Rennes » a cote de dix en
+           « BRASSART RENNES », d'ou un doublon dans la liste des campus). La
+           premiere graphie rencontree fait foi pour toutes les suivantes. */
+        var campusCanonDe = {};
         for (var ip = 0; ip < progsDe.length; ip++) {
             var pDe = progsDe[ip];
             var cNameDe = String(pDe.campusNameFor__c || "");
@@ -837,6 +842,8 @@ try {
             if (candDe && !ptatProgDe[pidDe]) continue;
             if (candDe && !String(pDe.Speciality__c || "").length) continue;
             if (!cNameDe.length || cNameDe.toUpperCase().indexOf(prefixUpDe) !== 0) continue;
+            if (campusCanonDe[cNameDe.toUpperCase()] === undefined) campusCanonDe[cNameDe.toUpperCase()] = cNameDe;
+            cNameDe = campusCanonDe[cNameDe.toUpperCase()];
             idIndexDe += pidDe + ";";
             nbProgsDe++;
             jsProgsDe.push("{id:'" + pidDe + "',name:'" + echDe(pDe.Name) + "',campus:'" + echDe(cNameDe)
