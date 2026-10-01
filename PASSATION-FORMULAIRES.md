@@ -782,6 +782,27 @@ Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
 document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
 vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
 
+### Opt-out en attente annulé par un nouvel opt-in — 01/10
+
+L'automation de désabonnement (One-Click Gmail, lien de pied d'email) ne
+touche pas le CRM tout de suite : elle pose une ligne dans
+**`Journey_OptOut_Entry_DE`** (DE de la BU, clé `ConsentId` = Id du
+ContactPointConsent, colonnes `SubscriberKey`, `CodeEcole`, `ListID`,
+`UpdateType`, `NewValue`, `DateSFMC`), que la journey de mise à jour du
+CRM consomme plus tard. Si la personne resoumet un formulaire **entre les
+deux** en recochant le canal, son consentement le plus récent est l'opt-in :
+sans rien faire, la journey repassait ensuite le CRM en Opt-out. Désormais,
+l'étape 2 liste dans `@optoutCpcIds` l'Id de chaque consentement **existant**
+qu'elle écrit ou confirme en Opt-in (tout canal ; un consentement tout juste
+créé n'a pas de ligne), et le bloc SSJS `==OPTOUT_PURGE==` (avant le
+réabonnement) lit puis supprime la ligne **par `ConsentId` exact** —
+jamais par `SubscriberKey`, les opt-out des autres marques restent. Journal
+court : `OPTOUT:purge(n)` / `OPTOUT:aucun` ; ligne « 97 - optout-purge »
+(OK, avec école, type, valeur et date de la ligne levée) dans
+`LPB_Log_Soumissions` seulement quand une ligne est levée, KO sur exception.
+Un échec n'empêche ni le réabonnement, ni la journey, ni la confirmation.
+Vit dans la région de traitement sur `optimisation-temps`.
+
 ---
 
 ## 6. Sondes SFMC (dossier `LPBuilder`, BU RECETTE)
