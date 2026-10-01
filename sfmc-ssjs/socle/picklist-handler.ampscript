@@ -2808,9 +2808,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         }
         return tete.concat(['language'], reste).join(',');
     }
+    /* Vrai sur une candidature EN : la langue d'enseignement y reste AFFICHEE
+       meme a valeur unique (voir reglesAffichage). */
+    var CANDIDATURE_EN = false;
     (function appliquerRegleCandidatureEn() {
         var typeF = champ('TypeFormulaire');
         if (langueAffichage() !== 'en' || !typeF || Lowercase_(typeF.value) !== 'candidature') return;
+        CANDIDATURE_EN = true;
         var copie = {};
         for (var k in (CFG || {})) { if (CFG.hasOwnProperty(k)) copie[k] = CFG[k]; }
         copie.ordre = ordreCandidatureEn(CFG && CFG.ordre);
@@ -3123,7 +3127,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
            Zero option reste masque partout : il n'y a rien a montrer. */
         if (visible && reelles.length === 0) visible = false;
-        if (visible && progressif && reelles.length === 1) visible = false;
+        /* Exception du 01/10, candidature EN : la langue d'enseignement reste
+           visible meme a valeur unique. Un candidat anglophone doit VOIR que le
+           programme n'existe qu'en francais, pas le decouvrir une fois inscrit ;
+           la valeur unique est posee comme ailleurs, il la lit au lieu de la
+           subir. Les autres champs gardent la regle. */
+        var langueCandidatureEn = (CANDIDATURE_EN && nom === 'Language');
+        if (visible && progressif && reelles.length === 1 && !langueCandidatureEn) visible = false;
 
         /* Champ AFFICHE avec une seule option : on la pose, meme si tous les
            programmes ne la portent pas. La garde `poserSiUnique` protege du

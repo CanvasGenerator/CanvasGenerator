@@ -227,6 +227,9 @@ Trois comportements à ne pas confondre :
 > de l'école (spécialité, rythme, rentrée). Règle de code (`ordreCandidatureEn`),
 > pas de configuration : `OrdreChamps` continue de régir les pages FR et les
 > autres formulaires. Les spécialités sont filtrées par la langue choisie.
+> Sur ces pages, la langue reste **affichée même à valeur unique** (posée, mais
+> visible) : un candidat anglophone doit voir qu'un programme n'existe qu'en
+> français. Les autres champs gardent la règle « valeur unique = masqué ».
 
 > ✅ **`OrdreChamps` fonctionne depuis le 31/08.** Il n'avait effectivement aucun
 > effet : `appliquerOrdre` exigeait que tous les porteurs partagent le même
