@@ -235,30 +235,28 @@ try {
     } else if (cacheMode == "off") {
         etats.push("contourne");
     } else {
+        var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";
         var familles = [
             /* Cle du jour : le TTL ne sert plus que de garde-fou, la cle change a minuit (heure serveur). */
             { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), ttlMin: 48 * 60, drapeau: "@cachePick",
               cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
                       LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
-            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: 6 * 60, drapeau: "@cacheProg",
+            /* Programmes et evenements : depuis le 02/10 le cache sert AUSSI le
+               resultat des DE synchronisees (mesure Recette : 0,5 a 0,6 s par
+               famille et par affichage, soit la moitie du temps du socle). La DE
+               etant rafraichie toutes les ~15 min, le TTL est court quand elle
+               est la source — 60 min pour les programmes, 30 min pour les dates
+               d'evenement — et reste celui du chemin CRM sinon. */
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: deSyncActif ? 60 : 6 * 60, drapeau: "@cacheProg",
               cles: { Marque: "@marqueCache", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
                       NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
-            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: 60, drapeau: "@cacheEvt",
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: deSyncActif ? 30 : 60, drapeau: "@cacheEvt",
               cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
         ];
         var maintenant = new Date().getTime();
-        var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";
         for (var f = 0; f < familles.length; f++) {
             var fam = familles[f];
             if (!fam.famille) { etats.push(fam.tag + ":sans-objet"); continue; }
-            /* Les dates d'evenement viennent des DE synchronisees (~15 min) quand
-               SFMC_LECTURE_DE_SYNC est ouvert : un cache d'une heure par-dessus
-               les vieillirait pour rien. La famille reste en « miss » ; si la DE
-               echoue, le chemin CRM reprend et le cache s'ecrit comme avant. */
-            if (fam.tag == "evt" && deSyncActif) { etats.push("evt:de-sync"); continue; }
-            /* Meme regle pour les programmes, PTAT et rentrees depuis le 30/09
-               (bloc ==LECTURE_DE_SYNC_PROG==) : la DE est plus fraiche que 6 h de cache. */
-            if (fam.tag == "prog" && deSyncActif) { etats.push("prog:de-sync"); continue; }
             if (cacheMode == "refresh") { etats.push(fam.tag + ":refresh"); continue; }
             var rows = Platform.Function.LookupRows("LPB_Cache_Lecture", "Famille", fam.famille) || [];
             var parCle = {};
@@ -1627,9 +1625,8 @@ try {
             var famE = famillesE[fe];
             if (!famE.famille) continue;
             if (String(Variable.GetValue(famE.drapeau)) == "hit") continue;
-            /* Servie par la DE synchronisee : rien a mettre en cache. */
-            if (famE.tag == "evt" && String(Variable.GetValue("@evtDeSync")) == "true") continue;
-            if (famE.tag == "prog" && String(Variable.GetValue("@progDeSync")) == "true") continue;
+            /* Depuis le 02/10 le resultat des DE synchronisees s'ecrit aussi (TTL
+               court a la lecture) : un miss coute 0,5 a 0,6 s par famille. */
             var lignesE = [], tropGros = false;
             for (var cleE in famE.cles) {
                 var vE = Variable.GetValue(famE.cles[cleE]);
