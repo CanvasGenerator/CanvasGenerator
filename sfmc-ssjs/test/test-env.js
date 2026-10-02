@@ -298,6 +298,23 @@ test('handler : reabonnement SFMC du Subscriber avant le tir de journey', () => 
     egal(src.includes('new Script.Util.WSProxy().updateItem("Subscriber", rbSub)') && src.includes('Lookup("LPB_Config_Api", "Valeur", "Cle", "AccountId")') && src.includes('"98 - reabonnement"'), true, 'updateItem Subscriber, MID de LPB_Config_Api, ligne 98 du journal');
 });
 
+/* 02/10 : CaptureSourceDetail__c envoye a la creation du consentement. Une
+   regle de validation CRM l'exige (« Source Opt In ») avec le texte legal des
+   que le statut est Opt-in ; le trigger ne le recopie depuis le compte que si
+   celui-ci a un CreationSourceDetail__c, ce qu'un compte cree a la main n'a pas. */
+test('handler : CaptureSourceDetail__c envoye dans chaque creation de consentement', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    const creations = src.match(/CreateSalesforceObject\("ContactPointConsent", (\d+),[\s\S]*?\)\n/g) || [];
+    egal(creations.length, 3, 'trois variantes de creation');
+    for (const c of creations) {
+        egal(c.includes('"CaptureSourceDetail__c",  @detailOrigine,'), true, 'CaptureSourceDetail__c = @detailOrigine dans chaque variante');
+        const nb = Number(/ContactPointConsent", (\d+),/.exec(c)[1]);
+        const champs = (c.match(/\n\s+"[A-Za-z_]+",\s/g) || []).length;
+        egal(champs, nb, 'le compte de champs annonce (' + nb + ') correspond aux champs envoyes');
+    }
+    egal(src.indexOf('SET @detailOrigine = RequestParameter("NomFormulaire")') < src.indexOf('CreateSalesforceObject("ContactPointConsent", 11,'), true, '@detailOrigine est pose avant, sur le chemin commun aux deux comptes');
+});
+
 /* 01/10 : un opt-out en attente dans Journey_OptOut_Entry_DE (file de
    l'automation de desabonnement, cle ConsentId) est leve quand la personne
    recoche le canal : l'opt-in est plus recent, la journey ne doit pas repasser

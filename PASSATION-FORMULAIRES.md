@@ -794,6 +794,24 @@ Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
 document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
 vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
 
+### Consentement refusé sur un compte créé à la main — 02/10
+
+Une règle de validation CRM exige `CaptureSourceDetail__c` (libellé « Source
+Opt In ») et le texte légal dès que le statut est Opt-in. Le socle n'envoyait
+pas ce champ : sur un compte créé par le formulaire, le trigger
+`ContactPointConsentTrigger` le recopie depuis `CreationSourceDetail__c` du
+compte et la règle passait sans qu'on le sache. Sur un compte créé à la main
+(`CreationSourceDetail__c` vide — cas `linazampaglione@gmail.com`, 12 runs
+morts du 30/09 au 02/10 juste après « 30 - account existant », aucun
+consentement jamais créé), la création était refusée et la page mourait, en
+synchrone comme en traitement asynchrone. Depuis le 02/10 le socle envoie
+`CaptureSourceDetail__c = @detailOrigine` (le `NomFormulaire`, même valeur
+que celle posée sur le compte) dans les trois variantes de création ; le
+trigger ne touche pas un champ déjà renseigné, donc rien ne change pour les
+comptes créés par les formulaires. Diagnostic par la sonde
+`LPB_TST_Sonde_CPC_Err` (`&cp=&fields=PSCLDBE&brand=&d1=&d2=`), qui évalue le
+vrai `CreateSalesforceObject` dans un try/catch et rend le message Salesforce.
+
 ### Opt-out en attente annulé par un nouvel opt-in — 01/10
 
 L'automation de désabonnement (One-Click Gmail, lien de pied d'email) ne

@@ -2294,7 +2294,19 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                acceptee et relue avec l'ISO (0ZXAW0000001aJB4AY). Le
                                droit d'ecriture etait necessaire aussi (permission set
                                assigne le 10/09), mais pas suffisant. */
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
+                            /* `CaptureSourceDetail__c` (libelle CRM « Source Opt In ») :
+                               une regle de validation l'exige, avec le texte legal,
+                               des que le statut est Opt-in. Sur un compte cree par
+                               le formulaire, le trigger ContactPointConsentTrigger
+                               le recopiait depuis CreationSourceDetail__c du compte
+                               et la regle passait sans qu'on l'envoie ; sur un compte
+                               cree a la main (CreationSourceDetail__c vide), il
+                               restait vide et la creation etait refusee — page
+                               morte a chaque soumission, mesure du 02/10 sur un
+                               compte du 01/09. Envoye explicitement depuis le
+                               02/10, meme valeur que celle posee sur le compte ; le
+                               trigger ne touche pas un champ deja renseigne. */
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 11,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
                                 "Name",                    Concat("Consent ", @canalValue, " - ", @email,
@@ -2302,12 +2314,25 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
                                 "Legal_Texte_Accepted__c", @preuve,
                                 "Last_Marketing_Engagement_Date__c", @itHorodatage,
                                 "LastMarketingEngagementDate__c",    @itHorodatageUtc,
                                 "BusinessBrandId",         @brandId)
 
                         ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
+                                "Legal_Texte_Accepted__c", @preuve,
+                                "BusinessBrandId",         @brandId)
+                        ELSE
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
@@ -2316,17 +2341,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
-                                "Legal_Texte_Accepted__c", @preuve,
-                                "BusinessBrandId",         @brandId)
-                        ELSE
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 7,
-                                "ContactPointId",          @cpId,
-                                "Channel__c",              @canalValue,
-                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
-                                "PrivacyConsentStatus",    "OptIn",
-                                "Status__c",               "Opt-in",
-                                "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
                                 "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
                         /* Marqueur de CREATION, pose SEULEMENT si un
