@@ -2084,10 +2084,16 @@ try {
                    programme, donc sans PTAT — aucune candidature cote CRM.
                    Regle : on retient le programme dont le NOM porte l'annee la
                    plus elevee (« Annee 4 » > « Annee 3 »). Sans annee lisible,
-                   ou a egalite, on ne devine pas : le champ reste vide comme
-                   avant, et le journal du socle dira PTAT:absent. */
-                var meilleur = programmeAnneeLaPlusHaute(reellesProg);
-                if (meilleur) elProg.value = meilleur.value;
+                   ou a egalite, on prend le PREMIER de la liste (decision du
+                   02/10) : les egalites sont des variantes d'un meme cursus que
+                   les six criteres ne distinguent pas (parcours « LA », « NY »,
+                   « Berghs Stockholm », meme annee), et un formulaire sans
+                   programme partait sans PTAT — portee « personne » de la regle
+                   anti-doublon, candidature CRM sans programme. Mesure du 02/10
+                   en Recette : 14 combinaisons EFAP, 18 ICART, 3 ESEC, 2
+                   BRASSART finissaient ainsi sans PTAT. */
+                var meilleur = programmeAnneeLaPlusHaute(reellesProg) || reellesProg[0];
+                elProg.value = meilleur.value;
             }
             afficher('Programme', false);
         }
