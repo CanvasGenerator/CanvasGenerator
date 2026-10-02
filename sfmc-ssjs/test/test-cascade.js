@@ -190,12 +190,12 @@ test('Bac+2 Game Design : annees 1, 2 et 3 restent, Annee 3 est posee', (d) => {
     egal(d.champs.Programme.value, 'g3', 'annee 3');
     egal(d.champs.PTAT_Id.value, 't-g3', 'PTAT de l annee 3');
 });
-test('Deux programmes sans annee dans le nom : rien n est devine', (d) => {
+test('Deux programmes sans annee dans le nom : le premier de la liste est pose (02/10)', (d) => {
     d.reset();
     d.champs.Campus.value = 'EFAP PARIS'; d.champs.Niveau.value = 'Bac+3';
     const sansAnnee = PROGRAMMES_GAME.filter((p) => p.id !== 'g1' && p.id !== 'g2').map((p) => Object.assign({}, p, { name: p.name.replace(/Année \d /, '') }));
     vm.runInNewContext(CASCADE, { window: { SOCLE_DATA: Object.assign({}, BASE, { config: cfg(), programs: sansAnnee, ptats: PTATS_GAME }) }, document: d.document });
-    egal(d.champs.Programme.value, '', 'aucun programme pose');
+    egal(d.champs.Programme.value, 'g3', 'premier programme de la liste pose, plutot qu un formulaire sans PTAT');
 });
 
 /* ---- Multipicklist ----------------------------------------------------- */
@@ -746,13 +746,14 @@ test('Un programme unique est pose d\'office : c\'est lui qui porte le PTAT', (d
     egal(d.champs.PTAT_Id.value, 't-p3-2027', 'PTAT deduit du programme');
 });
 
-test('Plusieurs programmes possibles : aucun n\'est pose, le PTAT reste vide', (d, run) => {
-    /* On ne devine pas a la place du candidat sur un champ qu'il ne voit pas.
-       Le PTAT vide se lit au journal du socle (PTAT:absent), la ou une valeur
-       inventee serait passee inapercue. */
+test('Plusieurs programmes a egalite d\'annee : le premier est pose, avec son PTAT', (d, run) => {
+    /* Decision du 02/10 : « Annee 4 » et « Annee 4 Luxe » sont a egalite, la
+       regle de l'annee la plus haute ne tranche pas, on prend le premier de la
+       liste plutot que de laisser partir une candidature sans PTAT (portee
+       « personne » de la regle anti-doublon, candidature CRM sans programme). */
     run(cfg(), { Campus: 'EFAP PARIS', Niveau: 'Bac+3' });
-    egal(d.champs.Programme.value, '', 'aucun programme pose');
-    egal(d.champs.PTAT_Id.value, '', 'PTAT vide faute de programme deduit');
+    egal(d.champs.Programme.value, 'p2', 'premier programme de la liste pose');
+    egal(d.champs.PTAT_Id.value, 't-p2-2026', 'PTAT du premier programme');
 });
 
 /* ---- Robustesse -------------------------------------------------------- */

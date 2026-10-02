@@ -215,6 +215,18 @@ Trois comportements à ne pas confondre :
 - **une seule valeur** — champ **masqué mais renseigné**, la valeur part au CRM ;
 - **ordre par école** — IFA Paris demande la langue avant la spécialité.
 
+> ✅ **Programme déduit quand plusieurs restent (02/10).** Le `<select
+> name="Programme">` est masqué ; quand les six critères laissent plusieurs
+> programmes, la cascade retient celui dont le nom porte **l'année la plus
+> haute** (règle du 24/09, « Année 4 » avant « Année 3 »), et **à égalité ou
+> sans année lisible, le premier de la liste**. Avant le 02/10 elle laissait le
+> champ vide : le formulaire partait **sans PTAT**, la règle anti-doublon
+> retombait sur la portée « personne » (bloque dès qu'une candidature existe,
+> toutes écoles confondues) et la candidature CRM naissait sans programme.
+> Mesure Recette du 02/10 : 14 combinaisons EFAP (variantes « LA », « NY »,
+> « Berghs », « Fullerton » d'un même MBA), 18 ICART, 3 ESEC, 2 BRASSART (un
+> programme en double dans la DE, à corriger côté CRM).
+
 > ✅ **Le filtrage suit `OrdreChamps` depuis le 01/10.** Chaque liste
 > conditionnelle est filtrée par le campus, le niveau et les champs qui la
 > précèdent dans l'ordre d'affichage. Dans l'ordre standard, c'est la chaîne
