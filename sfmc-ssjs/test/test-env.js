@@ -222,7 +222,7 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
    par la synchro (LearningProgram_Salesforce_1, ProgramTermApplnTimeline_Salesforce,
    AcademicTerm_Salesforce), par LookupRows seulement ; la famille prog sort
    du cache quand la DE la sert ; le cache picklists porte la date du jour. */
-test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache prog exclu, cache picklists au jour', () => {
+test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache prog/evt a TTL court, cache picklists au jour', () => {
     const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'picklist-handler.ampscript'), 'utf8');
     const reset = src.indexOf('IF @cacheProg != "hit" THEN\nSET @jsProgs   = ""');
     const bloc = src.indexOf('/* ==LECTURE_DE_SYNC_PROG==');
@@ -236,8 +236,13 @@ test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisee
     egal(src.includes('LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False")'), true, 'programmes inactifs lus aussi, comme le CRM');
     egal(/if \(candDe && !ptatProgDe\[pidDe\]\) continue;\s*if \(candDe && !String\(pDe\.Speciality__c \|\| ""\)\.length\) continue;/.test(src), true, 'candidature : ni programme sans PTAT ni sans specialite');
     egal(/catch \(eDeSyncProg\) \{\s*Variable\.SetValue\("@progDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
-    egal(src.includes('if (fam.tag == "prog" && deSyncActif) { etats.push("prog:de-sync"); continue; }'), true, 'famille prog hors cache quand la DE la sert');
-    egal(src.includes('if (famE.tag == "prog" && String(Variable.GetValue("@progDeSync")) == "true") continue;'), true, 'famille prog non ecrite quand la DE la sert');
+    /* 02/10 : le cache sert et ecrit aussi le resultat des DE synchronisees,
+       avec un TTL court quand elles sont la source (60 min programmes, 30 min
+       evenements) : un miss coutait 0,5 a 0,6 s par famille et par affichage. */
+    egal(src.includes('etats.push("prog:de-sync"); continue;') || src.includes('etats.push("evt:de-sync"); continue;'), false, 'plus de contournement du cache quand la DE sert la famille');
+    egal(src.includes('ttlMin: deSyncActif ? 60 : 6 * 60, drapeau: "@cacheProg"') && src.includes('ttlMin: deSyncActif ? 30 : 60, drapeau: "@cacheEvt"'), true, 'TTL court quand la DE synchronisee est la source');
+    egal(src.indexOf('var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";') < src.indexOf('var familles = ['), true, 'deSyncActif connu avant la table des familles');
+    egal(/if \(famE\.tag == "(prog|evt)" && String\(Variable\.GetValue\("@(prog|evt)DeSync"\)\) == "true"\) continue;/.test(src), false, 'le resultat des DE synchronisees s ecrit dans le cache');
     egal(src.includes('SET @clePick   = Concat("picklists|", @d0)'), true, 'cle picklists au jour');
     egal((src.match(/famille: String\(Variable\.GetValue\("@clePick"\) \|\| ""\)/g) || []).length, 2, 'cle du jour a la lecture et a l ecriture');
     egal(/DeleteData\("LPB_Cache_Lecture", \["Famille"\], \[String\(Variable\.GetValue\("@clePickJ" \+ pj\) \|\| ""\)\]\)/.test(src), true, 'purge des trois jours precedents');

@@ -794,6 +794,30 @@ Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
 document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
 vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
 
+### Cache de lecture : programmes et événements aussi — 02/10
+
+Mesure Chromium du 02/10 sur Recette (TTFB 1,9 s brochure, 2,4 s JPO) : la
+plateforme pèse ~1,2 s avant notre code, le socle de lecture 0,7 s (brochure,
+candidature) à 1,2 s (événement), dont **0,6 s de programmes/PTAT/rentrées** et
+**0,6 s de dates d'événement** lus dans les DE synchronisées à chaque
+affichage ; les picklists ne coûtent plus que 0,09 s (cache du jour). Le
+navigateur (téléchargement, analyse, cascade) fait moins de 0,15 s. Depuis le
+02/10, le cache `LPB_Cache_Lecture` **sert et écrit aussi le résultat des DE
+synchronisées** : familles `prog` (clé `programmes|<école>|cand|tous`) et
+`evt` (clé `evenements|<école>|<type>|<jour>`) avec un **TTL court quand la DE
+est la source** (60 min programmes, 30 min événements ; 6 h et 60 min sur le
+chemin CRM comme avant). Le premier visiteur de la période paie la lecture DE,
+les suivants ont le hit. Les marqueurs `prog:de-sync` / `evt:de-sync` du
+commentaire `socle ampscript` disparaissent au profit de `prog:hit(…)` /
+`prog:ecrit`.
+
+**GTM différé à `window.load` (02/10)** : le conteneur sGTM (et Axeptio qu'il
+tire : bandeau, 21 Ko d'images, une police, 2 à 4 s de réseau) ne se charge
+qu'une fois la page chargée. `dataLayer` existe dès le départ, les pushes
+antérieurs sont rejoués par GTM ; le handler lit le cookie Axeptio à la
+soumission, bien après. Le formulaire est utilisable à `DOMContentLoaded`
+(~2 s), avant comme après.
+
 ### Consentement refusé sur un compte créé à la main — 02/10
 
 Une règle de validation CRM exige `CaptureSourceDetail__c` (libellé « Source
