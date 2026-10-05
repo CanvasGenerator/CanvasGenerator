@@ -375,6 +375,28 @@ test('handler : la date de consentement cookies est normalisee en ISO UTC avant 
     egal((src.match(/"DateConsentementCookies__c", @dateCookies\)/g) || []).length, 1, 'une seule ecriture du champ');
 });
 
+/* 05/10 : scripts/purger-cache-lecture.js --rechauffer=<lot> visite les pages du
+   lot apres la purge pour que le script, et non le premier visiteur, paie la
+   relecture. Les cles ne dependent ni de la langue ni du lot : 6 pages FR par
+   ecole, la premiere ecrit les picklists communes. */
+test('rechauffement du cache : pages a visiter', () => {
+    const { pagesARechauffer, clePage } = require(path.join(__dirname, '..', '..', 'scripts', 'purger-cache-lecture'));
+    const ecoles = ['efap', 'ifa-paris', '3wa'];
+    egal(clePage('recette', 'BRCH', 'ifa-paris'), 'Recette_BRCH_IFA_PARIS_V0', 'cle comme generer-lp (tiret -> soulignement)');
+    egal(clePage('interne', 'CAND', 'efap', 'en'), 'Interne_CAND_EN_EFAP_V0', 'variante EN');
+    const toutes = pagesARechauffer('recette', { ecoles });
+    egal(toutes.length, 18, '6 pages par ecole');
+    egal(toutes[0].cle, 'Recette_BRCH_EFAP_V0', 'la premiere est une brochure (picklists)');
+    egal(toutes[0].familles.join(','), 'picklists,programmes', 'elle ecrit picklists et programmes|tous');
+    egal(toutes.filter((p) => p.familles.includes('picklists')).length, 1, 'les picklists ne sont attendus que de la premiere page');
+    egal(pagesARechauffer('recette', { ecoles, famille: 'picklists' }).length, 1, 'famille picklists : une seule page');
+    egal(pagesARechauffer('recette', { ecoles, famille: 'programmes' }).map((p) => p.type).join(','), 'BRCH,CAND,BRCH,CAND,BRCH,CAND', 'programmes : brochure (tous) et candidature (cand) par ecole');
+    egal(pagesARechauffer('recette', { ecoles, famille: 'evenements' }).length, 12, 'evenements : JPO, AD, STG, IMM par ecole');
+    egal(pagesARechauffer('recette', { ecoles, famille: 'evenements', ecole: 'efap' }).map((p) => p.cle).join(','), 'Recette_JPO_EFAP_V0,Recette_AD_EFAP_V0,Recette_STG_EFAP_V0,Recette_IMM_EFAP_V0', 'filtre ecole');
+    egal(pagesARechauffer('recette', { ecoles, ecole: 'inconnue' }).length, 0, 'ecole inconnue : aucune page');
+    egal(pagesARechauffer('recette', {}).length, 60, 'schools.json : 10 ecoles, 60 pages');
+});
+
 console.log(`  ${ok} test(s) passe(s), ${echecs.length} echec(s)`);
 for (const e of echecs) console.log('    ✗ ' + e);
 if (echecs.length) process.exit(1);

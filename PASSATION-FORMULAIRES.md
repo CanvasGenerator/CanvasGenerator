@@ -134,7 +134,7 @@ indépendants, injectés à la publication (`lib/socle-env.js`), fermés par dé
 | Drapeau | Ce qu'il change | Gain mesuré |
 |---|---|---|
 | `SFMC_ASYNC_SOUMISSION` | Le POST du visiteur ne fait que les règles de blocage + dépose le corps brut dans `LPB_File_Soumissions`, répond `success` ; le navigateur renvoie le même corps en `sendBeacon` (`socle_traitement=1&socle_run=`) et c'est ce second passage qui écrit CRM + journey, puis solde la ligne (`traitee`/`erreur`). Filet : automation `LPB_Rejouer_File_Soumissions` (`sfmc-ssjs/automations/`), **à planifier** — elle existe, statut Ready, non planifiée au 24/09. | confirmation en **4–5 s** au lieu de 16–20 |
-| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 3 998 car. entre sentinelles `~`), par famille : `pick` 24 h, `prog` 6 h, `evt` 1 h (clé datée : tombe à minuit). La page écrit elle-même le cache au premier passage après expiration ; aucune automation. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans `?socleDebug=1`. DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
+| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 3 998 car. entre sentinelles `~`), par famille : `pick` 7 jours (clé `picklists`), `prog` 7 jours, `evt` 1 jour (clé datée : tombe à minuit SFMC). La page écrit elle-même le cache au premier passage après expiration ; aucune automation côté SFMC, mais `scripts/purger-cache-lecture.js --rechauffer=<lot>` (cron serveur) purge puis revisite les pages pour que le premier visiteur n'attende pas. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans `?socleDebug=1`. DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
 | ↳ **30/09** | La famille `picklists` porte la **date du jour** dans sa clé (`picklists\|2026-09-30\|Country`…, jour serveur SFMC UTC-6) : le premier affichage du jour relit le CRM et écrit la ligne du jour, les suivants la servent ; les lignes des trois jours précédents sont purgées à cette écriture (`DeleteData`, état `pick:ecrit:purge(n)`). Le TTL (48 h) n'est plus qu'un garde-fou. Avec `SFMC_LECTURE_DE_SYNC` ouvert, `LPB_Cache_Lecture` ne sert plus que ces picklists et libellés, seules données non synchronisables (métadonnées Salesforce). | une lecture CRM des picklists par jour |
 
 | `SFMC_LECTURE_DE_SYNC` | **25/09.** Les dates d'événement (événement parent, instances, ateliers) et le nom de marque sont lus dans les **DE synchronisées Salesforce** partagées à la BU (`ENT.summit__Summit_Events__c_Salesforce_1`, `ENT.summit__Summit_Events_Instance__c_Salesforce_1`, `ENT.summit__Summit_Events_Appointment_Type__c_Salesforce`, `ENT.BusinessBrand_Salesforce`, rafraîchies ~15 min), bloc SSJS `==LECTURE_DE_SYNC_EVT==` avec les mêmes filtres et les mêmes blocs JS que le chemin CRM (72 instances CREAD identiques). CRM en repli si une DE manque. La famille `evt` sort du cache quand la DE la sert. Non synchronisés, donc toujours lus dans le CRM : programmes (`LearningProgram_Salesforce` est dans l'autre jeu de synchro, non partagé, sans spécialité/rythme/niveau/langue), PTAT, rentrées, picklists. Non synchronisés non plus : `Name` de l'instance (label = `summit__Instance_Title__c`), dates de disponibilité et drapeau obligatoire des ateliers (vides). Heures : la DE porte l'heure serveur SFMC (UTC-6), +6 h pour retrouver le `HH:mm:ss.000Z` du CRM. Jint : les groupes de `RegExp.exec()` reviennent `undefined`, découper la chaîne. | événements en **0,55 s** au lieu de 3 à 5 appels CRM |
@@ -812,6 +812,47 @@ node -r dotenv/config scripts/purger-cache-lecture.js --dry-run             # co
 Le visiteur suivant la purge paie la relecture (0,5 à 0,6 s par famille) et
 réécrit le cache. La purge au jour des picklists dans la page a disparu avec
 la clé datée.
+
+**Réchauffement — 05/10.** Pour que ce soit le script, et non le premier
+visiteur, qui paie cette relecture, `--rechauffer=<lot>` visite les pages du
+lot après la purge (HTTP GET sur `landingpage?id=<clé>`) : chaque page relit
+ce qui lui manque et réécrit le cache, exactement comme pour un visiteur. Les
+clés ne dépendent ni de la langue ni du lot (`picklists`,
+`programmes|<école>|cand|tous`, `evenements|<école>|<type>|<jour>`) : 6 pages
+FR par école suffisent (BRCH → picklists + programmes `tous`, CAND →
+programmes `cand`, JPO/AD/STG/IMM → événements), les pages EN et les autres
+lots de la même BU lisent les mêmes lignes. La première page est visitée seule
+(elle écrit les picklists communes), les suivantes 2 en parallèle avec 3 essais
+(à 3 en parallèle SFMC renvoie des HTTP 429). Mesure du 05/10 en Interne :
+60 pages en 2 min 45 (purge complète) à 3 min 20 (`--sans-purge`, qui visite
+avec `?socle_cache=refresh` et réécrit tout), 1,3 à 8 s par page ; la visite
+suivante est un hit (socle 80 à 110 ms).
+
+```
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette                       # vide tout puis 60 pages
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=recette  # dates du jour (40 pages)
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette --sans-purge          # réécriture forcée sans purge
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette --dry-run             # liste les pages sans rien faire
+```
+
+Options : `--ecole=`, `--lang=en`, `--parallele=`, `--url=` (défaut
+`https://cloud.groupe-edh.net/landingpage`). Code de sortie 1 si une page est
+morte (HTTP ≠ 200 ou sans commentaire `socle ampscript`) ou une suppression a
+échoué. Le lot visé est celui des pages que les visiteurs ouvrent (Recette
+aujourd'hui, Prod demain) : le contenu mis en cache est construit par le socle
+inliné dans la page visitée.
+
+Cron conseillé (heure de Paris) : la clé des événements porte le jour du
+serveur SFMC (UTC-6 sans heure d'été), elle tombe à **07:00 en hiver, 08:00 en
+été**. Un passage événements à 07:15 et un à 08:15 couvre les deux saisons, le
+second ne coûtant rien quand le premier a déjà écrit le jour ; une purge
+complète réchauffée une fois par semaine renouvelle picklists et programmes
+avant leurs 7 jours.
+
+```
+15 7,8 * * *   cd /chemin/CanvasGenerator && node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=recette >> /var/log/lpb-cache.log 2>&1
+5  6   * * 1   cd /chemin/CanvasGenerator && node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette >> /var/log/lpb-cache.log 2>&1
+```
 
 ### Cache de lecture : programmes et événements aussi — 02/10
 
