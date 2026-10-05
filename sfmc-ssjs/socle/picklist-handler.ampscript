@@ -1824,6 +1824,10 @@ window.SOCLE_DATA = {
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsAppts,"}")),1)=%%</b></td></tr>
     <tr style="background:#eef"><td style="padding:5px 12px"><b>Cache de lecture</b> <i>(pick / prog / evt)</i></td>
         <td style="padding:5px 12px;text-align:right"><b>%%=v(@cacheEtat)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Temps serveur du socle</b> <i>(lectures, hors plateforme SFMC)</i></td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@tempsEtat)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Temps navigateur</b> <i>(depuis la demande de la page)</i></td>
+        <td id="socleDebugNav" style="padding:5px 12px;text-align:right"><b>mesure en cours&hellip;</b></td></tr>
   </table>
 
   <div style="margin-top:8px;color:#9aa">Campus trouv&eacute;s : %%=v(@campusSeen)=%%</div>
@@ -1838,7 +1842,7 @@ window.SOCLE_DATA = {
 SET @debugOuvre = Concat("<scr", "ipt>")
 SET @debugFerme = Concat("</scr", "ipt>")
 ]%%
-%%=v(@debugOuvre)=%%(function(){var p=document.getElementById('socleDebugPanel');if(p&&document.body){document.body.appendChild(p);}})();%%=v(@debugFerme)=%%
+%%=v(@debugOuvre)=%%(function(){var p=document.getElementById('socleDebugPanel');if(p&&document.body){document.body.appendChild(p);}function mesure(){var c=document.getElementById('socleDebugNav');if(!c)return;var n=(performance.getEntriesByType&&performance.getEntriesByType('navigation')[0])||null;var t=performance.timing||null;var r=function(v){return Math.round(v)+' ms';};var ttfb=n?n.responseStart:(t?t.responseStart-t.navigationStart:0);var dom=n?n.domContentLoadedEventEnd:(t?t.domContentLoadedEventEnd-t.navigationStart:0);c.innerHTML='<b>premier octet '+r(ttfb)+' &middot; DOM pr&ecirc;t '+r(dom)+' &middot; page charg&eacute;e '+r(performance.now())+'</b>';}if(document.readyState==='complete'){mesure();}else{window.addEventListener('load',function(){setTimeout(mesure,0);});}})();%%=v(@debugFerme)=%%
 %%[ ENDIF ]%%
 
 <!-- ===== JS DE CASCADE — genere par scripts/sync-cascade-js.js ===== -->
