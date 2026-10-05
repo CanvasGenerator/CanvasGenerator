@@ -794,6 +794,27 @@ Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
 document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
 vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
 
+### Journey brochure selon le pays de résidence — 06/10
+
+Deux journeys pour la demande de brochure, choisies dans la branche brochure du
+handler d'après le **pays de résidence déclaré dans le formulaire** (même règle
+que la zone de campagne FR / Intl) :
+
+| Pays de résidence | Clé dans `LPB_Config_Api` | Journey |
+|---|---|---|
+| France | `EventKey_Brochure` | `Post_Demande_De_Doc` |
+| tout autre pays | `EventKey_Brochure_Inter` | `Post_Demande_De_Doc_INTER` |
+
+Les deux API Events écrivent dans la **même DE d'entrée**
+`Post_Demande_De_Doc_Target` : le corps JSON est inchangé, seule la clé de
+l'événement diffère, lue au tir. Le journal porte la clé utilisée
+(`JOURNEY:ok(APIEvent-…)`). Si la ligne `EventKey_Brochure_Inter` manque dans
+`LPB_Config_Api`, la soumission aboutit avec `JOURNEY:sans-config` et aucune
+journey ne part : la poser en prod avec les 7 autres lignes
+(`journey-config-upsert.js`). La journey INTER était en **Draft** le 06/10 : elle
+accepte l'événement (ligne écrite dans la DE d'entrée) mais ne traite personne
+avant sa publication.
+
 ### Cache de lecture : durées et purge externe — 05/10
 
 Durées arrêtées le 05/10 : **picklists 7 jours** (clé unique `picklists`, plus

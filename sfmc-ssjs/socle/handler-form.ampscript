@@ -2723,9 +2723,22 @@ IF IndexOf(@submitted, "true") > 0 THEN
                membre existant : un prospect qui redemande la documentation
                attend de nouveau la reponse. L'entree (DE
                Post_Demande_De_Doc_Target) est construite dans le bloc commun
-               en fin de sequence ; la journey garde la main sur la re-entree. */
+               en fin de sequence ; la journey garde la main sur la re-entree.
+
+               Deux journeys depuis le 06/10, selon le PAYS DE RESIDENCE declare
+               dans le formulaire (meme regle que la zone de campagne) :
+                 France      → EventKey_Brochure       (Post_Demande_De_Doc)
+                 hors France → EventKey_Brochure_Inter (Post_Demande_De_Doc_INTER)
+               Meme DE d'entree Post_Demande_De_Doc_Target, meme corps JSON :
+               seule la cle de l'evenement change, lue dans LPB_Config_Api au
+               tir. Une cle absente de la config vaut « JOURNEY:sans-config »,
+               la soumission aboutit sans journey. */
             IF @formType == "brochure" AND NOT Empty(@cmId) THEN
-                SET @jrnCleEvt = "EventKey_Brochure"
+                IF Lowercase(Trim(@country)) == "france" THEN
+                    SET @jrnCleEvt = "EventKey_Brochure"
+                ELSE
+                    SET @jrnCleEvt = "EventKey_Brochure_Inter"
+                ENDIF
             ENDIF
         ENDIF
 
@@ -2985,8 +2998,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
            La branche metier a designe la cle (@jrnCleEvt) ; on construit ici
            le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
            poste sur interaction/v1/events. Deux DE, relues le 18/09 :
-             EventKey_Evenement → Data_contacts_evenement_new   (20 colonnes)
-             EventKey_Brochure  → Post_Demande_De_Doc_Target    (19 colonnes)
+             EventKey_Evenement       → Data_contacts_evenement_new   (20 colonnes)
+             EventKey_Brochure        → Post_Demande_De_Doc_Target    (19 colonnes)
+             EventKey_Brochure_Inter  → la meme DE (journey INTER, 06/10)
            Le test test-env.js fige les deux listes de colonnes : une colonne
            inconnue de la DE fait refuser l'evenement entier.
 
