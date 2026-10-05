@@ -120,6 +120,17 @@ l'automation existe, statut Ready, **jamais planifiée**).
 3. Elle reposte sur la colonne `Url` de la file (la page de traitement dédiée),
    3 tentatives maximum, puis statut `erreur`.
 
+**Cron serveur du cache de lecture** (pas une automation SFMC : le script a
+besoin du `.env` de prod et visite les pages en HTTP) — `SFMC_CACHE_LECTURE=true`
+sans lui veut dire que le premier visiteur de chaque jour paie la relecture :
+
+```
+15 7,8 * * *   node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=prod
+5  6   * * 1   node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=prod
+```
+
+Le préfixe du lot (`Prod_`) doit être celui de `PREFIXES` dans `generer-lp.mjs`.
+
 ---
 
 ## 5. Drapeaux de publication (`.env` ou ligne de commande)
@@ -173,7 +184,7 @@ SFMC_LECTURE_DE_SYNC=false` rend le comportement synchrone historique, sans autr
 2. Dépôt : lot `prod`, garde `--mid`, décision GTM, `.env` prod (§1).
 3. DE : créer §2.1 à §2.4 ; remplir mappings avec les Ids de prod ; `journey-config-upsert.js` ; dico et config copiés de Recette.
 4. Contenu : `deploy:socle`, puis `generer-lp` FR + EN (+ page de traitement).
-5. Automation de rejeu planifiée.
+5. Automation de rejeu planifiée ; cron du cache de lecture posé sur le serveur et lancé une première fois à la main (`--rechauffer=prod`, 60 pages servies, 0 échec).
 6. Tests : une soumission par famille (brochure, candidature, JPO, atelier, stage, immersion) avec des e-mails de test, contrôle dans `LPB_Log_Soumissions` (`99 - fin success`, `99 - journey OK`), dans `LPB_File_Soumissions` (`traitee`), et dans le CRM. Deuxième soumission d'un même e-mail (compte connu). Page EN. Chronos dans les commentaires de page.
 7. Nettoyage des comptes de test côté CRM.
 
@@ -188,7 +199,7 @@ SFMC_LECTURE_DE_SYNC=false` rend le comportement synchrone historique, sans autr
 | `scripts/verif-socle-deploye.js` | marqueurs du socle sur les pages en ligne |
 | `scripts/journal-soumission.js <email>` | lecture du journal d'une soumission |
 | `scripts/journey-config-upsert.js` | `LPB_Config_Api` |
-| `scripts/purger-cache-lecture.js` | `LPB_Cache_Lecture` — vide le cache de lecture (tout, une famille, une école) ; à planifier en cron côté serveur avec le `.env` de prod |
+| `scripts/purger-cache-lecture.js` | `LPB_Cache_Lecture` — vide le cache de lecture (tout, une famille, une école) et, avec `--rechauffer=prod`, revisite les 60 pages FR du lot pour le réécrire aussitôt ; à planifier en cron côté serveur avec le `.env` de prod (événements à 07:15 et 08:15 Paris, purge complète hebdomadaire — voir PASSATION § « Cache de lecture : durées et purge externe ») |
 | `scripts/creer-de-prod.js` | dossiers et 13 DE du LP Builder dans une BU (`--mid` = `SFMC_ACCOUNT_ID`, `--push`, `--copier-config`, `--relever` pour régénérer `sfmc-ssjs/de/LPB_DE_definitions.json`) |
 | `scripts/creer-de-indicatifs.js`, `scripts/creer-de-cache-lecture.js` | création idempotente de deux DE |
 | `scripts/sync-cascade-js.js` | recopie du JS de cascade dans le bloc AMPscript (à lancer après toute modification de `picklist-handler.ssjs`) |
