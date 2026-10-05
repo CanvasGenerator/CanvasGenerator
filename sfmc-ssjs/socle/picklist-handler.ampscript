@@ -1680,7 +1680,7 @@ try {
    litteral a l'upload : sans cette precaution, les balises disparaissaient et
    le JSON s'affichait EN TEXTE VISIBLE sur la page au lieu d'etre execute.
    Constate le 2026-08-23. Ne pas remettre de balise en clair ici. */
-VAR @dataOuvre, @dataFerme
+VAR @dataOuvre, @dataFerme, @debugOuvre, @debugFerme
 SET @dataOuvre = Concat("<scr", "ipt>")
 SET @dataFerme = Concat("</scr", "ipt>")
 ]%%
@@ -1751,7 +1751,7 @@ window.SOCLE_DATA = {
 %%[ ENDIF ]%%
 
 %%[ IF RequestParameter("socleDebug") == "1" THEN ]%%
-<div style="position:fixed;bottom:0;left:0;right:0;z-index:99999;max-height:50vh;overflow:auto;
+<div id="socleDebugPanel" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;max-height:50vh;overflow:auto;
             background:#12123a;color:#fff;font:12px/1.6 Consolas,monospace;padding:14px 18px;
             box-shadow:0 -4px 20px rgba(0,0,0,.4)">
   <div style="font:700 14px Segoe UI,Arial;margin-bottom:8px">
@@ -1828,6 +1828,17 @@ window.SOCLE_DATA = {
 
   <div style="margin-top:8px;color:#9aa">Campus trouv&eacute;s : %%=v(@campusSeen)=%%</div>
 </div>
+%%[
+/* Le socle est rendu DANS l'enveloppe masquee du bloc (div.socle-read-snippet,
+   display:none !important, voir blocks/forms/shared/socle-read-snippet.js) :
+   un position:fixed n'y change rien, le panneau restait invisible — constate
+   le 05/10 en Recette. On le deplace donc en fin de <body> des qu'il est
+   parse. Balise script assemblee a l'execution, comme les autres : l'API SFMC
+   retire toute balise <script> litterale a l'upload. */
+SET @debugOuvre = Concat("<scr", "ipt>")
+SET @debugFerme = Concat("</scr", "ipt>")
+]%%
+%%=v(@debugOuvre)=%%(function(){var p=document.getElementById('socleDebugPanel');if(p&&document.body){document.body.appendChild(p);}})();%%=v(@debugFerme)=%%
 %%[ ENDIF ]%%
 
 <!-- ===== JS DE CASCADE — genere par scripts/sync-cascade-js.js ===== -->
