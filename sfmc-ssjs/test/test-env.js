@@ -116,6 +116,11 @@ test('journeys : les colonnes des deux corps JSON sont celles des DE d entree', 
         'CampaignId', 'Campus', 'Ecole', 'Date_telechargement_brochure'];
     egal(corps[0].join(','), evenement.join(','), 'colonnes Data_contacts_evenement_new');
     egal(corps[1].join(','), brochure.join(','), 'colonnes Post_Demande_De_Doc_Target');
+    /* 06/10 : deux journeys brochure selon le pays de residence du formulaire,
+       meme DE d'entree. La cle est choisie dans la branche brochure, pas ailleurs. */
+    egal(/IF @formType == "brochure" AND NOT Empty\(@cmId\) THEN\s*IF Lowercase\(Trim\(@country\)\) == "france" THEN\s*SET @jrnCleEvt = "EventKey_Brochure"\s*ELSE\s*SET @jrnCleEvt = "EventKey_Brochure_Inter"\s*ENDIF\s*ENDIF/.test(src), true, 'brochure : France → EventKey_Brochure, sinon EventKey_Brochure_Inter');
+    egal((src.match(/SET @jrnCleEvt = "EventKey_Brochure"/g) || []).length, 1, 'une seule affectation de la cle France');
+    egal((src.match(/SET @jrnCleEvt = "EventKey_Brochure_Inter"/g) || []).length, 1, 'une seule affectation de la cle Inter');
     /* Vocabulaire des splits, releve sur les journeys le 18/09. */
     for (const v of ['Open House', 'Discovery Workshop', 'Internship', 'Immersion Day']) egal(src.includes('=' + v + '|'), true, 'type Summit ' + v);
     for (const v of ['ESEC', 'Ecole Bleue', '3W Academy', 'IFA Paris', 'MoPA']) egal(src.includes('=' + v + '|'), true, 'marque ' + v);

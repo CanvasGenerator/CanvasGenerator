@@ -8,7 +8,8 @@
  *   node scripts/journey-config-upsert.js                       (lit process.env)
  *
  * Cles ecrites : AuthBaseUrl, RestBaseUrl, ClientId, ClientSecret, AccountId,
- *                EventKey_Evenement (et toute cle EventKey_* du fichier).
+ *                EventKey_Evenement, EventKey_Brochure, EventKey_Brochure_Inter
+ *                (et toute cle EventKey_* du fichier).
  *
  * Les valeurs ne sont JAMAIS affichees : seule la liste des cles et la longueur
  * de chaque valeur sortent a l'ecran. L'ecriture passe par SOAP UpdateAdd avec
@@ -17,7 +18,8 @@
  *
  * Fichier JSON attendu (memes noms que la config MCP) :
  *   { "SFMC_SUBDOMAIN": "...", "SFMC_CLIENT_ID": "...", "SFMC_CLIENT_SECRET": "...",
- *     "SFMC_ACCOUNT_ID": "...", "EventKey_Evenement": "...", "EventKey_Brochure": "..." }
+ *     "SFMC_ACCOUNT_ID": "...", "EventKey_Evenement": "...", "EventKey_Brochure": "...",
+ *     "EventKey_Brochure_Inter": "..." }
  */
 require('dotenv').config();
 const fs = require('node:fs');

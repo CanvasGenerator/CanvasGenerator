@@ -73,7 +73,7 @@ la page (voir `PASSATION-FORMULAIRES.md` §1.3).
 
 | DE | Colonnes | Contenu |
 |---|---|---|
-| `LPB_Config_Api` | `Cle*` T50, `Valeur` T500, `Note` T300 | 7 lignes : `AuthBaseUrl`, `RestBaseUrl`, `ClientId`, `ClientSecret`, `AccountId`, `EventKey_Evenement`, `EventKey_Brochure`. Écrites par `node scripts/journey-config-upsert.js --from=<prod.json>` — jamais de secret dans le dépôt. |
+| `LPB_Config_Api` | `Cle*` T50, `Valeur` T500, `Note` T300 | 8 lignes : `AuthBaseUrl`, `RestBaseUrl`, `ClientId`, `ClientSecret`, `AccountId`, `EventKey_Evenement`, `EventKey_Brochure` (résidence France), `EventKey_Brochure_Inter` (hors France, journey `Post_Demande_De_Doc_INTER`). Écrites par `node scripts/journey-config-upsert.js --from=<prod.json>` — jamais de secret dans le dépôt. |
 
 ### 2.4 Tables techniques — créées VIDES
 
