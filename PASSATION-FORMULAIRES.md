@@ -794,6 +794,25 @@ Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
 document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
 vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
 
+### Cache de lecture : durées et purge externe — 05/10
+
+Durées arrêtées le 05/10 : **picklists 7 jours** (clé unique `picklists`, plus
+de date), **programmes 7 jours** (clé `programmes|<école>|cand|tous`),
+**événements 1 jour** (clé au jour, inchangée). La fraîcheur avant terme est
+assurée par **`scripts/purger-cache-lecture.js`**, à lancer par cron côté
+serveur ou à la main après une modification CRM à voir tout de suite :
+
+```
+node -r dotenv/config scripts/purger-cache-lecture.js                       # tout (ClearData SOAP)
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements  # une famille
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=programmes --ecole=efap
+node -r dotenv/config scripts/purger-cache-lecture.js --dry-run             # compte sans supprimer
+```
+
+Le visiteur suivant la purge paie la relecture (0,5 à 0,6 s par famille) et
+réécrit le cache. La purge au jour des picklists dans la page a disparu avec
+la clé datée.
+
 ### Cache de lecture : programmes et événements aussi — 02/10
 
 Mesure Chromium du 02/10 sur Recette (TTFB 1,9 s brochure, 2,4 s JPO) : la
