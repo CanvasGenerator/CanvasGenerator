@@ -91,7 +91,7 @@ VAR @evtIndex, @evtRows, @nEvt, @e
 VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
 VAR @cleProg, @cleEvt, @marqueCache
 VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @progDeSync, @deSyncEtat
-VAR @clePick, @clePickJ1, @clePickJ2, @clePickJ3
+VAR @clePick
 VAR @tDeb, @tPick, @tProg, @tEvt, @tLib, @tempsEtat
 /* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
    variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
@@ -206,12 +206,12 @@ SET @cleProg = ""
 IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
     SET @cleProg = Concat("programmes|", Lowercase(@school), "|", IIF(@candidature == "true", "cand", "tous"))
 ENDIF
-/* pick : cle du JOUR. La date du serveur y entre telle quelle ; les cles des
-   trois jours precedents servent a la purge dans ==CACHE_LECTURE_ECRIRE==. */
-SET @clePick   = Concat("picklists|", @d0)
-SET @clePickJ1 = Concat("picklists|", FormatDate(DateAdd(Now(), -1, "D"), "yyyy-MM-dd"))
-SET @clePickJ2 = Concat("picklists|", FormatDate(DateAdd(Now(), -2, "D"), "yyyy-MM-dd"))
-SET @clePickJ3 = Concat("picklists|", FormatDate(DateAdd(Now(), -3, "D"), "yyyy-MM-dd"))
+/* pick : une seule famille pour toutes les ecoles, sans date dans la cle
+   depuis le 05/10 (elle portait le jour du 30/09 au 05/10) : la fraicheur est
+   celle du TTL (7 jours) et de la purge externe, scripts/purger-cache-lecture.js
+   (cron cote serveur). Les lignes « picklists|<jour> » restantes partent a la
+   premiere purge. */
+SET @clePick   = "picklists"
 SET @cleEvt = ""
 IF NOT Empty(@typeEvt) THEN
     SET @cleEvt = Concat("evenements|", Lowercase(@school), "|", Lowercase(@typeEvtCrm), "|", @d0)
@@ -235,22 +235,22 @@ try {
     } else if (cacheMode == "off") {
         etats.push("contourne");
     } else {
-        var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";
         var familles = [
-            /* Cle du jour : le TTL ne sert plus que de garde-fou, la cle change a minuit (heure serveur). */
-            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), ttlMin: 48 * 60, drapeau: "@cachePick",
+            /* Durees arretees le 05/10 : picklists et programmes 7 jours,
+               evenements 1 jour (leur cle porte deja le jour, le JS cuit des
+               ecarts en jours). La fraicheur avant terme est assuree par la
+               purge externe scripts/purger-cache-lecture.js, lancee par cron
+               cote serveur (toute la DE, une famille ou une ecole). */
+            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), ttlMin: 7 * 24 * 60, drapeau: "@cachePick",
               cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
                       LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
             /* Programmes et evenements : depuis le 02/10 le cache sert AUSSI le
                resultat des DE synchronisees (mesure Recette : 0,5 a 0,6 s par
-               famille et par affichage, soit la moitie du temps du socle). La DE
-               etant rafraichie toutes les ~15 min, le TTL est court quand elle
-               est la source — 60 min pour les programmes, 30 min pour les dates
-               d'evenement — et reste celui du chemin CRM sinon. */
-            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: deSyncActif ? 60 : 6 * 60, drapeau: "@cacheProg",
+               famille et par affichage, soit la moitie du temps du socle). */
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: 7 * 24 * 60, drapeau: "@cacheProg",
               cles: { Marque: "@marqueCache", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
                       NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
-            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: deSyncActif ? 30 : 60, drapeau: "@cacheEvt",
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: 24 * 60, drapeau: "@cacheEvt",
               cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
         ];
         var maintenant = new Date().getTime();
@@ -1657,16 +1657,6 @@ try {
                 Platform.Function.UpsertData("LPB_Cache_Lecture", ["Cle"], [famE.famille + "|" + lg.cle], cols, vals);
             }
             etatE += " " + famE.tag + ":ecrit";
-            /* Cle du jour : la ligne d'hier ne sera plus jamais lue, on purge les
-               trois jours precedents (un jour sans visiteur laisse un trou, d'ou
-               trois). Une purge en echec ne change rien pour le visiteur. */
-            if (famE.tag == "pick") {
-                var purgeesE = 0;
-                for (var pj = 1; pj <= 3; pj++) {
-                    try { purgeesE += Number(Platform.Function.DeleteData("LPB_Cache_Lecture", ["Famille"], [String(Variable.GetValue("@clePickJ" + pj) || "")])) || 0; } catch (ePurge) {}
-                }
-                etatE += ":purge(" + purgeesE + ")";
-            }
         }
         Variable.SetValue("@cacheEtat", etatE);
     }

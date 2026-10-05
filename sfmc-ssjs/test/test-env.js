@@ -222,7 +222,7 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
    par la synchro (LearningProgram_Salesforce_1, ProgramTermApplnTimeline_Salesforce,
    AcademicTerm_Salesforce), par LookupRows seulement ; la famille prog sort
    du cache quand la DE la sert ; le cache picklists porte la date du jour. */
-test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache prog/evt a TTL court, cache picklists au jour', () => {
+test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache 7 j / 7 j / 1 j', () => {
     const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'picklist-handler.ampscript'), 'utf8');
     const reset = src.indexOf('IF @cacheProg != "hit" THEN\nSET @jsProgs   = ""');
     const bloc = src.indexOf('/* ==LECTURE_DE_SYNC_PROG==');
@@ -240,12 +240,14 @@ test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisee
        avec un TTL court quand elles sont la source (60 min programmes, 30 min
        evenements) : un miss coutait 0,5 a 0,6 s par famille et par affichage. */
     egal(src.includes('etats.push("prog:de-sync"); continue;') || src.includes('etats.push("evt:de-sync"); continue;'), false, 'plus de contournement du cache quand la DE sert la famille');
-    egal(src.includes('ttlMin: deSyncActif ? 60 : 6 * 60, drapeau: "@cacheProg"') && src.includes('ttlMin: deSyncActif ? 30 : 60, drapeau: "@cacheEvt"'), true, 'TTL court quand la DE synchronisee est la source');
-    egal(src.indexOf('var deSyncActif = String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true";') < src.indexOf('var familles = ['), true, 'deSyncActif connu avant la table des familles');
+    /* 05/10 : durees arretees — picklists et programmes 7 jours, evenements 1 jour
+       (cle au jour) ; la fraicheur avant terme vient de scripts/purger-cache-lecture.js. */
+    egal(src.includes('ttlMin: 7 * 24 * 60, drapeau: "@cachePick"') && src.includes('ttlMin: 7 * 24 * 60, drapeau: "@cacheProg"') && src.includes('ttlMin: 24 * 60, drapeau: "@cacheEvt"'), true, 'TTL 7 j / 7 j / 1 j');
     egal(/if \(famE\.tag == "(prog|evt)" && String\(Variable\.GetValue\("@(prog|evt)DeSync"\)\) == "true"\) continue;/.test(src), false, 'le resultat des DE synchronisees s ecrit dans le cache');
-    egal(src.includes('SET @clePick   = Concat("picklists|", @d0)'), true, 'cle picklists au jour');
-    egal((src.match(/famille: String\(Variable\.GetValue\("@clePick"\) \|\| ""\)/g) || []).length, 2, 'cle du jour a la lecture et a l ecriture');
-    egal(/DeleteData\("LPB_Cache_Lecture", \["Famille"\], \[String\(Variable\.GetValue\("@clePickJ" \+ pj\) \|\| ""\)\]\)/.test(src), true, 'purge des trois jours precedents');
+    egal(src.includes('SET @clePick   = "picklists"'), true, 'cle picklists unique, sans date (05/10)');
+    egal((src.match(/famille: String\(Variable\.GetValue\("@clePick"\) \|\| ""\)/g) || []).length, 2, 'cle picklists a la lecture et a l ecriture');
+    egal(src.includes('clePickJ'), false, 'plus de purge au jour dans la page : elle vit dans scripts/purger-cache-lecture.js');
+    egal(src.includes('SET @cleEvt = Concat("evenements|", Lowercase(@school), "|", Lowercase(@typeEvtCrm), "|", @d0)'), true, 'cle evenements au jour (ecarts en jours cuits dans le JS)');
 });
 
 /* Page de traitement dediee : la cle est injectee a la publication, le
