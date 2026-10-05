@@ -189,6 +189,7 @@ SFMC_LECTURE_DE_SYNC=false` rend le comportement synchrone historique, sans autr
 | `scripts/journal-soumission.js <email>` | lecture du journal d'une soumission |
 | `scripts/journey-config-upsert.js` | `LPB_Config_Api` |
 | `scripts/purger-cache-lecture.js` | `LPB_Cache_Lecture` — vide le cache de lecture (tout, une famille, une école) ; à planifier en cron côté serveur avec le `.env` de prod |
+| `scripts/creer-de-prod.js` | dossiers et 13 DE du LP Builder dans une BU (`--mid` = `SFMC_ACCOUNT_ID`, `--push`, `--copier-config`, `--relever` pour régénérer `sfmc-ssjs/de/LPB_DE_definitions.json`) |
 | `scripts/creer-de-indicatifs.js`, `scripts/creer-de-cache-lecture.js` | création idempotente de deux DE |
 | `scripts/sync-cascade-js.js` | recopie du JS de cascade dans le bloc AMPscript (à lancer après toute modification de `picklist-handler.ssjs`) |
 | `npm test` | la suite complète, à passer avant chaque publication |
