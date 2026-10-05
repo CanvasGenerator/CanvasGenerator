@@ -25,13 +25,24 @@ automation, journeys, et les identifiants Salesforce des tables de mapping.
 
 ---
 
-## 2. Data Extensions à créer dans la BU de prod
+## 2. Data Extensions de la BU de prod
+
+> ✅ **Créées le 05/10/2026 dans la BU 536009308** par
+> `scripts/creer-de-prod.js` (définitions : `sfmc-ssjs/de/LPB_DE_definitions.json`,
+> relevées sur la Recette). Dossier `Data Extensions / LP_Builder` (41678) :
+> `LPB 1 - Mapping CRM` (50615), `LPB 2 - Configuration formulaires` (50616),
+> `LPB 3 - Journeys et API` (50617), `LPB 4 - Technique` (50618). Les 13 DE y
+> sont, noms et clés identiques, non sendable, mêmes champs. Les lignes des
+> tables de **configuration pure** ont été copiées depuis la Recette (niveaux 18,
+> indicatifs 60, config formulaires 10, champs école 10, conditions 2,
+> dictionnaire 415). **Restent vides** : les trois mappings (Ids de prod à
+> saisir), `LPB_Config_Api` (`journey-config-upsert.js`), et les tables
+> techniques (remplies par les pages). Le script est idempotent :
+> `SFMC_ACCOUNT_ID=536009308 node -r dotenv/config scripts/creer-de-prod.js --mid=536009308 [--push] [--copier-config]`.
 
 Toutes **non sendable**, noms et clés externes **identiques** (`Cle == Nom`), sauf
 `CTA_demande_documentation` qui existe déjà en prod. Les colonnes sont celles
-relevées en Recette le 27/09 (`*` = clé primaire). Scripts existants :
-`scripts/creer-de-indicatifs.js`, `scripts/creer-de-cache-lecture.js` (idempotents,
-`--push`) ; les autres sont à créer à la main ou par le même modèle SOAP.
+relevées en Recette (`*` = clé primaire).
 
 ### 2.1 Tables de mapping — à REMPLIR avec les identifiants Salesforce de PROD
 
