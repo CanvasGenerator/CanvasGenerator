@@ -10,3 +10,5 @@ scripts/auth-test.js
 # Récapitulatifs de présentation (PDF + HTML générés)
 sfmc-ssjs/socle/*.pdf
 sfmc-ssjs/socle/recap-*.html
+*.xlsx
+*.png

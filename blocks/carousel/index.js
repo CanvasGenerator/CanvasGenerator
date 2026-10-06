@@ -313,6 +313,24 @@ export default function (editor, categories) {
                         return Math.max(1, Math.round(wrap.offsetWidth / first.offsetWidth));
                     }
 
+                    // Moins de cartes que de places visibles (ex. 2 programmes sur
+                    // desktop, où le CSS en prévoit 3) : les cartes restaient
+                    // collées à gauche sous des flèches centrées. On mesure la
+                    // disposition prévue par le CSS (styles en ligne retirés), puis
+                    // on les répartit sur la largeur, centrées — même logique que
+                    // le Carrousel Programmes v2 du Master Template.
+                    function fit() {
+                        const cards = Array.from(track.children);
+                        cards.forEach(c => { c.style.flex = ''; });
+                        track.style.justifyContent = '';
+                        const slots = getVisible();
+                        if (cards.length && cards.length < slots) {
+                            const basis = (100 / Math.max(cards.length, 2)) + '%';
+                            cards.forEach(c => { c.style.flex = '0 0 ' + basis; });
+                            track.style.justifyContent = 'center';
+                        }
+                    }
+
                     function maxIndex() {
                         // Jamais négatif : avec moins de cartes que de places
                         // visibles, l'ancien calcul donnait -1 puis
@@ -353,8 +371,11 @@ export default function (editor, categories) {
                         update();
                     });
 
-                    window.addEventListener('resize', update);
-                    update();
+                    function refresh() { fit(); update(); }
+                    const win = el.ownerDocument.defaultView || window;
+                    win.addEventListener('resize', refresh);
+                    if (win.MutationObserver) new win.MutationObserver(refresh).observe(track, { childList: true });
+                    refresh();
                 }
 
             }

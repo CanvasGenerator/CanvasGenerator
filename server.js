@@ -6,7 +6,7 @@ const fs = require('fs');
 const cheerio = require('cheerio');
 const { syncProjectToSfmc, unpublishProjectFromSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, listCampuses, upsertCampus, deleteCampus, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch } = require('./lib/sfmc');
 const sfmcAuth = require('./lib/sfmc-auth');
-const { enqueueOrProcessInline } = require('./lib/sfmc-sync');
+const { enqueueOrProcessInline, buildHtmlForSfmcPublish } = require('./lib/sfmc-sync');
 const {
     handleContentRoute,
     syncLegacyProjectToContent,
@@ -1024,6 +1024,7 @@ http.createServer(async (req, res) => {
                 const supaResult = await supabaseRequest('POST', '/Projects?on_conflict=project_name', {
                     project_name:         projectName,
                     html:                 fullHtml,
+                    html_sfmc:            null, // périmé : sera reconstruit par le cron ou à la publication
                     css:                  css,
                     project_data:         typeof projectData === 'string' ? projectData : JSON.stringify(projectData || {}),
                     properties:           properties || {},
@@ -1896,16 +1897,9 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     return res.end(JSON.stringify({ error: `Projet "${projectName}" introuvable.` }));
                 }
 
-                // html_sfmc déjà nettoyé + images publiées par la sauvegarde/cron ;
-                // sinon, le préparer à la volée pour ne pas dépendre du cron.
-                let htmlToSend = project.html_sfmc;
-                if (!htmlToSend) {
-                    htmlToSend = cleanHtmlForSfmc(project.html || '');
-                    htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
-                    await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                        html_sfmc: htmlToSend
-                    });
-                }
+                // Toujours repartir du dernier HTML sauvegardé : html_sfmc peut encore
+                // contenir la version précédente si le cron n'est pas passé.
+                const htmlToSend = await buildHtmlForSfmcPublish(project);
 
                 console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
                 const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
