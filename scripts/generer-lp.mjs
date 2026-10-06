@@ -20,9 +20,24 @@
  *  Les deux lots ne partagent aucune cle : publier l'un ne touche jamais
  *  l'autre.
  *
+ *  LANGUE : --lang=en publie la variante ANGLAISE des blocs (`form-<type>-en`,
+ *  meme module, meme socle) sous la cle `<Lot>_<TYPE>_EN_<ECOLE>_V0`, avec
+ *  `<html lang="en">`. Le francais reste le defaut et sa cle ne change pas.
+ *  En-tete et pied de page sont ceux de l'ecole, sans variante de langue.
+ *
+ *  --gtm : TEMPORAIRE (24/09). Injecte le conteneur Google Tag Manager de la
+ *  marque (serveur sGTM + id, table GTM ci-dessous) : le script en tete du
+ *  <head>, le <noscript> juste apres <body>. En production les pages sortent
+ *  du builder, qui porte le code GTM dans les proprietes de la page ; pour les
+ *  lots Interne et Recette, generes ici, c'est le seul moyen de tester le
+ *  tracking. A retirer quand les pages viendront du builder.
+ *
  *  Usage :
  *      node scripts/generer-lp.mjs                                  simulation
+ *      node scripts/generer-lp.mjs --lang=en --only=efap:BRCH       brochure anglaise
+ *      node scripts/generer-lp.mjs --lang=en --types=BRCH,CAND     lot anglais (2 formulaires)
  *      node scripts/generer-lp.mjs --only=efap:BRCH                 une seule
+ *      node scripts/generer-lp.mjs --traitement                     page de traitement seule
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339
  *      SFMC_SYNC_ENABLED=true node scripts/generer-lp.mjs --push --mid=536010339 \
  *          --lot=recette --confirme-recette
@@ -69,8 +84,69 @@ const args = process.argv.slice(2);
 const PUSH = args.includes('--push');
 const MID  = (args.find((a) => a.startsWith('--mid=')) || '').split('=')[1];
 const ONLY = (args.find((a) => a.startsWith('--only=')) || '').split('=')[1];
+/* --types=BRCH,CAND : ne publier que ces formulaires (les blocs evenement
+   n'ont pas de variante anglaise, un lot --lang=en sans ce filtre echouerait
+   sur quatre pages par ecole). */
+const TYPES = ((args.find((a) => a.startsWith('--types=')) || '').split('=')[1] || '').split(',').map((t) => t.trim().toUpperCase()).filter(Boolean);
+/* --traitement : ne publie QUE la page de traitement des soumissions du lot. */
+const SEUL_TRAITEMENT = args.includes('--traitement');
+/* Page de traitement dediee : publiee avec le lot des que le mode asynchrone
+   est ouvert, et sa cle est injectee dans le handler de chaque page
+   (SFMC_PAGE_TRAITEMENT) pour que le beacon et le rejeu la visent. */
+const ASYNC_OUVERT = String(process.env.SFMC_ASYNC_SOUMISSION || '').trim().toLowerCase() === 'true';
+const PAGE_TRAITEMENT = ASYNC_OUVERT || SEUL_TRAITEMENT;
 const LOT  = ((args.find((a) => a.startsWith('--lot=')) || '--lot=interne').split('=')[1] || '').toLowerCase();
 const CONFIRME_RECETTE = args.includes('--confirme-recette');
+const LANG = ((args.find((a) => a.startsWith('--lang=')) || '--lang=fr').split('=')[1] || 'fr').toLowerCase();
+const LANGUES = { fr: { suffixeBloc: '', suffixeCle: '' }, en: { suffixeBloc: '-en', suffixeCle: '_EN' } };
+const GTM_ACTIF = args.includes('--gtm');
+
+/* Conteneurs GTM par ecole (liste fournie le 24/09) : serveur sGTM et id. */
+const GTM = {
+    'efap':        { hote: 'sgtm.efap.com',        id: 'GTM-NM7G8V9' },
+    'brassart':    { hote: 'sgtm.brassart.fr',     id: 'GTM-52GFCN3' },
+    'icart':       { hote: 'sgtm.icart.fr',        id: 'GTM-W944F2W' },
+    'efj':         { hote: 'sgtm.efj.fr',          id: 'GTM-5CVJCTF' },
+    'ifa-paris':   { hote: 'sgtm.ifaparis.com',    id: 'GTM-NBXZRK8' },
+    'cread':       { hote: 'sgtm.cread.fr',        id: 'GTM-MJRTDTJ' },
+    'mopa':        { hote: 'sgtm.ecole-mopa.fr',   id: 'GTM-TX6KR8J' },
+    '3wa':         { hote: 'sgtm.3wacademy.fr',    id: 'GTM-M9LVS7DR' },
+    'ecole-bleue': { hote: 'sgtm.ecole-bleue.fr',  id: 'GTM-K8Q4NDRX' },
+    'esec':        { hote: 'sgtm.esec.fr',         id: 'GTM-WMND2GN' },
+};
+
+/** Les deux morceaux GTM d'une ecole, tels que fournis par Google (sGTM).
+ *
+ *  ⚠ La balise <script> est ASSEMBLEE A L'EXECUTION par AMPscript, comme
+ *  celles du socle : l'API SFMC supprime toute balise de script litterale a
+ *  l'upload — constate le 24/09 sur les 20 pages EN, le commentaire GTM
+ *  arrivait en ligne vide de son script. Le <noscript>, lui, passe.
+ *
+ *  Depuis le 02/10 le conteneur ne se charge qu'a `window.load` : GTM tire
+ *  Axeptio (bandeau cookies, 21 Ko d'images, une police) et les tags, soit
+ *  2 a 4 s de reseau qui n'ont rien a faire avant que le formulaire soit
+ *  utilisable. `dataLayer` existe des le depart, les pushes d'avant le
+ *  chargement restent dans le tableau et GTM les rejoue. Le handler lit le
+ *  cookie Axeptio a la soumission, bien apres. */
+function gtmPour(ecoleId) {
+    const g = GTM[ecoleId];
+    if (!GTM_ACTIF || !g) return { head: '', body: '' };
+    return {
+        head: `%%[ VAR @gtmOuvre, @gtmFerme SET @gtmOuvre = Concat("<scr", "ipt>") SET @gtmFerme = Concat("</scr", "ipt>") ]%%
+<!-- Google Tag Manager -->
+%%=v(@gtmOuvre)=%%(function(w,d,s,l,i){w[l]=w[l]||[];var go=function(){w[l].push({'gtm.start':
+new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
+j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
+'https://${g.hote}/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);};
+if(d.readyState==='complete'){go();}else{w.addEventListener('load',go);}
+})(window,document,'script','dataLayer','${g.id}');%%=v(@gtmFerme)=%%
+<!-- End Google Tag Manager -->`,
+        body: `<!-- Google Tag Manager (noscript) -->
+<noscript><iframe src="https://${g.hote}/ns.html?id=${g.id}"
+height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
+<!-- End Google Tag Manager (noscript) -->`,
+    };
+}
 
 /* Le prefixe de cle EST la separation entre les deux lots. Rien d'autre ne les
    distingue cote SFMC : meme dossier, meme gabarit, meme socle. */
@@ -89,6 +165,10 @@ const RACINE = process.cwd();
    variable oubliee publierait 60 pages sur du vieux code, sans que rien ne le
    dise. */
 process.env.SOCLE_INLINE = 'true';
+/* Le socle inline est depouille (commentaires, indentation) a la publication :
+   ~470 Ko parses par SFMC a chaque affichage, dont la moitie de prose.
+   SFMC_SOCLE_DEPOUILLE=false pour publier le texte commente. */
+if (String(process.env.SFMC_SOCLE_DEPOUILLE || '').trim() === '') process.env.SFMC_SOCLE_DEPOUILLE = 'true';
 
 /** Editeur factice : il ne sait qu'une chose, retenir ce qu'on lui ajoute. */
 function stubEditor(recolte) {
@@ -174,18 +254,30 @@ function cssPourImages(html) {
     });
 }
 
-function page({ titre, header, formulaire, footer }) {
+function page({ titre, header, formulaire, footer, lang = 'fr', gtm = { head: '', body: '' } }) {
     return `<!DOCTYPE html>
-<html lang="fr">
+<html lang="${lang}">
 <head>
+<script runat="server">try { Variable.SetValue("@tPage0", new Date().getTime()); } catch (e) {}</script>
+${gtm.head}
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${titre}</title>
 </head>
 <body>
+${gtm.body}
 ${header}
 ${formulaire}
 ${footer}
+<script runat="server">
+/* Chronos de la page entiere, en complement des chronos par famille du socle
+   de lecture (commentaire « socle ampscript ») : ou part le temps d'affichage. */
+try {
+    var tFin = new Date().getTime(), t0 = Number(Variable.GetValue("@tPage0")) || tFin, tDeb = Number(Variable.GetValue("@tDeb")) || t0, tLib = Number(Variable.GetValue("@tLib")) || tDeb;
+    Variable.SetValue("@tPageEtat", "avant-socle:" + (tDeb - t0) + "ms socle-lecture:" + (tLib - tDeb) + "ms apres:" + (tFin - tLib) + "ms page:" + (tFin - t0) + "ms");
+} catch (e) { Variable.SetValue("@tPageEtat", "?"); }
+</script>
+<!-- socle page: %%=v(@tPageEtat)=%% -->
 </body>
 </html>`;
 }
@@ -193,6 +285,10 @@ ${footer}
 /* -- garde-fous ---------------------------------------------------------- */
 if (!PREFIXES[LOT]) {
     console.error(`❌ --lot=${LOT || '(vide)'} inconnu. Valeurs admises : interne, recette.`);
+    process.exit(1);
+}
+if (!LANGUES[LANG]) {
+    console.error(`❌ --lang=${LANG} inconnu. Valeurs admises : fr, en.`);
     process.exit(1);
 }
 
@@ -220,34 +316,70 @@ if (PUSH) {
 }
 
 /* -- execution ----------------------------------------------------------- */
+const CLE_TRAITEMENT = `${PREFIXES[LOT]}_TRAITEMENT_V0`;
+if (PAGE_TRAITEMENT) process.env.SFMC_PAGE_TRAITEMENT = CLE_TRAITEMENT;
+
+/**
+ * La page de traitement des soumissions : le handler d'ecriture seul, sans
+ * gabarit ni socle de lecture. Le beacon du navigateur et l'automation de
+ * rejeu y repostent le corps de la soumission avec socle_traitement=1 ;
+ * le handler reconnait cette page a son `id` et y refuse toute soumission directe.
+ */
+function pageTraitement() {
+    return `<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="robots" content="noindex">
+<title>Traitement des soumissions</title>
+</head>
+<body>
+%%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
+<!-- page de traitement des soumissions (${LOT}) : aucun contenu visible -->
+</body>
+</html>`;
+}
+
 const travaux = [];
 for (const ecole of ECOLES) {
+    if (SEUL_TRAITEMENT) break;
     for (const f of FORMULAIRES) {
         if (ONLY && ONLY.toLowerCase() !== `${ecole.id}:${f.code}`.toLowerCase()) continue;
+        if (TYPES.length && !TYPES.includes(f.code)) continue;
         travaux.push({ ecole, f });
     }
 }
 
-console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — ${travaux.length} page(s)`);
+console.log(`\n  Landing pages — lot ${LOT.toUpperCase()} (${PREFIXES[LOT]}_*) — langue ${LANG.toUpperCase()} — ${travaux.length} page(s)`);
 console.log(`  Business Unit : ${process.env.SFMC_ACCOUNT_ID}`);
-console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}\n`);
+console.log(`  Socle inline : ${process.env.SFMC_SOCLE_DEPOUILLE === 'true' ? 'depouille (commentaires et indentation retires)' : 'texte complet'}`);
+console.log(`  Mode : ${PUSH ? 'PUBLICATION' : 'simulation (aucun envoi)'}${GTM_ACTIF ? ' · GTM injecte (temporaire)' : ''}`);
+console.log(`  Handler des pages : ${PAGE_TRAITEMENT ? 'reception seule (regions de traitement retirees, handler complet sur la page dediee)' : 'complet'}`);
+console.log(`  Traitement asynchrone : ${PAGE_TRAITEMENT ? `page dediee ${CLE_TRAITEMENT} (publiee avec le lot)` : 'ferme, ou sur la page du visiteur'}\n`);
 
 if (!PUSH) fs.mkdirSync(SORTIE, { recursive: true });
 
 const liens = [];
 const echecs = [];
+if (GTM_ACTIF) {
+    const sansGtm = [...new Set(travaux.map((t) => t.ecole.id))].filter((id) => !GTM[id]);
+    if (sansGtm.length) { console.error(`❌ --gtm : pas de conteneur connu pour ${sansGtm.join(', ')}`); process.exit(1); }
+}
 
 for (const { ecole, f } of travaux) {
     const ECOLE = ecole.id.toUpperCase().replace(/-/g, '_');
-    const nomProjet = `school-${ecole.id}__${PREFIXES[LOT]}_${f.code}_${ECOLE}_V0`;
+    const nomProjet = `school-${ecole.id}__${PREFIXES[LOT]}_${f.code}${LANGUES[LANG].suffixeCle}_${ECOLE}_V0`;
     const cle = customerKeyFor(nomProjet);
     try {
         const [header, formulaire, footer] = await Promise.all([
             rendreBloc(`blocks/header-${ecole.id}/index.js`, `header-${ecole.id}`),
-            rendreBloc(f.bloc, f.id),
+            rendreBloc(f.bloc, f.id + LANGUES[LANG].suffixeBloc),
             rendreBloc(`blocks/footer-${ecole.id}/index.js`, `footer-${ecole.id}`),
         ]);
-        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer })));
+        /* Une page de traitement dediee porte seule l'ecriture CRM : la page du
+           visiteur publie le handler en variante « reception seule ». */
+        process.env.SFMC_SOCLE_RECEPTION_SEULE = PAGE_TRAITEMENT ? 'true' : 'false';
+        const html = cssPourImages(svgVersImage(page({ titre: `${ecole.name} — ${f.libelle}`, header, formulaire, footer, lang: LANG, gtm: gtmPour(ecole.id) })));
 
         if (!PUSH) {
             fs.writeFileSync(path.join(SORTIE, `${cle}.html`), html);
@@ -261,6 +393,25 @@ for (const { ecole, f } of travaux) {
     } catch (e) {
         echecs.push({ cle, message: e.message });
         console.log(`  ✗ ${cle.padEnd(34)} ${e.message.slice(0, 90)}`);
+    }
+}
+
+if (PAGE_TRAITEMENT) {
+    const nomProjet = `school-socle__${CLE_TRAITEMENT}`;
+    try {
+        process.env.SFMC_SOCLE_RECEPTION_SEULE = 'false';
+        const html = pageTraitement();
+        if (!PUSH) {
+            fs.writeFileSync(path.join(SORTIE, `${CLE_TRAITEMENT}.html`), html);
+            console.log(`  ○ ${CLE_TRAITEMENT.padEnd(34)} ${String(html.length).padStart(7)} car. (page de traitement)`);
+        } else {
+            const r = await syncProjectToSfmc({ projectName: nomProjet, fullHtml: html });
+            if (r.skipped) throw new Error(`ignore par la lib : ${r.error || 'synchro desactivee'}`);
+            console.log(`  ✓ ${CLE_TRAITEMENT.padEnd(34)} ${r.action || 'ok'} (page de traitement)`);
+        }
+    } catch (e) {
+        echecs.push({ cle: CLE_TRAITEMENT, message: e.message });
+        console.log(`  ✗ ${CLE_TRAITEMENT.padEnd(34)} ${e.message.slice(0, 90)}`);
     }
 }
 

@@ -125,6 +125,41 @@ travail est **RECETTE EDH (536010339)**.
 
 ---
 
+### Temps de réponse — deux optimisations derrière drapeau (23–24/09)
+
+Mesures sur `Interne_*_EFAP_V0`, drapeaux fermés : **8–13 s** pour afficher la
+page, **16–20 s** entre « Envoyer » et la confirmation. Les deux leviers sont
+indépendants, injectés à la publication (`lib/socle-env.js`), fermés par défaut.
+
+| Drapeau | Ce qu'il change | Gain mesuré |
+|---|---|---|
+| `SFMC_ASYNC_SOUMISSION` | Le POST du visiteur ne fait que les règles de blocage + dépose le corps brut dans `LPB_File_Soumissions`, répond `success` ; le navigateur renvoie le même corps en `sendBeacon` (`socle_traitement=1&socle_run=`) et c'est ce second passage qui écrit CRM + journey, puis solde la ligne (`traitee`/`erreur`). Filet : automation `LPB_Rejouer_File_Soumissions` (`sfmc-ssjs/automations/`), **à planifier** — elle existe, statut Ready, non planifiée au 24/09. | confirmation en **4–5 s** au lieu de 16–20 |
+| `SFMC_CACHE_LECTURE` | Le socle de lecture sert picklists, libellés, programmes/PTAT/rentrées et dates d'événement depuis la DE `LPB_Cache_Lecture` (blocs JS déjà construits, tranches de 3 998 car. entre sentinelles `~`), par famille : `pick` 7 jours (clé `picklists`), `prog` 7 jours, `evt` 1 jour (clé datée : tombe à minuit SFMC). La page écrit elle-même le cache au premier passage après expiration ; aucune automation côté SFMC, mais `scripts/purger-cache-lecture.js --rechauffer=<lot>` (cron serveur) purge puis revisite les pages pour que le premier visiteur n'attende pas. Blocs `==CACHE_LECTURE_LIRE==` / `==CACHE_LECTURE_ECRIRE==` en SSJS try/catch. `?socle_cache=refresh` force la relecture, `?socle_cache=off` la contourne. État lisible dans `<!-- socle ampscript: … cache=… -->` et dans le bandeau `?socleDebug=1` (déplacé en fin de `body` par un script depuis le 05/10 : rendu dans l'enveloppe masquée du bloc, il restait invisible). DE à créer d'abord : `node scripts/creer-de-cache-lecture.js --push`. | affichage en **3,7–5 s** au lieu de 8,5–13 |
+| ↳ **30/09** | La famille `picklists` porte la **date du jour** dans sa clé (`picklists\|2026-09-30\|Country`…, jour serveur SFMC UTC-6) : le premier affichage du jour relit le CRM et écrit la ligne du jour, les suivants la servent ; les lignes des trois jours précédents sont purgées à cette écriture (`DeleteData`, état `pick:ecrit:purge(n)`). Le TTL (48 h) n'est plus qu'un garde-fou. Avec `SFMC_LECTURE_DE_SYNC` ouvert, `LPB_Cache_Lecture` ne sert plus que ces picklists et libellés, seules données non synchronisables (métadonnées Salesforce). | une lecture CRM des picklists par jour |
+
+| `SFMC_LECTURE_DE_SYNC` | **25/09.** Les dates d'événement (événement parent, instances, ateliers) et le nom de marque sont lus dans les **DE synchronisées Salesforce** partagées à la BU (`ENT.summit__Summit_Events__c_Salesforce_1`, `ENT.summit__Summit_Events_Instance__c_Salesforce_1`, `ENT.summit__Summit_Events_Appointment_Type__c_Salesforce`, `ENT.BusinessBrand_Salesforce`, rafraîchies ~15 min), bloc SSJS `==LECTURE_DE_SYNC_EVT==` avec les mêmes filtres et les mêmes blocs JS que le chemin CRM (72 instances CREAD identiques). CRM en repli si une DE manque. La famille `evt` sort du cache quand la DE la sert. Non synchronisés, donc toujours lus dans le CRM : programmes (`LearningProgram_Salesforce` est dans l'autre jeu de synchro, non partagé, sans spécialité/rythme/niveau/langue), PTAT, rentrées, picklists. Non synchronisés non plus : `Name` de l'instance (label = `summit__Instance_Title__c`), dates de disponibilité et drapeau obligatoire des ateliers (vides). Heures : la DE porte l'heure serveur SFMC (UTC-6), +6 h pour retrouver le `HH:mm:ss.000Z` du CRM. Jint : les groupes de `RegExp.exec()` reviennent `undefined`, découper la chaîne. | événements en **0,55 s** au lieu de 3 à 5 appels CRM |
+| ↳ **30/09** | Programmes, campus, PTAT et rentrées viennent aussi des DE synchronisées, bloc SSJS `==LECTURE_DE_SYNC_PROG==` : `ENT.LearningProgram_Salesforce_1` (Id, Name, campusNameFor__c, niveaux, spécialité, rythme, langue, IsActive, ProviderId), `ENT.ProgramTermApplnTimeline_Salesforce` (Id, LearningProgramId, AcademicTermId), `ENT.AcademicTerm_Salesforce` (Id, Name, IsActive). **Uniquement par `LookupRows`** — `Rows.Retrieve` rend `null` et WSProxy ne voit pas une DE `ENT.` depuis la BU (sonde `LPB_TST_Sonde_DeSync`). Comme `LookupRows` ne sait que l'égalité : rentrées `IsActive=True`, PTAT par rentrée active (2 lookups, 552 lignes), programmes `IsActive` True puis False (551 lignes) filtrés par préfixe en JS. Mêmes règles que le chemin CRM (candidature : ni programme sans spécialité ni sans PTAT ; PTAT des rentrées actives seulement). La famille `prog` sort du cache quand la DE la sert. ⚠ Fraîcheur : le 30/09 la DE portait encore le campus et le `ProviderId` d'un programme modifiés dans le CRM le 29/09 à 20:11 (compte campus supprimé) — vérifier l'état de la synchro `LearningProgram` avant de conclure sur un écart. | programmes en **0,5 à 0,66 s** au lieu de 1,4 à 2,7 s |
+| `SFMC_SOCLE_DEPOUILLE` (publication) | **25/09.** Le socle inliné (470 Ko, 53 % de commentaires) est parsé par SFMC à **chaque** affichage : 3,5 à 4,5 s avant la moindre lecture (mesuré socle sauté par `?socle_fetch=1`). `lib/socle-depouillement.js` retire à la publication commentaires blocs, lignes `//` et indentation → 178 Ko, coût fixe 1,5 à 2,9 s. ⚠ **Les commentaires ne sont retirés que HORS des blocs `<script runat="server">`** : les retirer dedans déclenche un bug de l'analyseur SFMC (`parse HtmlEmailBody` / `ArgumentOutOfRangeException`), reproduit avec une combinaison de trois commentaires d'une ligne, sans logique visible. Les marqueurs `==NOM==` sont conservés (verif-socle-deploye). Test : même code avant/après commentaires exclus, et la cascade navigateur rejouée sur le texte dépouillé. | page à chaud **1,8 à 2,7 s** (serveur 0,1 à 0,7 s) |
+
+| `SFMC_PAGE_TRAITEMENT` (posé par generer-lp) | **27/09.** Le second passage de la soumission asynchrone ne repasse plus par la page du visiteur : `generer-lp` publie avec le lot une **page de traitement dédiée** `<Lot>_TRAITEMENT_V0` (handler d'écriture seul, ~70 Ko, réponse de 15 Ko) et injecte sa clé dans le handler de chaque page. La réception l'annonce dans `<!-- socle ecriture: … traitement=… -->`, le beacon du navigateur y envoie le corps + `socle_traitement=1&socle_run=` (même CloudPage, `?id=` de la clé, sans les paramètres du visiteur), et la file `LPB_File_Soumissions` porte cette URL en colonne `Url` pour le rejeu. Une soumission directe sur cette page est refusée sans rien écrire ni mettre en file (`TRAITEMENT:refus-direct`, `99 - fin` en error). Clé vide : comportement d'avant. `--traitement` la publie seule. | réception 1,8 à 4,4 s, traitement 7,7 à 9 s hors de la page du visiteur |
+| `SFMC_SOCLE_RECEPTION_SEULE` | **01/10.** Posé par `generer-lp`, jamais à la main : `true` pour les pages du visiteur dès qu'une page de traitement dédiée existe, `false` pour la page de traitement. `lib/socle-inliner` retire alors du handler les régions `==TRAITEMENT_SEUL_DEBUT==`/`==TRAITEMENT_SEUL_FIN==` (réservation et solde de la file, séquence d'écriture CRM, tir de journey) : la page du visiteur ne porte que la réception (contexte, campagne, règles de blocage, mise en file). Handler 71 Ko → 19 Ko, page 226 Ko → ~160 Ko. Le marqueur `socle ecriture` dit `reception-seule=true|false`. Chaque région est un bloc IF…ENDIF ou `<script>` complet ; le test `test-env.js` vérifie l'équilibre IF/ENDIF des deux variantes. ⚠ Une soumission de traitement (`socle_traitement=1`) arrivant sur une page du visiteur n'y est plus traitée : elle n'y arrive jamais quand la page dédiée est posée (le beacon et le rejeu visent `Url`). | ~70 Ko d'AMPscript de moins analysés à chaque affichage |
+| ↳ beacon de traitement **01/10** | Le navigateur lance le traitement par `fetch` keepalive (plus `sendBeacon`, qui ne rend pas le statut) : sur **429** (limitation de débit SFMC, mesurée en repasse : 2 à 3 % des lectures sous 6 requêtes parallèles depuis une même source, Recette comme Interne), 5xx ou coupure réseau, nouvel essai après 2 s puis 6 s. Au-delà, la ligne reste `a_traiter` dans `LPB_File_Soumissions` : **l'automation `LPB_Rejouer_File_Soumissions` doit être planifiée** (toutes les 15 min), c'est le filet. Cinq lignes `en_cours` des 19 et 24/09 (tests d'avant les correctifs) attendent aussi ce rejeu. | une soumission ne se perd plus sur un refus ponctuel |
+
+Chronos : le commentaire `<!-- socle ampscript: … cache=… desync=… temps=pick:…ms prog:…ms evt:…ms libelles:…ms -->` et, en fin de page, `<!-- socle page: avant-socle:… socle-lecture:… apres:… page:… -->` disent où part le temps.
+
+Pièges rencontrés en l'implémentant, à ne pas redécouvrir :
+- un `VAR` AMPscript **réinitialise** la variable : tout `VAR` d'une variable
+  servie par le cache doit être déclaré AVANT le bloc de lecture ;
+- Jint : `"abc".substring(5, 9)` rend `"c"`, pas `""` — borner à la main ;
+- le CRM renvoie les value sets dans un ordre aléatoire : comparer hit et live
+  sur les éléments triés, pas octet à octet ;
+- **SFMC supprime les espaces de fin d'un champ texte de DE** : une tranche
+  coupée à 4 000 sur un espace revenait à 3 999 (« Mastère Animation » relu
+  « MastèreAnimation »), `Octets` ne tombait plus juste et la famille restait
+  en miss (25/09). Chaque tranche est donc écrite entre deux `~` (3 998
+  caractères utiles), retirés à la lecture ; une ligne de l'ancien format
+  tombe en miss une fois et se réécrit.
+
 ## 3. Ce que le socle écrit
 
 | # | Objet | Opération |
@@ -180,10 +215,33 @@ Trois comportements à ne pas confondre :
 - **une seule valeur** — champ **masqué mais renseigné**, la valeur part au CRM ;
 - **ordre par école** — IFA Paris demande la langue avant la spécialité.
 
-> ⚠ La chaîne de **filtrage** reste codée en dur (campus → niveau → spécialité →
-> rythme → langue) et **ne suit pas `OrdreChamps`**. Chez IFA Paris, les
-> spécialités ne sont donc pas restreintes par la langue choisie. **Non corrigé**
-> — c'est l'ordre d'AFFICHAGE qui l'a été, pas l'ordre de filtrage.
+> ✅ **Programme déduit quand plusieurs restent (02/10).** Le `<select
+> name="Programme">` est masqué ; quand les six critères laissent plusieurs
+> programmes, la cascade retient celui dont le nom porte **l'année la plus
+> haute** (règle du 24/09, « Année 4 » avant « Année 3 »), et **à égalité ou
+> sans année lisible, le premier de la liste**. Avant le 02/10 elle laissait le
+> champ vide : le formulaire partait **sans PTAT**, la règle anti-doublon
+> retombait sur la portée « personne » (bloque dès qu'une candidature existe,
+> toutes écoles confondues) et la candidature CRM naissait sans programme.
+> Mesure Recette du 02/10 : 14 combinaisons EFAP (variantes « LA », « NY »,
+> « Berghs », « Fullerton » d'un même MBA), 18 ICART, 3 ESEC, 2 BRASSART (un
+> programme en double dans la DE, à corriger côté CRM).
+
+> ✅ **Le filtrage suit `OrdreChamps` depuis le 01/10.** Chaque liste
+> conditionnelle est filtrée par le campus, le niveau et les champs qui la
+> précèdent dans l'ordre d'affichage. Dans l'ordre standard, c'est la chaîne
+> historique ; chez IFA Paris (langue avant spécialité), les spécialités
+> proposées sont désormais celles de la langue choisie.
+
+> ✅ **Candidature EN — 01/10.** Sur les formulaires de candidature anglais de
+> toutes les écoles (`data-lang="en"` + `TypeFormulaire=candidature`), l'ordre
+> devient : campus, niveau, **langue d'enseignement**, puis la suite de l'ordre
+> de l'école (spécialité, rythme, rentrée). Règle de code (`ordreCandidatureEn`),
+> pas de configuration : `OrdreChamps` continue de régir les pages FR et les
+> autres formulaires. Les spécialités sont filtrées par la langue choisie.
+> Sur ces pages, la langue reste **affichée même à valeur unique** (posée, mais
+> visible) : un candidat anglophone doit voir qu'un programme n'existe qu'en
+> français. Les autres champs gardent la règle « valeur unique = masqué ».
 
 > ✅ **`OrdreChamps` fonctionne depuis le 31/08.** Il n'avait effectivement aucun
 > effet : `appliquerOrdre` exigeait que tous les porteurs partagent le même
@@ -198,6 +256,15 @@ Trois comportements à ne pas confondre :
 Le programme vient des **programmes**, pas des PTAT : un programme sans PTAT
 apparaît, et la liste ne dépend plus d'une rentrée choisie. Le PTAT est déduit à
 la fin.
+
+> ✅ **Rentrées actives seulement — 30/09.** En candidature, un PTAT dont la
+> rentrée (`AcademicTerm.IsActive`) est fermée n'est plus émis, ni dans la liste
+> des rentrées ni pour écarter/retenir un programme. Les rentrées sont lues une
+> fois, avant les PTAT, et la même lecture sert aux libellés. Au 30/09, 2
+> rentrées actives sur 19 (Décalée Jan.-Fév. 2026-2027, Sept./Oct. 2027) ;
+> Sept./Oct. 2026 est fermée mais chaque programme a son double sur 2027 : la
+> règle ne vide aucun programme ni campus, elle retire des rentrées. Brochure
+> non concernée (pas de PTAT).
 
 ### Configuration par école — 4 DE
 
@@ -416,6 +483,41 @@ rien afficher.
 Le socle intercepte, poste en `fetch`, lit le bilan, et **ajoute un encart de
 message au-dessus du bouton**. Le POST natif reste le repli.
 
+### Page morte intermittente sur la candidature d'un compte connu — 24/09
+
+Symptôme remonté par la recette (ESEC, BRASSART) : « Landing page indisponible »
+une fois sur trois, uniquement en **candidature**, uniquement sur un **compte
+déjà connu** (re-soumission). Le journal s'arrêtait après « 40 - maj compte
+terminee », avant le premier « 60 - consentement ».
+
+Cause, relue dans l'Apex du CRM via `LPB_TST_Sonde_Valeurs`
+(`o=ApexClass&f=Body&w=Name&wv=…`) :
+
+1. notre update du compte pose `PTAT_Id__c` → `AccountsTriggerHandler.afterUpdate`
+   → `AcademicInterestRequestService` (tampon) → flow asynchrone →
+   `AcademicInterest` → `MarketingEngagementService.updateFromAcademicInterest`
+   pose `LastMarketingEngagementDate__c` (= maintenant, côté CRM) sur les
+   `ContactPointConsent` du compte ;
+2. notre update du consentement suivait 1 à 2 s plus tard avec une date
+   calculée **en tête de page**, donc antérieure ;
+3. `ContactPointConsentTriggerHandler.handleBeforeUpdate` →
+   `isManualDateRegression` → `addError(« …ne peut que progresser »)` ; AMPscript
+   n'a pas de try/catch : la page tombe. Intermittent parce que le flow est
+   asynchrone : il gagnait la course une fois sur trois.
+
+Correctif (`handler-form.ampscript`) : l'update du compte existant part
+**après** le bloc consentement (bloc « MISE À JOUR DU COMPTE EXISTANT »,
+`@majCompteAFaire`), et la date d'engagement des consentements est calculée
+juste avant leurs écritures (`@cpcHorodatage`, `@cpcHorodatageUtc`). Le
+journal détaillé (`SFMC_LOG_DETAIL=true`) trace désormais sur la ligne 58 la
+date déjà posée par le CRM (`dateCrm=`) et la nôtre (`notre=`). Test :
+`test-env.js` fige l'ordre 60 → 40 → étape 3a.
+
+Reste possible, plus rare : deux soumissions du même compte à quelques
+secondes d'intervalle, le tampon CRM de la première dépassant la date de la
+seconde. La parade complète est côté CRM : exempter l'utilisateur MC Connect
+du contrôle (`BypassContactPointConsentTriggers`) ou tolérer l'égalité.
+
 ### L'encart de message — retour client du 03/09
 
 **Le formulaire ne disparaît plus.** Jusqu'au 03/09, une confirmation masquait la
@@ -628,8 +730,34 @@ l'URL, car la page expose `campus`, qui est le campus **présélectionné**).
 
 Sur un compte **neuf**, seuls `UTMSource__c` et `ClientID__c` étaient écrits ; le
 reste ne l'était que sur la branche « déjà connu ». Corrigé, sauf
-`DateConsentementCookies__c` — champ date, aucune valeur réelle d'Axeptio à
-valider, et un format refusé tue la page.
+`DateConsentementCookies__c`, écrit seulement sur la branche « déjà connu ».
+**25/09 :** avec le GTM, Axeptio arrive sur les pages et la CloudPage remplit
+`date_consentement_cookies` en « AAAA-MM-JJ HH:MM:SS » ; le champ est un
+Date/Heure que le connecteur n'accepte qu'en ISO UTC avec `Z` (la date seule
+est refusée aussi, sonde `LPB_TST_Sonde_Ecriture`). Toute deuxième soumission
+d'un visiteur ayant accepté les cookies mourait après la mise à jour du compte.
+Le socle normalise désormais la valeur (formats avec espace, `T`, date seule)
+et ignore un format inconnu (`COOKIES:date-ignoree` dans le journal) ;
+`cloudpage-lp.html` émet directement de l'ISO UTC (à recoller dans la CloudPage).
+
+**dataLayer `form_sent`** (push à la soumission, dans la CloudPage) : `form_lang`,
+`user_data_country` (minuscules), `user_data_email`, `user_data_phone` (E.164),
+et depuis le 24/09 **`user_campus`** — le campus retenu (`Campus`, sinon
+`CampusChoisi`, sinon l'URL), valeur CRM telle quelle.
+
+⚠ La CloudPage `landingpage` n'est **pas** dans Content Builder : elle ne se
+déploie pas par l'API. `sfmc-ssjs/diagnostic/CP-lpbuilder.ssjs` en est la copie
+de référence, à recoller à la main dans CloudPages. Relevé du 24/09 : la page en
+ligne est **en retard** sur cette copie (pas de `campus` dans
+`tracking_params`, téléphone non E.164, pays non minusculisé, pas de
+`user_campus`).
+
+**GTM temporaire sur les lots générés** (24/09) : `generer-lp.mjs --gtm`
+injecte le conteneur sGTM de chaque école (table `GTM` dans le script : hôte +
+id) en tête du `<head>` et le `<noscript>` après `<body>`. Provisoire : les
+pages du builder porteront le code GTM par leurs propriétés ; retirer l'option
+quand les lots Interne/Recette en viendront. La copie de la CloudPage
+maintenue par anouar est `cloudpage-lp.html` à la racine (avec `user_campus`).
 
 **Défaut hors de notre portée** — la table d'attribution de la CloudPage est
 lacunaire :
@@ -645,6 +773,170 @@ lacunaire :
 `sea`, `ppc`, `google-ads` : aucun. À faire compléter par qui détient la
 CloudPage. Et ses libellés (`Autre`, `Referrals`, `Paid Social`) ne figurent pas
 dans les picklists de l'org.
+
+---
+
+### Réabonnement SFMC d'un désabonné — 01/10
+
+Un contact désabonné (lien de pied d'email → `LogUnsubEvent`, ou One-Click Gmail
+qui ne touche pas Salesforce) reste bloqué dans `_BusinessUnitUnsubscribes` même
+quand une nouvelle soumission repasse son ContactPointConsent Email en Opt-in :
+la journey de confirmation ne lui envoyait rien. Désormais, **si la case Email
+est cochée sur un compte déjà connu** (`@reaboEmail = "1"`, posé à l'étape 2 en
+mise à jour comme en création du consentement — un compte tout juste créé n'a
+jamais été désabonné), le bloc SSJS `==REABONNEMENT==` repasse le Subscriber
+(`SubscriberKey = PersonContactId`) à `Active` **au niveau de la BU**
+(`Client.ID = AccountId` de `LPB_Config_Api`), par `WSProxy.updateItem`, **avant**
+le tir de l'API Event. Ligne « 98 - reabonnement » (OK/KO) dans
+`LPB_Log_Soumissions` ; un échec n'empêche ni la confirmation ni la journey.
+`Status=Active` lève aussi un « Held » (rebonds) : choix assumé. Vérifié en
+Interne le 01/10 sur un Subscriber passé à Unsubscribed à la main. Reprise du
+document de l'équipe « REABONNEMENT-SFMC.md ». Sur `optimisation-temps`, le bloc
+vit dans la région de traitement : seule la page `*_TRAITEMENT_V0` le porte.
+
+### Journey brochure selon le pays de résidence — 06/10
+
+Deux journeys pour la demande de brochure, choisies dans la branche brochure du
+handler d'après le **pays de résidence déclaré dans le formulaire** (même règle
+que la zone de campagne FR / Intl) :
+
+| Pays de résidence | Clé dans `LPB_Config_Api` | Journey |
+|---|---|---|
+| France | `EventKey_Brochure` | `Post_Demande_De_Doc` |
+| tout autre pays | `EventKey_Brochure_Inter` | `Post_Demande_De_Doc_INTER` |
+
+Les deux API Events écrivent dans la **même DE d'entrée**
+`Post_Demande_De_Doc_Target` : le corps JSON est inchangé, seule la clé de
+l'événement diffère, lue au tir. Le journal porte la clé utilisée
+(`JOURNEY:ok(APIEvent-…)`). Si la ligne `EventKey_Brochure_Inter` manque dans
+`LPB_Config_Api`, la soumission aboutit avec `JOURNEY:sans-config` et aucune
+journey ne part : la poser en prod avec les 7 autres lignes
+(`journey-config-upsert.js`). La journey INTER était en **Draft** le 06/10 : elle
+accepte l'événement (ligne écrite dans la DE d'entrée) mais ne traite personne
+avant sa publication.
+
+### Cache de lecture : durées et purge externe — 05/10
+
+Durées arrêtées le 05/10 : **picklists 7 jours** (clé unique `picklists`, plus
+de date), **programmes 7 jours** (clé `programmes|<école>|cand|tous`),
+**événements 1 jour** (clé au jour, inchangée). La fraîcheur avant terme est
+assurée par **`scripts/purger-cache-lecture.js`**, à lancer par cron côté
+serveur ou à la main après une modification CRM à voir tout de suite :
+
+```
+node -r dotenv/config scripts/purger-cache-lecture.js                       # tout (ClearData SOAP)
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements  # une famille
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=programmes --ecole=efap
+node -r dotenv/config scripts/purger-cache-lecture.js --dry-run             # compte sans supprimer
+```
+
+Le visiteur suivant la purge paie la relecture (0,5 à 0,6 s par famille) et
+réécrit le cache. La purge au jour des picklists dans la page a disparu avec
+la clé datée.
+
+**Réchauffement — 05/10.** Pour que ce soit le script, et non le premier
+visiteur, qui paie cette relecture, `--rechauffer=<lot>` visite les pages du
+lot après la purge (HTTP GET sur `landingpage?id=<clé>`) : chaque page relit
+ce qui lui manque et réécrit le cache, exactement comme pour un visiteur. Les
+clés ne dépendent ni de la langue ni du lot (`picklists`,
+`programmes|<école>|cand|tous`, `evenements|<école>|<type>|<jour>`) : 6 pages
+FR par école suffisent (BRCH → picklists + programmes `tous`, CAND →
+programmes `cand`, JPO/AD/STG/IMM → événements), les pages EN et les autres
+lots de la même BU lisent les mêmes lignes. La première page est visitée seule
+(elle écrit les picklists communes), les suivantes 2 en parallèle avec 3 essais
+(à 3 en parallèle SFMC renvoie des HTTP 429). Mesure du 05/10 en Interne :
+60 pages en 2 min 45 (purge complète) à 3 min 20 (`--sans-purge`, qui visite
+avec `?socle_cache=refresh` et réécrit tout), 1,3 à 8 s par page ; la visite
+suivante est un hit (socle 80 à 110 ms).
+
+```
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette                       # vide tout puis 60 pages
+node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=recette  # dates du jour (40 pages)
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette --sans-purge          # réécriture forcée sans purge
+node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette --dry-run             # liste les pages sans rien faire
+```
+
+Options : `--ecole=`, `--lang=en`, `--parallele=`, `--url=` (défaut
+`https://cloud.groupe-edh.net/landingpage`). Code de sortie 1 si une page est
+morte (HTTP ≠ 200 ou sans commentaire `socle ampscript`) ou une suppression a
+échoué. Le lot visé est celui des pages que les visiteurs ouvrent (Recette
+aujourd'hui, Prod demain) : le contenu mis en cache est construit par le socle
+inliné dans la page visitée.
+
+Cron conseillé (heure de Paris) : la clé des événements porte le jour du
+serveur SFMC (UTC-6 sans heure d'été), elle tombe à **07:00 en hiver, 08:00 en
+été**. Un passage événements à 07:15 et un à 08:15 couvre les deux saisons, le
+second ne coûtant rien quand le premier a déjà écrit le jour ; une purge
+complète réchauffée une fois par semaine renouvelle picklists et programmes
+avant leurs 7 jours.
+
+```
+15 7,8 * * *   cd /chemin/CanvasGenerator && node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=recette >> /var/log/lpb-cache.log 2>&1
+5  6   * * 1   cd /chemin/CanvasGenerator && node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette >> /var/log/lpb-cache.log 2>&1
+```
+
+### Cache de lecture : programmes et événements aussi — 02/10
+
+Mesure Chromium du 02/10 sur Recette (TTFB 1,9 s brochure, 2,4 s JPO) : la
+plateforme pèse ~1,2 s avant notre code, le socle de lecture 0,7 s (brochure,
+candidature) à 1,2 s (événement), dont **0,6 s de programmes/PTAT/rentrées** et
+**0,6 s de dates d'événement** lus dans les DE synchronisées à chaque
+affichage ; les picklists ne coûtent plus que 0,09 s (cache du jour). Le
+navigateur (téléchargement, analyse, cascade) fait moins de 0,15 s. Depuis le
+02/10, le cache `LPB_Cache_Lecture` **sert et écrit aussi le résultat des DE
+synchronisées** : familles `prog` (clé `programmes|<école>|cand|tous`) et
+`evt` (clé `evenements|<école>|<type>|<jour>`) avec un **TTL court quand la DE
+est la source** (60 min programmes, 30 min événements ; 6 h et 60 min sur le
+chemin CRM comme avant). Le premier visiteur de la période paie la lecture DE,
+les suivants ont le hit. Les marqueurs `prog:de-sync` / `evt:de-sync` du
+commentaire `socle ampscript` disparaissent au profit de `prog:hit(…)` /
+`prog:ecrit`.
+
+**GTM différé à `window.load` (02/10)** : le conteneur sGTM (et Axeptio qu'il
+tire : bandeau, 21 Ko d'images, une police, 2 à 4 s de réseau) ne se charge
+qu'une fois la page chargée. `dataLayer` existe dès le départ, les pushes
+antérieurs sont rejoués par GTM ; le handler lit le cookie Axeptio à la
+soumission, bien après. Le formulaire est utilisable à `DOMContentLoaded`
+(~2 s), avant comme après.
+
+### Consentement refusé sur un compte créé à la main — 02/10
+
+Une règle de validation CRM exige `CaptureSourceDetail__c` (libellé « Source
+Opt In ») et le texte légal dès que le statut est Opt-in. Le socle n'envoyait
+pas ce champ : sur un compte créé par le formulaire, le trigger
+`ContactPointConsentTrigger` le recopie depuis `CreationSourceDetail__c` du
+compte et la règle passait sans qu'on le sache. Sur un compte créé à la main
+(`CreationSourceDetail__c` vide — cas `linazampaglione@gmail.com`, 12 runs
+morts du 30/09 au 02/10 juste après « 30 - account existant », aucun
+consentement jamais créé), la création était refusée et la page mourait, en
+synchrone comme en traitement asynchrone. Depuis le 02/10 le socle envoie
+`CaptureSourceDetail__c = @detailOrigine` (le `NomFormulaire`, même valeur
+que celle posée sur le compte) dans les trois variantes de création ; le
+trigger ne touche pas un champ déjà renseigné, donc rien ne change pour les
+comptes créés par les formulaires. Diagnostic par la sonde
+`LPB_TST_Sonde_CPC_Err` (`&cp=&fields=PSCLDBE&brand=&d1=&d2=`), qui évalue le
+vrai `CreateSalesforceObject` dans un try/catch et rend le message Salesforce.
+
+### Opt-out en attente annulé par un nouvel opt-in — 01/10
+
+L'automation de désabonnement (One-Click Gmail, lien de pied d'email) ne
+touche pas le CRM tout de suite : elle pose une ligne dans
+**`Journey_OptOut_Entry_DE`** (DE de la BU, clé `ConsentId` = Id du
+ContactPointConsent, colonnes `SubscriberKey`, `CodeEcole`, `ListID`,
+`UpdateType`, `NewValue`, `DateSFMC`), que la journey de mise à jour du
+CRM consomme plus tard. Si la personne resoumet un formulaire **entre les
+deux** en recochant le canal, son consentement le plus récent est l'opt-in :
+sans rien faire, la journey repassait ensuite le CRM en Opt-out. Désormais,
+l'étape 2 liste dans `@optoutCpcIds` l'Id de chaque consentement **existant**
+qu'elle écrit ou confirme en Opt-in (tout canal ; un consentement tout juste
+créé n'a pas de ligne), et le bloc SSJS `==OPTOUT_PURGE==` (avant le
+réabonnement) lit puis supprime la ligne **par `ConsentId` exact** —
+jamais par `SubscriberKey`, les opt-out des autres marques restent. Journal
+court : `OPTOUT:purge(n)` / `OPTOUT:aucun` ; ligne « 97 - optout-purge »
+(OK, avec école, type, valeur et date de la ligne levée) dans
+`LPB_Log_Soumissions` seulement quand une ligne est levée, KO sur exception.
+Un échec n'empêche ni le réabonnement, ni la journey, ni la confirmation.
+Vit dans la région de traitement sur `optimisation-temps`.
 
 ---
 

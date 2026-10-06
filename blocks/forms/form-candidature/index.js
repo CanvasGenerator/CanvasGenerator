@@ -87,10 +87,10 @@ export default function (editor, categories) {
             rgpdLink:    'here',
             submit:      'Apply now',
             sending:     'Sending...',
-            successTitle: 'We have received your application',
-            successMsg:  'To complete it and submit your file, create your '
-                       + 'applicant account using the link sent by email '
-                       + '(please check your spam folder).',
+            successTitle: 'We’ve received your application request.',
+            successMsg:  'To complete and submit your application, please create your '
+                       + 'applicant account using the link sent to your email address '
+                       + '(please make sure to check your spam folder).',
             errRequired: 'This field is required.',
             errEmail:    'Invalid email format.',
             errEmailDom: 'Please use a valid email address.',

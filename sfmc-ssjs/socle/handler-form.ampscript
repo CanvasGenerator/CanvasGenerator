@@ -165,6 +165,13 @@ VAR @candPortee
 SET @sfBlockMsg = ""
 SET @sfBlockRule = ""
 
+/* Update du compte existant differe apres les consentements, et horodatage
+   d'engagement des consentements calcule au plus tard (voir etape 2). */
+VAR @majCompteAFaire, @vDateCookiesCrm, @cpcHorodatage, @cpcHorodatageUtc, @cpcDateCrm
+SET @majCompteAFaire = "false"
+SET @vDateCookiesCrm = ""
+SET @cpcDateCrm      = ""
+
 VAR @submitted, @email, @emailInvalide, @ecole, @formType
 VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @speciality, @specRows, @progRows
@@ -346,10 +353,76 @@ VAR @jrnTel, @jrnMarque, @jrnTypeEvt, @jrnFn, @jrnLn, @jrnMail, @jrnCampus
 VAR @jrnRefMarque, @jrnRefTypeEvt, @jrnRefNiveau, @jrnCle, @jrnPos, @jrnReste
 VAR @jrnNiveau, @jrnTelBrut, @jrnTelE164, @jrnEcole, @jrnCampusUtm
 VAR @jrnBrandCode, @jrnRefBrandCode
+
+/* ======================================================================
+   SOUMISSION ASYNCHRONE — DRAPEAU ET ETAT
+   ----------------------------------------------------------------------
+   Drapeau SFMC_ASYNC_SOUMISSION (injecte a la publication, lib/socle-env.js).
+   Ouvert, le POST du visiteur ne fait plus qu'un ACCUSE DE RECEPTION : les
+   regles de blocage tournent, la soumission complete (corps brut du POST)
+   est deposee dans la DE LPB_File_Soumissions, et la page repond
+   « success » en une a deux secondes. Le navigateur renvoie alors le meme
+   corps avec socle_traitement=1 et socle_run=<RunId> (beacon, sans attendre
+   la reponse) : c'est ce second passage qui execute toute la sequence
+   d'ecriture ci-dessous et tire les journeys. L'automation
+   LPB_Rejouer_File_Soumissions rejoue ce qui n'est pas arrive.
+   Etats d'une ligne de la file : a_traiter → en_cours → traitee | erreur.
+   Ferme : comportement historique, tout est ecrit pendant le POST. */
+VAR @ASYNC_ACTIF, @modeTraitement, @runReception, @asyncMode, @asyncDoublon
+VAR @PAGE_TRAITEMENT, @urlTraitement, @posQ
+VAR @postBrut, @postUrl, @pageId, @payload2, @payload3
+VAR @fileRows, @fileStatut, @fileTentatives, @fileDetail
 SET @JOURNEY_LAUNCH = "%%ENV:SFMC_JOURNEY_LAUNCH%%"
 SET @jrnCleEvt      = ""
 SET @jrnContactKey  = ""
 SET @jrnData        = ""
+SET @ASYNC_ACTIF    = "%%ENV:SFMC_ASYNC_SOUMISSION%%"
+/* Page de traitement dediee (cle Content Builder, ex. Interne_TRAITEMENT_V0),
+   posee a la publication par generer-lp quand le mode asynchrone est ouvert.
+   Renseignee : le beacon du navigateur et le rejeu visent cette page — le
+   handler seul, sans socle de lecture ni gabarit, soit ~70 Ko parses au lieu
+   de ~180 — et jamais la page du visiteur. Vide : comportement d'avant, le
+   traitement repasse par la page d'origine. */
+SET @PAGE_TRAITEMENT = "%%ENV:SFMC_PAGE_TRAITEMENT%%"
+SET @urlTraitement  = ""
+SET @asyncMode      = ""
+SET @asyncDoublon   = "false"
+SET @postBrut       = ""
+SET @postUrl        = ""
+]%%
+<script runat="server">
+/* ==ASYNC_CAPTURE== Corps brut du POST, tel que le navigateur l'a envoye
+   (application/x-www-form-urlencoded). AMPscript n'y a pas acces ; c'est ce
+   corps que la file conserve et que le traitement rejoue a l'identique, sans
+   dependre de la liste des champs du formulaire. Vide sur un GET. */
+Platform.Load("core", "1.1.1");
+try {
+    var brutPost = Platform.Request.GetPostData();
+    Variable.SetValue("@postBrut", brutPost ? String(brutPost) : "");
+    Variable.SetValue("@postUrl", String(Platform.Request.RequestURL() || ""));
+} catch (eCap) {
+    Variable.SetValue("@postBrut", "");
+    Variable.SetValue("@postUrl", "");
+}
+</script>
+%%[
+/* Reabonnement SFMC (niveau BU) : leve a "1" par l'etape 2 quand le
+   consentement Email est ecrit (ou confirme) en Opt-in sur un compte deja
+   connu. Un desabonne (lien de pied d'email, ou One-Click Gmail qui ne
+   touche pas Salesforce) reste bloque dans _BusinessUnitUnsubscribes meme
+   une fois son ContactPointConsent repasse en Opt-in : sans ce reabonnement,
+   la journey de confirmation ne lui envoie rien. Voir le bloc « 98 -
+   reabonnement » en fin de fichier, execute AVANT le tir de l'API Event. */
+VAR @reaboEmail
+SET @reaboEmail     = ""
+/* Desabonnement en attente (Journey_OptOut_Entry_DE) : Ids des
+   ContactPointConsent que l'etape 2 ecrit ou confirme en Opt-in, separes par
+   des virgules. Le bloc « 97 - optout-purge » (fin de fichier, avant le
+   reabonnement) retire leur ligne de la file de l'automation de
+   desabonnement : l'opt-in d'aujourd'hui est plus recent que l'opt-out
+   que la journey n'a pas encore porte dans le CRM. */
+VAR @optoutCpcIds
+SET @optoutCpcIds   = ""
 
 SET @sfStatus   = ""
 SET @sfErrorMsg = ""
@@ -503,6 +576,28 @@ IF IndexOf(@submitted, "true") > 0 THEN
     IF Empty(@utmCampus) THEN SET @utmCampus = @campusSel ENDIF
     SET @consent   = RequestParameter("consent")
     SET @dateCookies = RequestParameter("date_consentement_cookies")
+    /* Axeptio → CloudPage → ici : « 2026-09-25 11:24:00 » (heure du navigateur),
+       rempli des qu'un cookie Axeptio existe — donc des que le GTM charge
+       Axeptio sur la page (25/09). DateConsentementCookies__c est un
+       Date/Heure : le connecteur n'accepte que l'ISO UTC avec Z (sonde du
+       25/09 : la date seule et le format avec espace tuent la page, ce qui
+       tuait toute DEUXIEME soumission d'un visiteur ayant accepte les
+       cookies). On normalise ; un format inconnu n'est pas ecrit. */
+    IF NOT Empty(@dateCookies) THEN
+        SET @dateCookies = Trim(@dateCookies)
+        IF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?Z$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 19), "Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 10), "T", Substring(@dateCookies, 12, 8), "Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(Substring(@dateCookies, 1, 10), "T", Substring(@dateCookies, 12, 5), ":00Z")
+        ELSEIF NOT Empty(RegExMatch(@dateCookies, "^\d{4}-\d{2}-\d{2}$", 0)) THEN
+            SET @dateCookies = Concat(@dateCookies, "T00:00:00Z")
+        ELSE
+            SET @journal = Concat(@journal, " COOKIES:date-ignoree")
+            SET @dateCookies = ""
+        ENDIF
+    ENDIF
 
     /* Marque et Account ecole depuis la DE de correspondance, jamais en dur. */
     IF Empty(@brandId) AND NOT Empty(@ecole) THEN
@@ -885,8 +980,198 @@ IF IndexOf(@submitted, "true") > 0 THEN
     ENDIF
 
     /* Un blocage arrete TOUT : ni compte, ni consentement, ni campagne. Le
-       candidat doit passer par les admissions, pas alimenter un doublon. */
-    IF @sfStatus != "blocked" THEN
+       candidat doit passer par les admissions, pas alimenter un doublon.
+       ==GARDE_ECRITURE== : les regles s'arretent ici, tout ce qui suit ecrit
+       (file d'attente ou CRM) et est garde par @sfStatus != "blocked". Le
+       test test-regles-blocage.js s'ancre sur ce marqueur. */
+
+    /* ====================================================================
+       MODE ASYNCHRONE — TRAITEMENT D'UNE LIGNE DE LA FILE
+       ====================================================================
+       socle_traitement=1 + socle_run=<RunId de la reception> : c'est le
+       second passage (beacon du navigateur, ou rejeu par l'automation). On
+       reserve la ligne (en_cours, Tentatives+1) avant d'ecrire, pour qu'un
+       rejeu concurrent la voie prise, et on ne retraite jamais une ligne
+       deja « traitee ». Le solde (traitee | erreur) est pose apres la
+       garde d'ecriture, quoi qu'il arrive au CRM.
+       ==================================================================== */
+    SET @modeTraitement = RequestParameter("socle_traitement")
+    SET @runReception   = RequestParameter("socle_run")
+    /* Sur la page de traitement dediee (le `id` de la CloudPage est la cle
+       de traitement), on ne recoit que des traitements, jamais une
+       soumission de visiteur : un POST direct y est refuse sans rien ecrire
+       ni mettre en file. */
+    IF NOT Empty(@PAGE_TRAITEMENT) AND RequestParameter("id") == @PAGE_TRAITEMENT AND @modeTraitement != "1" THEN
+        SET @sfStatus   = "error"
+        SET @sfErrorMsg = "Page de traitement : soumission directe refusee."
+        SET @journal    = Concat(@journal, " TRAITEMENT:refus-direct")
+        /* Le journal dit le refus, sinon un run sans « 99 - fin » passerait
+           pour une page morte. */
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "99 - fin",
+                "Statut", "error",
+                "Objet", "-",
+                "RecordId", "",
+                "Detail", "soumission directe sur la page de traitement : refusee, rien n'est ecrit ni mis en file",
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
+    ENDIF
+    /* ==TRAITEMENT_SEUL_DEBUT== Reservation de la ligne de la file.
+       Les regions ==TRAITEMENT_SEUL_*== ne servent qu'au second passage
+       (page de traitement dediee, ou rejeu). Quand la publication pose
+       SFMC_SOCLE_RECEPTION_SEULE=true — generer-lp le fait pour les pages du
+       visiteur des qu'une page de traitement existe — lib/socle-inliner les
+       RETIRE du texte publie : la page du visiteur ne porte que la reception
+       (contexte, campagne, regles de blocage, mise en file), soit ~70 Ko
+       d'AMPscript de moins a analyser a chaque affichage (01/10). Chaque
+       region est un bloc complet (IF...ENDIF ou <script>...</script>) : son
+       retrait laisse l'AMPscript equilibre. */
+    IF @sfStatus != "blocked" AND @modeTraitement == "1" AND NOT Empty(@runReception) THEN
+        SET @asyncMode = "traitement"
+        SET @fileTentatives = 0
+        SET @fileRows = LookupRows("LPB_File_Soumissions", "RunId", @runReception)
+        IF RowCount(@fileRows) > 0 THEN
+            SET @fileStatut = Field(Row(@fileRows, 1), "Statut")
+            SET @fileTentatives = Field(Row(@fileRows, 1), "Tentatives")
+            IF Empty(@fileTentatives) THEN SET @fileTentatives = 0 ENDIF
+            IF @fileStatut == "traitee" THEN
+                SET @asyncDoublon = "true"
+                SET @journal = Concat(@journal, " ASYNC:deja-traitee")
+            ELSE
+                SET @fileTentatives = Add(@fileTentatives, 1)
+                UpdateData("LPB_File_Soumissions", 1, "RunId", @runReception,
+                    "Statut", "en_cours",
+                    "Tentatives", @fileTentatives,
+                    "DerniereTentative", Now(),
+                    "RunTraitement", @runId)
+                SET @journal = Concat(@journal, " ASYNC:traitement(", @fileTentatives, ")")
+            ENDIF
+        ELSE
+            SET @journal = Concat(@journal, " ASYNC:file-inconnue")
+        ENDIF
+        IF @LOG_ACTIF == "true" THEN
+            SET @logOrdre = Add(@logOrdre, 1)
+            InsertData("LPB_Log_Soumissions",
+                "RowId", Concat(@runId, "-", @logOrdre),
+                "RunId", @runId,
+                "Ordre", @logOrdre,
+                "Horodatage", Now(),
+                "Etape", "16 - traitement de la file",
+                "Statut", "OK",
+                "Objet", "LPB_File_Soumissions",
+                "RecordId", @runReception,
+                "Detail", Concat("reception=", @runReception, " statut=", @fileStatut, " tentative=", @fileTentatives),
+                "Email", @email,
+                "Ecole", @ecole,
+                "FormType", @formType)
+        ENDIF
+    ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
+
+    IF @sfStatus != "blocked" AND @sfStatus != "error" AND @ASYNC_ACTIF == "true" AND @modeTraitement != "1" THEN
+        /* ================================================================
+           MODE ASYNCHRONE — ACCUSE DE RECEPTION
+           ================================================================
+           Rien n'est ecrit dans le CRM ici. On verifie ce qui ferait echouer
+           la creation a coup sur (e-mail), on depose le corps brut du POST
+           dans la file, et on repond « success ». Le corps fait ~1 000 a
+           2 500 octets ; trois colonnes de 4 000 laissent de la marge, et un
+           depassement est note plutot que perdu en silence.
+           ================================================================ */
+        SET @asyncMode = "reception"
+        SET @emailInvalide = "false"
+        IF NOT Empty(@email) AND Empty(RegExMatch(@email, "^[^\s@]+@[^\s@]+\.[A-Za-z]{2,}$", 0)) THEN
+            SET @emailInvalide = "true"
+        ENDIF
+        IF Empty(@email) OR @emailInvalide == "true" THEN
+            SET @sfStatus = "error"
+            IF @emailInvalide == "true" THEN
+                SET @sfErrorMsg = "Adresse e-mail invalide : verifiez le format (exemple : prenom.nom@domaine.fr)."
+            ELSE
+                SET @sfErrorMsg = "Adresse e-mail obligatoire."
+            ENDIF
+        ELSEIF Empty(@postBrut) THEN
+            SET @sfStatus = "error"
+            SET @sfErrorMsg = "Soumission non recue : le corps de la requete est vide."
+        ELSE
+            SET @pageId   = RequestParameter("id")
+            /* L'URL que le rejeu repostera : la page de traitement dediee si
+               elle est posee (meme hote, meme chemin, ?id= remplace), sinon
+               la page d'origine avec sa query string. */
+            SET @urlTraitement = @postUrl
+            IF NOT Empty(@PAGE_TRAITEMENT) AND NOT Empty(@postUrl) THEN
+                SET @posQ = IndexOf(@postUrl, "?")
+                IF @posQ > 0 THEN
+                    SET @urlTraitement = Concat(Substring(@postUrl, 1, Subtract(@posQ, 1)), "?id=", @PAGE_TRAITEMENT)
+                ELSE
+                    SET @urlTraitement = Concat(@postUrl, "?id=", @PAGE_TRAITEMENT)
+                ENDIF
+            ENDIF
+            SET @payload2 = ""
+            SET @payload3 = ""
+            SET @fileDetail = ""
+            IF Length(@postBrut) > 4000 THEN SET @payload2 = Substring(@postBrut, 4001, 4000) ENDIF
+            IF Length(@postBrut) > 8000 THEN SET @payload3 = Substring(@postBrut, 8001, 4000) ENDIF
+            IF Length(@postBrut) > 12000 THEN SET @fileDetail = Concat("payload tronque : ", Length(@postBrut), " octets") ENDIF
+            InsertData("LPB_File_Soumissions",
+                "RunId", @runId,
+                "Horodatage", Now(),
+                "Url", @urlTraitement,
+                "PageId", @pageId,
+                "Ecole", @ecole,
+                "FormType", @formType,
+                "Email", @email,
+                "Statut", "a_traiter",
+                "Tentatives", 0,
+                "Detail", @fileDetail,
+                "Payload1", Substring(@postBrut, 1, 4000),
+                "Payload2", @payload2,
+                "Payload3", @payload3)
+            SET @sfStatus = "success"
+            SET @journal = Concat(@journal, " ASYNC:recue")
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "15 - soumission mise en file",
+                    "Statut", "OK",
+                    "Objet", "LPB_File_Soumissions",
+                    "RecordId", @runId,
+                    "Detail", Concat("octets=", Length(@postBrut), " page=", @pageId),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+                /* La reception a sa propre fin : les lecteurs du journal
+                   tiennent un RunId sans « 99 - fin » pour une page morte. */
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "99 - fin",
+                    "Statut", @sfStatus,
+                    "Objet", "-",
+                    "RecordId", "",
+                    "Detail", Concat("journal=", @journal),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+        ENDIF
+    ELSEIF @sfStatus != "blocked" AND @sfStatus != "error" AND @asyncDoublon != "true" THEN
+    /* ==TRAITEMENT_SEUL_DEBUT== Sequence d'ecriture CRM (etapes 1 a 9, journal, entrees de journey). */
     /* ====================================================================
        ETAPE 1 — PERSON ACCOUNT, upsert sur PersonEmail
        Pas d'email = pas de dedoublonnage possible = on n'ecrit rien. C'est la
@@ -1156,101 +1441,16 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @vSpec = Field(@row, "Speciality__c")
             IF NOT Empty(@specialiteOk) AND @vSpec != @specialiteOk THEN SET @vSpec = @specialiteOk SET @champsMaj = Concat(@champsMaj, " Speciality__c") ENDIF
 
-            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
-                SET @logOrdre = Add(@logOrdre, 1)
-                InsertData("LPB_Log_Soumissions",
-                    "RowId", Concat(@runId, "-", @logOrdre),
-                    "RunId", @runId,
-                    "Ordre", @logOrdre,
-                    "Horodatage", Now(),
-                    "Etape", "35 - avant maj compte",
-                    "Statut", "OK",
-                    "Objet", "Account",
-                    "RecordId", @paId,
-                    "Detail", Concat("un seul update ; champs modifies :", IIF(Empty(@champsMaj), " aucun", @champsMaj), " ; candidature=", @appRequested, IIF(Empty(@ptatMaj), "", Concat(" ptat=", @ptatMaj))),
-                    "Email", @email,
-                    "Ecole", @ecole,
-                    "FormType", @formType)
-            ENDIF
-
-            /* Dernier point de contact marketing : rafraichi a chaque
-               soumission, c'est sa raison d'etre. LastMarketingContactPointType__c
-               attend un CANAL ("Form"), pas un type de formulaire. */
-            IF NOT Empty(@ptatMaj) THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId,
-                    "LastName",                 @vLast,
-                    "FirstName",                @vFirst,
-                    "LivingCountry__c",         @vPays,
-                    "IndicatifPick__c",         @vIndic,
-                    "MobileNumber__c",          @vMobile,
-                    "Academic_Level_List__c",   @vNiveau,
-                    "PersonAccountType__c",     @vType,
-                    "Ecole__c",                 @vEcole,
-                    "UTMSource__c",             @vUtmS,
-                    "UTMMedium__c",             @vUtmM,
-                    "UTMCampaign__c",           @vUtmC,
-                    "UTMContent__c",            @vUtmCo,
-                    "UTMTerm__c",               @vUtmT,
-                    "UTMId__c",                 @vUtmI,
-                    "UTMCampus__c",             @vUtmCampus,
-                    "gclid__c",                 @vGclid,
-                    "fbclid__c",                @vFbclid,
-                    "ClientID__c",              @vClient,
-                    "Consent__c",               @vConsent,
-                    "CreationSourceDetail__c",  @vDetail,
-                    "Speciality__c",            @vSpec,
-                    "Application_Requested__c", @appRequested,
-                    "PTAT_Id__c",               @ptatMaj,
-                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
-                    "LastMarketingContactPointType__c",   "Form")
-            ELSE
-                SET @n = UpdateSingleSalesforceObject("Account", @paId,
-                    "LastName",                 @vLast,
-                    "FirstName",                @vFirst,
-                    "LivingCountry__c",         @vPays,
-                    "IndicatifPick__c",         @vIndic,
-                    "MobileNumber__c",          @vMobile,
-                    "Academic_Level_List__c",   @vNiveau,
-                    "PersonAccountType__c",     @vType,
-                    "Ecole__c",                 @vEcole,
-                    "UTMSource__c",             @vUtmS,
-                    "UTMMedium__c",             @vUtmM,
-                    "UTMCampaign__c",           @vUtmC,
-                    "UTMContent__c",            @vUtmCo,
-                    "UTMTerm__c",               @vUtmT,
-                    "UTMId__c",                 @vUtmI,
-                    "UTMCampus__c",             @vUtmCampus,
-                    "gclid__c",                 @vGclid,
-                    "fbclid__c",                @vFbclid,
-                    "ClientID__c",              @vClient,
-                    "Consent__c",               @vConsent,
-                    "CreationSourceDetail__c",  @vDetail,
-                    "Speciality__c",            @vSpec,
-                    "Application_Requested__c", @appRequested,
-                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
-                    "LastMarketingContactPointType__c",   "Form")
-            ENDIF
-            /* Consentement cookies date : a part, et seulement si le
-               formulaire en porte une (voir ci-dessus). */
-            IF NOT Empty(@dateCookies) AND Field(@row, "DateConsentementCookies__c") != @dateCookies THEN
-                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
-            ENDIF
-            IF @LOG_ACTIF == "true" THEN
-                SET @logOrdre = Add(@logOrdre, 1)
-                InsertData("LPB_Log_Soumissions",
-                    "RowId", Concat(@runId, "-", @logOrdre),
-                    "RunId", @runId,
-                    "Ordre", @logOrdre,
-                    "Horodatage", Now(),
-                    "Etape", "40 - maj compte terminee",
-                    "Statut", "OK",
-                    "Objet", "Account",
-                    "RecordId", @paId,
-                    "Detail", "l update unique a passe",
-                    "Email", @email,
-                    "Ecole", @ecole,
-                    "FormType", @formType)
-            ENDIF
+            /* ---- L'UPDATE DU COMPTE EST DIFFERE ----------------------------
+               Il part APRES les consentements (bloc « MISE A JOUR DU COMPTE
+               EXISTANT », a la suite de l'etape 2) : poser PTAT_Id__c ici
+               declenchait cote CRM une creation d'AcademicInterest asynchrone
+               qui tamponnait la date d'engagement des consentements AVANT
+               notre propre update, que le trigger CRM rejetait alors comme
+               une regression — page morte, une fois sur trois en recette.
+               Tout ce que l'update lit du compte est deja calcule ci-dessus. */
+            SET @majCompteAFaire = "true"
+            SET @vDateCookiesCrm = Field(@row, "DateConsentementCookies__c")
 
         ELSEIF Empty(@RT_PERSON_ACCOUNT) THEN
             /* Garde-fou : creer sans RecordType produirait un compte ENTREPRISE. */
@@ -1792,18 +1992,26 @@ IF IndexOf(@submitted, "true") > 0 THEN
             SET @nCpcMail = 0
             IF NOT Empty(@cpEmail) AND @isNew != "true" THEN
                 SET @cpcMail = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c,LastMarketingEngagementDate__c",
                     "ContactPointId", "=", @cpEmail)
                 SET @nCpcMail = RowCount(@cpcMail)
             ENDIF
             SET @nCpcTel = 0
             IF NOT Empty(@cpPhone) AND @isNew != "true" THEN
                 SET @cpcTel = RetrieveSalesforceObjects("ContactPointConsent",
-                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c",
+                    "Id,Channel__c,BusinessBrandId,PrivacyConsentStatus,Status__c,GDPR_Status__c,Legal_Texte_Accepted__c,LastMarketingEngagementDate__c",
                     "ContactPointId", "=", @cpPhone)
                 SET @nCpcTel = RowCount(@cpcTel)
             ENDIF
 
+            /* Date d'engagement des consentements calculee ICI, juste avant
+               les ecritures, et non en tete de page : le trigger CRM refuse
+               une date qui ne progresse pas, et chaque seconde gagnee sur
+               l'horodatage reduit la fenetre ou un tampon CRM concurrent
+               (soumission precedente encore en cours de traitement) nous
+               devancerait. */
+            SET @cpcHorodatage    = Format(Now(), "yyyy-MM-dd HH:mm:ss")
+            SET @cpcHorodatageUtc = Concat(Substring(FormatDate(DateAdd(Now(), 6, "H"), "iso"), 1, 19), "Z")
             FOR @i = 1 TO 5 DO
                 IF @i == 1 THEN
                     SET @canalParam = "HasOptedInEmail"
@@ -1866,6 +2074,8 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             ENDIF
                         ENDIF
                     NEXT @k
+                    SET @cpcDateCrm = ""
+                    IF NOT Empty(@cpcId) THEN SET @cpcDateCrm = Field(@cpcRow, "LastMarketingEngagementDate__c", 0) ENDIF
 
                     IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
                         SET @logOrdre = Add(@logOrdre, 1)
@@ -1878,7 +2088,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                             "Statut", "OK",
                             "Objet", "ContactPointConsent",
                             "RecordId", "",
-                            "Detail", Concat("canal=", @canalValue, " cp=", @cpId),
+                            "Detail", Concat("canal=", @canalValue, " cp=", @cpId, " cpc=", @cpcId, " dateCrm=", @cpcDateCrm, " notre=", @cpcHorodatageUtc),
                             "Email", @email,
                             "Ecole", @ecole,
                             "FormType", @formType)
@@ -1961,23 +2171,51 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            Le statut rejoint LE MEME update quand il doit changer.
                            Un seul appel, et les regles Prevent_Opt_In/Opt_out_Date_
                            Manual_Edit voient alors un vrai changement de statut. */
+                        /* ---- ESSAI DU 24/09 : PLUS DE DATE D'ENGAGEMENT EN UPDATE ------
+                           Le CRM la pose LUI-MEME (MarketingEngagementService, apres
+                           l'AcademicInterest ou la Summit Registration que notre
+                           soumission declenche), et son trigger refuse toute date
+                           qui ne progresse pas : notre propre envoi etait au mieux
+                           redondant, au pire la cause d'une page morte. On ne
+                           touche donc plus qu'au STATUT, et seulement s'il change.
+                           A verifier sur Interne_CAND_BRASSART_V0 : la ligne 58 du
+                           journal detaille (`dateCrm=`) doit avancer d'une
+                           soumission a l'autre sans que nous l'ecrivions. Si le
+                           CRM ne la tamponne pas sur la brochure, la decision est
+                           a revoir pour ce formulaire. */
+                        /* Regle arretee le 24/09 apres mesure (Interne BRASSART,
+                           candidature et JPO) : le CRM tamponne lui-meme la date
+                           des qu'un PTAT ou une inscription evenement existe.
+                             - statut a changer → statut ET date, dans le meme update ;
+                             - brochure → la date a chaque soumission (aucun tampon
+                               CRM sur ce formulaire, donc aucune course) ;
+                             - sinon → rien : le CRM fait progresser la date. */
                         IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
                                 "Status__c", "Opt-in",
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
+                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
                             SET @majs = "1"
-                        ELSE
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj CPC:", @canalValue, "-date-maj")
+                        ELSEIF @formType == "brochure" THEN
                             SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "LastMarketingEngagementDate__c", @itHorodatageUtc)
-                        ENDIF
-                        SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
-                        IF @majs == "1" THEN
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj")
+                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
                         ELSE
-                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-inchange")
+                            SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")
                         ENDIF
+                        /* Reabonnement SFMC : la case Email est cochee sur un
+                           compte connu. Leve meme si Salesforce etait deja
+                           Opt-in : le One-Click Gmail desabonne dans SFMC sans
+                           toucher Salesforce. */
+                        IF @canalValue == "Email" THEN SET @reaboEmail = "1" ENDIF
+                        /* Ce consentement est (ou reste) Opt-in : s'il attend
+                           dans Journey_OptOut_Entry_DE un passage en Opt-out
+                           cote CRM, cette attente est perimee. Cle exacte
+                           (Id du consentement de ce canal et de cette marque),
+                           levee par le bloc « 97 - optout-purge ». */
+                        IF NOT Empty(@cpcId) THEN SET @optoutCpcIds = Concat(@optoutCpcIds, @cpcId, ",") ENDIF
 
                         /* Divergences que le connecteur nous interdit de
                            reparer. Signalees, jamais corrigees en silence. */
@@ -2056,7 +2294,19 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                acceptee et relue avec l'ISO (0ZXAW0000001aJB4AY). Le
                                droit d'ecriture etait necessaire aussi (permission set
                                assigne le 10/09), mais pas suffisant. */
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
+                            /* `CaptureSourceDetail__c` (libelle CRM « Source Opt In ») :
+                               une regle de validation l'exige, avec le texte legal,
+                               des que le statut est Opt-in. Sur un compte cree par
+                               le formulaire, le trigger ContactPointConsentTrigger
+                               le recopiait depuis CreationSourceDetail__c du compte
+                               et la regle passait sans qu'on l'envoie ; sur un compte
+                               cree a la main (CreationSourceDetail__c vide), il
+                               restait vide et la creation etait refusee — page
+                               morte a chaque soumission, mesure du 02/10 sur un
+                               compte du 01/09. Envoye explicitement depuis le
+                               02/10, meme valeur que celle posee sur le compte ; le
+                               trigger ne touche pas un champ deja renseigne. */
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 11,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
                                 "Name",                    Concat("Consent ", @canalValue, " - ", @email,
@@ -2064,12 +2314,25 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
                                 "Legal_Texte_Accepted__c", @preuve,
                                 "Last_Marketing_Engagement_Date__c", @itHorodatage,
                                 "LastMarketingEngagementDate__c",    @itHorodatageUtc,
                                 "BusinessBrandId",         @brandId)
 
                         ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
+                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
+                                "ContactPointId",          @cpId,
+                                "Channel__c",              @canalValue,
+                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                "PrivacyConsentStatus",    "OptIn",
+                                "Status__c",               "Opt-in",
+                                "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
+                                "Legal_Texte_Accepted__c", @preuve,
+                                "BusinessBrandId",         @brandId)
+                        ELSE
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 8,
                                 "ContactPointId",          @cpId,
                                 "Channel__c",              @canalValue,
@@ -2078,17 +2341,7 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                 "PrivacyConsentStatus",    "OptIn",
                                 "Status__c",               "Opt-in",
                                 "CaptureSource",           "SFMC CloudPage",
-                                "Legal_Texte_Accepted__c", @preuve,
-                                "BusinessBrandId",         @brandId)
-                        ELSE
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 7,
-                                "ContactPointId",          @cpId,
-                                "Channel__c",              @canalValue,
-                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
-                                "PrivacyConsentStatus",    "OptIn",
-                                "Status__c",               "Opt-in",
-                                "CaptureSource",           "SFMC CloudPage",
+                                "CaptureSourceDetail__c",  @detailOrigine,
                                 "Legal_Texte_Accepted__c", @preuve)
                         ENDIF
                         /* Marqueur de CREATION, pose SEULEMENT si un
@@ -2099,6 +2352,10 @@ IF IndexOf(@submitted, "true") > 0 THEN
                            suivi de « CPC:Email-cree », qui disait l'inverse. */
                         IF NOT Empty(@cpcId) THEN
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-cree")
+                            /* Compte deja connu : il a pu se desabonner via une
+                               autre marque de la BU. Un compte tout juste cree
+                               n'a jamais recu d'email, rien a lever. */
+                            IF @canalValue == "Email" AND @isNew != "true" THEN SET @reaboEmail = "1" ENDIF
                         ENDIF
                     ENDIF
                     IF @LOG_ACTIF == "true" THEN
@@ -2119,6 +2376,124 @@ IF IndexOf(@submitted, "true") > 0 THEN
                     ENDIF
                 ENDIF
             NEXT @i
+        ENDIF
+
+        /* ====================================================================
+           MISE A JOUR DU COMPTE EXISTANT — APRES LES CONSENTEMENTS (24/09)
+           ====================================================================
+           Cet update vivait dans la branche « account existant », AVANT les
+           consentements. Cause d'une page morte intermittente en recette, sur
+           la candidature d'un compte connu (relu dans le CRM le 24/09 :
+           AccountsTriggerHandler.afterUpdate → AcademicInterestRequestService
+           → flow asynchrone → AcademicInterest → MarketingEngagementService
+           qui pose LastMarketingEngagementDate__c sur les ContactPointConsent
+           du compte ; puis ContactPointConsentTriggerHandler.handleBeforeUpdate
+           refuse toute date qui ne PROGRESSE pas). Quand ce tampon CRM
+           arrivait avant notre update du consentement — dont la date etait
+           calculee plus tot dans la page — Salesforce repondait addError, et
+           AMPscript n'a pas de try/catch : la page entiere tombait.
+           Ordre desormais : consentements d'abord (notre date progresse sur la
+           soumission precedente), compte ensuite (le tampon CRM qui suit
+           progresse sur la notre). Le contenu de l'update est inchange.
+           ==================================================================== */
+        IF @majCompteAFaire == "true" AND NOT Empty(@paId) THEN
+            IF @LOG_ACTIF == "true" AND @LOG_DETAIL == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "35 - avant maj compte",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", Concat("un seul update ; champs modifies :", IIF(Empty(@champsMaj), " aucun", @champsMaj), " ; candidature=", @appRequested, IIF(Empty(@ptatMaj), "", Concat(" ptat=", @ptatMaj))),
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
+
+            /* Dernier point de contact marketing : rafraichi a chaque
+               soumission, c'est sa raison d'etre. LastMarketingContactPointType__c
+               attend un CANAL ("Form"), pas un type de formulaire. */
+            IF NOT Empty(@ptatMaj) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId,
+                    "LastName",                 @vLast,
+                    "FirstName",                @vFirst,
+                    "LivingCountry__c",         @vPays,
+                    "IndicatifPick__c",         @vIndic,
+                    "MobileNumber__c",          @vMobile,
+                    "Academic_Level_List__c",   @vNiveau,
+                    "PersonAccountType__c",     @vType,
+                    "Ecole__c",                 @vEcole,
+                    "UTMSource__c",             @vUtmS,
+                    "UTMMedium__c",             @vUtmM,
+                    "UTMCampaign__c",           @vUtmC,
+                    "UTMContent__c",            @vUtmCo,
+                    "UTMTerm__c",               @vUtmT,
+                    "UTMId__c",                 @vUtmI,
+                    "UTMCampus__c",             @vUtmCampus,
+                    "gclid__c",                 @vGclid,
+                    "fbclid__c",                @vFbclid,
+                    "ClientID__c",              @vClient,
+                    "Consent__c",               @vConsent,
+                    "CreationSourceDetail__c",  @vDetail,
+                    "Speciality__c",            @vSpec,
+                    "Application_Requested__c", @appRequested,
+                    "PTAT_Id__c",               @ptatMaj,
+                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
+                    "LastMarketingContactPointType__c",   "Form")
+            ELSE
+                SET @n = UpdateSingleSalesforceObject("Account", @paId,
+                    "LastName",                 @vLast,
+                    "FirstName",                @vFirst,
+                    "LivingCountry__c",         @vPays,
+                    "IndicatifPick__c",         @vIndic,
+                    "MobileNumber__c",          @vMobile,
+                    "Academic_Level_List__c",   @vNiveau,
+                    "PersonAccountType__c",     @vType,
+                    "Ecole__c",                 @vEcole,
+                    "UTMSource__c",             @vUtmS,
+                    "UTMMedium__c",             @vUtmM,
+                    "UTMCampaign__c",           @vUtmC,
+                    "UTMContent__c",            @vUtmCo,
+                    "UTMTerm__c",               @vUtmT,
+                    "UTMId__c",                 @vUtmI,
+                    "UTMCampus__c",             @vUtmCampus,
+                    "gclid__c",                 @vGclid,
+                    "fbclid__c",                @vFbclid,
+                    "ClientID__c",              @vClient,
+                    "Consent__c",               @vConsent,
+                    "CreationSourceDetail__c",  @vDetail,
+                    "Speciality__c",            @vSpec,
+                    "Application_Requested__c", @appRequested,
+                    "DateOfLastMarketingContactPoint__c", @itHorodatage,
+                    "LastMarketingContactPointType__c",   "Form")
+            ENDIF
+            /* Consentement cookies date : a part, seulement si le formulaire en
+               porte une, deja normalisee en ISO UTC (voir la lecture des
+               parametres). Le CRM relit « ...:00.000Z », on compare sur les
+               19 premiers caracteres. */
+            IF NOT Empty(@dateCookies) AND Substring(Concat(@vDateCookiesCrm, "                   "), 1, 19) != Substring(@dateCookies, 1, 19) THEN
+                SET @n = UpdateSingleSalesforceObject("Account", @paId, "DateConsentementCookies__c", @dateCookies)
+            ENDIF
+            IF @LOG_ACTIF == "true" THEN
+                SET @logOrdre = Add(@logOrdre, 1)
+                InsertData("LPB_Log_Soumissions",
+                    "RowId", Concat(@runId, "-", @logOrdre),
+                    "RunId", @runId,
+                    "Ordre", @logOrdre,
+                    "Horodatage", Now(),
+                    "Etape", "40 - maj compte terminee",
+                    "Statut", "OK",
+                    "Objet", "Account",
+                    "RecordId", @paId,
+                    "Detail", "l update unique a passe",
+                    "Email", @email,
+                    "Ecole", @ecole,
+                    "FormType", @formType)
+            ENDIF
         ENDIF
 
         /* ====================================================================
@@ -2348,9 +2723,22 @@ IF IndexOf(@submitted, "true") > 0 THEN
                membre existant : un prospect qui redemande la documentation
                attend de nouveau la reponse. L'entree (DE
                Post_Demande_De_Doc_Target) est construite dans le bloc commun
-               en fin de sequence ; la journey garde la main sur la re-entree. */
+               en fin de sequence ; la journey garde la main sur la re-entree.
+
+               Deux journeys depuis le 06/10, selon le PAYS DE RESIDENCE declare
+               dans le formulaire (meme regle que la zone de campagne) :
+                 France      → EventKey_Brochure       (Post_Demande_De_Doc)
+                 hors France → EventKey_Brochure_Inter (Post_Demande_De_Doc_INTER)
+               Meme DE d'entree Post_Demande_De_Doc_Target, meme corps JSON :
+               seule la cle de l'evenement change, lue dans LPB_Config_Api au
+               tir. Une cle absente de la config vaut « JOURNEY:sans-config »,
+               la soumission aboutit sans journey. */
             IF @formType == "brochure" AND NOT Empty(@cmId) THEN
-                SET @jrnCleEvt = "EventKey_Brochure"
+                IF Lowercase(Trim(@country)) == "france" THEN
+                    SET @jrnCleEvt = "EventKey_Brochure"
+                ELSE
+                    SET @jrnCleEvt = "EventKey_Brochure_Inter"
+                ENDIF
             ENDIF
         ENDIF
 
@@ -2610,8 +2998,9 @@ IF IndexOf(@submitted, "true") > 0 THEN
            La branche metier a designe la cle (@jrnCleEvt) ; on construit ici
            le corps JSON attendu par la DE d'entree, que le SSJS de fin de page
            poste sur interaction/v1/events. Deux DE, relues le 18/09 :
-             EventKey_Evenement → Data_contacts_evenement_new   (20 colonnes)
-             EventKey_Brochure  → Post_Demande_De_Doc_Target    (19 colonnes)
+             EventKey_Evenement       → Data_contacts_evenement_new   (20 colonnes)
+             EventKey_Brochure        → Post_Demande_De_Doc_Target    (19 colonnes)
+             EventKey_Brochure_Inter  → la meme DE (journey INTER, 06/10)
            Le test test-env.js fige les deux listes de colonnes : une colonne
            inconnue de la DE fait refuser l'evenement entier.
 
@@ -2860,17 +3249,37 @@ IF IndexOf(@submitted, "true") > 0 THEN
                 "FormType", @formType)
         ENDIF
     ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
     ENDIF   /* fin du garde-fou : rien n'est ecrit si @sfStatus == "blocked" */
+
+    /* Solde de la ligne de la file, hors garde d'ecriture : un blocage ou une
+       erreur se soldent aussi. Une page tuee par le CRM n'arrive pas ici : la
+       ligne reste « en_cours », et l'automation la rejouera (3 tentatives). */
+    /* ==TRAITEMENT_SEUL_DEBUT== Solde de la ligne de la file. */
+    IF @asyncMode == "traitement" AND @asyncDoublon != "true" THEN
+        SET @fileStatut = "erreur"
+        IF @sfStatus == "success" THEN SET @fileStatut = "traitee" ENDIF
+        SET @fileDetail = @sfErrorMsg
+        IF @sfStatus == "blocked" THEN SET @fileDetail = Concat("bloque : ", @sfBlockRule) ENDIF
+        UpdateData("LPB_File_Soumissions", 1, "RunId", @runReception,
+            "Statut", @fileStatut,
+            "DerniereTentative", Now(),
+            "RecordId", @paId,
+            "Journal", Substring(@journal, 1, 500),
+            "Detail", Substring(@fileDetail, 1, 500))
+    ENDIF
+    /* ==TRAITEMENT_SEUL_FIN== */
 ENDIF
 ]%%
 
-<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% journal=%%=v(@journal)=%% -->
+<!-- socle ecriture: statut=%%=v(@sfStatus)=%% pa=%%=v(@paId)=%% nouveau=%%=v(@isNew)=%% run=%%=v(@runId)=%% async=%%=v(@asyncMode)=%% traitement=%%=v(@PAGE_TRAITEMENT)=%% reception-seule=%%ENV:SFMC_SOCLE_RECEPTION_SEULE%% journal=%%=v(@journal)=%% -->
 %%[ IF NOT Empty(@sfErrorMsg) THEN ]%%
 <!-- socle erreur: %%=v(@sfErrorMsg)=%% -->
 %%[ ENDIF ]%%
 %%[ IF NOT Empty(@sfBlockRule) THEN ]%%
 <!-- socle blocage: motif=%%=v(@sfBlockRule)=%% -->
 %%[ ENDIF ]%%
+<!-- ==TRAITEMENT_SEUL_DEBUT== tir de l'API Event -->
 <script runat="server">
 /* ==JOURNEY_FIRE_DEBUT==
    TIR DE L'API EVENT (bloc commun a tous les formulaires ; le banc de test
@@ -2891,6 +3300,118 @@ ENDIF
    dit) : le tir est la derniere chose que fait la page.
    Ni jeton ni secret dans le journal. */
 Platform.Load("core", "1.1.1");
+/* ==OPTOUT_PURGE== DESABONNEMENT EN ATTENTE ANNULE PAR UN NOUVEL OPT-IN.
+   Journey_OptOut_Entry_DE (DE de la BU, cle ConsentId) est la file de
+   l'automation de desabonnement : une ligne par ContactPointConsent a passer
+   en Opt-out dans le CRM (One-Click Gmail, lien de pied d'email), consommee
+   plus tard par la journey de mise a jour du CRM. Si, entre les deux, la
+   personne resoumet un formulaire en recochant le canal, son consentement le
+   plus recent est l'opt-in : la ligne est supprimee ici, par cle exacte (l'Id
+   du consentement de CE canal et de CETTE marque, que l'etape 2 vient
+   d'ecrire ou de confirmer en Opt-in), pour que la journey ne repasse pas le
+   CRM en Opt-out par-dessus. Un consentement tout juste cree n'a pas de
+   ligne : l'etape 2 ne le liste pas. Jamais de suppression par SubscriberKey
+   seul : les opt-out des autres marques restent. Try/catch dedie ; ligne
+   « 97 - optout-purge » du journal quand une ligne est levee ou en erreur,
+   marque OPTOUT:purge(n) / OPTOUT:aucun dans le journal court. Pas de regex
+   ici (Jint) : decoupage et tri a la main. */
+try {
+    var opBrut = String(Variable.GetValue("@optoutCpcIds") || "");
+    if (opBrut !== "") {
+        var opIds = opBrut.split(","), opNb = 0, opDetail = "", opCle1 = "";
+        for (var oi = 0; oi < opIds.length; oi++) {
+            var opId = opIds[oi];
+            if (!opId) { continue; }
+            if (!opCle1) { opCle1 = opId; }
+            var opRows = Platform.Function.LookupRows("Journey_OptOut_Entry_DE", "ConsentId", opId);
+            if (!opRows || opRows.length === 0) { continue; }
+            var opN = Number(Platform.Function.DeleteData("Journey_OptOut_Entry_DE", ["ConsentId"], [opId]) || 0);
+            opNb += opN;
+            opDetail += (opDetail ? " ; " : "") + opId + " ecole=" + String(opRows[0]["CodeEcole"] || "")
+                + " type=" + String(opRows[0]["UpdateType"] || "") + " valeur=" + String(opRows[0]["NewValue"] || "")
+                + " dateSfmc=" + String(opRows[0]["DateSFMC"] || "") + " supprime=" + opN;
+        }
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + (opNb > 0 ? " OPTOUT:purge(" + opNb + ")" : " OPTOUT:aucun"));
+        if (opNb > 0 && String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var opOrdre = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", opOrdre);
+            var opRun = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [opRun + "-" + opOrdre, opRun, opOrdre, Platform.Function.SystemDateToLocalDate(Now()), "97 - optout-purge", "OK", "Journey_OptOut_Entry_DE",
+                 opCle1, opDetail.substring(0, 500), String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    }
+} catch (eOp) {
+    try {
+        var opMotif = ("exception: " + (eOp && eOp.message ? eOp.message : Stringify(eOp))).replace(/\s+/g, " ").substring(0, 500);
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + " OPTOUT:exception");
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var opOrdreX = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", opOrdreX);
+            var opRunX = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [opRunX + "-" + opOrdreX, opRunX, opOrdreX, Platform.Function.SystemDateToLocalDate(Now()), "97 - optout-purge", "KO", "Journey_OptOut_Entry_DE", "",
+                 opMotif,
+                 String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    } catch (eOpLog) { /* silence : rien ne doit remonter au visiteur */ }
+}
+/* ==REABONNEMENT== REABONNEMENT SFMC (niveau BU), AVANT LE TIR DE L'API EVENT.
+   Le Subscriber (SubscriberKey = PersonContactId, standard MC Connect)
+   repasse a Active dans la BU : Client.ID = AccountId de LPB_Config_Api,
+   c'est lui qui vise le desabonnement de la BU (_BusinessUnitUnsubscribes)
+   et non All Subscribers. Try/catch dedie : un echec n'empeche ni le tir ni
+   la confirmation, et la ligne « 98 - reabonnement » du journal dit ce qui
+   s'est passe. Status=Active leve aussi un « Held » (adresse en rebond) :
+   choix assume, la personne vient de redonner son adresse et son
+   consentement. Implementation reprise du document du 01/10. */
+try {
+    if (String(Variable.GetValue("@reaboEmail") || "") === "1") {
+        var rbKey = String(Variable.GetValue("@paContactId") || "");
+        var rbMarque = "", rbDetail = "", rbOk = false;
+        if (!rbKey) {
+            rbMarque = " REABO:sans-cle";
+            rbDetail = "PersonContactId vide";
+        } else {
+            var rbMid = String(Platform.Function.Lookup("LPB_Config_Api", "Valeur", "Cle", "AccountId") || "");
+            var rbSub = { SubscriberKey: rbKey, Status: "Active" };
+            if (rbMid) { rbSub.Client = { ID: Number(rbMid) }; }
+            var rbRes = new Script.Util.WSProxy().updateItem("Subscriber", rbSub);
+            var rbSt  = rbRes && rbRes.Status ? String(rbRes.Status) : "?";
+            var rbMsg = (rbRes && rbRes.Results && rbRes.Results.length) ? String(rbRes.Results[0].StatusMessage || "") : "";
+            rbOk = rbSt === "OK";
+            rbMarque = rbOk ? " REABO:ok" : " REABO:echec";
+            rbDetail = ("mid=" + (rbMid || "page") + " status=" + rbSt + (rbMsg ? " " + rbMsg : "")).substring(0, 480);
+        }
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + rbMarque);
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var rbOrdre = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", rbOrdre);
+            var rbRun = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [rbRun + "-" + rbOrdre, rbRun, rbOrdre, Platform.Function.SystemDateToLocalDate(Now()), "98 - reabonnement", (rbOk ? "OK" : "KO"), "Subscriber",
+                 rbKey, rbDetail, String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    }
+} catch (eRb) {
+    try {
+        var rbMotif = ("exception: " + (eRb && eRb.message ? eRb.message : Stringify(eRb))).replace(/\s+/g, " ").substring(0, 500);
+        Variable.SetValue("@journal", String(Variable.GetValue("@journal") || "") + " REABO:exception");
+        if (String(Variable.GetValue("@LOG_ACTIF")) === "true") {
+            var rbOrdreX = Number(Variable.GetValue("@logOrdre") || 0) + 1;
+            Variable.SetValue("@logOrdre", rbOrdreX);
+            var rbRunX = String(Variable.GetValue("@runId") || "");
+            Platform.Function.InsertData("LPB_Log_Soumissions",
+                ["RowId", "RunId", "Ordre", "Horodatage", "Etape", "Statut", "Objet", "RecordId", "Detail", "Email", "Ecole", "FormType"],
+                [rbRunX + "-" + rbOrdreX, rbRunX, rbOrdreX, Platform.Function.SystemDateToLocalDate(Now()), "98 - reabonnement", "KO", "Subscriber", "",
+                 rbMotif,
+                 String(Variable.GetValue("@email") || ""), String(Variable.GetValue("@ecole") || ""), String(Variable.GetValue("@formType") || "")]);
+        }
+    } catch (eRbLog) { /* silence : rien ne doit remonter au visiteur */ }
+}
 try {
     var jrnLaunch  = String(Variable.GetValue("@JOURNEY_LAUNCH") || "");
     var jrnCleEvt  = String(Variable.GetValue("@jrnCleEvt") || "");
@@ -3023,3 +3544,4 @@ try {
 }
 /* ==JOURNEY_FIRE_FIN== */
 </script>
+<!-- ==TRAITEMENT_SEUL_FIN== -->

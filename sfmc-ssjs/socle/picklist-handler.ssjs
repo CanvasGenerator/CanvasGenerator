@@ -730,6 +730,10 @@ try {
            qui suit. Deja capitale (sigle en tete) : on n'y touche pas. */
         var i = sortie.search(RE_LETTRE);
         if (i === -1) return sortie;
+        /* Sauf un suffixe ordinal colle a son chiffre : « 1st », « 2nd »,
+           « 4th », « 3e » restent tels quels. Constate le 25/09 sur les
+           niveaux anglais : « 1St year of Higher Education ». */
+        if (i > 0 && /[0-9]/.test(sortie.charAt(i - 1))) return sortie;
         return sortie.substring(0, i) + sortie.charAt(i).toUpperCase() + sortie.substring(i + 1);
     }
 
@@ -791,8 +795,49 @@ try {
            « PARIS » ne trouverait plus rien. */
         if (langue !== 'en') return casseLisible(brut, propre);
         var dico = D && D.traductions;
-        if (!dico) return casseLisible(brut, propre);
-        return casseLisible(dico[brut] || brut, propre);
+        if (dico && dico[brut]) return casseLisible(dico[brut], propre);
+        var repli = libelleAnglaisRepli(name, option);
+        return casseLisible(repli || brut, propre);
+    }
+
+    /**
+     * Repli anglais pour ce que le dictionnaire ne couvre PAS.
+     *
+     * Constate le 24/09 sur Interne_CAND_EN_EFAP_V0 : specialite, rythme et
+     * rentree s'affichaient en francais. Le dictionnaire LPB_Dico_Traductions
+     * est alimente par les value sets du COMPTE (pays, niveau, vous etes) ;
+     * les criteres de la cascade viennent des PROGRAMMES et n'y figurent pas.
+     *
+     *   - Speciality : la VALUE d'API est anglaise par construction du CRM
+     *     (« Strategic Marketing & Brand Management » pour le libelle
+     *     « Marketing strategique et Brand Management ») — c'est elle qu'on
+     *     affiche. Value et libelle identiques = rien a faire.
+     *   - Rhythm : la surcharge front « Initial » / « Alternance » (09/09) a son
+     *     pendant anglais ici. Vocabulaire a valider par le metier.
+     *   - Rentree : le nom de l'AcademicTerm est francais (« Rentree Sept. /
+     *     Oct. 2026 ») ; on ne traduit que le mot et les mois abreges.
+     *
+     * Toujours l'AFFICHAGE seul : la value postee ne bouge pas.
+     */
+    var RYTHME_EN = { 'Full-Time': 'Full-time', 'Part-Time': 'Work-study' };
+    var MOIS_EN = [
+        [/\bJanv?\.?/g, 'Jan.'], [/\bF\u00e9vr?\.?/g, 'Feb.'], [/\bMars\b/g, 'Mar.'], [/\bAvr\.?/g, 'Apr.'],
+        [/\bMai\b/g, 'May'], [/\bJuin\b/g, 'June'], [/\bJuil\.?/g, 'July'], [/\bAo\u00fbt\b/g, 'Aug.'],
+        [/\bD\u00e9c\.?/g, 'Dec.']
+    ];
+    function libelleAnglaisRepli(name, option) {
+        if (name === 'Rhythm') return RYTHME_EN[option.value] || '';
+        if (name === 'Speciality') {
+            return (option.value && option.value !== option.label) ? String(option.value) : '';
+        }
+        if (name === 'Rentree') {
+            var t = String(option.label || '');
+            if (!/^Rentr[e\u00e9]e\b/i.test(t)) return '';
+            t = t.replace(/^Rentr[e\u00e9]e\s*/i, 'Intake ');
+            for (var m = 0; m < MOIS_EN.length; m++) t = t.replace(MOIS_EN[m][0], MOIS_EN[m][1]);
+            return t;
+        }
+        return '';
     }
 
     /**
@@ -1113,6 +1158,39 @@ try {
     /* -- Matrice des champs conditionnels par ecole -------------------- */
     var CFG = D.config || null;
 
+    /* ---- CANDIDATURE EN : LA LANGUE D'ENSEIGNEMENT JUSTE APRES LE NIVEAU --
+       Regle du 01/10, pour les formulaires de candidature anglais de TOUTES
+       les ecoles : campus, niveau, puis la langue d'enseignement, puis la
+       specialite et la suite de l'ordre de l'ecole. Un candidat anglophone
+       choisit d'abord la langue dans laquelle il veut etudier ; les
+       specialites qui suivent sont alors celles qui existent dans cette
+       langue (le filtrage suit l'ordre, voir les viviers plus bas).
+       On recopie la config plutot que de la modifier : SOCLE_DATA reste
+       lisible tel quel dans la console. Les autres formulaires et les pages
+       francaises gardent l'ordre de leur ecole (OrdreChamps). */
+    function ordreCandidatureEn(ordre) {
+        var base = String(ordre || 'campus,niveau,speciality,rhythm,language,rentree').split(',');
+        var tete = [], reste = [];
+        for (var i = 0; i < base.length; i++) {
+            var cle = base[i].replace(/^\s+|\s+$/g, '');
+            if (!cle || cle === 'language') continue;
+            if (cle === 'campus' || cle === 'niveau') tete.push(cle); else reste.push(cle);
+        }
+        return tete.concat(['language'], reste).join(',');
+    }
+    /* Vrai sur une candidature EN : la langue d'enseignement y reste AFFICHEE
+       meme a valeur unique (voir reglesAffichage). */
+    var CANDIDATURE_EN = false;
+    (function appliquerRegleCandidatureEn() {
+        var typeF = champ('TypeFormulaire');
+        if (langueAffichage() !== 'en' || !typeF || Lowercase_(typeF.value) !== 'candidature') return;
+        CANDIDATURE_EN = true;
+        var copie = {};
+        for (var k in (CFG || {})) { if (CFG.hasOwnProperty(k)) copie[k] = CFG[k]; }
+        copie.ordre = ordreCandidatureEn(CFG && CFG.ordre);
+        CFG = copie;
+    })();
+
     /** Ordinal du niveau choisi. 0 si inconnu : aucune regle ne se declenche. */
     function ordreNiveauChoisi() {
         var v = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
@@ -1419,7 +1497,13 @@ try {
 
            Zero option reste masque partout : il n'y a rien a montrer. */
         if (visible && reelles.length === 0) visible = false;
-        if (visible && progressif && reelles.length === 1) visible = false;
+        /* Exception du 01/10, candidature EN : la langue d'enseignement reste
+           visible meme a valeur unique. Un candidat anglophone doit VOIR que le
+           programme n'existe qu'en francais, pas le decouvrir une fois inscrit ;
+           la valeur unique est posee comme ailleurs, il la lit au lieu de la
+           subir. Les autres champs gardent la regle. */
+        var langueCandidatureEn = (CANDIDATURE_EN && nom === 'Language');
+        if (visible && progressif && reelles.length === 1 && !langueCandidatureEn) visible = false;
 
         /* Champ AFFICHE avec une seule option : on la pose, meme si tous les
            programmes ne la portent pas. La garde `poserSiUnique` protege du
@@ -1863,17 +1947,26 @@ try {
            suit. Le niveau, lui, a deja ete relu ci-dessus. */
         sel.level = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
 
-        vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
-        remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
-        sel.speciality = valeur('Speciality');
-
-        vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
-        remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
-        sel.rhythm = valeur('Rhythm');
-
-        vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
-        remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
-        sel.language = valeur('Language');
+        /* ---- LE FILTRAGE SUIT L'ORDRE DE L'ECOLE (01/10) ------------------
+           Chaque liste conditionnelle ne propose que ce qui reste possible
+           compte tenu du campus, du niveau ET des champs qui la PRECEDENT
+           dans l'ordre d'affichage. Dans l'ordre standard (specialite,
+           rythme, langue) c'est exactement la chaine historique ; quand la
+           langue passe devant (IFA Paris, candidature EN), les specialites
+           proposees sont celles qui existent dans la langue choisie — ce que
+           le commentaire de `appliquerOrdre` promettait sans que le code le
+           fasse (la chaine de filtrage etait figee, cf. PASSATION §Cascade). */
+        var CLE_VIVIER = { Speciality: 'speciality', Rhythm: 'rhythm', Language: 'language' };
+        var viviers = {}, criteres = { campus: sel.campus, level: sel.level };
+        var ordreCond = ordonner(['Speciality', 'Rhythm', 'Language']);
+        for (var oc = 0; oc < ordreCond.length; oc++) {
+            var nomCond = ordreCond[oc], cleCond = CLE_VIVIER[nomCond];
+            viviers[nomCond] = filtrer(criteres);
+            remplir(nomCond, distinct(viviers[nomCond], cleCond), sel[cleCond], true);
+            sel[cleCond] = valeur(nomCond);
+            criteres[cleCond] = sel[cleCond];
+        }
+        vivierSpec = viviers.Speciality; vivierRyth = viviers.Rhythm; vivierLang = viviers.Language;
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
@@ -1982,6 +2075,26 @@ try {
         if (elProg) {
             var reellesProg = optionsReelles(elProg);
             if (reellesProg.length === 1) elProg.value = reellesProg[0].value;
+            else if (reellesProg.length > 1) {
+                /* ---- PLUSIEURS PROGRAMMES : L'ANNEE LA PLUS HAUTE --------
+                   Demande du 24/09. Le trou de donnees n'est plus l'exception
+                   mesuree le 31/08 : BRASSART Paris, Bac+3, Game Design laisse
+                   « Annee 3 Bachelor » ET « Annee 4 Expertise » ; Bac+2 laisse
+                   les annees 1, 2 et 3. Le formulaire partait alors sans
+                   programme, donc sans PTAT — aucune candidature cote CRM.
+                   Regle : on retient le programme dont le NOM porte l'annee la
+                   plus elevee (« Annee 4 » > « Annee 3 »). Sans annee lisible,
+                   ou a egalite, on prend le PREMIER de la liste (decision du
+                   02/10) : les egalites sont des variantes d'un meme cursus que
+                   les six criteres ne distinguent pas (parcours « LA », « NY »,
+                   « Berghs Stockholm », meme annee), et un formulaire sans
+                   programme partait sans PTAT — portee « personne » de la regle
+                   anti-doublon, candidature CRM sans programme. Mesure du 02/10
+                   en Recette : 14 combinaisons EFAP, 18 ICART, 3 ESEC, 2
+                   BRASSART finissaient ainsi sans PTAT. */
+                var meilleur = programmeAnneeLaPlusHaute(reellesProg) || reellesProg[0];
+                elProg.value = meilleur.value;
+            }
             afficher('Programme', false);
         }
         programme = valeur('Programme');
@@ -2003,6 +2116,26 @@ try {
             }
             cible.value = trouve ? trouve.ptatId : '';
         }
+    }
+
+    /**
+     * Parmi plusieurs programmes, celui dont le nom porte l'annee la plus
+     * haute (« Annee 4 Expertise » avant « Annee 3 Bachelor »). Null si aucun
+     * nom ne porte d'annee, ou si deux programmes se disputent la plus haute.
+     */
+    function anneeDuNom(texte) {
+        var m = /ann[e\u00e9]e\s*(\d{1,2})\b/i.exec(String(texte || ''));
+        return m ? parseInt(m[1], 10) : 0;
+    }
+    function programmeAnneeLaPlusHaute(options) {
+        var meilleur = null, max = 0, exAequo = false;
+        for (var i = 0; i < options.length; i++) {
+            var a = anneeDuNom(options[i].label || options[i].textContent || '');
+            if (!a) continue;
+            if (a > max) { max = a; meilleur = options[i]; exAequo = false; }
+            else if (a === max) { exAequo = true; }
+        }
+        return (meilleur && !exAequo) ? meilleur : null;
     }
 
     /** Ce programme est-il ouvert a cette rentree ? */
@@ -2504,6 +2637,31 @@ try {
         }
     };
 
+    /* Les formulaires ANGLAIS, textes fournis par le metier le 25/09 au mot
+       pres. `texte` accepte une chaine ou une liste de paragraphes. Pas de
+       version anglaise pour evenement et immersion : aucune page anglaise de
+       ces familles n'existe, le francais reste le repli. */
+    var MESSAGES_EN = {
+        brochure: {
+            titre: 'Your brochure is ready!',
+            texte: ['You can download it now. We\u2019ve also sent a copy to your '
+                        + 'email address. Don\u2019t forget to check your spam folder.',
+                    'We remain at your disposal for any further information.']
+        },
+        candidature: {
+            titre: 'We\u2019ve received your application request.',
+            texte: 'To complete and submit your application, please create your '
+                 + 'applicant account using the link sent to your email address '
+                 + '(please make sure to check your spam folder).'
+        }
+    };
+
+    /** Le message de confirmation dans la langue de la page. */
+    function messageSucces(famille) {
+        if (langueAffichage() === 'en' && MESSAGES_EN[famille]) return MESSAGES_EN[famille];
+        return MESSAGES[famille];
+    }
+
     /* La coche du message de confirmation. Elle ouvre la premiere ligne de
        l'encart vert : le visiteur doit reconnaitre un succes AVANT de lire. */
     var COCHE = '\u2714\ufe0f';
@@ -2900,12 +3058,41 @@ try {
         var lignes = D && D.ctaDoc;
         if (!lignes || !lignes.length) return null;
 
+        /* --- Langue et pays de la brochure, retour du 25/09 ---------------
+           Deux colonnes ajoutees a la DE : `language` (FR | EN) et `pays`
+           (France | International).
+             formulaire anglais   → les lignes language = EN, pays indifferent ;
+             formulaire francais  → language = FR, et pays = France si le
+                                    visiteur reside en France (champ Country),
+                                    International sinon.
+           Meme doctrine que les autres criteres : une cellule VIDE ne contraint
+           rien, une cellule remplie doit correspondre et rend la ligne plus
+           precise. Tant que le metier n'a pas rempli ces colonnes (vides sur
+           les 111 lignes au 25/09), le bouton reste celui d'aujourd'hui ; des
+           qu'une ligne les porte, elle l'emporte. */
+        var langueForm = langueAffichage() === 'en' ? 'EN' : 'FR';
+        var paysForm = '';
+        if (langueForm === 'FR') {
+            var paysSaisi = cle(valeurChamp(form, 'Country'));
+            if (paysSaisi) paysForm = paysSaisi === 'FRANCE' ? 'FRANCE' : 'INTERNATIONAL';
+        }
+
         var meilleure = null, meilleurScore = -1;
         for (var i = 0; i < lignes.length; i++) {
             var ligne = lignes[i];
             if (!ligne) continue;
 
             var score = 0, retenue = true;
+            var langueLigne = cle(ligne.langue);
+            if (langueLigne) {
+                if (langueLigne !== langueForm) continue;
+                score++;
+            }
+            var paysLigne = cle(ligne.pays);
+            if (langueForm === 'FR' && paysLigne && paysForm) {
+                if (paysLigne !== paysForm) continue;
+                score++;
+            }
             for (var c = 0; c < CRITERES_DOC.length; c++) {
                 var attendu = ligne[CRITERES_DOC[c].cle];
                 if (!attendu) continue;                 // colonne vide = ne contraint rien
@@ -2933,6 +3120,33 @@ try {
                  fond: meilleure.fond, police: meilleure.police };
     }
 
+    /**
+     * Les formes sous lesquelles une valeur postee peut apparaitre dans la DE.
+     *
+     * Le formulaire poste la VALEUR du value set (« BAC+3 », « BAC obtenu ou
+     * Prepa ») ; la DE est saisie a la main et ecrit tantot la valeur, tantot
+     * le libelle (« Bac obtenu »), et — lignes anglaises, import du 27/09 —
+     * le libelle ANGLAIS du dictionnaire (« Bachelor's Degree (or
+     * equivalent) »). On compare donc a la valeur, au libelle de l'option, et
+     * a leur traduction quand SOCLE_DATA en porte une.
+     */
+    function variantesDoc(champ, saisi) {
+        var formes = [saisi];
+        try {
+            var listes = (D && D.picklists) || {};
+            var options = listes[champ] || [];
+            for (var i = 0; i < options.length; i++) {
+                var o = options[i];
+                if (o && String(o.value) === String(saisi) && o.label && o.label !== saisi) formes.push(String(o.label));
+            }
+            var dico = (D && D.traductions) || {};
+            for (var k = formes.length - 1; k >= 0; k--) {
+                if (dico[formes[k]]) formes.push(String(dico[formes[k]]));
+            }
+        } catch (eVar) { /* la valeur seule suffit alors */ }
+        return formes;
+    }
+
     /** Le critere est-il satisfait par l'un des champs qui peuvent le porter ? */
     function critereDocSatisfait(form, critere, attendu) {
         for (var j = 0; j < critere.champs.length; j++) {
@@ -2941,7 +3155,10 @@ try {
             /* `contient` : la colonne est en Text(4000) et accepte plusieurs
                valeurs separees par « ; ». La fonction est celle de la cascade,
                reutilisee telle quelle, avec la normalisation du critere. */
-            if (contient(attendu, saisi, critere.norme)) return true;
+            var formes = variantesDoc(critere.champs[j], saisi);
+            for (var f = 0; f < formes.length; f++) {
+                if (contient(attendu, formes[f], critere.norme)) return true;
+            }
         }
         return false;
     }
@@ -2956,9 +3173,10 @@ try {
      * cette porte doit rester ouverte.
      */
     function montrerSucces(form) {
-        var msg = MESSAGES[familleDe(form)];
+        var msg = messageSucces(familleDe(form));
         var lignes = [COCHE + ' ' + msg.titre];
-        if (msg.texte) lignes.push(msg.texte);
+        var corps = msg.texte ? [].concat(msg.texte) : [];
+        for (var k = 0; k < corps.length; k++) lignes.push(corps[k]);
         /* Le CTA, quand une DE le fournit. Sinon rien : le message reste ce
            qu'il etait.
 
@@ -3014,6 +3232,25 @@ try {
         ]
     };
 
+    /* Formulaires ANGLAIS. R1 : texte fourni par le metier le 25/09, au mot
+       pres (premiere phrase en titre, comme en francais). R2 : pas de texte
+       fourni, traduction fidele du francais — a faire valider. */
+    var MESSAGES_BLOCAGE_EN = {
+        r1: [
+            'Your application request has already been submitted.',
+            'We have already received an application request associated with your '
+                + 'details. Therefore, you do not need to resubmit this form. Please '
+                + 'check the email previously sent to you to access your applicant '
+                + 'account and continue with your process.'
+        ],
+        r2: [
+            'Your previous application to this programme received an unfavourable '
+                + 'decision. A new application to the same programme is not possible '
+                + 'before next year. For any questions, please contact the admissions '
+                + 'office.'
+        ]
+    };
+
     /** Affiche le message du cadrage correspondant au motif renvoye. */
     function montrerBlocage(form, motif) {
         /* Motif absent : une page publiee avant que le socle d'ecriture ne
@@ -3021,7 +3258,8 @@ try {
            prejuge d'aucune decision de jury — c'est le defaut le moins faux.
            Le motif sert AUSSI de ton : orange pour r1, rouge pour r2. */
         var cle = MESSAGES_BLOCAGE[motif] ? motif : 'r1';
-        montrerMessage(form, MESSAGES_BLOCAGE[cle], cle);
+        var table = langueAffichage() === 'en' ? MESSAGES_BLOCAGE_EN : MESSAGES_BLOCAGE;
+        montrerMessage(form, table[cle] || MESSAGES_BLOCAGE[cle], cle);
     }
 
     /** Efface l'encart avant une nouvelle tentative : tout a pu changer. */
@@ -3057,12 +3295,99 @@ try {
         var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
         /* Meme ancrage sur `<!--` que ci-dessus, et pour la meme raison. */
         var b = /<!--\s*socle blocage:\s*motif=(\w+)/i.exec(texte);
+        /* Mode asynchrone : la reception rend son RunId et « async=reception » ;
+           c'est le signal pour relancer le traitement en arriere-plan. */
+        var r = /<!--\s*socle ecriture:[^>]*?\brun=(\w*)/i.exec(texte);
+        var a = /<!--\s*socle ecriture:[^>]*?\basync=(\w*)/i.exec(texte);
+        /* La page de traitement dediee, quand la publication en a pose une :
+           c'est elle que le beacon vise, jamais la page du visiteur. */
+        var t = /<!--\s*socle ecriture:[^>]*?\btraitement=([\w-]*)/i.exec(texte);
         return {
             ok: m[1] === 'success',
             bloque: m[1] === 'blocked',
             motif: b ? b[1].toLowerCase() : '',
-            message: e ? e[1] : ''
+            message: e ? e[1] : '',
+            run: r ? r[1] : '',
+            async: a ? a[1] : '',
+            traitement: t ? t[1] : ''
         };
+    }
+
+    /**
+     * SOUMISSION ASYNCHRONE — second passage, sans attendre.
+     *
+     * La reception a mis la soumission en file et repondu « success » : le
+     * visiteur a deja sa confirmation. On renvoie le MEME corps avec
+     * socle_traitement=1 et socle_run=<RunId> : c'est ce passage qui ecrit
+     * dans le CRM et tire les journeys.
+     *
+     * fetch keepalive D'ABORD, et non sendBeacon (01/10). sendBeacon part
+     * sans reponse : quand SFMC refuse la requete — 429 de limitation de
+     * debit, vu en repasse sous lectures paralleles, ou 5xx — la ligne
+     * reste « a_traiter » dans la file sans que personne ne le sache, et
+     * l'automation de rejeu est le seul filet. fetch rend le statut : sur
+     * 429, 5xx ou coupure reseau, on renvoie apres 2 s puis 6 s (3 essais
+     * en tout ; le serveur ne retraite jamais une ligne « traitee »). Le
+     * visiteur a deja sa confirmation et reste en general sur la page ;
+     * keepalive fait survivre l'envoi en cours a la fermeture de l'onglet,
+     * pas les essais suivants — la, c'est l'automation qui prend le relais.
+     * sendBeacon ne sert plus que si fetch manque. Le corps est un Blob type
+     * formulaire : une chaine partirait en text/plain et le serveur n'y
+     * lirait aucun champ. Rien ici ne doit remonter au visiteur.
+     */
+    /**
+     * Ou envoyer le traitement : la page dediee (meme CloudPage, `?id=` de
+     * la cle de traitement, sans les parametres du visiteur) quand la
+     * reception l'annonce, sinon la page courante, telle quelle.
+     */
+    function urlTraitement(bilan) {
+        var loc = window.location;
+        var cle = bilan && bilan.traitement ? String(bilan.traitement) : '';
+        if (!cle) return loc.href;
+        var base = String(loc.href).split('#')[0].split('?')[0];
+        return base + '?id=' + encodeURIComponent(cle);
+    }
+
+    var DELAIS_TRAITEMENT = [2000, 6000];
+
+    function lancerTraitement(corps, bilan) {
+        try {
+            if (!bilan || !bilan.ok || bilan.async !== 'reception' || !bilan.run) return false;
+            var body = corps.join('&') + '&socle_traitement=1&socle_run=' + encodeURIComponent(bilan.run);
+            var url = urlTraitement(bilan);
+            var type = 'application/x-www-form-urlencoded; charset=UTF-8';
+            if (typeof window.fetch === 'function') {
+                var essai = function (n) {
+                    var replanifier = function () {
+                        if (n < DELAIS_TRAITEMENT.length && typeof window.setTimeout === 'function') {
+                            window.setTimeout(function () { essai(n + 1); }, DELAIS_TRAITEMENT[n]);
+                        }
+                    };
+                    try {
+                        var promesse = window.fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': type },
+                            body: body,
+                            keepalive: true,
+                            credentials: 'same-origin'
+                        });
+                        if (promesse && typeof promesse.then === 'function') {
+                            promesse.then(function (reponse) {
+                                var statut = reponse ? Number(reponse.status) : 0;
+                                if (statut === 429 || statut >= 500 || statut === 0) replanifier();
+                            }, function () { replanifier(); });
+                        }
+                    } catch (eFetch) { replanifier(); }
+                };
+                essai(0);
+                return true;
+            }
+            var nav = (typeof navigator !== 'undefined') ? navigator : null;
+            if (nav && typeof nav.sendBeacon === 'function' && typeof Blob === 'function') {
+                if (nav.sendBeacon(url, new Blob([body], { type: type }))) return true;
+            }
+        } catch (eTraitement) { /* la file sera rejouee par l'automation */ }
+        return false;
     }
 
     /**
@@ -3797,6 +4122,9 @@ try {
                   if (bilan.ok) {
                       if (bouton) { bouton.style.display = 'none'; }
                       montrerSucces(form);
+                      /* Mode asynchrone : la confirmation est affichee, le
+                         traitement CRM part maintenant, en arriere-plan. */
+                      lancerTraitement(corps, bilan);
                       return;
                   }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a

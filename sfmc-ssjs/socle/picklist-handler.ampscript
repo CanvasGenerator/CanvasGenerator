@@ -50,6 +50,7 @@ VAR @jsProgs, @jsCampus, @jsPtats, @jsTerms
 VAR @sepP, @sepC, @sepT, @sepR
 VAR @idIndex, @campusSeen, @termSeen, @cName, @cLabel, @pid, @tid, @nbProgs
 VAR @ptatRows, @ptatProgIndex, @nPtat, @j, @prow, @candidature
+VAR @termRows, @nTerm, @termActifIndex, @ptatGarde
 VAR @jsInstances, @jsAppts, @nbInst, @nbInstStatut, @statutInst, @statutOk, @typeEvt, @instSel, @evtParent
 VAR @d0, @iid, @restrict, @sepI, @sepA, @delta, @minDelta, @maxDelta
 VAR @cfgRows, @cfg, @cfgProgressif, @cfgOrdre, @cfgLangueDef, @cfgRentree
@@ -62,6 +63,54 @@ VAR @indRows, @nInd, @indRow, @jsLongTel, @sepL, @nbMin, @nbMax, @indVal
 VAR @CTA_DOC_ACTIF, @ctaRows, @nCta, @ctaRow, @jsCtaDoc, @sepCta, @ctaUrl, @ctaTitre
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
 VAR @evtIndex, @evtRows, @nEvt, @e
+
+/* ==========================================================================
+   CACHE DE LECTURE — DRAPEAU ET ETAT
+   ==========================================================================
+   Drapeau SFMC_CACHE_LECTURE (injecte a la publication, lib/socle-env.js).
+   Ouvert, les blocs JS que ce socle construit depuis le CRM sont servis
+   depuis la DE LPB_Cache_Lecture tant qu'ils sont frais, par FAMILLE :
+     pick  picklists + libelles de la cascade (globaux)        cle du JOUR
+     prog  marque, programmes, campus, PTAT, rentrees (ecole)  TTL 6 h
+     evt   dates et ateliers (ecole, type, jour)               TTL 1 h
+   La famille pick porte la DATE dans sa cle (« picklists|2026-09-30 »,
+   demande du 30/09) : le premier affichage du jour relit le CRM et ecrit la
+   ligne du jour, les suivants la servent, et les lignes des trois jours
+   precedents sont purgees a cette ecriture. Le jour est celui du serveur
+   SFMC (UTC-6). Les familles prog et evt sortent du cache quand
+   SFMC_LECTURE_DE_SYNC les sert depuis les DE synchronisees (~15 min).
+   Un « hit » saute les 14 a 16 RetrieveSalesforceObjects et les boucles de
+   construction ; un « miss » suit le chemin historique puis ECRIT le resultat
+   (bloc ==CACHE_LECTURE_ECRIRE==) pour les visiteurs suivants. C'est la page
+   qui alimente le cache : aucune automation. Lecture et ecriture sont en
+   SSJS sous try/catch : une DE absente ne tue pas la page, elle rend
+   « erreur-lecture » et le chemin CRM reprend — mais le cache ne sert alors a
+   rien, d'ou scripts/creer-de-cache-lecture.js avant d'ouvrir le drapeau.
+   ?socle_cache=refresh force la relecture CRM et reecrit ; ?socle_cache=off
+   contourne le cache sans ecrire (pour comparer). Ferme : rien ne change. */
+VAR @CACHE_ACTIF, @cacheMode, @cachePick, @cacheProg, @cacheEvt, @cacheEtat
+VAR @cleProg, @cleEvt, @marqueCache
+VAR @DE_SYNC_ACTIF, @evtDeSync, @bbDeSync, @progDeSync, @deSyncEtat
+VAR @clePick
+VAR @tDeb, @tPick, @tProg, @tEvt, @tLib, @tempsEtat
+/* ⚠ Declares ICI, avant la lecture du cache : un VAR reinitialise la
+   variable, et ces libelles sont poses par le bloc SSJS sur un « hit ». Les
+   laisser a leur ancienne place (juste avant leur lecture CRM) effacait le
+   cache a chaque affichage — constate le 23/09, SOCLE_DATA amputee de ses
+   libelles. */
+VAR @pvRows, @nPv, @jsLibSpec, @jsLibRyth, @jsLibLang, @sepL, @valL, @libL
+SET @CACHE_ACTIF = "%%ENV:SFMC_CACHE_LECTURE%%"
+SET @cacheMode   = Lowercase(RequestParameter("socle_cache"))
+SET @cachePick   = "miss"
+SET @cacheProg   = "miss"
+SET @cacheEvt    = "miss"
+SET @cacheEtat   = "ferme"
+SET @DE_SYNC_ACTIF = "%%ENV:SFMC_LECTURE_DE_SYNC%%"
+SET @evtDeSync   = "false"
+SET @progDeSync  = "false"
+SET @bbDeSync    = "false"
+SET @deSyncEtat  = "ferme"
+SET @marqueCache = ""
 
 /* ---- QUELLE ECOLE ? -----------------------------------------------------
    Trois sources, dans cet ordre.
@@ -106,6 +155,150 @@ IF Empty(@formTypePage) THEN SET @formTypePage = Lowercase(@LPB_TYPE_FORM) ENDIF
 SET @prefix = Lookup("LPB_Mapping_Ecoles", "CampusPrefix", "Ecole", @school)
 SET @actif  = Lookup("LPB_Mapping_Ecoles", "Actif",        "Ecole", @school)
 SET @prefixUp = Uppercase(@prefix)
+]%%
+<script runat="server">Variable.SetValue("@tDeb", new Date().getTime());</script>
+%%[
+
+/* ---- Cles du cache de lecture --------------------------------------------
+   Le type d'evenement et le type de formulaire sont resolus ICI, avant la
+   lecture du cache, parce qu'ils entrent dans les cles. Le bloc du type
+   d'evenement vivait dans la famille evenement ; il n'a pas change. */
+SET @candidature = "false"
+IF @formTypePage == "candidature" THEN SET @candidature = "true" ENDIF
+VAR @replLibelle, @garderType, @estImmersion, @dBorne
+SET @typeEvt     = RequestParameter("TypeEvenement")
+/* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
+   formulaire. Sans elle, une page evenement ouverte normalement n'affichait
+   AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
+IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
+
+/* ---- LE TYPE DU FORMULAIRE N'EST PLUS CELUI DU CRM ---------------------------
+   Le 07/09 a 16:59 UTC, le CRM a reimporte l'integralite des instances Summit :
+   868 instances neuves, et un NOUVEAU vocabulaire pour `eventType__c` —
+   « Open House », « Discovery Workshop », « Internship », « Immersion Day »
+   (plus « Trade Show » et « Forum High School », sans formulaire). Les blocs,
+   eux, postent toujours JPO / Atelier_Decouverte / Stage / Immersion : la
+   requete ne trouvait plus rien, et les quatre formulaires evenementiels
+   n'affichaient plus aucune date, en interne comme en recette.
+   On traduit ici, une fois, et on garde la valeur brute en repli : si le CRM
+   revient a l'ancien vocabulaire, la requete retrouve ses instances sans
+   qu'on y touche. Cle normalisee en minuscules ; `atelier` et
+   `atelier_decouverte` designent le meme type. */
+VAR @refTypeEvt, @cleTypeEvt, @posTypeEvt, @resteTypeEvt, @typeEvtCrm
+SET @refTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
+SET @typeEvtCrm = @typeEvt
+SET @cleTypeEvt = Lowercase(Trim(@typeEvt))
+SET @posTypeEvt = IndexOf(@refTypeEvt, Concat("|", @cleTypeEvt, "="))
+IF @posTypeEvt > 0 THEN
+    SET @resteTypeEvt = Substring(@refTypeEvt, Add(Add(@posTypeEvt, Length(@cleTypeEvt)), 2))
+    SET @typeEvtCrm = Substring(@resteTypeEvt, 1, Subtract(IndexOf(@resteTypeEvt, "|"), 1))
+ENDIF
+SET @instSel     = RequestParameter("InstanceId")
+SET @evtParent   = ""
+
+SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
+
+/* prog : par ecole ET par regle de filtrage (la candidature ecarte les
+   programmes sans PTAT ou sans specialite, la brochure les garde tous).
+   evt  : par ecole, type CRM et JOUR — `jours` (ecart en jours) est cuit
+   dans le JS, la cle tombe donc d'elle-meme a minuit. */
+SET @cleProg = ""
+IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
+    SET @cleProg = Concat("programmes|", Lowercase(@school), "|", IIF(@candidature == "true", "cand", "tous"))
+ENDIF
+/* pick : une seule famille pour toutes les ecoles, sans date dans la cle
+   depuis le 05/10 (elle portait le jour du 30/09 au 05/10) : la fraicheur est
+   celle du TTL (7 jours) et de la purge externe, scripts/purger-cache-lecture.js
+   (cron cote serveur). Les lignes « picklists|<jour> » restantes partent a la
+   premiere purge. */
+SET @clePick   = "picklists"
+SET @cleEvt = ""
+IF NOT Empty(@typeEvt) THEN
+    SET @cleEvt = Concat("evenements|", Lowercase(@school), "|", Lowercase(@typeEvtCrm), "|", @d0)
+ENDIF
+]%%
+<script runat="server">
+/* ==CACHE_LECTURE_LIRE==
+   Lit la DE LPB_Cache_Lecture par famille et, si TOUTES les cles de la
+   famille sont presentes, fraiches (Epoch + TTL) et entieres (Octets), pose
+   les variables AMPscript et marque la famille « hit ». Le moindre doute vaut
+   « miss » : le chemin CRM historique reprend la main. Tout est en try/catch —
+   une DE absente ou un champ manquant ne peut pas tuer la page, ce que
+   LookupRows en AMPscript aurait fait. Aucune lecture Salesforce ici. */
+Platform.Load("core", "1.1.1");
+try {
+    var cacheActif = String(Variable.GetValue("@CACHE_ACTIF")) == "true";
+    var cacheMode  = String(Variable.GetValue("@cacheMode") || "");
+    var etats = [];
+    if (!cacheActif) {
+        etats.push("ferme");
+    } else if (cacheMode == "off") {
+        etats.push("contourne");
+    } else {
+        var familles = [
+            /* Durees arretees le 05/10 : picklists et programmes 7 jours,
+               evenements 1 jour (leur cle porte deja le jour, le JS cuit des
+               ecarts en jours). La fraicheur avant terme est assuree par la
+               purge externe scripts/purger-cache-lecture.js, lancee par cron
+               cote serveur (toute la DE, une famille ou une ecole). */
+            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), ttlMin: 7 * 24 * 60, drapeau: "@cachePick",
+              cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
+                      LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
+            /* Programmes et evenements : depuis le 02/10 le cache sert AUSSI le
+               resultat des DE synchronisees (mesure Recette : 0,5 a 0,6 s par
+               famille et par affichage, soit la moitie du temps du socle). */
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), ttlMin: 7 * 24 * 60, drapeau: "@cacheProg",
+              cles: { Marque: "@marqueCache", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
+                      NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), ttlMin: 24 * 60, drapeau: "@cacheEvt",
+              cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
+        ];
+        var maintenant = new Date().getTime();
+        for (var f = 0; f < familles.length; f++) {
+            var fam = familles[f];
+            if (!fam.famille) { etats.push(fam.tag + ":sans-objet"); continue; }
+            if (cacheMode == "refresh") { etats.push(fam.tag + ":refresh"); continue; }
+            var rows = Platform.Function.LookupRows("LPB_Cache_Lecture", "Famille", fam.famille) || [];
+            var parCle = {};
+            for (var r = 0; r < rows.length; r++) parCle[String(rows[r].Cle)] = rows[r];
+            var motif = "", ageMax = 0, valeurs = {};
+            for (var cle in fam.cles) {
+                var ligne = parCle[fam.famille + "|" + cle];
+                if (!ligne) { motif = "absent:" + cle; break; }
+                var age = (maintenant - Number(ligne.Epoch || 0)) / 60000;
+                if (!(age >= 0) || age > fam.ttlMin) { motif = "perime:" + Math.round(age) + "min"; break; }
+                if (age > ageMax) ageMax = age;
+                var texte = "";
+                for (var pt = 1; pt <= 16; pt++) {
+                    var morceau = ligne["Json" + pt];
+                    if (morceau === null || morceau === undefined) break;
+                    morceau = String(morceau);
+                    if (morceau === "") break;
+                    /* Chaque tranche est ecrite entre deux sentinelles (voir
+                       l'ecriture) : on les retire. Une ligne ecrite sans
+                       sentinelles (ancien format) perd deux caracteres, tombe
+                       en miss sur Octets et se reecrit. */
+                    texte += morceau.substring(1, morceau.length - 1);
+                }
+                if (texte.length != Number(ligne.Octets || 0)) { motif = "octets:" + cle + ":" + texte.length + "/" + ligne.Octets; break; }
+                valeurs[cle] = texte;
+            }
+            if (motif) { etats.push(fam.tag + ":miss(" + motif + ")"); continue; }
+            for (var cle2 in fam.cles) {
+                var val = valeurs[cle2];
+                if (cle2.indexOf("Nb") === 0) val = Number(val) || 0;
+                Variable.SetValue(fam.cles[cle2], val);
+            }
+            Variable.SetValue(fam.drapeau, "hit");
+            etats.push(fam.tag + ":hit(" + Math.round(ageMax) + "min)");
+        }
+    }
+    Variable.SetValue("@cacheEtat", etats.join(" "));
+} catch (eCacheLire) {
+    Variable.SetValue("@cacheEtat", "erreur-lecture");
+}
+</script>
+%%[
 
 /* Libelle commercial de la marque — « EFAP », « ICART »... Sert UNIQUEMENT a
    l'affichage : le retour client du 02/09 demande que « Etudiant dans une
@@ -130,10 +323,36 @@ SET @marqueCta = @marque
    Salesforce est deja partout dans ce bloc : un connecteur en panne aurait tue
    la page bien avant cette ligne. */
 SET @marqueBrandId = Lookup("LPB_Mapping_Ecoles", "BusinessBrandId", "Ecole", @school)
-IF NOT Empty(@marqueBrandId) THEN
-    SET @bbRows = RetrieveSalesforceObjects("BusinessBrand", "Id,Name", "Id", "=", @marqueBrandId)
-    IF RowCount(@bbRows) > 0 THEN
-        IF NOT Empty(Field(Row(@bbRows, 1), "Name")) THEN SET @marque = Field(Row(@bbRows, 1), "Name") ENDIF
+IF @cacheProg == "hit" THEN
+    /* Cache de lecture : le nom Business Brand a ete lu avec les programmes. */
+    IF NOT Empty(@marqueCache) THEN SET @marque = @marqueCache ENDIF
+ELSEIF NOT Empty(@marqueBrandId) THEN
+    ]%%
+    <script runat="server">
+    /* ==LECTURE_DE_SYNC_MARQUE== Nom de marque depuis la DE synchronisee
+       (BusinessBrand_Salesforce, partagee par l'Enterprise : prefixe ENT.).
+       En echec — DE non partagee, connecteur — on retombe sur le CRM. */
+    try {
+        if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true") {
+            var bbDe = Platform.Function.LookupRows("ENT.BusinessBrand_Salesforce", "Id", String(Variable.GetValue("@marqueBrandId") || ""));
+            if (bbDe && bbDe.length) {
+                if (bbDe[0].Name) Variable.SetValue("@marque", String(bbDe[0].Name));
+                Variable.SetValue("@bbDeSync", "true");
+                Variable.SetValue("@deSyncEtat", "marque:de");
+            } else {
+                Variable.SetValue("@deSyncEtat", "marque:absente");
+            }
+        }
+    } catch (eDeSyncBb) {
+        Variable.SetValue("@deSyncEtat", "marque:erreur(" + String(eDeSyncBb.message || eDeSyncBb).substring(0, 60) + ")");
+    }
+    </script>
+    %%[
+    IF @bbDeSync != "true" THEN
+        SET @bbRows = RetrieveSalesforceObjects("BusinessBrand", "Id,Name", "Id", "=", @marqueBrandId)
+        IF RowCount(@bbRows) > 0 THEN
+            IF NOT Empty(Field(Row(@bbRows, 1), "Name")) THEN SET @marque = Field(Row(@bbRows, 1), "Name") ENDIF
+        ENDIF
     ENDIF
 ENDIF
 
@@ -238,10 +457,13 @@ IF RowCount(@chpRows) > 0 THEN
     ENDIF
 ENDIF
 
+/* Cache de lecture : sur un « hit », ces quatre listes sont deja posees. */
+IF @cachePick != "hit" THEN
 SET @jsCountry   = ""
 SET @jsIndicatif = ""
 SET @jsLevel     = ""
 SET @jsQui       = ""
+ENDIF
 
 /* ==========================================================================
    DICTIONNAIRE D'AFFICHAGE FR -> EN
@@ -279,6 +501,9 @@ FOR @i = 1 TO @nDico DO
     ENDIF
 NEXT @i
 
+/* Cache de lecture (famille pick) : les deux value sets suivants ne sont
+   lus dans le CRM que sur un « miss ». */
+IF @cachePick != "hit" THEN
 /* ---- 1. Pays -> Account.LivingCountry__c ------------------------------- */
 SET @dur = ""
 SET @rows = RetrieveSalesforceObjects("EntityParticle", "DurableId",
@@ -331,6 +556,8 @@ IF Length(@dur) > 0 THEN
         ENDIF
     NEXT @i
 ENDIF
+
+ENDIF   /* fin cache pick : pays, indicatif */
 
 /* ---- 2bis. Longueur de numero attendue, par indicatif -------------------
    Retour client du 02/09 : « en fonction de l'indicatif renseigne, le nombre
@@ -436,13 +663,17 @@ IF @CTA_DOC_ACTIF == "true" THEN
                 Replace(Replace(Field(@ctaRow, "cursus"), "\", "\\"), "'", "\'"), "',titre:'",
                 Replace(Replace(@ctaTitre, "\", "\\"), "'", "\'"), "',fond:'",
                 Replace(Replace(Field(@ctaRow, "couleur_fond_CTA_doc"), "\", "\\"), "'", "\'"), "',police:'",
-                Replace(Replace(Field(@ctaRow, "couleur_police_CTA_doc"), "\", "\\"), "'", "\'"), "',url:'",
+                Replace(Replace(Field(@ctaRow, "couleur_police_CTA_doc"), "\", "\\"), "'", "\'"), "',langue:'",
+                Replace(Replace(Field(@ctaRow, "language"), "\", "\\"), "'", "\'"), "',pays:'",
+                Replace(Replace(Field(@ctaRow, "pays"), "\", "\\"), "'", "\'"), "',url:'",
                 Replace(Replace(@ctaUrl, "\", "\\"), "'", "\'"), "'}")
             SET @sepCta = ","
         ENDIF
     NEXT @i
 ENDIF
 
+/* Cache de lecture (famille pick) : niveau et « vous etes », idem. */
+IF @cachePick != "hit" THEN
 /* ---- 3. Niveau d'etudes -> Account.Academic_Level_List__c -------------- */
 SET @dur = ""
 SET @rows = RetrieveSalesforceObjects("EntityParticle", "DurableId",
@@ -503,6 +734,11 @@ IF Length(@dur) > 0 THEN
     NEXT @i
 ENDIF
 
+ENDIF   /* fin cache pick : niveau, vous etes */
+]%%
+<script runat="server">Variable.SetValue("@tPick", new Date().getTime());</script>
+%%[
+
 /* ==========================================================================
    CASCADE PROGRAMME
    ==========================================================================
@@ -518,6 +754,10 @@ ENDIF
    Cout : ~533 + ~509 iterations AMPscript. Acceptable au rendu d'une page,
    mais c'est la partie a surveiller si le catalogue grossit.
    ========================================================================== */
+/* Cache de lecture (famille prog) : sur un « hit », programmes, campus,
+   PTAT, rentrees, @nbProgs et @campusSeen sont deja poses — on ne les
+   reinitialise pas et on ne lit rien dans le CRM. */
+IF @cacheProg != "hit" THEN
 SET @jsProgs   = ""
 SET @jsCampus  = ""
 SET @jsPtats   = ""
@@ -526,8 +766,127 @@ SET @idIndex   = ";"
 SET @campusSeen = ";"
 SET @termSeen  = ";"
 SET @nbProgs   = 0
+ENDIF
 
-IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
+]%%
+<script runat="server">
+/* ==LECTURE_DE_SYNC_PROG== Programmes, campus, PTAT et rentrees depuis les
+   DE synchronisees Salesforce (Enterprise, prefixe ENT., ~15 min) :
+   ENT.LearningProgram_Salesforce_1, ENT.ProgramTermApplnTimeline_Salesforce,
+   ENT.AcademicTerm_Salesforce. Memes regles que le chemin CRM ci-dessous et
+   memes blocs JS : programmes dont le campus commence par le prefixe de
+   l'ecole (actifs ET inactifs, comme le CRM) ; en candidature, ni programme
+   sans specialite ni programme sans PTAT ; et depuis le 30/09, seuls les PTAT
+   d'une rentree ACTIVE (AcademicTerm.IsActive).
+   Pourquoi tout passe par LookupRows : c'est la seule primitive qui lit une
+   DE partagee « ENT. » depuis la BU (Rows.Retrieve rend null, WSProxy ne la
+   voit pas — sonde LPB_TST_Sonde_DeSync du 30/09). LookupRows ne sait que
+   l'egalite, d'ou les lectures par valeur booleenne : rentrees IsActive
+   True, PTAT par rentree active (2 lookups pour 552 lignes), programmes
+   IsActive True puis False (551 lignes en 2 lookups) filtres ici par
+   prefixe. Mesure : 500 a 660 ms, contre 1,4 a 2,7 s en CRM.
+   Les PTAT des rentrees fermees ne sont lus pour AUCUN formulaire : le
+   navigateur ne s'en sert que par les champs Rentree / PTAT_Id, propres a
+   la candidature.
+   En echec (DE non partagee, connecteur), @progDeSync reste a false et le
+   chemin CRM s'execute tel quel. */
+try {
+    if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true"
+        && String(Variable.GetValue("@cacheProg")) != "hit"
+        && String(Variable.GetValue("@prefixUp") || "").length > 0
+        && String(Variable.GetValue("@actif") || "").toLowerCase() == "true") {
+        var tPr0 = new Date().getTime();
+        var prefixUpDe = String(Variable.GetValue("@prefixUp"));
+        var prefixDe   = String(Variable.GetValue("@prefix") || "");
+        var candDe     = String(Variable.GetValue("@candidature")) == "true";
+        /* ⚠ Jint : ni litteral regex ni antislash litteral dans ce bloc. Le
+           trim `/^\s+|\s+$/g` faisait echouer la COMPILATION de tout le bloc
+           (NullReferenceException Antlr3, page morte, 30/09) ; et un antislash
+           dans une chaine ou un regex empeche de tester le bloc par une sonde
+           « code snippet ». L'antislash vient donc de fromCharCode, et le trim
+           est ecrit a la main. */
+        var bsDe = String.fromCharCode(92);
+        var echDe = function (v) { return String(v === null || v === undefined ? "" : v).split(bsDe).join(bsDe + bsDe).split("'").join(bsDe + "'"); };
+        var trimDe = function (v) { v = String(v); while (v.length && v.charAt(0) == " ") v = v.substring(1); while (v.length && v.charAt(v.length - 1) == " ") v = v.substring(0, v.length - 1); return v; };
+        /* Rentrees actives : la regle, et les libelles. */
+        var termsDe = Platform.Function.LookupRows("ENT.AcademicTerm_Salesforce", "IsActive", "True") || [];
+        var termNomDe = {};
+        for (var ta = 0; ta < termsDe.length; ta++) termNomDe[String(termsDe[ta].Id)] = String(termsDe[ta].Name || "");
+        /* PTAT des rentrees actives : un lookup par rentree. */
+        var ptatsDe = [];
+        for (var tb = 0; tb < termsDe.length; tb++) {
+            var prDe = Platform.Function.LookupRows("ENT.ProgramTermApplnTimeline_Salesforce", "AcademicTermId", String(termsDe[tb].Id)) || [];
+            for (var pk = 0; pk < prDe.length; pk++) ptatsDe.push(prDe[pk]);
+        }
+        var ptatProgDe = {};
+        for (var pc = 0; pc < ptatsDe.length; pc++) ptatProgDe[String(ptatsDe[pc].LearningProgramId)] = true;
+        /* Programmes : actifs puis inactifs — le CRM ne filtre pas IsActive. */
+        var progsDe = [];
+        var lotsDe = [Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "True") || [],
+                      Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False") || []];
+        for (var lo = 0; lo < lotsDe.length; lo++) {
+            for (var lp = 0; lp < lotsDe[lo].length; lp++) progsDe.push(lotsDe[lo][lp]);
+        }
+        var jsProgsDe = [], jsCampusDe = [], idIndexDe = ";", campusSeenDe = ";", nbProgsDe = 0;
+        /* La DE peut garder l'ancienne casse d'un campus renomme (01/10 : un
+           programme inactif en « BRASSART Rennes » a cote de dix en
+           « BRASSART RENNES », d'ou un doublon dans la liste des campus). La
+           premiere graphie rencontree fait foi pour toutes les suivantes. */
+        var campusCanonDe = {};
+        for (var ip = 0; ip < progsDe.length; ip++) {
+            var pDe = progsDe[ip];
+            var cNameDe = String(pDe.campusNameFor__c || "");
+            var pidDe = String(pDe.Id || "");
+            if (candDe && !ptatProgDe[pidDe]) continue;
+            if (candDe && !String(pDe.Speciality__c || "").length) continue;
+            if (!cNameDe.length || cNameDe.toUpperCase().indexOf(prefixUpDe) !== 0) continue;
+            if (campusCanonDe[cNameDe.toUpperCase()] === undefined) campusCanonDe[cNameDe.toUpperCase()] = cNameDe;
+            cNameDe = campusCanonDe[cNameDe.toUpperCase()];
+            idIndexDe += pidDe + ";";
+            nbProgsDe++;
+            jsProgsDe.push("{id:'" + pidDe + "',name:'" + echDe(pDe.Name) + "',campus:'" + echDe(cNameDe)
+                + "',level:'" + echDe(pDe.Academic_Level_List__c) + "',speciality:'" + echDe(pDe.Speciality__c)
+                + "',rhythm:'" + echDe(pDe.Rhythm__c) + "',language:'" + echDe(pDe.InstructionLanguage__c) + "'}");
+            if (campusSeenDe.indexOf(";" + cNameDe + ";") < 0) {
+                campusSeenDe += cNameDe + ";";
+                /* Valeur = libelle complet, libelle = la ville seule (voir le chemin CRM). */
+                var cLabelDe = cNameDe;
+                if (cNameDe.length > prefixDe.length + 1) cLabelDe = trimDe(cNameDe.substring(prefixDe.length));
+                jsCampusDe.push("{value:'" + echDe(cNameDe) + "',label:'" + echDe(cLabelDe) + "'}");
+            }
+        }
+        /* PTAT des programmes retenus, puis libelles des rentrees vues. */
+        var jsPtatsDe = [], termSeenDe = {}, jsTermsDe = [];
+        for (var iq = 0; iq < ptatsDe.length; iq++) {
+            var tDe = ptatsDe[iq];
+            var tpidDe = String(tDe.LearningProgramId || ""), ttidDe = String(tDe.AcademicTermId || "");
+            if (idIndexDe.indexOf(";" + tpidDe + ";") < 0) continue;
+            jsPtatsDe.push("{ptatId:'" + String(tDe.Id) + "',programId:'" + tpidDe + "',termId:'" + ttidDe + "'}");
+            if (ttidDe && !termSeenDe[ttidDe]) {
+                termSeenDe[ttidDe] = true;
+                jsTermsDe.push("{value:'" + ttidDe + "',label:'" + echDe(termNomDe[ttidDe] || ttidDe) + "'}");
+            }
+        }
+        Variable.SetValue("@jsProgs", jsProgsDe.join(","));
+        Variable.SetValue("@jsCampus", jsCampusDe.join(","));
+        Variable.SetValue("@jsPtats", jsPtatsDe.join(","));
+        Variable.SetValue("@jsTerms", jsTermsDe.join(","));
+        Variable.SetValue("@idIndex", idIndexDe);
+        Variable.SetValue("@campusSeen", campusSeenDe);
+        Variable.SetValue("@nbProgs", nbProgsDe);
+        Variable.SetValue("@progDeSync", "true");
+        Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " prog:de(" + progsDe.length + "lus/" + nbProgsDe + "gardes/" + jsPtatsDe.length + "ptat/" + termsDe.length + "rentrees " + (new Date().getTime() - tPr0) + "ms)");
+    }
+} catch (eDeSyncProg) {
+    Variable.SetValue("@progDeSync", "false");
+    Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " prog:erreur(" + String(eDeSyncProg.message || eDeSyncProg).substring(0, 80) + ")");
+}
+</script>
+%%[
+
+/* Chemin CRM historique. Il ne tourne que si ni le cache ni la DE
+   synchronisee n'ont servi les programmes. */
+IF @cacheProg != "hit" AND @progDeSync != "true" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
 
     /* --- 0. PTAT : LUS EN PREMIER --------------------------------------
        Ordre voulu par le cadrage de la candidature : on part des sessions de
@@ -551,6 +910,28 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
     SET @candidature = "false"
     IF @formTypePage == "candidature" THEN SET @candidature = "true" ENDIF
 
+    /* Rentrees ACTIVES seulement (regle du 30/09). Un PTAT dont la rentree
+       (AcademicTerm.IsActive) est fermee ne doit plus etre propose en
+       candidature : il ferait candidater sur une session que le CRM ne tient
+       plus ouverte. Les rentrees sont donc lues ICI, avant les PTAT, et la
+       lecture est reutilisee en etape 3 pour leurs libelles — une seule
+       lecture au lieu de deux. Etat du 30/09 : 2 rentrees actives sur 19
+       (Decalee Jan.-Fev. 2026-2027, Sept./Oct. 2027) ; Sept./Oct. 2026 est
+       fermee et chaque programme a son double sur 2027, donc la regle ne
+       vide aucun programme, elle ne retire que des rentrees.
+       Candidature seulement : la brochure ne lit pas les PTAT. */
+    SET @termActifIndex = ";"
+    SET @nTerm = 0
+    IF @candidature == "true" THEN
+        SET @termRows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name,IsActive", "Id", "!=", "")
+        SET @nTerm = RowCount(@termRows)
+        FOR @j = 1 TO @nTerm DO
+            IF Lowercase(Field(Row(@termRows, @j), "IsActive")) == "true" THEN
+                SET @termActifIndex = Concat(@termActifIndex, Field(Row(@termRows, @j), "Id"), ";")
+            ENDIF
+        NEXT @j
+    ENDIF
+
     SET @ptatProgIndex = ";"
     SET @ptatRows = RetrieveSalesforceObjects("ProgramTermApplnTimeline",
         "Id,LearningProgramId,AcademicTermId", "Id", "!=", "")
@@ -558,7 +939,12 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
 
     FOR @j = 1 TO @nPtat DO
         SET @pid = Field(Row(@ptatRows, @j), "LearningProgramId")
-        IF NOT Empty(@pid) AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
+        SET @tid = Field(Row(@ptatRows, @j), "AcademicTermId")
+        SET @ptatGarde = "true"
+        IF @candidature == "true" AND IndexOf(@termActifIndex, Concat(";", @tid, ";")) == 0 THEN
+            SET @ptatGarde = "false"
+        ENDIF
+        IF @ptatGarde == "true" AND NOT Empty(@pid) AND IndexOf(@ptatProgIndex, Concat(";", @pid, ";")) == 0 THEN
             SET @ptatProgIndex = Concat(@ptatProgIndex, @pid, ";")
         ENDIF
     NEXT @j
@@ -650,8 +1036,15 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
             SET @row = Row(@ptatRows, @i)
             SET @pid = Field(@row, "LearningProgramId")
 
-            IF IndexOf(@idIndex, Concat(";", @pid, ";")) > 0 THEN
-                SET @tid = Field(@row, "AcademicTermId")
+            SET @tid = Field(@row, "AcademicTermId")
+            /* Meme regle qu'en etape 0 : en candidature, un PTAT sur une
+               rentree fermee n'est pas emis. */
+            SET @ptatGarde = "true"
+            IF @candidature == "true" AND IndexOf(@termActifIndex, Concat(";", @tid, ";")) == 0 THEN
+                SET @ptatGarde = "false"
+            ENDIF
+
+            IF @ptatGarde == "true" AND IndexOf(@idIndex, Concat(";", @pid, ";")) > 0 THEN
                 SET @jsPtats = Concat(@jsPtats, @sepR, "{ptatId:'", Field(@row,"Id"),
                     "',programId:'", @pid, "',termId:'", @tid, "'}")
                 SET @sepR = ","
@@ -667,8 +1060,14 @@ IF Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN
        Une seule lecture globale puis filtrage : une lecture par terme
        ferait autant d'allers-retours Salesforce que de rentrees. */
     IF Length(@termSeen) > 1 THEN
-        SET @rows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name", "Id", "!=", "")
-        SET @n = RowCount(@rows)
+        /* En candidature les rentrees ont deja ete lues en etape 0. */
+        IF @candidature == "true" THEN
+            SET @rows = @termRows
+            SET @n = @nTerm
+        ELSE
+            SET @rows = RetrieveSalesforceObjects("AcademicTerm", "Id,Name", "Id", "!=", "")
+            SET @n = RowCount(@rows)
+        ENDIF
         SET @sepT = ""
         FOR @i = 1 TO @n DO
             SET @row = Row(@rows, @i)
@@ -700,42 +1099,136 @@ ENDIF
    la suivent. Les ecarts sont calcules en JOURS via DateDiff, jamais par
    comparaison de chaines : le format de date renvoye n'est pas garanti.
    ========================================================================== */
+/* Cache de lecture (famille evt) : meme regle que pour les programmes. Le
+   type d'evenement, lui, est resolu en tete de bloc (il entre dans la cle). */
+]%%
+<script runat="server">Variable.SetValue("@tProg", new Date().getTime());</script>
+%%[
+IF @cacheEvt != "hit" THEN
 SET @jsInstances = ""
 SET @jsAppts     = ""
 SET @nbInst      = 0
 SET @nbInstStatut = 0
-VAR @replLibelle, @garderType, @estImmersion, @dBorne
-SET @typeEvt     = RequestParameter("TypeEvenement")
-/* Repli sur la variable posee par le bloc, comme pour l'ecole et le type de
-   formulaire. Sans elle, une page evenement ouverte normalement n'affichait
-   AUCUNE date : il fallait ajouter ?TypeEvenement= a la main. */
-IF Empty(@typeEvt) THEN SET @typeEvt = @LPB_TYPE_EVT ENDIF
-
-/* ---- LE TYPE DU FORMULAIRE N'EST PLUS CELUI DU CRM ---------------------------
-   Le 07/09 a 16:59 UTC, le CRM a reimporte l'integralite des instances Summit :
-   868 instances neuves, et un NOUVEAU vocabulaire pour `eventType__c` —
-   « Open House », « Discovery Workshop », « Internship », « Immersion Day »
-   (plus « Trade Show » et « Forum High School », sans formulaire). Les blocs,
-   eux, postent toujours JPO / Atelier_Decouverte / Stage / Immersion : la
-   requete ne trouvait plus rien, et les quatre formulaires evenementiels
-   n'affichaient plus aucune date, en interne comme en recette.
-   On traduit ici, une fois, et on garde la valeur brute en repli : si le CRM
-   revient a l'ancien vocabulaire, la requete retrouve ses instances sans
-   qu'on y touche. Cle normalisee en minuscules ; `atelier` et
-   `atelier_decouverte` designent le meme type. */
-VAR @refTypeEvt, @cleTypeEvt, @posTypeEvt, @resteTypeEvt, @typeEvtCrm
-SET @refTypeEvt = "|jpo=Open House|atelier=Discovery Workshop|atelier_decouverte=Discovery Workshop|stage=Internship|immersion=Immersion Day|"
-SET @typeEvtCrm = @typeEvt
-SET @cleTypeEvt = Lowercase(Trim(@typeEvt))
-SET @posTypeEvt = IndexOf(@refTypeEvt, Concat("|", @cleTypeEvt, "="))
-IF @posTypeEvt > 0 THEN
-    SET @resteTypeEvt = Substring(@refTypeEvt, Add(Add(@posTypeEvt, Length(@cleTypeEvt)), 2))
-    SET @typeEvtCrm = Substring(@resteTypeEvt, 1, Subtract(IndexOf(@resteTypeEvt, "|"), 1))
 ENDIF
-SET @instSel     = RequestParameter("InstanceId")
-SET @evtParent   = ""
 
-IF NOT Empty(@typeEvt) THEN
+]%%
+<script runat="server">
+/* ==LECTURE_DE_SYNC_EVT== Dates d'evenement et ateliers depuis les DE
+   synchronisees Salesforce (Enterprise, prefixe ENT., ~15 min) : memes
+   filtres que le chemin CRM ci-dessous — evenements du type demande, instances
+   des campus de l'ecole (Campus__c, sinon campusNameFor__c), date >= borne,
+   statut Planning/Active (l'immersion echappe aux deux) — et memes blocs JS.
+   Ce qui differe, et pourquoi :
+   - `label` = summit__Instance_Title__c : le Name (S-011411) n'est pas
+     synchronise ; le JS n'affiche le label qu'a defaut de date.
+   - heures : la DE porte un Date/Heure a l'heure serveur SFMC (UTC-6, sans
+     ete) ; le CRM rendait « 07:00:00.000Z ». On ajoute 6 h.
+   - ateliers : summit__Date_Available_Start__c / _End__c et
+     summit__Required_Appointment__c ne sont PAS synchronises (a ajouter a la
+     synchro) : debut/fin vides, required a false. Sans debut, le JS ne met
+     aucune conference en avant, et trie les ateliers par Sort_Order.
+   - repli par nom de campus : egalite avec les noms de LPB_Mapping_Campus
+     (LookupRows ne sait pas faire « commence par »).
+   En echec (DE non partagee, connecteur), @evtDeSync reste a false et le
+   chemin CRM s'execute tel quel. */
+try {
+    if (String(Variable.GetValue("@DE_SYNC_ACTIF")) == "true"
+        && String(Variable.GetValue("@cacheEvt")) != "hit"
+        && String(Variable.GetValue("@typeEvt") || "") != "") {
+        var tDe0 = new Date().getTime();
+        var typeEvtCrmDe = String(Variable.GetValue("@typeEvtCrm") || "");
+        var estImmersionDe = String(Variable.GetValue("@typeEvt") || "").toLowerCase() == "immersion";
+        var prefixUpDe = String(Variable.GetValue("@prefixUp") || "");
+        var schoolDe = String(Variable.GetValue("@school") || "");
+        var aujDe = new Date();
+        var d0Utc = Date.UTC(aujDe.getFullYear(), aujDe.getMonth(), aujDe.getDate());
+        function deux(n) { return (n < 10 ? "0" : "") + n; }
+        var dBorneDe = estImmersionDe ? "1900-01-01" : (aujDe.getFullYear() + "-" + deux(aujDe.getMonth() + 1) + "-" + deux(aujDe.getDate()));
+        function escDe(v) { return String(v === null || v === undefined ? "" : v).replace(/\\/g, "\\\\").replace(/'/g, "\\'"); }
+        function jourDe(v) { v = String(v || ""); return v.length >= 10 ? v.substring(0, 10) : ""; }
+        function heureDe(v) {
+            /* ⚠ Jint : les groupes de capture de RegExp.exec() reviennent
+               undefined (constate le 25/09) — on decoupe la chaine. */
+            v = String(v || "");
+            var i = v.indexOf("T");
+            if (i < 0 || v.length < i + 9) return "";
+            var hh = Number(v.substring(i + 1, i + 3));
+            if (isNaN(hh)) return "";
+            return deux((hh + 6) % 24) + ":" + v.substring(i + 4, i + 6) + ":" + v.substring(i + 7, i + 9) + ".000Z";
+        }
+        /* Campus de l'ecole : Ids (Campus__c) et noms (repli). */
+        var campusRowsDe = Platform.Function.LookupRows("LPB_Mapping_Campus", "Ecole", schoolDe) || [];
+        var campusNomDe = {}, campusIdsDe = [], campusNomsDe = [];
+        for (var c = 0; c < campusRowsDe.length; c++) {
+            var cid = String(campusRowsDe[c].SchoolAccountId || ""), cn = String(campusRowsDe[c].Campus || "");
+            if (cid) { campusIdsDe.push(cid); campusNomDe[cid] = cn; }
+            if (cn) campusNomsDe.push(cn);
+        }
+        /* Evenements du type : le type vit sur l'evenement parent dans la DE. */
+        var evRowsDe = Platform.Function.LookupRows("ENT.summit__Summit_Events__c_Salesforce_1", "EventType__c", typeEvtCrmDe) || [];
+        var evTypeDe = {};
+        for (var e = 0; e < evRowsDe.length; e++) evTypeDe[String(evRowsDe[e].Id)] = true;
+        var vuesDe = {}, instDe = [];
+        function ajouterDe(rows) {
+            for (var i = 0; rows && i < rows.length; i++) {
+                var id = String(rows[i].Id || "");
+                if (!id || vuesDe[id]) continue;
+                vuesDe[id] = true; instDe.push(rows[i]);
+            }
+        }
+        if (prefixUpDe.length == 0) {
+            for (var e2 = 0; e2 < evRowsDe.length; e2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "summit__Event__c", String(evRowsDe[e2].Id)));
+        } else {
+            for (var k = 0; k < campusIdsDe.length; k++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "Campus__c", campusIdsDe[k]));
+            for (var k2 = 0; k2 < campusNomsDe.length; k2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "campusNameFor__c", campusNomsDe[k2]));
+        }
+        var jsInstDe = [], evtIndexDe = {}, evtListeDe = [], nbInstDe = 0, nbStatutDe = 0;
+        for (var j = 0; j < instDe.length; j++) {
+            var r = instDe[j];
+            var evId = String(r.summit__Event__c || "");
+            if (!evTypeDe[evId]) continue;
+            var cidR = String(r.Campus__c || ""), cNameR = String(r.campusNameFor__c || "");
+            /* Meme regle que le chemin CRM : Campus__c de l'ecole, sinon nom qui commence par le prefixe. */
+            if (prefixUpDe.length > 0 && !(cidR && campusNomDe[cidR] !== undefined) && !(!cidR && cNameR.toUpperCase().indexOf(prefixUpDe) == 0)) continue;
+            var dateR = jourDe(r.summit__Instance_Start_Date__c);
+            if (!dateR || dateR < dBorneDe) continue;
+            var statutR = String(r.summit__Active_Status__c || "");
+            if (!(estImmersionDe || statutR == "Planning" || statutR == "Active")) { nbStatutDe++; continue; }
+            var deltaR = Math.round((Date.UTC(Number(dateR.substring(0, 4)), Number(dateR.substring(5, 7)) - 1, Number(dateR.substring(8, 10))) - d0Utc) / 86400000);
+            if (!estImmersionDe && deltaR < 0) continue;
+            if (!cNameR && cidR && campusNomDe[cidR]) cNameR = campusNomDe[cidR];
+            nbInstDe++;
+            jsInstDe.push("{value:'" + escDe(r.Id) + "',label:'" + escDe(r.summit__Instance_Title__c) + "',date:'" + dateR
+                + "',heure:'" + heureDe(r.summit__Instance_Start_Time__c) + "',heureFin:'" + heureDe(r.summit__Instance_End_Time__c)
+                + "',campus:'" + escDe(cNameR) + "',address:'" + escDe(r.summit__Location_Address_Override__c)
+                + "',evenement:'" + escDe(evId) + "',jours:" + deltaR + "}");
+            if (evId && !evtIndexDe[evId]) { evtIndexDe[evId] = true; evtListeDe.push(evId); }
+        }
+        var jsApptsDe = [];
+        for (var a = 0; a < evtListeDe.length; a++) {
+            var apDe = Platform.Function.LookupRows("ENT.summit__Summit_Events_Appointment_Type__c_Salesforce", "summit__Summit_Events__c", evtListeDe[a]) || [];
+            for (var b = 0; b < apDe.length; b++) {
+                var t = apDe[b];
+                var lDe = String(t.summit__Title__c || "") || String(t.Name || "");
+                jsApptsDe.push("{value:'" + escDe(t.Id) + "',label:'" + escDe(lDe) + "',evenement:'" + escDe(evtListeDe[a])
+                    + "',instance:'" + escDe(t.summit__Restrict_To_Instance_Title__c) + "',type:'" + escDe(t.summit__Appointment_Type__c)
+                    + "',debut:'',fin:'',ordre:'" + escDe(t.summit__Sort_Order__c) + "',required:false}");
+            }
+        }
+        Variable.SetValue("@jsInstances", jsInstDe.join(","));
+        Variable.SetValue("@jsAppts", jsApptsDe.join(","));
+        Variable.SetValue("@nbInst", nbInstDe);
+        Variable.SetValue("@nbInstStatut", nbStatutDe);
+        Variable.SetValue("@evtDeSync", "true");
+        Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " evt:de(" + evRowsDe.length + "evt/" + instDe.length + "lues/" + nbInstDe + "gardees/" + jsApptsDe.length + "ateliers " + (new Date().getTime() - tDe0) + "ms)");
+    }
+} catch (eDeSyncEvt) {
+    Variable.SetValue("@evtDeSync", "false");
+    Variable.SetValue("@deSyncEtat", String(Variable.GetValue("@deSyncEtat") || "") + " evt:erreur(" + String(eDeSyncEvt.message || eDeSyncEvt).substring(0, 80) + ")");
+}
+</script>
+%%[
+IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
 
     SET @d0 = FormatDate(Now(), "yyyy-MM-dd")
 
@@ -998,6 +1491,9 @@ IF NOT Empty(@typeEvt) THEN
     NEXT @e
 ENDIF
 
+]%%
+<script runat="server">Variable.SetValue("@tEvt", new Date().getTime());</script>
+%%[
 /* ---- LIBELLES DES PICKLISTS DE LearningProgram -----------------------------
    Les listes de la cascade sont construites a partir des PROGRAMMES, qui ne
    portent que la valeur d'API : « Full-Time », « FR », « Editing &
@@ -1019,8 +1515,9 @@ ENDIF
    d'API — ecrire « Temps plein » dans Rhythm__c serait rejete en silence. */
 VAR @epRows, @nEp, @iL, @rowL, @qnL
 VAR @durSpec, @durRyth, @durLang
-VAR @pvRows, @nPv, @jsLibSpec, @jsLibRyth, @jsLibLang, @sepL, @valL, @libL
 
+/* Cache de lecture (famille pick) : les libelles de la cascade aussi. */
+IF @cachePick != "hit" THEN
 SET @durSpec = ""
 SET @durRyth = ""
 SET @durLang = ""
@@ -1090,12 +1587,100 @@ IF NOT Empty(@durLang) THEN
     NEXT @iL
 ENDIF
 
+ENDIF   /* fin cache pick : libelles */
+]%%
+<script runat="server">Variable.SetValue("@tLib", new Date().getTime());</script>
+%%[
+
+]%%
+<script runat="server">
+/* ==CACHE_LECTURE_ECRIRE==
+   Pour chaque famille lue dans le CRM a ce passage (drapeau != hit), depose
+   les blocs JS construits ci-dessus dans LPB_Cache_Lecture : une ligne par
+   cle, le texte en tranches de 3 998 caracteres entre sentinelles (Json1..Json16), Octets pour
+   verifier l'entierete a la relecture, Epoch pour le TTL. Un bloc de plus de
+   64 000 caracteres n'est pas mis en cache (note dans l'etat), la page le
+   sert quand meme. Une erreur d'ecriture est avalee : le visiteur a deja sa
+   page, le cache se remplira au passage suivant. Rien ne s'ecrit quand le
+   cache est ferme ou contourne (?socle_cache=off). */
+try {
+    var cacheActifE = String(Variable.GetValue("@CACHE_ACTIF")) == "true";
+    var cacheModeE  = String(Variable.GetValue("@cacheMode") || "");
+    if (cacheActifE && cacheModeE != "off") {
+        var famillesE = [
+            { tag: "pick", famille: String(Variable.GetValue("@clePick") || ""), drapeau: "@cachePick",
+              cles: { Country: "@jsCountry", Indicatif: "@jsIndicatif", StudyLevel: "@jsLevel", VousEtes: "@jsQui",
+                      LibSpec: "@jsLibSpec", LibRyth: "@jsLibRyth", LibLang: "@jsLibLang" } },
+            { tag: "prog", famille: String(Variable.GetValue("@cleProg") || ""), drapeau: "@cacheProg",
+              cles: { Marque: "@marque", Programs: "@jsProgs", Campus: "@jsCampus", Ptats: "@jsPtats", Terms: "@jsTerms",
+                      NbProgs: "@nbProgs", CampusSeen: "@campusSeen" } },
+            { tag: "evt", famille: String(Variable.GetValue("@cleEvt") || ""), drapeau: "@cacheEvt",
+              cles: { Instances: "@jsInstances", Appts: "@jsAppts", NbInst: "@nbInst", NbInstStatut: "@nbInstStatut" } }
+        ];
+        var etatE = String(Variable.GetValue("@cacheEtat") || "");
+        var ecoleE = String(Variable.GetValue("@school") || "");
+        var epochE = String(new Date().getTime());
+        var quandE = Platform.Function.Now();
+        for (var fe = 0; fe < famillesE.length; fe++) {
+            var famE = famillesE[fe];
+            if (!famE.famille) continue;
+            if (String(Variable.GetValue(famE.drapeau)) == "hit") continue;
+            /* Depuis le 02/10 le resultat des DE synchronisees s'ecrit aussi (TTL
+               court a la lecture) : un miss coute 0,5 a 0,6 s par famille. */
+            var lignesE = [], tropGros = false;
+            for (var cleE in famE.cles) {
+                var vE = Variable.GetValue(famE.cles[cleE]);
+                vE = (vE === null || vE === undefined) ? "" : String(vE);
+                if (vE.length > 16 * 3998) { tropGros = true; break; }
+                lignesE.push({ cle: cleE, texte: vE });
+            }
+            if (tropGros) { etatE += " " + famE.tag + ":trop-gros"; continue; }
+            for (var le = 0; le < lignesE.length; le++) {
+                var lg = lignesE[le];
+                var cols = ["Famille", "Ecole", "MisAJour", "Epoch", "Octets"];
+                var vals = [famE.famille, ecoleE, quandE, epochE, lg.texte.length];
+                for (var pe = 1; pe <= 16; pe++) {
+                    cols.push("Json" + pe);
+                    /* ⚠ Jint : `substring(debut, fin)` avec debut >= longueur rend
+                       le DERNIER caractere, pas une chaine vide (constate le 23/09 :
+                       chaque tranche vide pesait 1 octet, Octets ne tombait jamais
+                       juste, aucun hit). On borne donc a la main.
+                       ⚠ SFMC supprime les espaces de fin d'un champ texte : une
+                       coupe a 4 000 tombee sur un espace perdait un caractere
+                       (« Mastère Animation » relu « MastèreAnimation », 25/09),
+                       Octets ne tombait plus juste, la famille restait en miss.
+                       Chaque tranche est donc ecrite entre deux sentinelles « ~ »,
+                       3 998 caracteres utiles, retirees a la lecture. */
+                    var debT = (pe - 1) * 3998;
+                    vals.push(debT < lg.texte.length ? "~" + lg.texte.substring(debT, Math.min(debT + 3998, lg.texte.length)) + "~" : "");
+                }
+                Platform.Function.UpsertData("LPB_Cache_Lecture", ["Cle"], [famE.famille + "|" + lg.cle], cols, vals);
+            }
+            etatE += " " + famE.tag + ":ecrit";
+        }
+        Variable.SetValue("@cacheEtat", etatE);
+    }
+} catch (eCacheEcrire) {
+    Variable.SetValue("@cacheEtat", String(Variable.GetValue("@cacheEtat") || "") + " erreur-ecriture");
+}
+</script>
+%%[
+
+]%%
+<script runat="server">
+/* Chronos par famille, pour le commentaire « socle ampscript » : ou part le temps d'affichage. */
+try {
+    var tD = Number(Variable.GetValue("@tDeb")), tP = Number(Variable.GetValue("@tPick")), tR = Number(Variable.GetValue("@tProg")), tE = Number(Variable.GetValue("@tEvt")), tL = Number(Variable.GetValue("@tLib")), tF = new Date().getTime();
+    Variable.SetValue("@tempsEtat", "pick:" + (tP - tD) + "ms prog:" + (tR - tP) + "ms evt:" + (tE - tR) + "ms libelles:" + (tL - tE) + "ms total:" + (tF - tD) + "ms");
+} catch (eTemps) { Variable.SetValue("@tempsEtat", "?"); }
+</script>
+%%[
 /* ---- EMISSION DE SOCLE_DATA ------------------------------------------------
    La balise est ASSEMBLEE A L'EXECUTION. L'API SFMC supprime toute balise de script
    litteral a l'upload : sans cette precaution, les balises disparaissaient et
    le JSON s'affichait EN TEXTE VISIBLE sur la page au lieu d'etre execute.
    Constate le 2026-08-23. Ne pas remettre de balise en clair ici. */
-VAR @dataOuvre, @dataFerme
+VAR @dataOuvre, @dataFerme, @debugOuvre, @debugFerme
 SET @dataOuvre = Concat("<scr", "ipt>")
 SET @dataFerme = Concat("</scr", "ipt>")
 ]%%
@@ -1156,7 +1741,7 @@ window.SOCLE_DATA = {
 };
 %%=v(@dataFerme)=%%
 
-<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% -->
+<!-- socle ampscript: ecole=%%=v(@school)=%% prefixe=%%=v(@prefix)=%% actif=%%=v(@actif)=%% programmes=%%=v(@nbProgs)=%% cache=%%=v(@cacheEtat)=%% desync=%%=v(@deSyncEtat)=%% temps=%%=v(@tempsEtat)=%% -->
 %%[ IF Length(@prefix) == 0 THEN ]%%
 <!-- ⚠ ecole absente de LPB_Mapping_Ecoles : aucun programme ne sera propose. -->
 %%[ ELSEIF Lowercase(@actif) != "true" THEN ]%%
@@ -1166,7 +1751,7 @@ window.SOCLE_DATA = {
 %%[ ENDIF ]%%
 
 %%[ IF RequestParameter("socleDebug") == "1" THEN ]%%
-<div style="position:fixed;bottom:0;left:0;right:0;z-index:99999;max-height:50vh;overflow:auto;
+<div id="socleDebugPanel" style="position:fixed;bottom:0;left:0;right:0;z-index:99999;max-height:50vh;overflow:auto;
             background:#12123a;color:#fff;font:12px/1.6 Consolas,monospace;padding:14px 18px;
             box-shadow:0 -4px 20px rgba(0,0,0,.4)">
   <div style="font:700 14px Segoe UI,Arial;margin-bottom:8px">
@@ -1237,10 +1822,27 @@ window.SOCLE_DATA = {
         <td style="padding:5px 12px;text-align:right"><b>%%=v(@nbInst)=%%</b></td></tr>
     <tr><td style="padding:5px 12px">Ateliers propos&eacute;s</td>
         <td style="padding:5px 12px;text-align:right"><b>%%=Subtract(RowCount(BuildRowsetFromString(@jsAppts,"}")),1)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Cache de lecture</b> <i>(pick / prog / evt)</i></td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@cacheEtat)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Temps serveur du socle</b> <i>(lectures, hors plateforme SFMC)</i></td>
+        <td style="padding:5px 12px;text-align:right"><b>%%=v(@tempsEtat)=%%</b></td></tr>
+    <tr style="background:#eef"><td style="padding:5px 12px"><b>Temps navigateur</b> <i>(depuis la demande de la page)</i></td>
+        <td id="socleDebugNav" style="padding:5px 12px;text-align:right"><b>mesure en cours&hellip;</b></td></tr>
   </table>
 
   <div style="margin-top:8px;color:#9aa">Campus trouv&eacute;s : %%=v(@campusSeen)=%%</div>
 </div>
+%%[
+/* Le socle est rendu DANS l'enveloppe masquee du bloc (div.socle-read-snippet,
+   display:none !important, voir blocks/forms/shared/socle-read-snippet.js) :
+   un position:fixed n'y change rien, le panneau restait invisible — constate
+   le 05/10 en Recette. On le deplace donc en fin de <body> des qu'il est
+   parse. Balise script assemblee a l'execution, comme les autres : l'API SFMC
+   retire toute balise <script> litterale a l'upload. */
+SET @debugOuvre = Concat("<scr", "ipt>")
+SET @debugFerme = Concat("</scr", "ipt>")
+]%%
+%%=v(@debugOuvre)=%%(function(){var p=document.getElementById('socleDebugPanel');if(p&&document.body){document.body.appendChild(p);}function mesure(){var c=document.getElementById('socleDebugNav');if(!c)return;var n=(performance.getEntriesByType&&performance.getEntriesByType('navigation')[0])||null;var t=performance.timing||null;var r=function(v){return Math.round(v)+' ms';};var ttfb=n?n.responseStart:(t?t.responseStart-t.navigationStart:0);var dom=n?n.domContentLoadedEventEnd:(t?t.domContentLoadedEventEnd-t.navigationStart:0);c.innerHTML='<b>premier octet '+r(ttfb)+' &middot; DOM pr&ecirc;t '+r(dom)+' &middot; page charg&eacute;e '+r(performance.now())+'</b>';}if(document.readyState==='complete'){mesure();}else{window.addEventListener('load',function(){setTimeout(mesure,0);});}})();%%=v(@debugFerme)=%%
 %%[ ENDIF ]%%
 
 <!-- ===== JS DE CASCADE — genere par scripts/sync-cascade-js.js ===== -->
@@ -1760,6 +2362,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            qui suit. Deja capitale (sigle en tete) : on n'y touche pas. */
         var i = sortie.search(RE_LETTRE);
         if (i === -1) return sortie;
+        /* Sauf un suffixe ordinal colle a son chiffre : « 1st », « 2nd »,
+           « 4th », « 3e » restent tels quels. Constate le 25/09 sur les
+           niveaux anglais : « 1St year of Higher Education ». */
+        if (i > 0 && /[0-9]/.test(sortie.charAt(i - 1))) return sortie;
         return sortie.substring(0, i) + sortie.charAt(i).toUpperCase() + sortie.substring(i + 1);
     }
 
@@ -1821,8 +2427,49 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            « PARIS » ne trouverait plus rien. */
         if (langue !== 'en') return casseLisible(brut, propre);
         var dico = D && D.traductions;
-        if (!dico) return casseLisible(brut, propre);
-        return casseLisible(dico[brut] || brut, propre);
+        if (dico && dico[brut]) return casseLisible(dico[brut], propre);
+        var repli = libelleAnglaisRepli(name, option);
+        return casseLisible(repli || brut, propre);
+    }
+
+    /**
+     * Repli anglais pour ce que le dictionnaire ne couvre PAS.
+     *
+     * Constate le 24/09 sur Interne_CAND_EN_EFAP_V0 : specialite, rythme et
+     * rentree s'affichaient en francais. Le dictionnaire LPB_Dico_Traductions
+     * est alimente par les value sets du COMPTE (pays, niveau, vous etes) ;
+     * les criteres de la cascade viennent des PROGRAMMES et n'y figurent pas.
+     *
+     *   - Speciality : la VALUE d'API est anglaise par construction du CRM
+     *     (« Strategic Marketing & Brand Management » pour le libelle
+     *     « Marketing strategique et Brand Management ») — c'est elle qu'on
+     *     affiche. Value et libelle identiques = rien a faire.
+     *   - Rhythm : la surcharge front « Initial » / « Alternance » (09/09) a son
+     *     pendant anglais ici. Vocabulaire a valider par le metier.
+     *   - Rentree : le nom de l'AcademicTerm est francais (« Rentree Sept. /
+     *     Oct. 2026 ») ; on ne traduit que le mot et les mois abreges.
+     *
+     * Toujours l'AFFICHAGE seul : la value postee ne bouge pas.
+     */
+    var RYTHME_EN = { 'Full-Time': 'Full-time', 'Part-Time': 'Work-study' };
+    var MOIS_EN = [
+        [/\bJanv?\.?/g, 'Jan.'], [/\bF\u00e9vr?\.?/g, 'Feb.'], [/\bMars\b/g, 'Mar.'], [/\bAvr\.?/g, 'Apr.'],
+        [/\bMai\b/g, 'May'], [/\bJuin\b/g, 'June'], [/\bJuil\.?/g, 'July'], [/\bAo\u00fbt\b/g, 'Aug.'],
+        [/\bD\u00e9c\.?/g, 'Dec.']
+    ];
+    function libelleAnglaisRepli(name, option) {
+        if (name === 'Rhythm') return RYTHME_EN[option.value] || '';
+        if (name === 'Speciality') {
+            return (option.value && option.value !== option.label) ? String(option.value) : '';
+        }
+        if (name === 'Rentree') {
+            var t = String(option.label || '');
+            if (!/^Rentr[e\u00e9]e\b/i.test(t)) return '';
+            t = t.replace(/^Rentr[e\u00e9]e\s*/i, 'Intake ');
+            for (var m = 0; m < MOIS_EN.length; m++) t = t.replace(MOIS_EN[m][0], MOIS_EN[m][1]);
+            return t;
+        }
+        return '';
     }
 
     /**
@@ -2143,6 +2790,39 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     /* -- Matrice des champs conditionnels par ecole -------------------- */
     var CFG = D.config || null;
 
+    /* ---- CANDIDATURE EN : LA LANGUE D'ENSEIGNEMENT JUSTE APRES LE NIVEAU --
+       Regle du 01/10, pour les formulaires de candidature anglais de TOUTES
+       les ecoles : campus, niveau, puis la langue d'enseignement, puis la
+       specialite et la suite de l'ordre de l'ecole. Un candidat anglophone
+       choisit d'abord la langue dans laquelle il veut etudier ; les
+       specialites qui suivent sont alors celles qui existent dans cette
+       langue (le filtrage suit l'ordre, voir les viviers plus bas).
+       On recopie la config plutot que de la modifier : SOCLE_DATA reste
+       lisible tel quel dans la console. Les autres formulaires et les pages
+       francaises gardent l'ordre de leur ecole (OrdreChamps). */
+    function ordreCandidatureEn(ordre) {
+        var base = String(ordre || 'campus,niveau,speciality,rhythm,language,rentree').split(',');
+        var tete = [], reste = [];
+        for (var i = 0; i < base.length; i++) {
+            var cle = base[i].replace(/^\s+|\s+$/g, '');
+            if (!cle || cle === 'language') continue;
+            if (cle === 'campus' || cle === 'niveau') tete.push(cle); else reste.push(cle);
+        }
+        return tete.concat(['language'], reste).join(',');
+    }
+    /* Vrai sur une candidature EN : la langue d'enseignement y reste AFFICHEE
+       meme a valeur unique (voir reglesAffichage). */
+    var CANDIDATURE_EN = false;
+    (function appliquerRegleCandidatureEn() {
+        var typeF = champ('TypeFormulaire');
+        if (langueAffichage() !== 'en' || !typeF || Lowercase_(typeF.value) !== 'candidature') return;
+        CANDIDATURE_EN = true;
+        var copie = {};
+        for (var k in (CFG || {})) { if (CFG.hasOwnProperty(k)) copie[k] = CFG[k]; }
+        copie.ordre = ordreCandidatureEn(CFG && CFG.ordre);
+        CFG = copie;
+    })();
+
     /** Ordinal du niveau choisi. 0 si inconnu : aucune regle ne se declenche. */
     function ordreNiveauChoisi() {
         var v = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
@@ -2449,7 +3129,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
            Zero option reste masque partout : il n'y a rien a montrer. */
         if (visible && reelles.length === 0) visible = false;
-        if (visible && progressif && reelles.length === 1) visible = false;
+        /* Exception du 01/10, candidature EN : la langue d'enseignement reste
+           visible meme a valeur unique. Un candidat anglophone doit VOIR que le
+           programme n'existe qu'en francais, pas le decouvrir une fois inscrit ;
+           la valeur unique est posee comme ailleurs, il la lit au lieu de la
+           subir. Les autres champs gardent la regle. */
+        var langueCandidatureEn = (CANDIDATURE_EN && nom === 'Language');
+        if (visible && progressif && reelles.length === 1 && !langueCandidatureEn) visible = false;
 
         /* Champ AFFICHE avec une seule option : on la pose, meme si tous les
            programmes ne la portent pas. La garde `poserSiUnique` protege du
@@ -2893,17 +3579,26 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            suit. Le niveau, lui, a deja ete relu ci-dessus. */
         sel.level = valeur('Niveau') || valeur('Level') || valeur('StudyLevel');
 
-        vivierSpec = filtrer({ campus: sel.campus, level: sel.level });
-        remplir('Speciality', distinct(vivierSpec, 'speciality'), sel.speciality, true);
-        sel.speciality = valeur('Speciality');
-
-        vivierRyth = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality });
-        remplir('Rhythm',     distinct(vivierRyth, 'rhythm'),     sel.rhythm,     true);
-        sel.rhythm = valeur('Rhythm');
-
-        vivierLang = filtrer({ campus: sel.campus, level: sel.level, speciality: sel.speciality, rhythm: sel.rhythm });
-        remplir('Language',   distinct(vivierLang, 'language'),   sel.language,   true);
-        sel.language = valeur('Language');
+        /* ---- LE FILTRAGE SUIT L'ORDRE DE L'ECOLE (01/10) ------------------
+           Chaque liste conditionnelle ne propose que ce qui reste possible
+           compte tenu du campus, du niveau ET des champs qui la PRECEDENT
+           dans l'ordre d'affichage. Dans l'ordre standard (specialite,
+           rythme, langue) c'est exactement la chaine historique ; quand la
+           langue passe devant (IFA Paris, candidature EN), les specialites
+           proposees sont celles qui existent dans la langue choisie — ce que
+           le commentaire de `appliquerOrdre` promettait sans que le code le
+           fasse (la chaine de filtrage etait figee, cf. PASSATION §Cascade). */
+        var CLE_VIVIER = { Speciality: 'speciality', Rhythm: 'rhythm', Language: 'language' };
+        var viviers = {}, criteres = { campus: sel.campus, level: sel.level };
+        var ordreCond = ordonner(['Speciality', 'Rhythm', 'Language']);
+        for (var oc = 0; oc < ordreCond.length; oc++) {
+            var nomCond = ordreCond[oc], cleCond = CLE_VIVIER[nomCond];
+            viviers[nomCond] = filtrer(criteres);
+            remplir(nomCond, distinct(viviers[nomCond], cleCond), sel[cleCond], true);
+            sel[cleCond] = valeur(nomCond);
+            criteres[cleCond] = sel[cleCond];
+        }
+        vivierSpec = viviers.Speciality; vivierRyth = viviers.Rhythm; vivierLang = viviers.Language;
 
         /* -- Application de la matrice ------------------------------------
            Trois raisons de masquer, dans cet ordre de priorite :
@@ -3012,6 +3707,26 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         if (elProg) {
             var reellesProg = optionsReelles(elProg);
             if (reellesProg.length === 1) elProg.value = reellesProg[0].value;
+            else if (reellesProg.length > 1) {
+                /* ---- PLUSIEURS PROGRAMMES : L'ANNEE LA PLUS HAUTE --------
+                   Demande du 24/09. Le trou de donnees n'est plus l'exception
+                   mesuree le 31/08 : BRASSART Paris, Bac+3, Game Design laisse
+                   « Annee 3 Bachelor » ET « Annee 4 Expertise » ; Bac+2 laisse
+                   les annees 1, 2 et 3. Le formulaire partait alors sans
+                   programme, donc sans PTAT — aucune candidature cote CRM.
+                   Regle : on retient le programme dont le NOM porte l'annee la
+                   plus elevee (« Annee 4 » > « Annee 3 »). Sans annee lisible,
+                   ou a egalite, on prend le PREMIER de la liste (decision du
+                   02/10) : les egalites sont des variantes d'un meme cursus que
+                   les six criteres ne distinguent pas (parcours « LA », « NY »,
+                   « Berghs Stockholm », meme annee), et un formulaire sans
+                   programme partait sans PTAT — portee « personne » de la regle
+                   anti-doublon, candidature CRM sans programme. Mesure du 02/10
+                   en Recette : 14 combinaisons EFAP, 18 ICART, 3 ESEC, 2
+                   BRASSART finissaient ainsi sans PTAT. */
+                var meilleur = programmeAnneeLaPlusHaute(reellesProg) || reellesProg[0];
+                elProg.value = meilleur.value;
+            }
             afficher('Programme', false);
         }
         programme = valeur('Programme');
@@ -3033,6 +3748,26 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             }
             cible.value = trouve ? trouve.ptatId : '';
         }
+    }
+
+    /**
+     * Parmi plusieurs programmes, celui dont le nom porte l'annee la plus
+     * haute (« Annee 4 Expertise » avant « Annee 3 Bachelor »). Null si aucun
+     * nom ne porte d'annee, ou si deux programmes se disputent la plus haute.
+     */
+    function anneeDuNom(texte) {
+        var m = /ann[e\u00e9]e\s*(\d{1,2})\b/i.exec(String(texte || ''));
+        return m ? parseInt(m[1], 10) : 0;
+    }
+    function programmeAnneeLaPlusHaute(options) {
+        var meilleur = null, max = 0, exAequo = false;
+        for (var i = 0; i < options.length; i++) {
+            var a = anneeDuNom(options[i].label || options[i].textContent || '');
+            if (!a) continue;
+            if (a > max) { max = a; meilleur = options[i]; exAequo = false; }
+            else if (a === max) { exAequo = true; }
+        }
+        return (meilleur && !exAequo) ? meilleur : null;
     }
 
     /** Ce programme est-il ouvert a cette rentree ? */
@@ -3534,6 +4269,31 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         }
     };
 
+    /* Les formulaires ANGLAIS, textes fournis par le metier le 25/09 au mot
+       pres. `texte` accepte une chaine ou une liste de paragraphes. Pas de
+       version anglaise pour evenement et immersion : aucune page anglaise de
+       ces familles n'existe, le francais reste le repli. */
+    var MESSAGES_EN = {
+        brochure: {
+            titre: 'Your brochure is ready!',
+            texte: ['You can download it now. We\u2019ve also sent a copy to your '
+                        + 'email address. Don\u2019t forget to check your spam folder.',
+                    'We remain at your disposal for any further information.']
+        },
+        candidature: {
+            titre: 'We\u2019ve received your application request.',
+            texte: 'To complete and submit your application, please create your '
+                 + 'applicant account using the link sent to your email address '
+                 + '(please make sure to check your spam folder).'
+        }
+    };
+
+    /** Le message de confirmation dans la langue de la page. */
+    function messageSucces(famille) {
+        if (langueAffichage() === 'en' && MESSAGES_EN[famille]) return MESSAGES_EN[famille];
+        return MESSAGES[famille];
+    }
+
     /* La coche du message de confirmation. Elle ouvre la premiere ligne de
        l'encart vert : le visiteur doit reconnaitre un succes AVANT de lire. */
     var COCHE = '\u2714\ufe0f';
@@ -3930,12 +4690,41 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         var lignes = D && D.ctaDoc;
         if (!lignes || !lignes.length) return null;
 
+        /* --- Langue et pays de la brochure, retour du 25/09 ---------------
+           Deux colonnes ajoutees a la DE : `language` (FR | EN) et `pays`
+           (France | International).
+             formulaire anglais   → les lignes language = EN, pays indifferent ;
+             formulaire francais  → language = FR, et pays = France si le
+                                    visiteur reside en France (champ Country),
+                                    International sinon.
+           Meme doctrine que les autres criteres : une cellule VIDE ne contraint
+           rien, une cellule remplie doit correspondre et rend la ligne plus
+           precise. Tant que le metier n'a pas rempli ces colonnes (vides sur
+           les 111 lignes au 25/09), le bouton reste celui d'aujourd'hui ; des
+           qu'une ligne les porte, elle l'emporte. */
+        var langueForm = langueAffichage() === 'en' ? 'EN' : 'FR';
+        var paysForm = '';
+        if (langueForm === 'FR') {
+            var paysSaisi = cle(valeurChamp(form, 'Country'));
+            if (paysSaisi) paysForm = paysSaisi === 'FRANCE' ? 'FRANCE' : 'INTERNATIONAL';
+        }
+
         var meilleure = null, meilleurScore = -1;
         for (var i = 0; i < lignes.length; i++) {
             var ligne = lignes[i];
             if (!ligne) continue;
 
             var score = 0, retenue = true;
+            var langueLigne = cle(ligne.langue);
+            if (langueLigne) {
+                if (langueLigne !== langueForm) continue;
+                score++;
+            }
+            var paysLigne = cle(ligne.pays);
+            if (langueForm === 'FR' && paysLigne && paysForm) {
+                if (paysLigne !== paysForm) continue;
+                score++;
+            }
             for (var c = 0; c < CRITERES_DOC.length; c++) {
                 var attendu = ligne[CRITERES_DOC[c].cle];
                 if (!attendu) continue;                 // colonne vide = ne contraint rien
@@ -3963,6 +4752,33 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                  fond: meilleure.fond, police: meilleure.police };
     }
 
+    /**
+     * Les formes sous lesquelles une valeur postee peut apparaitre dans la DE.
+     *
+     * Le formulaire poste la VALEUR du value set (« BAC+3 », « BAC obtenu ou
+     * Prepa ») ; la DE est saisie a la main et ecrit tantot la valeur, tantot
+     * le libelle (« Bac obtenu »), et — lignes anglaises, import du 27/09 —
+     * le libelle ANGLAIS du dictionnaire (« Bachelor's Degree (or
+     * equivalent) »). On compare donc a la valeur, au libelle de l'option, et
+     * a leur traduction quand SOCLE_DATA en porte une.
+     */
+    function variantesDoc(champ, saisi) {
+        var formes = [saisi];
+        try {
+            var listes = (D && D.picklists) || {};
+            var options = listes[champ] || [];
+            for (var i = 0; i < options.length; i++) {
+                var o = options[i];
+                if (o && String(o.value) === String(saisi) && o.label && o.label !== saisi) formes.push(String(o.label));
+            }
+            var dico = (D && D.traductions) || {};
+            for (var k = formes.length - 1; k >= 0; k--) {
+                if (dico[formes[k]]) formes.push(String(dico[formes[k]]));
+            }
+        } catch (eVar) { /* la valeur seule suffit alors */ }
+        return formes;
+    }
+
     /** Le critere est-il satisfait par l'un des champs qui peuvent le porter ? */
     function critereDocSatisfait(form, critere, attendu) {
         for (var j = 0; j < critere.champs.length; j++) {
@@ -3971,7 +4787,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             /* `contient` : la colonne est en Text(4000) et accepte plusieurs
                valeurs separees par « ; ». La fonction est celle de la cascade,
                reutilisee telle quelle, avec la normalisation du critere. */
-            if (contient(attendu, saisi, critere.norme)) return true;
+            var formes = variantesDoc(critere.champs[j], saisi);
+            for (var f = 0; f < formes.length; f++) {
+                if (contient(attendu, formes[f], critere.norme)) return true;
+            }
         }
         return false;
     }
@@ -3986,9 +4805,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      * cette porte doit rester ouverte.
      */
     function montrerSucces(form) {
-        var msg = MESSAGES[familleDe(form)];
+        var msg = messageSucces(familleDe(form));
         var lignes = [COCHE + ' ' + msg.titre];
-        if (msg.texte) lignes.push(msg.texte);
+        var corps = msg.texte ? [].concat(msg.texte) : [];
+        for (var k = 0; k < corps.length; k++) lignes.push(corps[k]);
         /* Le CTA, quand une DE le fournit. Sinon rien : le message reste ce
            qu'il etait.
 
@@ -4044,6 +4864,25 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         ]
     };
 
+    /* Formulaires ANGLAIS. R1 : texte fourni par le metier le 25/09, au mot
+       pres (premiere phrase en titre, comme en francais). R2 : pas de texte
+       fourni, traduction fidele du francais — a faire valider. */
+    var MESSAGES_BLOCAGE_EN = {
+        r1: [
+            'Your application request has already been submitted.',
+            'We have already received an application request associated with your '
+                + 'details. Therefore, you do not need to resubmit this form. Please '
+                + 'check the email previously sent to you to access your applicant '
+                + 'account and continue with your process.'
+        ],
+        r2: [
+            'Your previous application to this programme received an unfavourable '
+                + 'decision. A new application to the same programme is not possible '
+                + 'before next year. For any questions, please contact the admissions '
+                + 'office.'
+        ]
+    };
+
     /** Affiche le message du cadrage correspondant au motif renvoye. */
     function montrerBlocage(form, motif) {
         /* Motif absent : une page publiee avant que le socle d'ecriture ne
@@ -4051,7 +4890,8 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            prejuge d'aucune decision de jury — c'est le defaut le moins faux.
            Le motif sert AUSSI de ton : orange pour r1, rouge pour r2. */
         var cle = MESSAGES_BLOCAGE[motif] ? motif : 'r1';
-        montrerMessage(form, MESSAGES_BLOCAGE[cle], cle);
+        var table = langueAffichage() === 'en' ? MESSAGES_BLOCAGE_EN : MESSAGES_BLOCAGE;
+        montrerMessage(form, table[cle] || MESSAGES_BLOCAGE[cle], cle);
     }
 
     /** Efface l'encart avant une nouvelle tentative : tout a pu changer. */
@@ -4087,12 +4927,99 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         var e = /<!--\s*socle erreur:\s*([\s\S]*?)\s*-->/i.exec(texte);
         /* Meme ancrage sur `<!--` que ci-dessus, et pour la meme raison. */
         var b = /<!--\s*socle blocage:\s*motif=(\w+)/i.exec(texte);
+        /* Mode asynchrone : la reception rend son RunId et « async=reception » ;
+           c'est le signal pour relancer le traitement en arriere-plan. */
+        var r = /<!--\s*socle ecriture:[^>]*?\brun=(\w*)/i.exec(texte);
+        var a = /<!--\s*socle ecriture:[^>]*?\basync=(\w*)/i.exec(texte);
+        /* La page de traitement dediee, quand la publication en a pose une :
+           c'est elle que le beacon vise, jamais la page du visiteur. */
+        var t = /<!--\s*socle ecriture:[^>]*?\btraitement=([\w-]*)/i.exec(texte);
         return {
             ok: m[1] === 'success',
             bloque: m[1] === 'blocked',
             motif: b ? b[1].toLowerCase() : '',
-            message: e ? e[1] : ''
+            message: e ? e[1] : '',
+            run: r ? r[1] : '',
+            async: a ? a[1] : '',
+            traitement: t ? t[1] : ''
         };
+    }
+
+    /**
+     * SOUMISSION ASYNCHRONE — second passage, sans attendre.
+     *
+     * La reception a mis la soumission en file et repondu « success » : le
+     * visiteur a deja sa confirmation. On renvoie le MEME corps avec
+     * socle_traitement=1 et socle_run=<RunId> : c'est ce passage qui ecrit
+     * dans le CRM et tire les journeys.
+     *
+     * fetch keepalive D'ABORD, et non sendBeacon (01/10). sendBeacon part
+     * sans reponse : quand SFMC refuse la requete — 429 de limitation de
+     * debit, vu en repasse sous lectures paralleles, ou 5xx — la ligne
+     * reste « a_traiter » dans la file sans que personne ne le sache, et
+     * l'automation de rejeu est le seul filet. fetch rend le statut : sur
+     * 429, 5xx ou coupure reseau, on renvoie apres 2 s puis 6 s (3 essais
+     * en tout ; le serveur ne retraite jamais une ligne « traitee »). Le
+     * visiteur a deja sa confirmation et reste en general sur la page ;
+     * keepalive fait survivre l'envoi en cours a la fermeture de l'onglet,
+     * pas les essais suivants — la, c'est l'automation qui prend le relais.
+     * sendBeacon ne sert plus que si fetch manque. Le corps est un Blob type
+     * formulaire : une chaine partirait en text/plain et le serveur n'y
+     * lirait aucun champ. Rien ici ne doit remonter au visiteur.
+     */
+    /**
+     * Ou envoyer le traitement : la page dediee (meme CloudPage, `?id=` de
+     * la cle de traitement, sans les parametres du visiteur) quand la
+     * reception l'annonce, sinon la page courante, telle quelle.
+     */
+    function urlTraitement(bilan) {
+        var loc = window.location;
+        var cle = bilan && bilan.traitement ? String(bilan.traitement) : '';
+        if (!cle) return loc.href;
+        var base = String(loc.href).split('#')[0].split('?')[0];
+        return base + '?id=' + encodeURIComponent(cle);
+    }
+
+    var DELAIS_TRAITEMENT = [2000, 6000];
+
+    function lancerTraitement(corps, bilan) {
+        try {
+            if (!bilan || !bilan.ok || bilan.async !== 'reception' || !bilan.run) return false;
+            var body = corps.join('&') + '&socle_traitement=1&socle_run=' + encodeURIComponent(bilan.run);
+            var url = urlTraitement(bilan);
+            var type = 'application/x-www-form-urlencoded; charset=UTF-8';
+            if (typeof window.fetch === 'function') {
+                var essai = function (n) {
+                    var replanifier = function () {
+                        if (n < DELAIS_TRAITEMENT.length && typeof window.setTimeout === 'function') {
+                            window.setTimeout(function () { essai(n + 1); }, DELAIS_TRAITEMENT[n]);
+                        }
+                    };
+                    try {
+                        var promesse = window.fetch(url, {
+                            method: 'POST',
+                            headers: { 'Content-Type': type },
+                            body: body,
+                            keepalive: true,
+                            credentials: 'same-origin'
+                        });
+                        if (promesse && typeof promesse.then === 'function') {
+                            promesse.then(function (reponse) {
+                                var statut = reponse ? Number(reponse.status) : 0;
+                                if (statut === 429 || statut >= 500 || statut === 0) replanifier();
+                            }, function () { replanifier(); });
+                        }
+                    } catch (eFetch) { replanifier(); }
+                };
+                essai(0);
+                return true;
+            }
+            var nav = (typeof navigator !== 'undefined') ? navigator : null;
+            if (nav && typeof nav.sendBeacon === 'function' && typeof Blob === 'function') {
+                if (nav.sendBeacon(url, new Blob([body], { type: type }))) return true;
+            }
+        } catch (eTraitement) { /* la file sera rejouee par l'automation */ }
+        return false;
     }
 
     /**
@@ -4827,6 +5754,9 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                   if (bilan.ok) {
                       if (bouton) { bouton.style.display = 'none'; }
                       montrerSucces(form);
+                      /* Mode asynchrone : la confirmation est affichee, le
+                         traitement CRM part maintenant, en arriere-plan. */
+                      lancerTraitement(corps, bilan);
                       return;
                   }
                   /* Une candidature bloquee N'EST PAS une panne : le socle a

@@ -87,8 +87,9 @@ export default function (editor, categories) {
             submit:         'Download brochure',
             sending:        'Sending...',
             successTitle:   'Your brochure is ready!',
-            successMsg:     'You can download it right now. It has also been '
-                          + 'sent to you by email.',
+            successMsg:     'You can download it now. We’ve also sent a copy to your '
+                          + 'email address. Don’t forget to check your spam folder. '
+                          + 'We remain at your disposal for any further information.',
             ctaBrochure:    'Download the brochure',
             errRequired:    'This field is required.',
             errEmail:       'Invalid email format.',

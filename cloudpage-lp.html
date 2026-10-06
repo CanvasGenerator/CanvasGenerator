@@ -1,0 +1,903 @@
+<script runat="server">
+Platform.Load("Core", "1.1.1");
+
+/* =====================================================================
+ * EDH — LPBuilder CloudPage
+ * ---------------------------------------------------------------------
+ * Rôle : point d'entrée proxifié. Le serveur EDH redirige vers cette page
+ *        avec ?id=<CustomerKey du Content Block> (+ params de tracking).
+ *        La page résout le tracking, l'expose (AMPscript + JS) puis rend
+ *        le Content Block demandé.
+ *
+ * Debug : ajouter &debug=1 pour afficher la console de diagnostic.
+ *
+ * Dans le Content Block de la LP, les variables sont disponibles :
+ *   AMPscript  -> %%=v(@utm_source)=%%, %%=v(@canal)=%%, ...
+ *   JavaScript -> window.tracking_params.utm_source, window.LPB.params...
+ *   Formulaires-> les champs cachés sont injectés automatiquement
+ * ===================================================================== */
+
+/* ---------------------------------------------------------------------
+ * 0. Helpers (SSJS = ES3 : pas de let/const, pas de Array.indexOf)
+ * ------------------------------------------------------------------ */
+function trimStr(s) {
+    if (s == null) { return ""; }
+    return String(s).replace(/^\s+/, "").replace(/\s+$/, "");
+}
+function lower(s) {
+    if (s == null) { return ""; }
+    return String(s).toLowerCase();
+}
+function inList(needle, list) {
+    for (var i = 0; i < list.length; i++) {
+        if (list[i] == needle) { return true; }
+    }
+    return false;
+}
+function containsAny(haystack, list) {
+    for (var i = 0; i < list.length; i++) {
+        if (haystack.indexOf(list[i]) > -1) { return true; }
+    }
+    return false;
+}
+function htmlEscape(s) {
+    if (s == null) { return ""; }
+    return String(s)
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;")
+        .replace(/'/g, "&#39;");
+}
+/* Sérialisation sûre pour injection dans un bloc script */
+function toSafeJson(obj) {
+    var raw = "";
+    try { raw = Stringify(obj); } catch (e) { raw = "{}"; }
+    var out = String(raw)
+        .replace(/</g, "\\u003c")
+        .replace(/>/g, "\\u003e")
+        .replace(/&/g, "\\u0026");
+    /* U+2028 / U+2029 cassent le parsing JS s'ils passent tels quels */
+    out = out.replace(new RegExp(String.fromCharCode(8232), "g"), "\\u2028");
+    out = out.replace(new RegExp(String.fromCharCode(8233), "g"), "\\u2029");
+    return out;
+}
+/* Ligne de la console de debug */
+function debugRow(k, v, cls) {
+    var c = cls ? cls : "";
+    var val = (v == null || v == "") ? '<span class="log-val empty">&mdash;</span>' : htmlEscape(v);
+    return '<div class="log-line"><span class="log-key">' + htmlEscape(k) + '</span>'
+         + '<span class="log-val ' + c + '">' + val + '</span></div>';
+}
+
+/* ---------------------------------------------------------------------
+ * 1. Lecture de la query string (même logique qu'avant : parsing brut)
+ * ------------------------------------------------------------------ */
+var QS = {};          // clés en minuscule -> valeur décodée
+var paramRows = "";   // rendu debug
+var qs = "";
+var fullURL = "";
+
+try {
+    fullURL = Platform.Request.RequestURL;
+    var qIndex = fullURL.indexOf("?");
+    if (qIndex > -1) { qs = fullURL.substring(qIndex + 1); }
+} catch (e) {}
+
+if (qs != null && qs != "") {
+    var pairs = qs.split("&");
+    for (var i = 0; i < pairs.length; i++) {
+        if (pairs[i] == "") { continue; }
+        var eq = pairs[i].indexOf("=");
+        var rawKey = eq > -1 ? pairs[i].substring(0, eq) : pairs[i];
+        var rawVal = eq > -1 ? pairs[i].substring(eq + 1) : "";
+        var key = rawKey;
+        var val = rawVal;
+        try { key = decodeURIComponent(rawKey.replace(/\+/g, " ")); } catch (e) {}
+        try { val = decodeURIComponent(rawVal.replace(/\+/g, " ")); } catch (e) {}
+        key = lower(trimStr(key));
+        val = trimStr(val);
+        if (key != "") {
+            QS[key] = val;
+            paramRows += '<div class="log-line"><span class="log-key">' + htmlEscape(key)
+                       + '</span><span class="log-val ok">' + htmlEscape(val) + '</span></div>';
+        }
+    }
+}
+
+/* Un param peut arriver en GET ou en POST (form proxy) */
+function rawParam(name) {
+    var k = lower(name);
+    if (QS[k] != null && QS[k] != "") { return QS[k]; }
+    var v = "";
+    try { v = Platform.Request.GetQueryStringParameter(name); } catch (e) {}
+    if (v == null || v == "") {
+        try { v = Platform.Request.GetFormField(name); } catch (e) {}
+    }
+    return trimStr(v == null ? "" : v);
+}
+
+/* Règle clé des guidelines : on checke utm_<x> ET sf_<x> */
+function trackParam(suffix) {
+    var v = rawParam("utm_" + suffix);
+    if (v == "") { v = rawParam("sf_" + suffix); }
+    return v;
+}
+
+/* ---------------------------------------------------------------------
+ * 2. Contexte de la requête
+ * ------------------------------------------------------------------ */
+var method        = Platform.Request.Method;
+var clientIP      = Platform.Request.ClientIP();
+var contentType   = Platform.Request.GetRequestHeader("Content-Type");
+var userAgent     = Platform.Request.GetRequestHeader("User-Agent");
+var acceptLang    = Platform.Request.GetRequestHeader("Accept-Language");
+var referer       = Platform.Request.GetRequestHeader("Referer");
+var authorization = Platform.Request.GetRequestHeader("Authorization");
+var host          = Platform.Request.GetRequestHeader("Host");
+var protocol      = Platform.Request.GetRequestHeader("X-Forwarded-Proto");
+
+var cbKey     = rawParam("id");
+var pageLang  = lower(rawParam("lang"));
+var pageSrc   = rawParam("source");
+var isDebug   = (rawParam("debug") == "1" || lower(rawParam("debug")) == "true");
+if (pageLang == "") { pageLang = "fr"; }
+
+/* ---------------------------------------------------------------------
+ * 3. Résolution du tracking — ordre de priorité strict
+ *    Étape 1 : UTMs dans l'URL  (utm_ OU sf_)
+ *    Étape 2 : analyse du referrer (uniquement si NI source NI medium)
+ *    Étape 3 : pas de referrer  -> direct / none
+ * ------------------------------------------------------------------ */
+var utm_source   = lower(trackParam("source"));
+var utm_medium   = lower(trackParam("medium"));
+var utm_campaign = lower(trackParam("campaign"));
+var utm_content  = lower(trackParam("content"));
+var utm_term     = lower(trackParam("term"));
+/* utm_id / sf_id : distincts du ?id= (clé du Content Block), pas de collision */
+var utm_id       = trackParam("id");
+
+var campus       = lower(rawParam("sf_campus"));
+if (campus == "") { campus = lower(rawParam("utm_campus")); }
+if (campus == "") { campus = lower(rawParam("campus")); }
+
+/* gclid / fbclid : pas de préfixe utm_, valeurs sensibles à la casse */
+var gclid  = rawParam("gclid");
+var fbclid = rawParam("fbclid");
+
+var tracking_origin = "";   /* d'où vient la source : url | referrer | direct */
+
+/* --- Étape 1 : UTMs présents dans l'URL (priorité max) --- */
+if (utm_source != "" || utm_medium != "") {
+    tracking_origin = "url";
+    if (utm_medium == "") {
+        if (utm_source.indexOf("chatgpt") > -1) { utm_medium = "ai"; }
+        else if (utm_source == "email")        { utm_medium = "email"; }
+        else if (utm_source == "sms_oscar")    { utm_medium = "sms"; }
+        else                                    { utm_medium = "issue"; }
+    }
+} else {
+    /* --- Étape 2 : analyse du referrer --- */
+    var refHost = "";
+    if (referer != null && referer != "") {
+        refHost = lower(referer);
+        refHost = refHost.replace(/^https?:\/\//, "");
+        var slash = refHost.indexOf("/");
+        if (slash > -1) { refHost = refHost.substring(0, slash); }
+        var colon = refHost.indexOf(":");
+        if (colon > -1) { refHost = refHost.substring(0, colon); }
+        refHost = refHost.replace(/^www\./, "");
+    }
+
+    if (refHost != "") {
+        tracking_origin = "referrer";
+        utm_source = refHost;
+        if (containsAny(refHost, ["google.", "bing", "yahoo", "duckduckgo", "qwant", "ecosia", "baidu"])) {
+            utm_medium = "organic";
+        } else if (containsAny(refHost, ["chatgpt", "openai", "perplexity", "gemini", "claude", "copilot", "mistral"])) {
+            utm_medium = "ai";
+        } else if (containsAny(refHost, ["facebook", "instagram", "linkedin", "twitter", "t.co", "x.com", "pinterest", "tiktok", "youtube", "reddit", "linktr.ee"])) {
+            utm_medium = "social";
+        } else {
+            utm_medium = "referrals";
+        }
+    } else {
+        /* --- Étape 3 : aucun referrer --- */
+        tracking_origin = "direct";
+        utm_source = "direct";
+        utm_medium = "none";
+    }
+}
+
+/* ---------------------------------------------------------------------
+ * 4. canal / sous_canal — premier match gagne (ordre du tableau)
+ * ------------------------------------------------------------------ */
+var canal = "";
+var sous_canal = "";
+
+function setCanal(c, sc) { canal = c; sous_canal = sc; }
+
+if (utm_source.indexOf("sfmc") > -1 && utm_campaign.indexOf("nurturing") > -1)   { setCanal("Emailing", "nurturing"); }
+else if (utm_source.indexOf("sfmc") > -1 && utm_campaign.indexOf("loyalty") > -1)     { setCanal("Emailing", "loyalty"); }
+else if (utm_source.indexOf("sfmc") > -1 && utm_campaign.indexOf("auto") > -1)        { setCanal("Emailing", "automatisation"); }
+else if (utm_source.indexOf("sfmc") > -1 && utm_campaign.indexOf("invitation") > -1)  { setCanal("Emailing", "invitation"); }
+else if (utm_source.indexOf("sfmc") > -1 && utm_campaign.indexOf("newsletter") > -1)  { setCanal("Emailing", "newsletter"); }
+else if (utm_source.indexOf("sms") > -1)                                              { setCanal("SMS", "sms"); }
+else if (utm_campaign.indexOf("whatsapp") > -1)                                       { setCanal("WhatsApp", "whatsapp"); }
+else if (utm_medium == "ai")                                                          { setCanal("AI", "AI"); }
+else if (utm_medium == "organic")                                                     { setCanal("Search Organic", "Search Organic"); }
+else if (utm_medium == "social")                                                      { setCanal("Social Organic", "Social Organic"); }
+else if (utm_medium == "referrals")                                                   { setCanal("Referrals", "Referrals"); }
+else if (utm_source == "direct")                                                      { setCanal("Direct", "Direct"); }
+else if (utm_source == "google" && utm_medium == "cpc" && utm_campaign.indexOf("pmax") > -1)      { setCanal("Paid Search", "GOOGLE-ADS-PMAX"); }
+else if (utm_source == "google" && utm_medium == "cpc" && utm_campaign.indexOf("search") > -1)    { setCanal("Paid Search", "GOOGLE-ADS-SEARCH"); }
+else if (utm_source == "google" && utm_medium == "cpc" && utm_campaign.indexOf("youtube") > -1)   { setCanal("Paid Search", "GOOGLE-ADS-YOUTUBE"); }
+else if (utm_source == "google" && utm_medium == "cpc" && utm_campaign.indexOf("demandgen") > -1) { setCanal("Paid Search", "GOOGLE-ADS-DEMANDGEN"); }
+else if (utm_source == "tiktok" && utm_medium == "paid_social")                                   { setCanal("Paid Social", "TIKTOK-ADS"); }
+else if ((utm_source == "fb" || utm_source == "facebook") && utm_medium == "paid_social")         { setCanal("Paid Social", "FACEBOOK-ADS"); }
+else if (utm_source == "ig" && utm_medium == "paid_social")                                       { setCanal("Paid Social", "INSTAGRAM-ADS"); }
+else if (utm_source == "snap" && utm_medium == "paid_social")                                     { setCanal("Paid Social", "SNAP-ADS"); }
+else if (utm_source.indexOf("sfmc") > -1)                                                         { setCanal("Emailing", "autre"); }
+else                                                                                              { setCanal("Autre", "Autre"); }
+
+/* ---------------------------------------------------------------------
+ * 5. Consentement — valeur serveur par défaut, réécrite par Axeptio côté client
+ * ------------------------------------------------------------------ */
+var consent = rawParam("consent");
+var date_consentement_cookies = rawParam("date_consentement_cookies");
+if (consent == "") {
+    var axCookie = "";
+    try { axCookie = Platform.Request.GetCookieValue("axeptio_authorized_vendors"); } catch (e) {}
+    consent = (axCookie != null && axCookie != "") ? "1" : "0";
+}
+
+/* ---------------------------------------------------------------------
+ * 6. Exposition vers AMPscript — utilisable dans le Content Block
+ *    ex. dans la LP : <input type="hidden" name="utm_source" value="%%=v(@utm_source)=%%">
+ * ------------------------------------------------------------------ */
+var AMP_VARS = {
+    "utm_source": utm_source,
+    "utm_medium": utm_medium,
+    "utm_campaign": utm_campaign,
+    "utm_content": utm_content,
+    "utm_term": utm_term,
+    "utm_id": utm_id,
+    "gclid": gclid,
+    "fbclid": fbclid,
+    "consent": consent,
+    "date_consentement_cookies": date_consentement_cookies,
+    /* client_id : rempli cote NAVIGATEUR depuis le cookie _ga — le serveur ne
+       le voit pas. La cle est exposee vide pour que le champ cache existe
+       toujours, meme sans Analytics. */
+    "client_id": rawParam("client_id"),
+    "canal": canal,
+    "sous_canal": sous_canal,
+    "campus": campus,
+    "lang": pageLang,
+    "cb_key": cbKey,
+    "page_source": pageSrc,
+    "tracking_origin": tracking_origin,
+    "referrer": (referer == null ? "" : referer),
+    "client_ip": (clientIP == null ? "" : clientIP),
+    "user_agent": (userAgent == null ? "" : userAgent)
+};
+for (var vk in AMP_VARS) {
+    try { Variable.SetValue("@" + vk, AMP_VARS[vk]); } catch (e) {}
+}
+
+/* Objet exposé côté navigateur (chatbot Klyx + auto-remplissage des formulaires) */
+var TRACKING_PARAMS = {
+    "utm_id": (utm_id == "" ? null : utm_id),
+    "utm_source": (utm_source == "" ? null : utm_source),
+    "utm_medium": (utm_medium == "" ? null : utm_medium),
+    "utm_campaign": (utm_campaign == "" ? null : utm_campaign),
+    "utm_content": (utm_content == "" ? null : utm_content),
+    "utm_term": (utm_term == "" ? null : utm_term),
+    "gclid": (gclid == "" ? null : gclid),
+    "fbclid": (fbclid == "" ? null : fbclid),
+    "consent": consent,
+    "date_consentement_cookies": (date_consentement_cookies == "" ? null : date_consentement_cookies)
+};
+var FORM_PARAMS = {
+    "utm_id": utm_id,
+    "utm_source": utm_source,
+    "utm_medium": utm_medium,
+    "utm_campaign": utm_campaign,
+    "utm_content": utm_content,
+    "utm_term": utm_term,
+    "gclid": gclid,
+    "fbclid": fbclid,
+    "consent": consent,
+    "date_consentement_cookies": date_consentement_cookies,
+    /* client_id : rempli cote NAVIGATEUR depuis le cookie _ga — le serveur ne
+       le voit pas. La cle est exposee vide pour que le champ cache existe
+       toujours, meme sans Analytics. */
+    "client_id": rawParam("client_id"),
+    "canal": canal,
+    "sous_canal": sous_canal,
+    "campus": campus,
+    "lang": pageLang
+};
+
+/* ---------------------------------------------------------------------
+ * 7. Cookies techniques (inchangé)
+ * ------------------------------------------------------------------ */
+Platform.Response.SetCookie("lpbuilder_test", "cree_par_LPBuilder_CloudPage", 30);
+Platform.Response.SetCookie("lpbuilder_session", "session_abc123", 1);
+var cookieTest = "";
+var cookieSession = "";
+try {
+    cookieTest = Platform.Request.GetCookieValue("lpbuilder_test");
+    cookieSession = Platform.Request.GetCookieValue("lpbuilder_session");
+} catch (e) {
+    cookieTest = "rafraîchis la page";
+    cookieSession = "rafraîchis la page";
+}
+
+/* ---------------------------------------------------------------------
+ * 8. Rendu du Content Block demandé (?id = CustomerKey / External Key)
+ *
+ *    >>> TEST_MODE = true  : la page affiche TOUTES les variables calculées
+ *                            à la place du Content Block (mode recette).
+ *    >>> TEST_MODE = false : la page rend le Content Block (mode production).
+ *    Une seule ligne à basculer pour passer en prod.
+ * ------------------------------------------------------------------ */
+var TEST_MODE = false;
+
+var cbHtml = "";
+var cbError = "";
+var cbResolvedBy = "";
+
+if (TEST_MODE) {
+    cbResolvedBy = "— (TEST_MODE : aucun appel ContentBlockByKey)";
+    if (cbKey == "") {
+        cbError = "Aucun identifiant fourni (paramètre ?id= manquant).";
+    } else if (!/^[A-Za-z0-9 ._:@#\/-]{1,200}$/.test(cbKey)) {
+        cbError = "Identifiant de Content Block invalide.";
+    }
+} else if (cbKey == "") {
+    cbError = "Aucun identifiant de Content Block fourni (paramètre ?id= manquant).";
+} else if (!/^[A-Za-z0-9 ._:@#\/-]{1,200}$/.test(cbKey)) {
+    cbError = "Identifiant de Content Block invalide.";
+} else {
+    try {
+        cbHtml = Platform.Function.ContentBlockByKey(cbKey);
+        cbResolvedBy = "ContentBlockByKey";
+    } catch (e1) {
+        /* Repli : l'app peut fournir un chemin Content Builder plutôt qu'une clé */
+        if (cbKey.indexOf("/") > -1) {
+            try {
+                cbHtml = Platform.Function.ContentBlockByName(cbKey);
+                cbResolvedBy = "ContentBlockByName";
+            } catch (e2) {
+                cbError = "Content Block introuvable pour l'identifiant demandé.";
+            }
+        } else {
+            cbError = "Content Block introuvable pour l'identifiant demandé.";
+        }
+    }
+    if (cbError == "" && (cbHtml == null || trimStr(cbHtml) == "")) {
+        cbError = "Le Content Block demandé est vide.";
+    }
+}
+
+/* ---------------------------------------------------------------------
+ * 9. Jeux de test (affichés en TEST_MODE / &debug=1)
+ *    Remplacer CB_LP_TEST par une vraie External Key quand TEST_MODE=false.
+ * ------------------------------------------------------------------ */
+var baseURL = fullURL;
+var _qi = baseURL.indexOf("?");
+if (_qi > -1) { baseURL = baseURL.substring(0, _qi); }
+
+var CB = "CB_LP_TEST";
+var TEST_CASES = [
+    ["Direct (aucun param)",
+        "id=" + CB],
+    ["Emailing / nurturing (préfixe sf_)",
+        "id=" + CB + "&sf_source=SFMC&sf_medium=email&sf_campaign=2026_NURTURING_MBA&sf_content=cta_header&sf_id=CAMP-4471&sf_campus=paris&lang=fr"],
+    ["Emailing / newsletter (préfixe utm_)",
+        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_janvier&utm_content=bloc2&utm_id=NL-2026-01"],
+    ["Emailing / invitation JPO + campus",
+        "id=" + CB + "&sf_source=sfmc&sf_medium=email&sf_campaign=invitation_jpo_mars&sf_campus=lyon"],
+    ["Emailing / automatisation",
+        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=auto_relance_dossier"],
+    ["Emailing / loyalty",
+        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=loyalty_alumni"],
+    ["SMS (medium déduit : sms)",
+        "id=" + CB + "&utm_source=sms_oscar&utm_campaign=relance_candidature"],
+    ["AI (medium déduit : ai)",
+        "id=" + CB + "&utm_source=chatgpt.com"],
+    ["Source inconnue (medium déduit : issue)",
+        "id=" + CB + "&sf_source=partenaire_studyrama&sf_campaign=salon_2026"],
+    ["Paid Search / GOOGLE-ADS-PMAX",
+        "id=" + CB + "&utm_source=google&utm_medium=cpc&utm_campaign=FR_PMAX_MBA_2026&utm_term=mba%20paris&gclid=Cj0KCQjwTEST123"],
+    ["Paid Search / GOOGLE-ADS-SEARCH",
+        "id=" + CB + "&sf_source=google&sf_medium=cpc&sf_campaign=FR_SEARCH_BACHELOR&gclid=Cj0KCQjwTEST456"],
+    ["Paid Social / FACEBOOK-ADS",
+        "id=" + CB + "&utm_source=fb&utm_medium=paid_social&utm_campaign=retargeting_jpo&fbclid=IwAR_TEST_789"],
+    ["Paid Social / TIKTOK-ADS",
+        "id=" + CB + "&utm_source=tiktok&utm_medium=paid_social&utm_campaign=awareness_bts"],
+    ["WhatsApp",
+        "id=" + CB + "&utm_source=oscar&utm_medium=push&utm_campaign=whatsapp_relance_dossier"],
+    ["Consentement déjà donné",
+        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_fev&consent=1&date_consentement_cookies=2026-08-13%2010%3A30%3A00"],
+    ["Anglais (lang=en)",
+        "id=" + CB + "&lang=en&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_international"],
+    ["Tout en majuscules (test lowercase)",
+        "id=" + CB + "&UTM_SOURCE=SFMC&UTM_MEDIUM=EMAIL&UTM_CAMPAIGN=2026_NURTURING_MBA"],
+    ["Erreur : id manquant",
+        "utm_source=sfmc&utm_medium=email&utm_campaign=newsletter"],
+    ["Erreur : id invalide (test validation)",
+        "id=%3Cscript%3Ealert(1)%3C%2Fscript%3E&utm_source=sfmc"]
+];
+</script>
+<!DOCTYPE html>
+<script runat="server">Write('<html lang="' + htmlEscape(pageLang) + '">');</script>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EDH — Landing Page</title>
+    <script runat="server">
+        Write('<meta name="lpb-content-block" content="' + htmlEscape(cbKey) + '">');
+        Write('<meta name="lpb-canal" content="' + htmlEscape(canal + " / " + sous_canal) + '">');
+    </script>
+
+    <!-- Paramètres de tracking disponibles pour la LP et le chatbot Klyx -->
+    <script runat="server">
+        /* Tout passe par des objets : Stringify sur un objet est fiable en SSJS */
+        var LPB_META = {
+            "contentBlock": cbKey,
+            "lang": pageLang,
+            "trackingOrigin": tracking_origin,
+            "canal": canal,
+            "sous_canal": sous_canal
+        };
+        var bootstrapJs = "";
+        bootstrapJs += "window.tracking_params = " + toSafeJson(TRACKING_PARAMS) + ";\n";
+        bootstrapJs += "window.LPB = window.LPB || {};\n";
+        bootstrapJs += "window.LPB.params = " + toSafeJson(FORM_PARAMS) + ";\n";
+        bootstrapJs += "window.LPB.meta = " + toSafeJson(LPB_META) + ";\n";
+        bootstrapJs += "window.LPB.contentBlock = window.LPB.meta.contentBlock;\n";
+        bootstrapJs += "window.LPB.lang = window.LPB.meta.lang;\n";
+        bootstrapJs += "window.LPB.trackingOrigin = window.LPB.meta.trackingOrigin;\n";
+        Write('<' + 'script>\n' + bootstrapJs + '<' + '/script>');
+    </script>
+
+    <script>
+    (function () {
+        "use strict";
+        var P = window.LPB.params;
+        var KEYS = [];
+        for (var k in P) { if (Object.prototype.hasOwnProperty.call(P, k)) { KEYS.push(k); } }
+
+        function nowStamp() {
+            /* ISO UTC avec Z : c'est le seul format que le CRM accepte pour
+               DateConsentementCookies__c (Date/Heure). L'ancien « AAAA-MM-JJ HH:MM:SS »
+               local tuait la deuxieme soumission de tout visiteur ayant accepte
+               les cookies (25/09). Le socle normalise aussi de son cote. */
+            return new Date().toISOString().slice(0, 19) + "Z";
+        }
+        function getCookie(name) {
+            var m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()\[\]\\\/+^])/g, "\\$1") + "=([^;]*)"));
+            return m ? decodeURIComponent(m[1]) : "";
+        }
+
+        /* --- client_id : l'identifiant Google Analytics du navigateur ---
+           Le serveur ne peut pas le fournir : il vit dans le cookie `_ga`,
+           pose par gtag cote client. Sans lui, Account.ClientID__c et
+           CampaignMember.Client_ID__c restent vides, et on perd le lien entre
+           la soumission et le parcours web qui l'a precedee.
+
+           Format du cookie : GA1.2.1234567890.1690000000
+           Le client id est la paire finale : 1234567890.1690000000
+
+           Jamais ecrase s'il a deja ete fourni par l'URL. */
+        (function poserClientId() {
+            if (P.client_id) { return; }
+            var ga = getCookie("_ga");
+            if (!ga) { return; }
+            var m = ga.match(/GA\d+\.\d+\.(\d+\.\d+)$/);
+            if (!m) { return; }
+            P.client_id = m[1];
+            if (KEYS.indexOf("client_id") === -1) { KEYS.push("client_id"); }
+        })();
+
+        /* --- Remplissage des formulaires ------------------------------ */
+        function fillForm(form) {
+            for (var i = 0; i < KEYS.length; i++) {
+                var key = KEYS[i];
+                var value = P[key] == null ? "" : String(P[key]);
+                var field = form.querySelector('[name="' + key + '"], [data-tracking="' + key + '"]');
+                if (field) {
+                    /* On n'écrase pas une saisie utilisateur sur un champ visible */
+                    if (field.type === "hidden" || !field.value) { field.value = value; }
+                } else {
+                    var input = document.createElement("input");
+                    input.type = "hidden";
+                    input.name = key;
+                    input.value = value;
+                    input.setAttribute("data-lpb-autofill", "1");
+                    form.appendChild(input);
+                }
+            }
+        }
+        function fillAllForms() {
+            var forms = document.querySelectorAll("form");
+            for (var i = 0; i < forms.length; i++) {
+                if (forms[i].getAttribute("data-lpb-skip") === "1") { continue; }
+                fillForm(forms[i]);
+            }
+            /* Champs hors formulaire marqués explicitement */
+            var tagged = document.querySelectorAll("[data-tracking]");
+            for (var j = 0; j < tagged.length; j++) {
+                var key2 = tagged[j].getAttribute("data-tracking");
+                if (P[key2] != null && !tagged[j].value) { tagged[j].value = String(P[key2]); }
+            }
+        }
+        window.LPB.fillForms = fillAllForms;
+
+        /* --- Consentement Axeptio (lecture seule, Axeptio vient du GTM) - */
+        function applyConsent(value) {
+            P.consent = value;
+            window.tracking_params.consent = value;
+            if (value === "1") {
+                var stamp = P.date_consentement_cookies || nowStamp();
+                P.date_consentement_cookies = stamp;
+                window.tracking_params.date_consentement_cookies = stamp;
+            }
+            fillAllForms();
+        }
+        function detectConsent() {
+            if (getCookie("axeptio_authorized_vendors") || getCookie("axeptio_cookies")) { applyConsent("1"); }
+        }
+        window._axcb = window._axcb || [];
+        window._axcb.push(function (sdk) {
+            try {
+                sdk.on("cookies:complete", function () { applyConsent("1"); });
+            } catch (e) {}
+        });
+
+        /* --- dataLayer : event form_sent à la soumission ---------------- */
+        function pick(form, patterns) {
+            var fields = form.querySelectorAll("input, select, textarea");
+            for (var i = 0; i < fields.length; i++) {
+                var n = (fields[i].name || fields[i].id || "").toLowerCase();
+                for (var j = 0; j < patterns.length; j++) {
+                    if (n.indexOf(patterns[j]) > -1 && fields[i].value) { return fields[i].value; }
+                }
+            }
+            return "";
+        }
+        /* Valeur du premier champ dont le NOM est exactement l'un de ceux
+           donnes. `pick` cherche par morceau de nom : « campus » y attraperait
+           le champ cache utm_campus (en tete du formulaire) avant le vrai
+           choix du visiteur. */
+        function champExact(form, names) {
+            for (var i = 0; i < names.length; i++) {
+                var el = form.querySelector('[name="' + names[i] + '"]');
+                if (el && el.value) { return el.value; }
+            }
+            return "";
+        }
+        /* Campus retenu par le visiteur (24/09) : le <select> Campus des six
+           formulaires, sinon le campus choisi recopie dans le champ cache
+           CampusChoisi (ecoles a campus unique, campus masque), sinon le
+           campus de l'URL. Valeur telle que le CRM la porte (« CREAD
+           MONTPELLIER »), sans changement de casse. */
+        function campusChoisi(form) {
+            return champExact(form, ["Campus", "CampusChoisi", "utm_campus"]) || P.campus || "";
+        }
+        function onSubmit(e) {
+            var form = e.target;
+            if (!form || form.tagName !== "FORM") { return; }
+            window.dataLayer = window.dataLayer || [];
+            window.dataLayer.push({
+                "event": "form_sent",
+                "form_lang": P.lang || "fr",
+                "user_data_country": pick(form, ["country", "pays"]),
+                "user_data_email": pick(form, ["email", "mail"]),
+                "user_data_phone": pick(form, ["phone", "tel", "mobile"]),
+                "user_campus": campusChoisi(form)
+            });
+        }
+
+        function boot() {
+            detectConsent();
+            fillAllForms();
+            document.addEventListener("submit", onSubmit, true);
+            /* Les LP peuvent injecter des formulaires après coup (debounce : le
+               remplissage modifie le DOM et re-déclencherait l'observer) */
+            if (window.MutationObserver) {
+                var pending = null;
+                new MutationObserver(function () {
+                    if (pending) { return; }
+                    pending = window.setTimeout(function () {
+                        pending = null;
+                        fillAllForms();
+                    }, 150);
+                }).observe(document.body, { childList: true, subtree: true });
+            }
+        }
+        if (document.readyState === "loading") {
+            document.addEventListener("DOMContentLoaded", boot);
+        } else {
+            boot();
+        }
+    })();
+    </script>
+
+    <style>
+        .lpb-error, .lpb-debug * { box-sizing: border-box; }
+        .lpb-error {
+            font-family: Arial, Helvetica, sans-serif;
+            max-width: 640px;
+            margin: 60px auto;
+            padding: 24px;
+            border: 1px solid #e0e0e0;
+            border-left: 4px solid #E30613;
+            background: #fff;
+            color: #1a1a1a;
+        }
+        .lpb-error h1 { font-size: 18px; margin: 0 0 8px; color: #E30613; }
+        .lpb-error p { margin: 0; font-size: 14px; color: #555; }
+        .lpb-debug {
+            font-family: Arial, Helvetica, sans-serif;
+            background: #f4f4f4;
+            color: #1a1a1a;
+            font-size: 14px;
+            padding: 25px 30px;
+            margin-top: 40px;
+            border-top: 3px solid #E30613;
+        }
+        .lpb-debug .main { max-width: 1100px; margin: 0 auto; }
+        .lpb-debug .section { background: #fff; border: 1px solid #e0e0e0; border-radius: 4px; margin-bottom: 16px; overflow: hidden; }
+        .lpb-debug .section-header { background: #1a1a1a; padding: 10px 18px; display: flex; align-items: center; gap: 10px; }
+        .lpb-debug .section-header .title { color: #fff; font-size: 13px; font-weight: bold; letter-spacing: .5px; text-transform: uppercase; }
+        .lpb-debug .section-header .tag { margin-left: auto; background: #E30613; color: #fff; font-size: 10px; font-weight: bold; padding: 2px 8px; border-radius: 2px; letter-spacing: 1px; }
+        .lpb-debug .log-line { display: flex; padding: 9px 18px; border-bottom: 1px solid #f0f0f0; align-items: flex-start; gap: 20px; }
+        .lpb-debug .log-line:last-child { border-bottom: none; }
+        .lpb-debug .log-key { color: #888; font-size: 12px; min-width: 220px; padding-top: 2px; font-family: 'Courier New', monospace; }
+        .lpb-debug .log-val { color: #1a1a1a; font-weight: 600; font-family: 'Courier New', monospace; font-size: 13px; word-break: break-all; }
+        .lpb-debug .log-val.empty { color: #bbb; font-weight: normal; font-style: italic; }
+        .lpb-debug .log-val.ok { color: #2e7d32; }
+        .lpb-debug .log-val.warn { color: #e65100; }
+        .lpb-debug .footer { text-align: center; padding: 20px; color: #aaa; font-size: 11px; }
+        .lpb-debug .footer span { color: #E30613; font-weight: bold; }
+        .lpb-debug pre {
+            margin: 6px 0 0; padding: 12px; background: #1a1a1a; color: #7fd67f;
+            font-family: 'Courier New', monospace; font-size: 12px; line-height: 1.5;
+            border-radius: 3px; overflow-x: auto; white-space: pre; max-height: 320px;
+        }
+        .lpb-banner {
+            font-family: Arial, Helvetica, sans-serif; font-size: 13px;
+            background: #fff3e0; color: #8a3d00; border-bottom: 2px solid #e65100;
+            padding: 12px 30px; text-align: center;
+        }
+        .lpb-banner code { background: #ffe0b2; padding: 1px 6px; border-radius: 2px; font-size: 12px; }
+        .lpb-link { color: #1a5fb4; text-decoration: none; word-break: break-all; }
+        .lpb-link:hover { text-decoration: underline; }
+        .lpb-demo { padding: 16px 18px; }
+        .lpb-demo label { display: block; margin-bottom: 10px; font-size: 12px; color: #888; font-family: 'Courier New', monospace; }
+        .lpb-demo input, .lpb-demo select {
+            display: block; width: 100%; max-width: 340px; margin-top: 4px; padding: 7px 9px;
+            border: 1px solid #ccc; border-radius: 3px; font-size: 13px; font-family: 'Courier New', monospace;
+        }
+        .lpb-demo input[readonly] { background: #f4f4f4; color: #555; }
+        .lpb-demo button {
+            margin-top: 6px; padding: 9px 18px; background: #E30613; color: #fff;
+            border: none; border-radius: 3px; font-size: 13px; font-weight: bold; cursor: pointer;
+        }
+        .lpb-demo button:hover { background: #b30510; }
+    </style>
+</head>
+<body>
+
+<!-- =========== CONTENU : Content Block (prod) OU variables (TEST_MODE) =========== -->
+<script runat="server">
+    if (!TEST_MODE) {
+        if (cbError == "") {
+            Write(cbHtml);
+        } else {
+            Write('<div class="lpb-error">');
+            Write('<h1>Landing page indisponible</h1>');
+            Write('<p>' + htmlEscape(cbError) + '</p>');
+            if (isDebug) {
+                Write('<p style="margin-top:12px;font-family:monospace;font-size:12px;">id = ' + htmlEscape(cbKey) + '</p>');
+            }
+            Write('</div>');
+        }
+    }
+</script>
+
+<script runat="server">
+if (TEST_MODE) {
+    Write('<div class="lpb-banner">MODE RECETTE &mdash; le Content Block n\'est pas rendu. '
+        + 'Passer <code>TEST_MODE = false</code> (bloc SSJS, section 8) pour repasser en production.</div>');
+}
+</script>
+
+<!-- =========== PANNEAU DES VARIABLES (TEST_MODE ou &debug=1) =========== -->
+<script runat="server">
+if (TEST_MODE || isDebug) {
+    Write('<div class="lpb-debug"><div class="main">');
+
+    /* --- 1. Content Block demandé --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Content Block demandé</span><span class="tag">ID</span></div>');
+    Write(debugRow("id (External Key)", cbKey, "ok"));
+    Write(debugRow("résolu via", cbResolvedBy));
+    Write(debugRow("erreur", cbError, "warn"));
+    Write(debugRow("taille rendue", cbHtml ? (String(cbHtml).length + " caractères") : ""));
+    Write('</div>');
+
+    /* --- 2. Variables de tracking résolues --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Variables de tracking résolues</span><span class="tag">' + htmlEscape(tracking_origin.toUpperCase()) + '</span></div>');
+    Write(debugRow("utm_source", utm_source, "ok"));
+    Write(debugRow("utm_medium", utm_medium, "ok"));
+    Write(debugRow("utm_campaign", utm_campaign));
+    Write(debugRow("utm_content", utm_content));
+    Write(debugRow("utm_term", utm_term));
+    Write(debugRow("utm_id", utm_id));
+    Write(debugRow("gclid", gclid));
+    Write(debugRow("fbclid", fbclid));
+    Write(debugRow("campus", campus));
+    Write(debugRow("consent", consent, "warn"));
+    Write(debugRow("date_consentement_cookies", date_consentement_cookies));
+    Write(debugRow("canal", canal, "ok"));
+    Write(debugRow("sous_canal", sous_canal, "ok"));
+    Write(debugRow("lang", pageLang));
+    Write('</div>');
+
+    /* --- 3. Toutes les variables poussées vers AMPscript --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Variables AMPscript (Variable.SetValue)</span><span class="tag">@VAR</span></div>');
+    for (var dk in AMP_VARS) {
+        Write(debugRow("@" + dk, AMP_VARS[dk], AMP_VARS[dk] != "" ? "ok" : ""));
+    }
+    Write('</div>');
+}
+</script>
+
+<script runat="server">
+if (TEST_MODE || isDebug) {
+    /* --- 4. Preuve de lecture côté AMPscript (ce que fera le Content Block) ---
+       Généré en SSJS et non en AMPscript statique : du markup AMPscript posé
+       directement dans la page resterait présent même avec TEST_MODE = false.
+       TreatAsContent ne reçoit ici que des noms issus de la liste figée
+       ci-dessous — aucune donnée utilisateur n'entre dans l'expression. */
+    Write('<div class="section"><div class="section-header"><span class="title">Lecture réelle en AMPscript</span><span class="tag">PREUVE</span></div>');
+    var AMP_PROOF = ["utm_source", "utm_medium", "utm_campaign", "canal", "sous_canal", "campus", "gclid", "lang"];
+    for (var pi = 0; pi < AMP_PROOF.length; pi++) {
+        var expr = "%" + "%=v(@" + AMP_PROOF[pi] + ")=%" + "%";
+        var evaluated = "";
+        try {
+            evaluated = Platform.Function.TreatAsContent(expr);
+        } catch (e) {
+            evaluated = "(erreur AMPscript)";
+        }
+        Write(debugRow(expr, evaluated, evaluated != "" ? "ok" : ""));
+    }
+    Write('</div>');
+}
+</script>
+
+<script runat="server">
+if (TEST_MODE || isDebug) {
+
+    /* --- 5. Objets JavaScript exposés --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Objets JavaScript exposés</span><span class="tag">CLIENT</span></div>');
+    Write('<div class="log-line" style="display:block"><div class="log-key">window.tracking_params</div><pre id="lpb-dump-tp"></pre></div>');
+    Write('<div class="log-line" style="display:block"><div class="log-key">window.LPB.params</div><pre id="lpb-dump-params"></pre></div>');
+    Write('<div class="log-line" style="display:block"><div class="log-key">window.LPB.meta</div><pre id="lpb-dump-meta"></pre></div>');
+    Write('</div>');
+
+    /* --- 6. Formulaire de démonstration (auto-remplissage) --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Formulaire de démonstration</span><span class="tag">AUTOFILL</span></div>');
+    Write('<div class="lpb-demo">');
+    Write('<form id="lpb-demo-form" onsubmit="return false;">');
+    Write('<label>Email <input type="email" name="email" placeholder="test@test.fr"></label>');
+    Write('<label>Téléphone <input type="tel" name="phone" placeholder="+33612121212"></label>');
+    Write('<label>Pays <select name="country"><option value="france">France</option><option value="maroc">Maroc</option></select></label>');
+    Write('<label>utm_source (champ déjà présent) <input type="text" name="utm_source" readonly></label>');
+    Write('<button type="submit">Simuler l\'envoi (push dataLayer)</button>');
+    Write('</form>');
+    Write('<div class="log-key" style="margin:14px 0 4px">Champs présents dans le formulaire après auto-remplissage :</div>');
+    Write('<div id="lpb-demo-dump"></div>');
+    Write('<div class="log-key" style="margin:14px 0 4px">Dernier push dataLayer :</div>');
+    Write('<pre id="lpb-dump-dl">— (soumettre le formulaire)</pre>');
+    Write('</div></div>');
+
+    /* --- 7. Jeux de test --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Jeux de test</span><span class="tag">URL</span></div>');
+    for (var ti = 0; ti < TEST_CASES.length; ti++) {
+        var tc = TEST_CASES[ti];
+        var href = baseURL + "?" + tc[1];
+        Write('<div class="log-line"><span class="log-key">' + htmlEscape(tc[0]) + '</span>'
+            + '<span class="log-val"><a class="lpb-link" href="' + htmlEscape(href) + '">?' + htmlEscape(tc[1]) + '</a></span></div>');
+    }
+    Write('<div class="log-line"><span class="log-key">referrer</span><span class="log-val empty">non testable via l\'URL &mdash; ouvrir la page depuis un lien sur un autre domaine (google, linkedin&hellip;) sans aucun utm_/sf_</span></div>');
+    Write('</div>');
+
+    /* --- 8. Paramètres URL bruts --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Paramètres URL bruts</span><span class="tag">GET</span></div>');
+    Write(paramRows != "" ? paramRows : '<div class="log-line"><span class="log-val empty">aucun paramètre reçu</span></div>');
+    Write('</div>');
+
+    /* --- 9. Requête --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Requête</span><span class="tag">HTTP</span></div>');
+    Write(debugRow("Method", method, "ok"));
+    Write(debugRow("Host", host));
+    Write(debugRow("X-Forwarded-Proto", protocol));
+    Write(debugRow("Content-Type", contentType));
+    Write(debugRow("Referer", referer));
+    Write(debugRow("Accept-Language", acceptLang));
+    Write(debugRow("User-Agent", userAgent));
+    Write(debugRow("IP Address", clientIP, "ok"));
+    Write(debugRow("Authorization", authorization));
+    Write('</div>');
+
+    /* --- 10. Cookies --- */
+    Write('<div class="section"><div class="section-header"><span class="title">Cookies</span><span class="tag">SERVER</span></div>');
+    Write(debugRow("lpbuilder_test", cookieTest, "ok"));
+    Write(debugRow("lpbuilder_session", cookieSession, "ok"));
+    Write('</div>');
+
+    Write('<div class="footer"><span>EDH</span> &middot; LPBuilder &middot; Salesforce Marketing Cloud &middot; Reetain Consulting</div>');
+    Write('</div></div>');
+}
+</script>
+
+<script>
+(function () {
+    "use strict";
+    if (!document.getElementById("lpb-dump-tp")) { return; }
+
+    function dump(id, obj) {
+        var el = document.getElementById(id);
+        if (el) { el.textContent = JSON.stringify(obj, null, 2); }
+    }
+    function refresh() {
+        dump("lpb-dump-tp", window.tracking_params);
+        dump("lpb-dump-params", window.LPB.params);
+        dump("lpb-dump-meta", window.LPB.meta);
+
+        var form = document.getElementById("lpb-demo-form");
+        var box = document.getElementById("lpb-demo-dump");
+        if (!form || !box) { return; }
+        box.innerHTML = "";
+        var el = form.querySelectorAll("input, select, textarea");
+        for (var i = 0; i < el.length; i++) {
+            var name = el[i].name || ("data-tracking:" + el[i].getAttribute("data-tracking"));
+            var line = document.createElement("div");
+            line.className = "log-line";
+            var k = document.createElement("span");
+            k.className = "log-key";
+            k.textContent = name + (el[i].getAttribute("data-lpb-autofill") === "1" ? "  (injecté)" : "");
+            var v = document.createElement("span");
+            v.className = "log-val " + (el[i].value ? "ok" : "empty");
+            v.textContent = el[i].value || "—";
+            line.appendChild(k);
+            line.appendChild(v);
+            box.appendChild(line);
+        }
+    }
+
+    document.addEventListener("submit", function (e) {
+        if (!e.target || e.target.id !== "lpb-demo-form") { return; }
+        window.setTimeout(function () {
+            var dl = window.dataLayer || [];
+            var last = dl.length ? dl[dl.length - 1] : null;
+            document.getElementById("lpb-dump-dl").textContent =
+                last ? JSON.stringify(last, null, 2) : "— (aucun push)";
+            refresh();
+        }, 0);
+    }, false);
+
+    if (document.readyState === "loading") {
+        document.addEventListener("DOMContentLoaded", function () { window.setTimeout(refresh, 250); });
+    } else {
+        window.setTimeout(refresh, 250);
+    }
+})();
+</script>
+
+</body>
+</html>
