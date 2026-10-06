@@ -89,7 +89,7 @@ function extractBodyContent(fullHtml) {
     return match ? match[1] : fullHtml;
 }
 
-const { enqueueOrProcessInline } = require('../lib/sfmc-sync');
+const { enqueueOrProcessInline, buildHtmlForSfmcPublish } = require('../lib/sfmc-sync');
 
 // ── Translation group ID ──────────────────────────────────────────────────
 function generateGroupId() {
@@ -961,16 +961,9 @@ module.exports = async function handler(req, res) {
             const project = projectRes && projectRes[0];
             if (!project) return res.status(404).json({ error: `Projet "${projectName}" introuvable.` });
 
-            // Utiliser html_sfmc (déjà nettoyé + images publiées par la sauvegarde/cron)
-            // s'il existe ; sinon le préparer à la volée pour ne pas dépendre du cron.
-            let htmlToSend = project.html_sfmc;
-            if (!htmlToSend) {
-                htmlToSend = cleanHtmlForSfmc(project.html || '');
-                htmlToSend = await replaceInlineImagesWithSfmcUrls(htmlToSend, projectName);
-                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                    html_sfmc: htmlToSend
-                });
-            }
+            // Toujours repartir du dernier HTML sauvegardé : html_sfmc peut encore
+            // contenir la version précédente si le cron n'est pas passé.
+            const htmlToSend = await buildHtmlForSfmcPublish(project);
 
             console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
             const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });

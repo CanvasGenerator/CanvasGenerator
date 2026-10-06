@@ -102,6 +102,16 @@
         .cms-formid-chip:hover { background: #e0e7ff; }
         .cms-formid-chip i { font-size: 9px; opacity: .6; }
 
+        /* Sélection multiple (suppression groupée) */
+        .cms-col-select { width: 36px; text-align: center; }
+        .cms-col-select input { width: 16px; height: 16px; cursor: pointer; accent-color: #1a7a5e; }
+        .cms-bulk-bar {
+            display: none; align-items: center; justify-content: space-between; gap: 12px;
+            margin-bottom: 12px; padding: 10px 16px; border-radius: 10px;
+            background: #fff1f2; border: 1px solid #fecdd3; font-size: 13px; color: #374151;
+        }
+        .cms-bulk-bar-actions { display: flex; gap: 8px; }
+
     </style>
 </head>
 
@@ -222,9 +232,19 @@
 
             <!-- Table -->
             <div class="cms-table-wrap">
+                <div id="bulk-bar" class="cms-bulk-bar">
+                    <span><strong id="bulk-count">0</strong> page(s) sélectionnée(s)</span>
+                    <div class="cms-bulk-bar-actions">
+                        <button id="bulk-clear" class="cms-btn cms-btn-preview" type="button">Désélectionner</button>
+                        <button id="bulk-delete" class="cms-btn cms-btn-del" type="button">
+                            <i class="fas fa-trash-alt"></i> Supprimer la sélection
+                        </button>
+                    </div>
+                </div>
                 <table class="cms-table" id="pages-table">
                     <thead>
                         <tr>
+                            <th class="cms-col-select"><input type="checkbox" id="select-all-pages" title="Tout sélectionner (page courante)"></th>
                             <th>Titre de la page</th>
                             <th>Organisation</th>
                             <th>Langue</th>
@@ -237,7 +257,7 @@
                     </thead>
                     <tbody id="pages-tbody">
                         <tr>
-                            <td colspan="8" class="cms-empty">
+                            <td colspan="9" class="cms-empty">
                                 <i class="fas fa-circle-notch fa-spin"></i>
                                 Chargement des pages…
                             </td>
@@ -295,7 +315,7 @@
     <div id="del-modal" class="cms-modal-overlay" style="display:none;">
         <div class="cms-modal">
             <div class="cms-modal-header">
-                <h3><i class="fas fa-trash-alt" style="color:#be123c;margin-right:8px;"></i>Supprimer la page</h3>
+                <h3><i class="fas fa-trash-alt" style="color:#be123c;margin-right:8px;"></i><span id="del-modal-title">Supprimer la page</span></h3>
                 <button class="cms-modal-close" id="del-modal-close">&times;</button>
             </div>
             <div class="cms-modal-body">
@@ -608,7 +628,8 @@
         // ── State ──────────────────────────────────────────────────────────────
         let allPages = [];
         let dupTarget = null;
-        let delTarget = null;
+        let delTarget = null; // project_name, ou tableau de project_name (suppression groupée)
+        const selectedPages = new Set(); // project_name des pages cochées
         let restoreTarget = null;
         let currentView = 'active';
         let allEntities = [];
@@ -1059,7 +1080,7 @@
             const tbody = document.getElementById('pages-tbody');
 
             if (!pages || pages.length === 0) {
-                tbody.innerHTML = `<tr><td colspan="8" class="cms-empty"><i class="fas fa-file-circle-xmark"></i> Aucune page trouvée.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="cms-empty"><i class="fas fa-file-circle-xmark"></i> Aucune page trouvée.</td></tr>`;
                 return;
             }
 
@@ -1068,6 +1089,7 @@
             tbody.innerHTML = slice.map(p => {
                 const isDeleted = (p.status || 'draft') === 'deleted';
                  return `<tr>
+                    ${selectCellHtml(p)}
                     <td>
                         <div class="cms-page-title" title="${escAttr(p.title || p.project_name || '')}">${escHtml(lpDisplayName(p))}</div>
                         ${p.seoTitle ? `<div class="cms-page-seotitle"><i class="fas fa-search" style="font-size:9px;opacity:.5;margin-right:3px;"></i>${escHtml(p.seoTitle)}</div>` : ''}
@@ -1103,7 +1125,7 @@
             const multilingual = activePages.filter(hasTranslations);
 
             if (!multilingual.length) {
-                tbody.innerHTML = `<tr><td colspan="8" class="cms-empty"><i class="fas fa-language"></i> Aucune page avec plusieurs versions de langue.</td></tr>`;
+                tbody.innerHTML = `<tr><td colspan="9" class="cms-empty"><i class="fas fa-language"></i> Aucune page avec plusieurs versions de langue.</td></tr>`;
                 return;
             }
 
@@ -1119,6 +1141,7 @@
                 // ==================== PAGE (toutes langues) ====================
                 html += `
                 <tr class="group-header">
+                    ${selectCellHtml(page)}
                     <td>
                         <div class="cms-page-title">
                             <i class="fas fa-language" style="color:#8b5cf6;margin-right:6px;"></i>
@@ -1147,6 +1170,7 @@
                     const isOrig = code === origLang;
                     html += `
                     <tr class="group-translation">
+                        <td></td>
                         <td style="padding-left: 48px;">
                             <div class="cms-page-title" style="font-size:13px;">
                                 <span style="margin-right:6px;">${LANG_FLAGS[code] || ''}</span>
@@ -1156,6 +1180,7 @@
                         <td></td>
                         <td><span class="cms-badge cms-badge-lang">${LANG_FLAGS[code] || ''} ${escHtml(code)}</span></td>
                         <td>${isOrig ? '<span class="cms-badge-type-original"><i class="fas fa-star"></i> Originale</span>' : '<span class="cms-badge-type-translated"><i class="fas fa-language"></i> Traduite</span>'}</td>
+                        <td></td>
                         <td></td>
                         <td></td>
                         <td></td>
@@ -1180,7 +1205,47 @@
                 renderFlatTable(pages);
                 renderPagination(pages.length);
             }
+            updateBulkBar();
         }
+
+        // ── Sélection multiple (suppression groupée) ───────────────────────────
+        // Pas de sélection dans la corbeille : on n'y fait que restaurer.
+        function canSelectPages() { return currentView !== 'trash'; }
+        function selectCellHtml(page) {
+            if (!canSelectPages()) return '<td class="cms-col-select"></td>';
+            const checked = selectedPages.has(page.project_name) ? 'checked' : '';
+            return `<td class="cms-col-select"><input type="checkbox" class="page-select" data-project="${escAttr(page.project_name)}" ${checked}></td>`;
+        }
+        function updateBulkBar() {
+            const count = selectedPages.size;
+            document.getElementById('bulk-bar').style.display = count && canSelectPages() ? 'flex' : 'none';
+            document.getElementById('bulk-count').textContent = count;
+            const boxes = [...document.querySelectorAll('#pages-tbody .page-select')];
+            const all   = document.getElementById('select-all-pages');
+            all.style.visibility = canSelectPages() ? 'visible' : 'hidden';
+            all.checked       = boxes.length > 0 && boxes.every(b => b.checked);
+            all.indeterminate = !all.checked && boxes.some(b => b.checked);
+        }
+        function clearPageSelection() { selectedPages.clear(); renderTable(lastFilteredPages); }
+        document.getElementById('pages-tbody').addEventListener('change', e => {
+            if (!e.target.classList.contains('page-select')) return;
+            if (e.target.checked) selectedPages.add(e.target.dataset.project);
+            else selectedPages.delete(e.target.dataset.project);
+            updateBulkBar();
+        });
+        document.getElementById('select-all-pages').addEventListener('change', e => {
+            document.querySelectorAll('#pages-tbody .page-select').forEach(b => {
+                b.checked = e.target.checked;
+                if (b.checked) selectedPages.add(b.dataset.project);
+                else selectedPages.delete(b.dataset.project);
+            });
+            updateBulkBar();
+        });
+        document.getElementById('bulk-clear').onclick  = clearPageSelection;
+        document.getElementById('bulk-delete').onclick = () => {
+            if (!selectedPages.size) return;
+            openDelete([...selectedPages]);
+        };
 
         function renderPagination(totalCount) {
             let container = document.getElementById('dashboard-pagination');
@@ -1286,7 +1351,7 @@
                         return matchView && hasTranslations(p);
                     }).length;
             } catch (e) {
-                document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="8" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
+                document.getElementById('pages-tbody').innerHTML = `<tr><td colspan="9" class="cms-empty" style="color:#ef4444;"><i class="fas fa-exclamation-triangle"></i> Erreur de chargement : ${e.message}</td></tr>`;
             }
         }
 
@@ -1328,6 +1393,10 @@
                 return matchQ && matchS && matchView && matchEntity && matchFolder && matchStatus && matchType;
             });
 
+            // Garder uniquement les pages sélectionnées encore visibles après filtrage
+            const visibleNames = new Set(filtered.map(p => p.project_name));
+            [...selectedPages].forEach(n => { if (!visibleNames.has(n)) selectedPages.delete(n); });
+
             updateSummary(allPages);
             renderEntityNavigation();
             currentTablePage = 0;
@@ -1357,6 +1426,7 @@
             document.getElementById('btn-new-page').style.display    = isTrash ? 'none' : 'inline-flex';
             document.getElementById('filter-status').disabled        = isTrash;
             document.getElementById('filter-status').value           = '';
+            selectedPages.clear();
             currentTablePage = 0;
             filterPages();
         }
@@ -1640,7 +1710,11 @@
         // ── Delete ─────────────────────────────────────────────────────────────
         function openDelete(projectName, title) {
             delTarget = projectName;
-            document.getElementById('del-source-label').textContent = `Choisissez le traitement pour « ${title} ». Aucun contenu ne sera supprimé définitivement.`;
+            const isBulk = Array.isArray(projectName);
+            document.getElementById('del-modal-title').textContent  = isBulk ? `Supprimer ${projectName.length} page(s)` : 'Supprimer la page';
+            document.getElementById('del-source-label').textContent = isBulk
+                ? `Choisissez le traitement pour les ${projectName.length} page(s) sélectionnée(s). Aucun contenu ne sera supprimé définitivement.`
+                : `Choisissez le traitement pour « ${title} ». Aucun contenu ne sera supprimé définitivement.`;
             document.getElementById('delete-action').value           = 'trash';
             document.getElementById('delete-reason').value           = '';
             document.getElementById('del-error').style.display       = 'none';
@@ -1654,8 +1728,23 @@
             const btn = document.getElementById('del-confirm');
             btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Suppression…';
             try {
-                const res = await fetch('/api/pages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: delTarget, action: document.getElementById('delete-action').value, reason: document.getElementById('delete-reason').value.trim() }) });
-                if (!res.ok) throw new Error(await readErrorMessage(res));
+                // Même appel que la suppression unitaire, répété pour chaque page sélectionnée.
+                const targets = Array.isArray(delTarget) ? delTarget : [delTarget];
+                const action  = document.getElementById('delete-action').value;
+                const reason  = document.getElementById('delete-reason').value.trim();
+                const failed  = [];
+                for (const projectName of targets) {
+                    const res = await fetch('/api/pages/delete', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName, action, reason }) });
+                    if (res.ok) selectedPages.delete(projectName);
+                    else failed.push({ projectName, message: await readErrorMessage(res) });
+                }
+                if (failed.length && !Array.isArray(delTarget)) throw new Error(failed[0].message);
+                if (failed.length) {
+                    // On garde la modale ouverte sur les seules pages en échec.
+                    await loadPages();
+                    delTarget = failed.map(f => f.projectName);
+                    throw new Error(`${failed.length} page(s) non traitée(s) : ${failed.map(f => `${f.projectName} (${f.message})`).join(', ')}`);
+                }
                 closeDelModal(); await loadPages();
             } catch (e) {
                 const errorEl = document.getElementById('del-error');
