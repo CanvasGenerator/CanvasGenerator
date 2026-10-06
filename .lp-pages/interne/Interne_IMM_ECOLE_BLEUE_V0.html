@@ -1,0 +1,590 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ÉCOLE BLEUE — Demande immersion</title>
+</head>
+<body>
+
+
+<header class="header-ecole-bleue">
+  <div class="hdr-inner">
+    <div class="hdr-brand">
+      <div class="hdr-logo">École Bleue</div>
+      <div class="hdr-baseline">Design d'objet, innovation<br>& créativité</div>
+    </div>
+    <a href="#" class="hdr-lang">FR</a>
+  </div>
+</header>
+<style>
+  .header-ecole-bleue {
+    background-color: var(--brand-header, #000041);
+    color: #ffffff;
+    width: 100%;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  .header-ecole-bleue .hdr-inner {
+    max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .header-ecole-bleue .hdr-brand { display: flex; align-items: center; gap: 20px; min-width: 0; }
+  .header-ecole-bleue .hdr-logo {
+    font-size: 30px; font-weight: 800; letter-spacing: 2px; line-height: 1;
+    color: #ffffff; white-space: nowrap; flex-shrink: 0;
+  }
+  .header-ecole-bleue .hdr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #ffffff; }
+  .header-ecole-bleue .hdr-lang {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-decoration: none;
+    color: #ffffff; border: 1px solid currentColor; padding: 5px 13px; border-radius: 2px;
+    opacity: 0.9; flex-shrink: 0;
+  }
+  .header-ecole-bleue .hdr-lang:hover { opacity: 1; }
+  @media (max-width: 768px) {
+    .header-ecole-bleue .hdr-inner { padding: 12px 16px; }
+    .header-ecole-bleue .hdr-logo { font-size: 22px; }
+    .header-ecole-bleue .hdr-baseline { display: none; }
+  }
+</style>
+
+<section class="imf-section"
+  data-gjs-droppable="false"
+  data-lp-form="1">
+
+<!-- ═══════════ STYLES ═══════════ -->
+<style>
+.imf-section *, .imf-section *::before, .imf-section *::after { box-sizing: border-box; }
+.imf-section {
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 40px 16px; background: transparent;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: var(--brand-text, #1a1a1a);
+}
+.imf-card {
+    width: 100%; max-width: 520px;
+    background: #F4EFEA; padding: 24px 24px 28px;
+}
+.imf-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
+.imf-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
+.imf-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule : elle existe pour que le niveau
+   d'études et le campus ne soient pas FRERES, le socle ne réordonnant que les
+   champs qui partagent un parent. min-width:0 parce qu'une cellule de grille
+   refuse sinon de descendre sous la largeur de son contenu. */
+.imf-col { min-width: 0; }
+.imf-field { display: flex; flex-direction: column; margin-bottom: 12px; }
+.imf-row .imf-field { margin-bottom: 0; }
+.imf-field.hidden { display: none; }
+/* Un champ masqué laisse sa CELLULE de grille en place : la voisine restait
+   donc coincée dans sa colonne, avec la moitié de la ligne vide à côté. C'est
+   ce que donnait le niveau d'études sur IFA Paris, École Bleue, MoPA et 3WA,
+   qui ne proposent aucun campus.
+
+   Le socle fait le même geste sur une page publiée (ajusterRangee) : sans
+   ces deux règles, l'aperçu du builder montrerait un formulaire que personne
+   ne verra jamais en ligne. */
+.imf-row > .imf-col:has(> .imf-field.hidden) { display: none; }
+.imf-row:has(> .imf-col > .imf-field.hidden) > .imf-col { grid-column: 1 / -1; }
+.imf-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
+    display: block;
+}
+.imf-label .req { color: inherit; }
+.imf-input, .imf-select {
+    width: 100%; height: 46px; padding: 0 14px;
+    border: 1px solid #000; border-radius: 0;
+    font-size: 13px; font-family: inherit; color: #000; background: var(--brand-background, #ffffff);
+    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+}
+.imf-input:focus, .imf-select:focus { border-color: var(--brand-muted, #6b7280); }
+.imf-input.err, .imf-select.err { border-color: #c00; }
+.imf-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
+.imf-err-msg.show { display: block; }
+.imf-sel-wrap { position: relative; }
+.imf-sel-wrap::after {
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+.imf-phone-wrap { display: flex; gap: 8px; }
+.imf-dates,
+.imf-ateliers { display: grid; gap: 8px; }
+.imf-dates label,
+.imf-ateliers label {
+    display: flex; align-items: flex-start; gap: 10px;
+    padding: 10px 12px; border: 1px solid #e2e2e2; border-radius: 8px;
+    cursor: pointer; font-size: 14px; line-height: 1.45; background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.imf-dates label:hover,
+.imf-ateliers label:hover { border-color: #b9b9b9; }
+.imf-dates input,
+.imf-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.imf-dates label:has(input:checked),
+.imf-ateliers label:has(input:checked) { border-color: #1a1a1a; background: #fafafa; }
+
+/* Meme structure en deux colonnes que les autres formulaires evenement : le
+   socle rend les memes classes, quel que soit le formulaire qui l'accueille. */
+.socle-instance-corps {
+    display: flex; flex: 1; gap: 16px;
+    justify-content: space-between; align-items: flex-start; flex-wrap: wrap;
+}
+/* ── Meme habillage que la carte evenement du builder ────────────────────
+   Capture du 03/09 : deux colonnes, le QUAND a gauche sous une icone
+   calendrier (date, horaires, conference), le OU a droite sous une icone
+   epingle (campus, adresse), separees par un trait vertical.
+
+   Ce CSS vit EN DOUBLE avec shared/event-form.js : toute retouche ici doit
+   y etre reportee. Les icones sont en CSS, le mot-cle currentColor n'existant
+   pas dans une data-URI : la couleur est celle de .jpo-event-ico, #333.
+
+   ⚠ Ces regles visent des elements que le socle cree A L'EXECUTION. Elles ne
+   survivent a la publication que grace a SELECTEURS_RUNTIME dans
+   lib/htmlCleaner.js. */
+.imf-dates label {
+    border-color: #e6e1da;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 12px;
+}
+.socle-instance-quand,
+.socle-instance-ou {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+}
+.socle-instance-quand > *,
+.socle-instance-ou > * { grid-column: 2; }
+.socle-instance-quand::before,
+.socle-instance-ou::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background-repeat: no-repeat;
+    background-position: center;
+    background-size: contain;
+}
+/* L'icone tient la colonne 1 sur toute la hauteur : elle reste en regard de
+   la date meme quand les lignes s'ajoutent en dessous. */
+.socle-instance-quand::before {
+    grid-row: 1 / -1;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2'/%3E%3Cpath d='M3 9.5h18M8 2.5v4M16 2.5v4' stroke-linecap='round'/%3E%3C/svg%3E");
+}
+.socle-instance-ou::before {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Cpath d='M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.6'/%3E%3C/svg%3E");
+}
+.socle-instance-ou {
+    border-left: 1px solid #e0dad2;
+    padding-left: 18px;
+}
+.socle-instance-date { font-weight: 700; font-size: 13px; color: #000; }
+.socle-instance-lieu { font-size: 12px; color: #555; line-height: 1.5; white-space: pre-line; }
+/* Sous 560px les colonnes s'empilent : le trait vertical devient un filet. */
+@media (max-width: 560px) {
+    .socle-instance-ou {
+        border-left: 0; padding-left: 0;
+        border-top: 1px solid #e0dad2; padding-top: 10px;
+    }
+}
+/* Bloc entier masque tant qu'il n'y a rien a proposer : un intitule sans
+   option n'apprend rien. */
+.imf-dates-field:has(.imf-dates:empty),
+.imf-ateliers-field:has(.imf-ateliers:empty) { display: none; }
+
+/* Campus sans aucune date. Tant qu'aucun campus n'est choisi, la regle
+   ci-dessus masque le bloc — il n'y a rien a annoncer. Des qu'un campus EST
+   choisi (select required, donc :valid) et que le socle n'a rendu aucune
+   date, on avertit et on neutralise l'envoi. Le ::before ne compte pas dans
+   :empty, donc aucune modification du socle n'est necessaire. */
+.imf-card:has(.imf-campus:valid) .imf-dates-field:has(.imf-dates:empty) {
+    display: flex;
+}
+.imf-card:has(.imf-campus:valid) .imf-dates:empty::before {
+    content: "Aucune date n'est disponible pour ce campus. L'inscription est impossible : merci de choisir un autre campus.";
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #c00; border-radius: 8px;
+    background: #fff5f5; color: #c00;
+    font-size: 13px; line-height: 1.45;
+}
+.imf-card:has(.imf-campus:valid):has(.imf-dates:empty) .imf-submit {
+    background: #888; cursor: not-allowed; pointer-events: none;
+}
+
+.imf-phone-prefix-wrap {
+    position: relative;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
+    flex-shrink: 0;
+}
+.imf-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+.imf-phone-prefix {
+    width: 100%;
+    height: 46px;
+    padding: 0 20px 0 8px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 11px;
+    font-family: inherit;
+    color: #000;
+    background: var(--brand-background, #ffffff);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
+}
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.imf-rgpd { flex-wrap: wrap; }
+.imf-rgpd .imf-err-msg { flex-basis: 100%; margin-left: 28px; }
+
+.imf-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
+.imf-rgpd input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: var(--brand-background, #ffffff);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+.imf-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
+.imf-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
+.imf-rgpd-label a { color: #000; text-decoration: underline; }
+.imf-submit-wrap { display: block; width: 100%; }
+.imf-submit {
+    /* display:block et NON inline-flex : le flex supprime les blancs entre deux
+       éléments, donc l'espace tapé dans le libellé disparaissait dès que
+       l'éditeur scindait le texte en plusieurs nœuds. */
+    width: 100%; display: block; text-align: center;
+    padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
+    border: none; border-radius: 0; font-size: 14px; font-weight: 700;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
+}
+.imf-submit::after {
+    content: '';
+}
+.imf-submit:hover { background: #222; }
+.imf-submit:disabled { background: #888; cursor: not-allowed; }
+.imf-success { display: none; padding: 16px 0 8px; text-align: center; }
+.imf-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
+.imf-spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #fff; border-top-color: transparent;
+    border-radius: 50%; animation: imf-spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
+}
+@keyframes imf-spin { to { transform: rotate(360deg); } }
+@media(max-width:460px){
+    .imf-row { grid-template-columns: 1fr; }
+    .imf-phone-prefix-wrap { width: 80px; }
+}
+</style>
+
+<!-- ═══════════ CARD ═══════════ -->
+<div class="imf-card">
+
+    <h3 class="imf-title">Demande d'immersion</h3>
+    <p class="imf-subtitle">Vivez une journée dans notre école. Laissez-nous vos coordonnées, notre équipe vous recontacte.</p>
+
+    <!-- Confirmation (masquée initialement) -->
+    <div class="imf-success">
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
+        <h3 class="imf-success-title"></h3>
+    </div>
+
+    <!-- Formulaire -->
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="imf-form" data-lang="fr" method="post">
+
+        <!-- ═══════════ CHAMPS CACHÉS (tracking + mapping CRM) ═══════════ -->
+        <input type="hidden" name="submitted"            value="true">
+        <input type="hidden" name="NomFormulaire"        value="Demande_Immersion">
+        <input type="hidden" name="TypeFormulaire"       value="immersion">
+        <input type="hidden" name="Marque"               value="">
+        <input type="hidden" name="LanguePreferee"       value="fr">
+        <input type="hidden" name="LangueSouhaitee"      value="">
+        <input type="hidden" name="LegalTexteAccepted"   value="J'accepte d'être contacté(e) par l'école pour les finalités décrites">
+        <input type="hidden" name="DateDernierContact"   value="">
+        <input type="hidden" name="TypeDernierContact"   value="">
+        <input type="hidden" name="CampagneAssociee"     value="">
+        <input type="hidden" name="utm_source" value="">
+        <input type="hidden" name="utm_medium" value="">
+        <input type="hidden" name="utm_campaign" value="">
+        <input type="hidden" name="utm_content" value="">
+        <input type="hidden" name="utm_term" value="">
+        <input type="hidden" name="utm_id" value="">
+        <input type="hidden" name="utm_campus" value="">
+        <input type="hidden" name="gclid" value="">
+        <input type="hidden" name="fbclid" value="">
+        <input type="hidden" name="clientId"                 value="">
+        <input type="hidden" name="consent"                  value="">
+        <input type="hidden" name="date_consentement_cookies" value="">
+        <input type="hidden" name="canal"                    value="">
+        <input type="hidden" name="sous_canal"               value="">
+
+        <!-- Nom / Prénom -->
+        <div class="imf-row">
+            <div class="imf-field">
+                <label class="imf-label">Nom<span class="req">*</span></label>
+                <input class="imf-input" type="text" name="LastName" required>
+                <span class="imf-err-msg">Ce champ est requis.</span>
+            </div>
+            <div class="imf-field">
+                <label class="imf-label">Prénom<span class="req">*</span></label>
+                <input class="imf-input" type="text" name="FirstName" required>
+                <span class="imf-err-msg">Ce champ est requis.</span>
+            </div>
+        </div>
+
+        <!-- Email / Portable -->
+        <div class="imf-row">
+            <div class="imf-field">
+                <label class="imf-label">Adresse email<span class="req">*</span></label>
+                <input class="imf-input imf-email-input" type="email" name="EmailAddress" required>
+                <span class="imf-err-msg">Format e-mail invalide.</span>
+            </div>
+            <div class="imf-field">
+                <label class="imf-label">Portable<span class="req">*</span></label>
+                <div class="imf-phone-wrap">
+                    <div class="imf-phone-prefix-wrap">
+                        <select name="Indicatif" class="imf-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
+                        </select>
+                    </div>
+                    <input class="imf-input imf-phone-input" type="tel" name="MobilePhone" required placeholder="06 12 34 56 78" style="flex:1;">
+                </div>
+                <span class="imf-err-msg">Numéro invalide (ex: 06 12 34 56 78).</span>
+            </div>
+        </div>
+
+        <!-- Niveau d'études / Campus -->
+        <!-- Niveau d'études / Campus — positions 5 et 6 de l'Excel des champs
+             visibles : le niveau AVANT le campus, comme la brochure et à
+             l'inverse de la candidature.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .imf-col. NE PAS LES REMETTRE FRERES
+             DANS LE .imf-row.
+
+             Le socle réordonne les champs qui PARTAGENT un parent, selon
+             OrdreChamps de l'école — qui vaut « campus,niveau,... » pour les
+             dix écoles. Deux .imf-field frères formaient un groupe de deux, et
+             le campus repassait donc devant le niveau sur la page publiée,
+             alors que le builder montrait le bon ordre.
+
+             Un conteneur par champ donne deux groupes d'un seul porteur, que
+             le socle laisse intacts.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module. -->
+        <div class="imf-row">
+            <div class="imf-col">
+                <div class="imf-field">
+                    <label class="imf-label">Niveau d'études<span class="req">*</span></label>
+                    <div class="imf-sel-wrap">
+                        <select class="imf-select imf-niveau" name="StudyLevel" required>
+                            <option value=""></option><option value="seconde">Seconde</option><option value="premiere">Première</option><option value="terminale">Terminale</option><option value="bac">Bac</option><option value="bac+1">Bac+1</option><option value="bac+2">Bac+2</option><option value="bac+3">Bac+3 (Licence / Bachelor)</option><option value="bac+4">Bac+4 (Master 1)</option><option value="bac+5">Bac+5 et +</option>
+                        </select>
+                    </div>
+                    <span class="imf-err-msg">Ce champ est requis.</span>
+                </div>
+            </div>
+            <div class="imf-col">
+                <div class="imf-field">
+                    <label class="imf-label">Campus<span class="req">*</span></label>
+                    <div class="imf-sel-wrap">
+                        <select class="imf-select imf-campus lp-campus-select" name="Campus" required>
+                            <option value=""></option><option value="paris">Paris</option><option value="lille">Lille</option><option value="bordeaux">Bordeaux</option><option value="lyon">Lyon</option><option value="montpellier">Montpellier</option><option value="nice">Nice</option><option value="aix">Aix-en-Provence</option><option value="nantes">Nantes</option><option value="toulouse">Toulouse</option><option value="rennes">Rennes</option>
+                        </select>
+                    </div>
+                    <span class="imf-err-msg">Ce champ est requis.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Spécialité (règle §6) — seule brique de la cascade hors
+             candidature. Masquée au départ ; c'est le socle qui décide. Un champ
+             à une seule valeur reste masqué mais renseigné.
+
+             C'est CE champ que « Champs visibles des formulaires.xlsx » appelle
+             « Programme souhaité » — trois écoles le portent hors candidature :
+             BRASSART, IFA Paris, MoPA.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="imf-field imf-speciality-field hidden">
+            <label class="imf-label">Programme souhaité</label>
+            <div class="imf-sel-wrap">
+                <select class="imf-select" name="Speciality" data-placeholder="Sélectionnez...">
+                    <option value="">Sélectionnez...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
+        <div class="imf-field imf-programme-field hidden">
+            <label class="imf-label">Programme souhaité</label>
+            <div class="imf-sel-wrap">
+                <select class="imf-select imf-programme-select" name="Programme">
+                    <option value="">Sélectionnez un programme...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Memes conteneurs que les autres formulaires evenement, memes
+             contraintes : ils doivent rester DANS le <form>, puisque le socle y
+             cree des <input type="radio" name="InstanceId">.
+
+             TypeEvenement est indispensable : sans lui le socle ne lit
+             aucune instance. L'immersion releve de la famille evenement depuis
+             l'arbitrage du mapping v4 — inscription Summit, pas de campagne. -->
+        <input type="hidden" name="TypeEvenement" value="Immersion">
+        <input type="hidden" name="Appointments"  value="">
+
+        <div class="imf-field imf-dates-field">
+            <label class="imf-label">Choisissez votre date<span class="req">*</span></label>
+            <div class="imf-dates" data-socle="instances"></div>
+        </div>
+
+        <div class="imf-field imf-ateliers-field">
+            <label class="imf-label">Au programme</label>
+            <div class="imf-ateliers" data-socle="appointments"></div>
+        </div>
+
+        <!-- RGPD -->
+        <div class="imf-rgpd">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
+            <label class="imf-rgpd-label">
+                <span data-rgpd-text>J'accepte d'être contacté(e) par l'école pour les finalités décrites</span> <a data-rgpd-link href="#privacy-policy" target="_blank">ici</a>
+            </label>
+        </div>
+
+        <div class="imf-submit-wrap">
+            <!-- Libellé dans un <span> éditable : sur un <button> focalisé, la
+                 touche Espace active le bouton au lieu d'insérer un caractère. -->
+            <button type="submit" class="imf-submit"><span class="imf-submit-label" data-gjs-type="text">Envoyer ma demande</span></button>
+        </div>
+    </form>
+
+</div><!-- /.imf-card -->
+
+        <!-- SOCLE SALESFORCE CORE — deux blocs, deux moments.
+
+             LECTURE : remplit les listes depuis le CRM à l'affichage.
+             ÉCRITURE : n'agit QUE si `submitted=true` est posté. Le
+             formulaire se poste à lui-même (shared/envoi-socle.js), et ce
+             bloc-ci est ce qui reçoit la soumission — sans lui, le POST
+             n'écrirait rien, en silence.
+
+             L'écriture vient EN PREMIER : elle doit avoir créé le compte avant
+             que la lecture ne rende la page de réponse.
+
+             Inertes dans le builder, repli statique si Salesforce est muet. -->
+        <div class="socle-read-snippet" style="display:none !important" aria-hidden="true" data-gjs-droppable="false" data-gjs-selectable="false">
+            %%[ SET @LPB_TYPE_FORM = "immersion" SET @LPB_TYPE_EVT = "Immersion" ]%%
+            %%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
+            %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
+        </div>
+</section>
+
+<footer class="footer-ecole-bleue">
+  <div class="ftr-inner">
+    <div class="ftr-main">
+      <div class="ftr-brand">
+        <div class="ftr-logo">École Bleue</div>
+        <div class="ftr-baseline">Design d'objet, innovation<br>& créativité</div>
+      </div>
+      <div class="ftr-socials"><a href="#" class="ftr-ecole-bleue-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDIuMTYzYzMuMjA0IDAgMy41ODQuMDEyIDQuODUuMDcgMS4zNjYuMDYyIDIuNjMzLjMzMiAzLjYwOCAxLjMwOC45NzUuOTc1IDEuMjQ1IDIuMjQyIDEuMzA4IDMuNjA4LjA1OCAxLjI2Ni4wNyAxLjY0Ni4wNyA0Ljg1cy0uMDEyIDMuNTg0LS4wNyA0Ljg1Yy0uMDYzIDEuMzY2LS4zMzMgMi42MzMtMS4zMDggMy42MDgtLjk3NS45NzUtMi4yNDIgMS4yNDUtMy42MDggMS4zMDgtMS4yNjYuMDU4LTEuNjQ2LjA3LTQuODUuMDdzLTMuNTg0LS4wMTItNC44NS0uMDdjLTEuMzY2LS4wNjMtMi42MzMtLjMzMy0zLjYwOC0xLjMwOC0uOTc1LS45NzUtMS4yNDUtMi4yNDItMS4zMDgtMy42MDhDMi4xNzUgMTUuNTg0IDIuMTYzIDE1LjIwNCAyLjE2MyAxMnMuMDEyLTMuNTg0LjA3LTQuODVjLjA2Mi0xLjM2Ni4zMzItMi42MzMgMS4zMDgtMy42MDhDNC41MTYgMi41NjcgNS43ODMgMi4yOTcgNy4xNSAyLjIzNCA4LjQxNiAyLjE3NiA4Ljc5NiAyLjE2MyAxMiAyLjE2M3ptMCA1LjgzOGEzLjk5OSAzLjk5OSAwIDEwMCA3Ljk5OCAzLjk5OSAzLjk5OSAwIDAwMC03Ljk5OHptMCA2LjU5OGEyLjU5OSAyLjU5OSAwIDExMC01LjE5OCAyLjU5OSAyLjU5OSAwIDAxMCA1LjE5OHptNS4wOTYtNi43NTJhLjkzNi45MzYgMCAxMS0xLjg3MiAwIC45MzYuOTM2IDAgMDExLjg3MiAweiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-ecole-bleue-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIyLjY3NSAwaC0yMS4zNUMuNTkzIDAgMCAuNTkzIDAgMS4zMjV2MjEuMzUxQzAgMjMuNDA3LjU5MyAyNCAxLjMyNSAyNGgxMS40OTV2LTkuMjk0SDkuNjkydi0zLjYyMmgzLjEyOFY4LjQxM2MwLTMuMSAxLjg5My00Ljc4OCA0LjY1OS00Ljc4OCAxLjMyNSAwIDIuNDYzLjA5OSAyLjc5NS4xNDN2My4yNGgtMS45MThjLTEuNTA0IDAtMS43OTUuNzE1LTEuNzk1IDEuNzYzdjIuMzEzaDMuNTg3bC0uNDY3IDMuNjIyaC0zLjEyVjI0aDYuMTE2QzIzLjQwNyAyNCAyNCAyMy40MDcgMjQgMjIuNjc2VjEuMzI1QzI0IC41OTMgMjMuNDA3IDAgMjIuNjc1IDB6Ii8+PC9zdmc+"></a><a href="#" class="ftr-ecole-bleue-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE4LjI0NCAyLjI1aDMuMzA4bC03LjIyNyA4LjI2IDguNTAyIDExLjI0SDE2LjE3bC01LjIxNC02LjgxN0w0Ljk5IDIxLjc1SDEuNjhsNy43My04LjgzNUwxLjI1NCAyLjI1SDguMTM0bDQuNzEzIDYuMjMxIDUuMzk3LTYuMjMxem0tMS4xNjEgMTcuNTJoMS44MzNMNy4wODQgNC4xMjZINS4xMTdMMTcuMDgzIDE5Ljc3eiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-ecole-bleue-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE5IDBoLTE0Yy0yLjc2MSAwLTUgMi4yMzktNSA1djE0YzAgMi43NjEgMi4yMzkgNSA1IDVoMTRjMi43NjIgMCA1LTIuMjM5IDUtNXYtMTRjMC0yLjc2MS0yLjIzOC01LTUtNXptLTExIDE5aC0zdi0xMWgzdjExem0tMS41LTEyLjI2OGMtLjk2NiAwLTEuNzUtLjc5LTEuNzUtMS43NjRzLjc4NC0xLjc2NCAxLjc1LTEuNzY0IDEuNzUuNzkgMS43NSAxLjc2NC0uNzgzIDEuNzY0LTEuNzUgMS43NjR6bTEzLjUgMTIuMjY4aC0zdi01LjYwNGMwLTMuMzY4LTQtMy4xMTMtNCAwdjUuNjA0aC0zdi0xMWgzdjEuNzY1YzEuMzk2LTIuNTg2IDctMi43NzcgNyAyLjQ3NnY2Ljc1OXoiLz48L3N2Zz4="></a><a href="#" class="ftr-ecole-bleue-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIzLjQ5OCA2LjE4NmEzLjAxNiAzLjAxNiAwIDAwLTIuMTIyLTIuMTM2QzE5LjUwNSAzLjU0NSAxMiAzLjU0NSAxMiAzLjU0NXMtNy41MDUgMC05LjM3Ny41MDVhMy4wMTcgMy4wMTcgMCAwMC0yLjEyMiAyLjEzNkMwIDguMDU1IDAgMTIgMCAxMnMwIDMuOTQ1LjUwMSA1LjgxNGEzLjAxNyAzLjAxNyAwIDAwMi4xMjIgMi4xMzZDNC40OTUgMjAuNDU1IDEyIDIwLjQ1NSAxMiAyMC40NTVzNy41MDUgMCA5LjM3Ny0uNTA1YTMuMDE1IDMuMDE1IDAgMDAyLjEyMi0yLjEzNkMyNCAxNS45NDUgMjQgMTIgMjQgMTJzMC0zLjk0NS0uNTAyLTUuODE0ek05LjU0NSAxNS41NjhWOC40MzJMMTUuODE4IDEybC02LjI3MyAzLjU2OHoiLz48L3N2Zz4="></a></div>
+    </div>
+    <div class="ftr-legal">
+      <p>ÉCOLE BLEUE collecte vos données afin de vous adresser de la documentation. Pour en savoir plus sur le traitement de vos données et pour exercer vos droits, consultez la <a href="#" class="ftr-link">Politique de confidentialité</a>.</p>
+    </div>
+  </div>
+</footer>
+<style>
+  .footer-ecole-bleue {
+    background-color: #ffffff !important; color: #1a1a1a;
+    padding: 48px 24px 32px; font-family: 'Georgia', 'Times New Roman', serif; border-top: 1px solid #e5e7eb;
+  }
+  .footer-ecole-bleue .ftr-inner { max-width: 1200px; margin: 0 auto; }
+  .footer-ecole-bleue .ftr-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; margin-bottom: 32px; }
+  .footer-ecole-bleue .ftr-brand { display: flex; flex-direction: column; }
+  .footer-ecole-bleue .ftr-logo { font-size: 38px; font-weight: 800; letter-spacing: 2px; line-height: 1; color: #1a1a1a; margin-bottom: 10px; }
+  .footer-ecole-bleue .ftr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #6b7280; }
+  .footer-ecole-bleue .ftr-socials { display: flex; gap: 12px; flex-wrap: wrap; }
+  .footer-ecole-bleue .ftr-ecole-bleue-soc { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 50%; color: #1a1a1a; }
+  .footer-ecole-bleue .ftr-ecole-bleue-soc svg,   .footer-ecole-bleue .ftr-ecole-bleue-soc img.svg-inline { width: 18px; height: 18px; fill: currentColor; }
+  .footer-ecole-bleue .ftr-legal { border-top: 1px solid #f2f2f2; padding-top: 24px; }
+  .footer-ecole-bleue .ftr-legal p { font-size: 11px; line-height: 1.8; color: #999999; max-width: 1000px; margin: 0; }
+  .footer-ecole-bleue .ftr-link { color: #1a1a1a; text-decoration: underline; }
+  @media (max-width: 768px) {
+    .footer-ecole-bleue .ftr-main { flex-direction: column; align-items: center; gap: 24px; text-align: center; }
+    .footer-ecole-bleue .ftr-brand { align-items: center; }
+    .footer-ecole-bleue .ftr-socials { justify-content: center; }
+  }
+</style>
+</body>
+</html>
