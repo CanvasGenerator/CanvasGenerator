@@ -697,7 +697,8 @@
 
         function buildPublicUrlPreview(entity, slug = 'ma-page') {
             const baseUrl = String(entity.base_url || '').replace(/\/+$/, '');
-            return baseUrl ? `${baseUrl}/${slug}` : `/${slug}`;
+            // Même format que buildPublicPagePath (api/content.js) pour une page FR.
+            return baseUrl ? `${baseUrl}/pages/${slug}` : `/pages/${slug}`;
         }
 
         function getStatusLabel(page) {
