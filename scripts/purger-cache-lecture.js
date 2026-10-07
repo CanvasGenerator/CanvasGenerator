@@ -24,6 +24,11 @@
  *        # cron du matin : efface les dates de la veille, reecrit celles du jour (40 pages)
  *    node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=recette --sans-purge
  *        # ne vide rien : visite les pages avec ?socle_cache=refresh (reecriture forcee)
+ *    node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=publiees
+ *        # visite les PAGES PUBLIEES PAR LE BUILDER dans la BU du .env (blocs
+ *        # <ecole>_<nom>_<langue> du Content Builder, FR par defaut) au lieu
+ *        # d'un lot genere : c'est le mode de la prod, ou le lot Prod_* n'est
+ *        # pas publie et ou le site pointe sur ifa-paris_portes-ouvertes_fr & co
  *
  *  Familles : picklists, programmes, evenements (prefixe de la colonne Famille).
  *  Sans filtre : ClearData SOAP sur la DE (une requete, toutes les lignes).
@@ -42,7 +47,8 @@
  *  celui du serveur SFMC (UTC-6, sans heure d'ete) : la cle tombe a 07:00
  *  (hiver) ou 08:00 (ete) heure de Paris, le cron du matin se lance apres.
  *  Options : --url=<base> (defaut https://cloud.groupe-edh.net/landingpage, et
- *  https://cloud.groupe-edh.net/LPB_Page pour --rechauffer=prod),
+ *  https://cloud.groupe-edh.net/LPB_Page pour --rechauffer=prod ou pour
+ *  --rechauffer=publiees quand SFMC_ACCOUNT_ID est la BU de prod 536009308),
  *  --parallele=<n>, --lang=en pour viser les pages EN a la place des FR.
  *
  *  Identifiants : ceux du .env (SFMC_CLIENT_ID / SECRET / SUBDOMAIN / ACCOUNT_ID),
@@ -91,6 +97,35 @@ function pagesARechauffer(lot, { famille = '', ecole = '', lang = 'fr', ecoles }
         }
     }
     return pages;
+}
+
+/**
+ * Pages publiees par le builder dans la BU du .env : blocs du Content Builder
+ * dont la cle suit <ecole>_<nom>_<langue> (nouveau nommage, lib/lp-naming.js),
+ * du type SFMC_ASSET_TYPE_ID (205 = webpage) et, si SFMC_PAGES_CATEGORY_ID est
+ * pose, de ce dossier. Une page par cle, langue filtree (FR par defaut), ecole
+ * filtree si demandee ; les familles ne sont pas connues d'avance (c'est la
+ * page qui sait ce qu'elle lit), chaque visite reecrit ce qui lui manque.
+ */
+async function pagesPubliees({ ecole = '', lang = 'fr' }) {
+    const sfmc = require(path.join(__dirname, '..', 'lib', 'sfmc'));
+    const typeId = parseInt(process.env.SFMC_ASSET_TYPE_ID || '205', 10);
+    const dossier = parseInt(process.env.SFMC_PAGES_CATEGORY_ID || '0', 10);
+    const filtres = [{ property: 'assetType.id', simpleOperator: 'equal', value: typeId }];
+    if (dossier) filtres.push({ property: 'category.id', simpleOperator: 'equal', value: dossier });
+    const query = filtres.length === 1 ? filtres[0] : { leftOperand: filtres[0], logicalOperator: 'AND', rightOperand: filtres[1] };
+    const cles = new Set();
+    for (let page = 1; page <= 50; page++) {
+        const r = await sfmc.sfmcFetch('POST', '/asset/v1/content/assets/query', { page: { page, pageSize: 200 }, query, fields: ['customerKey'] });
+        for (const it of (r && r.items) || []) if (it.customerKey) cles.add(it.customerKey);
+        if (!r || !r.items || r.items.length < 200) break;
+    }
+    const langue = String(lang || 'fr').toLowerCase();
+    return [...cles].sort().map((cle) => {
+        const m = /^([a-z0-9-]+)_(.+)_([a-z]{2})$/.exec(cle);
+        return m ? { cle, ecole: m[1], nom: m[2], langue: m[3] } : null;
+    }).filter((p) => p && p.langue === langue && (!ecole || p.ecole === ecole))
+        .map((p) => ({ cle: p.cle, ecole: p.ecole, type: p.nom, familles: [] }));
 }
 
 /** Visite une page et lit le commentaire « socle ampscript » qu'elle rend. */
@@ -219,7 +254,7 @@ async function main() {
         process.exit(2);
     }
     if (args.rechauffer === true || (args.rechauffer && !/^[a-z]+$/.test(lot))) {
-        console.error('--rechauffer attend le lot des pages a visiter : --rechauffer=interne, --rechauffer=recette ou --rechauffer=prod');
+        console.error('--rechauffer attend le lot des pages a visiter : --rechauffer=interne, --rechauffer=recette, --rechauffer=prod, ou --rechauffer=publiees (pages du builder dans la BU du .env)');
         process.exit(2);
     }
     if (sansPurge && !lot) {
@@ -231,16 +266,20 @@ async function main() {
     if (!sansPurge) tout = await purger({ famille, ecole, dryRun });
 
     if (lot) {
-        const pages = pagesARechauffer(lot, { famille, ecole, lang: args.lang });
-        const urlBase = typeof args.url === 'string' && args.url ? args.url.replace(/\/$/, '') : (lot === 'prod' ? URL_DEFAUT_PROD : URL_DEFAUT);
+        const publiees = lot === 'publiees';
+        const buProd = String(process.env.SFMC_ACCOUNT_ID || '') === '536009308';
+        const pages = publiees ? await pagesPubliees({ ecole, lang: args.lang }) : pagesARechauffer(lot, { famille, ecole, lang: args.lang });
+        const urlBase = typeof args.url === 'string' && args.url ? args.url.replace(/\/$/, '') : (lot === 'prod' || (publiees && buProd) ? URL_DEFAUT_PROD : URL_DEFAUT);
         const parallele = Math.max(1, parseInt(args.parallele, 10) || 2);
         if (!pages.length) {
-            console.error(`[rechauffe cache] aucune page pour ${lot}${famille ? ' / ' + famille : ''}${ecole ? ' / ' + ecole : ''} : ecole inconnue de schools.json ?`);
+            console.error(publiees
+                ? `[rechauffe cache] aucune page publiee <ecole>_<nom>_${String(args.lang || 'fr').toLowerCase()} dans la BU ${process.env.SFMC_ACCOUNT_ID || '?'}${ecole ? ' pour ' + ecole : ''}`
+                : `[rechauffe cache] aucune page pour ${lot}${famille ? ' / ' + famille : ''}${ecole ? ' / ' + ecole : ''} : ecole inconnue de schools.json ?`);
             process.exit(2);
         }
         if (dryRun) {
             console.log(`[rechauffe cache] ${pages.length} page(s) seraient visitees sur ${urlBase} (dry-run) :`);
-            for (const p of pages) console.log(`  ○ ${p.cle.padEnd(30)} ${p.familles.join(', ')}`);
+            for (const p of pages) console.log(`  ○ ${p.cle.padEnd(30)} ${p.familles.join(', ') || p.type}`);
         } else {
             console.log(`[rechauffe cache] lot ${lot} : ${pages.length} page(s) sur ${urlBase}, ${parallele} en parallele${sansPurge ? ', ?socle_cache=refresh' : ''}`);
             const r = await rechauffer(pages, { urlBase, parallele, forcer: sansPurge });
@@ -251,7 +290,7 @@ async function main() {
     process.exit(tout ? 0 : 1);
 }
 
-module.exports = { pagesARechauffer, clePage, PAGES, FAMILLES, URL_DEFAUT };
+module.exports = { pagesARechauffer, pagesPubliees, clePage, PAGES, FAMILLES, URL_DEFAUT, URL_DEFAUT_PROD };
 
 if (require.main === module) {
     main().catch((e) => { console.error(`[purge cache] erreur : ${e.message}`); process.exit(1); });

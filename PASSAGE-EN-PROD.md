@@ -125,11 +125,17 @@ besoin du `.env` de prod et visite les pages en HTTP) — `SFMC_CACHE_LECTURE=tr
 sans lui veut dire que le premier visiteur de chaque jour paie la relecture :
 
 ```
-15 7,8 * * *   node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=prod
-5  6   * * 1   node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=prod
+15 7,8 * * *   cd /chemin/vers/CanvasGenerator && /usr/bin/node -r dotenv/config scripts/purger-cache-lecture.js --famille=evenements --rechauffer=publiees >> /var/log/lpb-cache.log 2>&1
+5  6   * * 1   cd /chemin/vers/CanvasGenerator && /usr/bin/node -r dotenv/config scripts/purger-cache-lecture.js --rechauffer=publiees >> /var/log/lpb-cache.log 2>&1
 ```
 
-Le préfixe du lot (`Prod_`) doit être celui de `PREFIXES` dans `generer-lp.mjs`.
+`--rechauffer=publiees` visite les pages publiées par le builder dans la BU du
+`.env` (blocs `<ecole>_<nom>_<langue>`, FR), c'est-à-dire celles que le site
+appelle (`ifa-paris_portes-ouvertes_fr`…). `--rechauffer=prod` visite à la place
+le lot généré `Prod_*` (préfixe de `PREFIXES` dans `generer-lp.mjs`), qui n'a
+pas besoin d'être publié pour que le site soit couvert : les clés du cache ne
+dépendent que de l'école, du type de formulaire et du jour, pas de la page.
+Si le serveur n'a pas de `crontab`, l'installer (`apt-get install cron`).
 
 ---
 
