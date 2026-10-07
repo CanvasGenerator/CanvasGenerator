@@ -72,9 +72,9 @@ et **auto-remplis** par `populateHiddenFields()` à l'initialisation.
 | `CampagneAssociee` | (vide) | — | Contact / Campagne associée |
 | `utm_source` … `utm_campus` | paramètres de campagne | `URLSearchParams` | Contact + Membre de campagne / utm_* |
 | `gclid`, `fbclid` | identifiants pub Google/Meta | `URLSearchParams` | Contact + Membre de campagne |
-| `clientId` | identifiant visiteur persistant | `localStorage` | Contact + Membre de campagne / client ID |
-| `consent` | consentement cookies | cookie `cookie_consent` | Contact / consent |
-| `date_consentement_cookies` | date du consentement cookies | cookie | Contact / date_consentement_cookies |
+| `clientId` | identifiant Google Analytics (cookie `_ga`) | CloudPage `/landingpage` (`client_id`), recopié par le socle | Account + Membre de campagne / client ID |
+| `consent` | consentement cookies | Axeptio, lu par la CloudPage | Account / consent |
+| `date_consentement_cookies` | date du consentement cookies | CloudPage | Account / date_consentement_cookies |
 | `canal`, `sous_canal` | canal d'acquisition | (mapping à fournir) | Contact + Membre de campagne |
 
 **Champs calculés à la soumission** (dans le handler `submit`, pas dans le HTML) :
@@ -234,16 +234,50 @@ téléphonique par le responsable développement (règle métier #2).
 
 ## 4. Champ conditionnel « Programme souhaité »
 
-Piloté par [shared/programme-config.js](shared/programme-config.js) :
+> Source faisant foi : **« Champs visibles des formulaires.xlsx »**, 31/08/2026.
 
-- **Affiché uniquement** pour certaines écoles → `isProgrammeSchool(school)`
-  (BRASSART, IFA Paris, MOPA, CREAD, EFAP). En mode builder (sans école), affiché
-  dès qu'un niveau propose des programmes.
-- **Valeurs dépendantes** du **niveau d'études + campus** →
-  `getProgrammes(niveau, campus, lang)`.
+> ⚠ **« Programme souhaité » est le nom que le fichier donne au champ
+> `Speciality`.** Ce n'est pas un champ distinct : c'est bien la **spécialité**
+> qu'on demande. Aucun formulaire ne propose de choisir un programme — le
+> programme se déduit, et seulement sur la candidature.
 
-Pour brancher les vrais programmes : remplacer `PROGRAMMES_DEFAULT` /
-`PROGRAMMES_BY_CAMPUS` par les données réelles (ou un appel API).
+### Où il s'affiche
+
+| Formulaire | Écoles |
+|---|---|
+| brochure · JPO · atelier · stage · immersion | **BRASSART, IFA Paris, MoPA** |
+| candidature | **les 10**, avec rythme, langue et rentrée |
+
+Masqué si zéro ou une seule valeur possible, la valeur unique étant quand même
+posée et transmise — règle générale du contrat.
+
+### Où va la réponse, côté CRM
+
+**`Account.Speciality__c`** — picklist de 62 valeurs, la même que
+`LearningProgram.Speciality__c` d'où le socle tire la liste. `Account` n'a
+d'ailleurs aucun champ programme : ni `Program__c`, ni `Programme__c`, ni
+`LearningProgram__c`, ni `DesiredProgram__c` (sondé le 31/08).
+
+**Cette écriture n'existait pas.** Le `<select Speciality>` était affiché sur les
+six formulaires, mais sa valeur n'était écrite nulle part : le visiteur
+répondait pour rien. Le handler l'écrit désormais, après avoir vérifié contre
+l'org qu'un programme porte réellement cette spécialité — sinon
+`SPEC:ignore(...)` au journal, car une valeur de picklist inventée tue la page.
+
+### Qui décide de l'affichage
+
+| Formulaire | Source | Colonne |
+|---|---|---|
+| hors candidature | `LPB_Config_Champs_Ecole` | `ProgrammeVisible` — nom repris du fichier |
+| candidature | `LPB_Config_Formulaires` | `SpecialiteVisible` |
+
+`BrochureSpecialite` n'est plus lue : le fichier donne la même règle aux cinq
+formulaires hors candidature, la brochure comprise. La colonne reste dans la DE.
+
+`PROGRAMME_SCHOOLS` dans [shared/programme-config.js](shared/programme-config.js)
+ne concerne que l'**aperçu du builder** : le JS des blocs ne tourne pas sur une
+page publiée.
+
 
 ---
 

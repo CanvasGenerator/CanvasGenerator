@@ -1,0 +1,1002 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CREAD — Atelier decouverte</title>
+</head>
+<body>
+
+
+<header class="header-cread">
+  <div class="hdr-inner">
+    <div class="hdr-brand">
+      <div class="hdr-logo">CREAD</div>
+      <div class="hdr-baseline">Arts appliqués, design<br>& communication visuelle</div>
+    </div>
+    <a href="#" class="hdr-lang">FR</a>
+  </div>
+</header>
+<style>
+  .header-cread {
+    background-color: var(--brand-header, #463A8F);
+    color: #ffffff;
+    width: 100%;
+    font-family: 'Arial', 'Helvetica', sans-serif;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  .header-cread .hdr-inner {
+    max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .header-cread .hdr-brand { display: flex; align-items: center; gap: 20px; min-width: 0; }
+  .header-cread .hdr-logo {
+    font-size: 30px; font-weight: 800; letter-spacing: 2px; line-height: 1;
+    color: #ffffff; white-space: nowrap; flex-shrink: 0;
+  }
+  .header-cread .hdr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #ffffff; }
+  .header-cread .hdr-lang {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-decoration: none;
+    color: #ffffff; border: 1px solid currentColor; padding: 5px 13px; border-radius: 2px;
+    opacity: 0.9; flex-shrink: 0;
+  }
+  .header-cread .hdr-lang:hover { opacity: 1; }
+  @media (max-width: 768px) {
+    .header-cread .hdr-inner { padding: 12px 16px; }
+    .header-cread .hdr-logo { font-size: 22px; }
+    .header-cread .hdr-baseline { display: none; }
+  }
+</style>
+
+<section class="jpo-section"
+  data-header-align="center"
+  data-gjs-droppable="false"
+  data-lp-form="1">
+
+<!-- ═══════════ STYLES ═══════════ -->
+<style>
+.jpo-section *,
+.jpo-section *::before,
+.jpo-section *::after {
+    box-sizing: border-box;
+}
+
+.jpo-section {
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 16px;
+    background: transparent;
+    font-family: var(--brand-font, 'Inter', sans-serif);
+    font-size: 13px;
+    color: var(--brand-text, #1a1a1a);
+}
+
+.jpo-card {
+    width: 100%;
+    max-width: 520px;
+    background: #F4EFEA;
+    padding: 24px 24px 28px;
+    overflow: visible;
+    /* Fond des champs de saisie. Blanc sur la carte beige, comme la maquette.
+       Un seul jeton pour TOUS les champs (selects, inputs, indicatif tél.,
+       case RGPD) : ils ne peuvent plus diverger les uns des autres. Avant, ils
+       tiraient sur --brand-background, donc une école au fond non-blanc faisait
+       disparaître certains champs dans le beige de la carte. */
+    --jpo-field-bg: #ffffff;
+}
+
+/* Stage : comportement d'origine conservé (correctifs limités à JPO + Atelier).
+   Le jeton est simplement recâblé sur --brand-background et l'indicatif
+   redevient transparent. Règles présentes à l'identique dans chaque copie du
+   style, donc deux formulaires différents sur une même page ne s'écrasent pas. */
+.jpo-section[data-form-variant="stage"] .jpo-card {
+    --jpo-field-bg: var(--brand-background, #ffffff);
+}
+.jpo-section[data-form-variant="stage"] .jpo-phone-prefix {
+    background: transparent;
+}
+
+.jpo-header {
+    text-align: center;
+    margin-bottom: 22px;
+}
+
+/* Alignement du bloc titre + sous-titre, piloté par le trait « Alignement du
+   titre » (panneau Réglages de la section). Posé sur .jpo-header : le h2 et le
+   p héritent, donc un seul réglage déplace les deux. */
+.jpo-section[data-header-align="left"]  .jpo-header { text-align: left; }
+.jpo-section[data-header-align="right"] .jpo-header { text-align: right; }
+.jpo-title {
+    margin: 0 0 6px;
+    font-size: 20px;
+    font-weight: 800;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    color: #111;
+    line-height: 1.25;
+}
+.jpo-subtitle {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.4;
+    color: #6b6b6b;
+}
+
+.jpo-campus-zone {
+    background: transparent;
+    padding: 0 0 10px 0;
+}
+
+/* NB : pas de règle spécifique « .jpo-campus-zone .jpo-label » — le label campus
+   utilise la règle générale « .jpo-label » (identique). Sinon sa spécificité plus
+   forte empêcherait de modifier sa couleur depuis le panneau Styles. */
+
+.jpo-campus-select-wrap {
+    position: relative;
+    margin-bottom: 0;
+}
+
+.jpo-campus-select-wrap::after {
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+
+.jpo-campus-select {
+    width: 100%;
+    height: 46px;
+    padding: 0 35px 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 600;
+    color: #000;
+    background: var(--jpo-field-bg, #ffffff);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    cursor: pointer;
+    transition: border-color 0.2s;
+}
+
+.jpo-campus-select:focus {
+    border-color: var(--brand-muted, #6b7280);
+}
+
+/* Dates et ateliers rendus par le socle. Vides tant que le CRM n'a pas
+   repondu : les conteneurs se replient alors sur zero hauteur. */
+.jpo-dates,
+.jpo-ateliers {
+    display: grid;
+    gap: 8px;
+}
+.jpo-dates label,
+.jpo-ateliers label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.45;
+    background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.jpo-dates label:hover,
+.jpo-ateliers label:hover { border-color: #b9b9b9; }
+.jpo-dates input,
+.jpo-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.jpo-dates label:has(input:checked),
+.jpo-ateliers label:has(input:checked) {
+    border-color: #1a1a1a;
+    background: #fafafa;
+}
+
+/* Une date se lit en deux temps : QUAND et OU a gauche, la conference
+   d'ouverture a droite. Le socle rend cette structure ; le CSS ne fait que la
+   poser. En dessous de 560px les deux colonnes s'empilent — sur telephone,
+   deux colonnes de 40 caracteres ne se lisent plus. */
+.socle-instance-corps {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+/* ── Meme habillage que la carte evenement du builder ────────────────────
+   Arbitrage du 03/09 : ce que le builder montre est ce que la page publiee
+   doit rendre. On reprend donc de .jpo-event-card la bordure, le fond
+   transparent, l'espacement, les tailles, l'icone calendrier a gauche, le
+   trait vertical et l'icone epingle a droite.
+
+   Les icones sont posees en CSS et non fabriquees par le socle : elles sont
+   purement decoratives, et les lui faire construire aurait ajoute du DOM a
+   maintenir a deux endroits. Le mot-cle currentColor n'existant pas dans une
+   data-URI, la couleur est celle de .jpo-event-ico, #333.
+
+   ⚠ Ces regles visent des elements que le socle cree A L'EXECUTION. Elles ne
+   survivent a la publication que grace a SELECTEURS_RUNTIME dans
+   lib/htmlCleaner.js : sans lui le nettoyeur les juge orphelines et les
+   supprime, ce qui est exactement ce qui faisait perdre ce design en ligne. */
+.jpo-dates label {
+    border-color: #e6e1da;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 12px;
+}
+.socle-instance-quand {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+}
+/* L'icone tient la colonne 1 sur TOUTE la hauteur : elle reste en regard de
+   la date meme quand l'adresse ajoute des lignes en dessous. */
+.socle-instance-quand::before {
+    content: '';
+    grid-row: 1 / -1;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2'/%3E%3Cpath d='M3 9.5h18M8 2.5v4M16 2.5v4' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+.socle-instance-quand > * { grid-column: 2; }
+.socle-instance-date {
+    font-weight: 700;
+    font-size: 13px;
+    color: #000;
+}
+.socle-instance-lieu {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    /* L'adresse arrive du CRM avec ses propres retours a la ligne. */
+    white-space: pre-line;
+}
+/* La colonne du OU : nom du campus et adresse. Meme grille que celle du
+   QUAND, plus le trait vertical de la carte du builder. */
+.socle-instance-ou {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid #e0dad2;
+    padding-left: 18px;
+}
+.socle-instance-ou > * { grid-column: 2; }
+.socle-instance-ou::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Cpath d='M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.6'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+/* Sous 560px les deux colonnes s'empilent : un trait vertical n'a plus de
+   sens, il devient un filet horizontal. */
+@media (max-width: 560px) {
+    .socle-instance-ou {
+        border-left: 0;
+        padding-left: 0;
+        border-top: 1px solid #e0dad2;
+        padding-top: 10px;
+    }
+}
+/* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
+   compris, plutot que de laisser un intitule orphelin. */
+.jpo-dates-field:has(.jpo-dates:empty),
+.jpo-ateliers-field:has(.jpo-ateliers:empty) { display: none; }
+
+/* ── Campus sans aucune date ──────────────────────────────────────────────
+   Tant qu'aucun campus n'est choisi, la regle ci-dessus masque le bloc : c'est
+   le bon comportement, il n'y a rien a annoncer. Des qu'un campus EST choisi
+   (le select est required, donc :valid) et que le socle n'a rendu aucune
+   date, on remonte un avertissement et on neutralise l'envoi.
+
+   Tout tient en CSS : le message passe par un ::before, qui ne compte pas dans
+   :empty — la zone reste donc vide aux yeux du selecteur, et le socle n'a pas
+   a etre modifie.
+
+   Sans ca, l'etudiant remplissait tout, soumettait, et recevait apres coup
+   « Inscription evenement sans InstanceId : aucune date choisie » — alors que
+   le compte personnel et les consentements avaient deja ete crees. */
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates-field:has(.jpo-dates:empty) {
+    display: flex;
+}
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates:empty::before {
+    content: "Aucune date n'est disponible pour ce campus. L'inscription est impossible : merci de choisir un autre campus.";
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #c00;
+    border-radius: 8px;
+    background: #fff5f5;
+    color: #c00;
+    font-size: 13px;
+    line-height: 1.45;
+}
+/* pointer-events: none suffit a bloquer le clic sans toucher au JS. */
+.jpo-card:has(.jpo-campus-select:valid):has(.jpo-dates:empty) .jpo-submit {
+    background: #888;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
+.jpo-event-card {
+    display: none;
+    margin-top: 16px;
+    background: transparent;
+    border: 1px solid #e6e1da;
+    border-radius: 8px;
+    padding: 16px 18px;
+}
+
+.jpo-event-inner {
+    display: flex;
+    align-items: stretch;
+    gap: 18px;
+}
+
+.jpo-event-col {
+    flex: 1;
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    min-width: 0;
+}
+
+.jpo-event-ico {
+    width: 20px;
+    height: 20px;
+    flex-shrink: 0;
+    color: #333;
+    margin-top: 1px;
+}
+
+.jpo-event-col-body {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+}
+
+.jpo-event-sep {
+    width: 1px;
+    background: #e0dad2;
+    align-self: stretch;
+    flex-shrink: 0;
+}
+
+.jpo-event-date {
+    font-weight: 700;
+    font-size: 13px;
+    color: #000;
+}
+
+.jpo-event-detail,
+.jpo-event-right {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    white-space: pre-line;
+    text-align: left;
+}
+
+.jpo-pointer {
+    display: none !important;
+}
+
+.jpo-form-zone {
+    padding: 10px 0 0;
+}
+
+.jpo-field {
+    display: flex;
+    flex-direction: column;
+    margin-bottom: 12px;
+}
+
+/* Conteneur d'isolement, un seul champ dedans. Il n'a aucun effet visuel : il
+   existe pour que le niveau d'études ne partage son parent avec aucun autre
+   champ de la cascade, le socle ne réordonnant que les champs frères. */
+.jpo-col {
+    min-width: 0;
+}
+
+.jpo-field.hidden {
+    display: none !important;
+}
+
+.jpo-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.jpo-row .jpo-field {
+    margin-bottom: 0;
+}
+
+.jpo-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
+    display: block;
+}
+
+.jpo-label .req {
+    color: inherit;
+}
+
+.jpo-input,
+.jpo-select {
+    width: 100%;
+    height: 46px;
+    padding: 0 14px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 13px;
+    font-family: inherit;
+    color: #000;
+    background: var(--jpo-field-bg, #ffffff);
+    outline: none;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color 0.2s;
+}
+
+.jpo-input:focus,
+.jpo-select:focus {
+    border-color: var(--brand-muted, #6b7280);
+}
+
+.jpo-input.err,
+.jpo-select.err {
+    border-color: #c00;
+}
+
+.jpo-err-msg {
+    font-size: 10px;
+    color: #c00;
+    margin-top: 4px;
+    display: none;
+}
+
+.jpo-err-msg.show {
+    display: block;
+}
+
+.jpo-sel-wrap {
+    position: relative;
+}
+
+.jpo-sel-wrap::after {
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+
+.jpo-phone-wrap {
+    display: flex;
+    gap: 8px;
+}
+
+.jpo-phone-prefix-wrap {
+    position: relative;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    height: 46px;
+    padding: 0;
+    border: 1px solid #000;
+    background: var(--jpo-field-bg, #ffffff);
+    box-sizing: border-box;
+}
+
+
+.jpo-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+
+.jpo-phone-prefix {
+    flex: 1;
+    min-width: 0;
+    height: 100%;
+    padding: 0 20px 0 8px;
+    border: none;
+    border-radius: 0;
+    font-size: 11px;
+    font-family: inherit;
+    color: #000;
+    /* Explicitement blanc, et non transparent : un select transparent laissait
+       remonter le beige de la carte et l'indicatif ressortait plus foncé que
+       les autres champs. */
+    background: var(--jpo-field-bg, #ffffff);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
+}
+
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.jpo-rgpd { flex-wrap: wrap; }
+.jpo-rgpd .jpo-err-msg { flex-basis: 100%; margin-left: 28px; }
+
+.jpo-rgpd {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    margin: 16px 0 20px;
+}
+
+.jpo-rgpd input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: var(--jpo-field-bg, #ffffff);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+
+.jpo-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
+
+.jpo-rgpd-label {
+    font-size: 11px;
+    color: var(--brand-text, #1a1a1a);
+    line-height: 1.5;
+    cursor: pointer;
+}
+
+.jpo-rgpd-label a {
+    color: #000;
+    text-decoration: underline;
+}
+
+.jpo-submit-wrap {
+    display: block;
+    width: 100%;
+}
+
+.jpo-submit {
+    /* display:block et NON inline-flex. Dans un conteneur flex, CSS supprime les
+       blancs situés ENTRE deux éléments. Quand l'éditeur de texte scinde le
+       libellé en plusieurs nœuds, l'espace tapé disparaissait donc :
+       « JE CANDIDATE » + « TEST » s'affichait « JE CANDIDATETEST ».
+       Un bouton centre déjà son texte, le flex n'apportait rien. Le spinner
+       (.jpo-spinner, inline-block + vertical-align) reste aligné correctement. */
+    width: 100%;
+    display: block;
+    text-align: center;
+    padding: 14px;
+    background: #000;
+    color: var(--brand-button-text, #ffffff);
+    border: none;
+    border-radius: 0;
+    font-size: 14px;
+    font-weight: 700;
+    font-family: inherit;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+.jpo-submit::after {
+    content: '';
+}
+
+.jpo-submit:hover {
+    background: #222;
+}
+
+.jpo-submit:disabled {
+    background: #888;
+    cursor: not-allowed;
+}
+
+.jpo-success {
+    display: none;
+    padding: 16px 0 8px;
+    text-align: center;
+}
+
+.jpo-success h3 {
+    font-size: 16px;
+    font-weight: 700;
+    margin: 0 0 8px;
+    color: var(--brand-text, #1a1a1a);
+}
+
+.jpo-spinner {
+    display: inline-block;
+    width: 14px;
+    height: 14px;
+    border: 2px solid #fff;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: jpo-spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+}
+
+@keyframes jpo-spin {
+    to {
+        transform: rotate(360deg);
+    }
+}
+
+@media (max-width: 460px) {
+    .jpo-row {
+        grid-template-columns: 1fr;
+    }
+
+    .jpo-phone-prefix-wrap {
+        width: 80px;
+    }
+
+    .jpo-event-inner {
+        flex-direction: column;
+        gap: 8px;
+    }
+
+    .jpo-event-right {
+        max-width: 100%;
+        text-align: left;
+    }
+}
+</style>
+
+<!-- ═══════════ CARD ═══════════ -->
+<div class="jpo-card">
+
+    
+    <div class="jpo-header">
+        <h2 class="jpo-title">Inscription à l'Atelier Découverte</h2>
+        <p class="jpo-subtitle">Participez à notre atelier et explorez nos programmes.</p>
+    </div>
+
+    <div class="jpo-campus-zone">
+        <label class="jpo-label">Campus<span class="req">*</span></label>
+        <div class="jpo-campus-select-wrap">
+            <select class="jpo-campus-select lp-campus-select" name="Campus" required>
+                <option value=""></option><option value="paris">Paris</option><option value="lille">Lille</option><option value="bordeaux">Bordeaux</option><option value="lyon">Lyon</option><option value="montpellier">Montpellier</option><option value="nice">Nice</option><option value="aix">Aix-en-Provence</option><option value="nantes">Nantes</option><option value="toulouse">Toulouse</option><option value="rennes">Rennes</option>
+            </select>
+        </div>
+        <div class="jpo-event-card">
+            <div class="jpo-event-inner">
+                <div class="jpo-event-col">
+                    <img class="jpo-event-ico svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJqcG8tZXZlbnQtaWNvIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxLjciIGFyaWEtaGlkZGVuPSJ0cnVlIj48cmVjdCB4PSIzIiB5PSI0LjUiIHdpZHRoPSIxOCIgaGVpZ2h0PSIxNi41IiByeD0iMiIvPjxwYXRoIGQ9Ik0zIDkuNWgxOE04IDIuNXY0TTE2IDIuNXY0IiBzdHJva2UtbGluZWNhcD0icm91bmQiLz48L3N2Zz4=">
+                    <div class="jpo-event-col-body">
+                        <span class="jpo-event-date"></span>
+                        <span class="jpo-event-detail"></span>
+                    </div>
+                </div>
+                <div class="jpo-event-sep"></div>
+                <div class="jpo-event-col">
+                    <img class="jpo-event-ico svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIGNsYXNzPSJqcG8tZXZlbnQtaWNvIiB2aWV3Qm94PSIwIDAgMjQgMjQiIGZpbGw9Im5vbmUiIHN0cm9rZT0iIzMzMyIgc3Ryb2tlLXdpZHRoPSIxLjciIGFyaWEtaGlkZGVuPSJ0cnVlIj48cGF0aCBkPSJNMTIgMjEuNXM3LTYuNSA3LTExLjVhNyA3IDAgMSAwLTE0IDBjMCA1IDcgMTEuNSA3IDExLjV6IiBzdHJva2UtbGluZWpvaW49InJvdW5kIi8+PGNpcmNsZSBjeD0iMTIiIGN5PSIxMCIgcj0iMi42Ii8+PC9zdmc+">
+                    <div class="jpo-event-col-body">
+                        <span class="jpo-event-right"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="jpo-pointer"></div>
+
+    <div class="jpo-success">
+        <div style="font-size:36px;margin-bottom:10px;">✔️</div>
+        <h3 class="jpo-success-thanks"></h3>
+    </div>
+
+    <div class="jpo-form-zone">
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="jpo-form" data-lang="fr" method="post">
+
+        <!-- ═══════════ CHAMPS CACHÉS (tracking + mapping CRM) ═══════════ -->
+        <input type="hidden" name="submitted"            value="true">
+        <input type="hidden" name="NomFormulaire"        value="Inscription_Atelier">
+        <input type="hidden" name="TypeFormulaire"       value="evenement">
+        <input type="hidden" name="Marque"               value="">
+        <input type="hidden" name="LanguePreferee"       value="fr">
+        <input type="hidden" name="LangueSouhaitee"      value="">
+        <input type="hidden" name="LegalTexteAccepted"   value="J'accepte d'être contacté(e) par l'école pour les finalités décrites">
+        <input type="hidden" name="DateDernierContact"   value="">
+        <input type="hidden" name="TypeDernierContact"   value="">
+        <input type="hidden" name="CampagneAssociee"     value="">
+        <input type="hidden" name="utm_source" value="">
+        <input type="hidden" name="utm_medium" value="">
+        <input type="hidden" name="utm_campaign" value="">
+        <input type="hidden" name="utm_content" value="">
+        <input type="hidden" name="utm_term" value="">
+        <input type="hidden" name="utm_id" value="">
+        <input type="hidden" name="utm_campus" value="">
+        <input type="hidden" name="gclid" value="">
+        <input type="hidden" name="fbclid" value="">
+        <input type="hidden" name="clientId"                 value="">
+        <input type="hidden" name="consent"                  value="">
+        <input type="hidden" name="date_consentement_cookies" value="">
+        <input type="hidden" name="canal"                    value="">
+        <input type="hidden" name="sous_canal"               value="">
+        <input type="hidden" name="TypeEvenement" value="Atelier_Decouverte">
+        <input type="hidden" name="EventDate"     value="">
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Ces deux conteneurs DOIVENT rester DANS le <form> : le socle y
+             cree des <input type="radio" name="InstanceId">, et un champ hors
+             formulaire ne serait jamais soumis.
+
+             Vides dans le builder, qui n'execute pas le socle. En page
+             publiee, le socle y pose les dates du CRM (boutons radio, la plus
+             proche cochee) puis les conferences de la date choisie, avec leurs
+             horaires. Changer de date refiltre les conferences.
+
+             InstanceId est ce que le socle d'ecriture attend : sans lui il
+             refuse la soumission. EventDate ci-dessus ne porte qu'un texte
+             d'affichage.
+
+             Le choix de la date OUVRE le formulaire : c'est la position 2 de
+             l'Excel des champs visibles, juste apres le campus. Il ne peut pas
+             remonter plus haut, le campus vivant au-dessus du <form>. Les
+             sous-evenements, eux, restent en bas. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">Choisissez votre date<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
+
+
+        <div class="jpo-row">
+            <div class="jpo-field">
+                <label class="jpo-label">Nom<span class="req">*</span></label>
+                <input class="jpo-input" type="text" name="LastName" required>
+                <span class="jpo-err-msg">Ce champ est requis.</span>
+            </div>
+            <div class="jpo-field">
+                <label class="jpo-label">Prénom<span class="req">*</span></label>
+                <input class="jpo-input" type="text" name="FirstName" required>
+                <span class="jpo-err-msg">Ce champ est requis.</span>
+            </div>
+        </div>
+
+        <div class="jpo-row">
+            <div class="jpo-field">
+                <label class="jpo-label">Adresse email<span class="req">*</span></label>
+                <input class="jpo-input" type="email" name="EmailAddress" required>
+                <span class="jpo-err-msg">Format e-mail invalide.</span>
+            </div>
+            <div class="jpo-field">
+                <label class="jpo-label">Portable<span class="req">*</span></label>
+                <div class="jpo-phone-wrap">
+                    <div class="jpo-phone-prefix-wrap">
+                        <select name="Indicatif" class="jpo-phone-prefix" aria-label="Indicatif pays">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
+                        </select>
+                    </div>
+                    <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="06 12 34 56 78" style="flex:1;">
+                </div>
+                <span class="jpo-err-msg">Numéro invalide (ex: 06 12 34 56 78).</span>
+            </div>
+        </div>
+
+        <!-- Niveau d'études — position 8 de l'Excel des champs visibles, juste
+             apres le telephone. Il accompagnait « Vous etes » en haut du
+             formulaire, ce que le fichier ne demande pas.
+
+             ⚠ DANS SON PROPRE .jpo-col, ET SEUL DEDANS. Le socle ne reordonne
+             que les champs qui PARTAGENT un parent et laisse intact tout
+             groupe d'un seul champ : ce conteneur rend la place ecrite ici
+             definitive, page publiee comprise. Le campus, lui, vit au-dessus
+             du <form> dans .jpo-campus-zone — autre parent, donc aucun risque
+             qu'il repasse devant. -->
+        <div class="jpo-col">
+            <div class="jpo-field">
+                <label class="jpo-label">Niveau d'études<span class="req">*</span></label>
+                <div class="jpo-sel-wrap">
+                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
+                        <option value=""></option><option value="seconde">Seconde</option><option value="premiere">Première</option><option value="terminale">Terminale</option><option value="bac">Bac</option><option value="bac+1">Bac+1</option><option value="bac+2">Bac+2</option><option value="bac+3">Bac+3 (Licence / Bachelor)</option><option value="bac+4">Bac+4 (Master 1)</option><option value="bac+5">Bac+5 et +</option>
+                    </select>
+                </div>
+                <span class="jpo-err-msg">Ce champ est requis.</span>
+            </div>
+        </div>
+
+        <!-- Spécialité (règle §6) — seule brique de la cascade sur les
+             formulaires événement : le contrat ne prévoit rythme, langue et
+             rentrée que sur la candidature. Masquée au départ ; c'est le socle
+             qui décide, selon la matrice de l'école et le nombre de valeurs
+             restantes. Un champ à une seule valeur reste masqué mais renseigné,
+             et part au CRM.
+
+             C'est CE champ que « Champs visibles des formulaires.xlsx » appelle
+             « Programme souhaité » — trois écoles le portent hors candidature :
+             BRASSART, IFA Paris, MoPA.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="jpo-field jpo-speciality-field hidden">
+            <label class="jpo-label">Programme souhaité</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select" name="Speciality" data-placeholder="Sélectionnez...">
+                    <option value="">Sélectionnez...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
+        <div class="jpo-field jpo-programme-field hidden">
+            <label class="jpo-label">Programme souhaité</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select jpo-programme-select" name="Programme">
+                    <option value="">Sélectionnez un programme...</option>
+                </select>
+            </div>
+        </div>
+
+
+        <!-- SOUS-EVENEMENTS, EN BAS. L'arbitrage du 30/08 avait descendu ici
+             les dates ET les sous-evenements, pour ne pas faire choisir un
+             creneau avant meme que le visiteur ait donne son nom. L'Excel des
+             champs visibles place la date en position 2 : cet arbitrage est
+             leve pour LA DATE seule, qui ouvre desormais le formulaire. Les
+             sous-evenements, absents du fichier, gardent leur place ici. -->
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">Je souhaite participer à</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
+
+        <div class="jpo-rgpd">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
+            <label class="jpo-rgpd-label">
+                <span data-rgpd-text>J'accepte d'être contacté(e) par l'école pour les finalités décrites</span>
+                <a data-rgpd-link href="#privacy-policy" target="_blank">ici</a>
+            </label>
+        </div>
+
+        <div class="jpo-submit-wrap">
+            <!-- Le libellé vit dans un <span> éditable, PAS directement dans le
+                 <button>. Sur un <button> qui a le focus, la touche Espace
+                 déclenche l'activation du bouton au lieu d'insérer un caractère :
+                 on pouvait taper des lettres mais jamais d'espace (« JE
+                 CANDIDATETEST »). En déplaçant la zone éditable dans un span,
+                 le focus n'est plus sur le bouton et l'espace s'insère. -->
+            <button type="submit" class="jpo-submit"><span class="jpo-submit-label" data-gjs-type="text">RÉSERVER MA PLACE</span></button>
+        </div>
+    </form>
+    </div>
+
+</div><!-- /.jpo-card -->
+
+        <!-- SOCLE SALESFORCE CORE — deux blocs, deux moments.
+
+             LECTURE : remplit les listes depuis le CRM à l'affichage.
+             ÉCRITURE : n'agit QUE si `submitted=true` est posté. Le
+             formulaire se poste à lui-même (shared/envoi-socle.js), et ce
+             bloc-ci est ce qui reçoit la soumission — sans lui, le POST
+             n'écrirait rien, en silence.
+
+             L'écriture vient EN PREMIER : elle doit avoir créé le compte avant
+             que la lecture ne rende la page de réponse.
+
+             Inertes dans le builder, repli statique si Salesforce est muet. -->
+        <div class="socle-read-snippet" style="display:none !important" aria-hidden="true" data-gjs-droppable="false" data-gjs-selectable="false">
+            %%[ SET @LPB_TYPE_FORM = "evenement" SET @LPB_TYPE_EVT = "Atelier_Decouverte" ]%%
+            %%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
+            %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
+        </div>
+</section>
+
+<footer class="footer-cread">
+  <div class="ftr-inner">
+    <div class="ftr-main">
+      <div class="ftr-brand">
+        <div class="ftr-logo">CREAD</div>
+        <div class="ftr-baseline">Arts appliqués, design<br>& communication visuelle</div>
+      </div>
+      <div class="ftr-socials"><a href="#" class="ftr-cread-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDIuMTYzYzMuMjA0IDAgMy41ODQuMDEyIDQuODUuMDcgMS4zNjYuMDYyIDIuNjMzLjMzMiAzLjYwOCAxLjMwOC45NzUuOTc1IDEuMjQ1IDIuMjQyIDEuMzA4IDMuNjA4LjA1OCAxLjI2Ni4wNyAxLjY0Ni4wNyA0Ljg1cy0uMDEyIDMuNTg0LS4wNyA0Ljg1Yy0uMDYzIDEuMzY2LS4zMzMgMi42MzMtMS4zMDggMy42MDgtLjk3NS45NzUtMi4yNDIgMS4yNDUtMy42MDggMS4zMDgtMS4yNjYuMDU4LTEuNjQ2LjA3LTQuODUuMDdzLTMuNTg0LS4wMTItNC44NS0uMDdjLTEuMzY2LS4wNjMtMi42MzMtLjMzMy0zLjYwOC0xLjMwOC0uOTc1LS45NzUtMS4yNDUtMi4yNDItMS4zMDgtMy42MDhDMi4xNzUgMTUuNTg0IDIuMTYzIDE1LjIwNCAyLjE2MyAxMnMuMDEyLTMuNTg0LjA3LTQuODVjLjA2Mi0xLjM2Ni4zMzItMi42MzMgMS4zMDgtMy42MDhDNC41MTYgMi41NjcgNS43ODMgMi4yOTcgNy4xNSAyLjIzNCA4LjQxNiAyLjE3NiA4Ljc5NiAyLjE2MyAxMiAyLjE2M3ptMCA1LjgzOGEzLjk5OSAzLjk5OSAwIDEwMCA3Ljk5OCAzLjk5OSAzLjk5OSAwIDAwMC03Ljk5OHptMCA2LjU5OGEyLjU5OSAyLjU5OSAwIDExMC01LjE5OCAyLjU5OSAyLjU5OSAwIDAxMCA1LjE5OHptNS4wOTYtNi43NTJhLjkzNi45MzYgMCAxMS0xLjg3MiAwIC45MzYuOTM2IDAgMDExLjg3MiAweiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-cread-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIyLjY3NSAwaC0yMS4zNUMuNTkzIDAgMCAuNTkzIDAgMS4zMjV2MjEuMzUxQzAgMjMuNDA3LjU5MyAyNCAxLjMyNSAyNGgxMS40OTV2LTkuMjk0SDkuNjkydi0zLjYyMmgzLjEyOFY4LjQxM2MwLTMuMSAxLjg5My00Ljc4OCA0LjY1OS00Ljc4OCAxLjMyNSAwIDIuNDYzLjA5OSAyLjc5NS4xNDN2My4yNGgtMS45MThjLTEuNTA0IDAtMS43OTUuNzE1LTEuNzk1IDEuNzYzdjIuMzEzaDMuNTg3bC0uNDY3IDMuNjIyaC0zLjEyVjI0aDYuMTE2QzIzLjQwNyAyNCAyNCAyMy40MDcgMjQgMjIuNjc2VjEuMzI1QzI0IC41OTMgMjMuNDA3IDAgMjIuNjc1IDB6Ii8+PC9zdmc+"></a><a href="#" class="ftr-cread-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE4LjI0NCAyLjI1aDMuMzA4bC03LjIyNyA4LjI2IDguNTAyIDExLjI0SDE2LjE3bC01LjIxNC02LjgxN0w0Ljk5IDIxLjc1SDEuNjhsNy43My04LjgzNUwxLjI1NCAyLjI1SDguMTM0bDQuNzEzIDYuMjMxIDUuMzk3LTYuMjMxem0tMS4xNjEgMTcuNTJoMS44MzNMNy4wODQgNC4xMjZINS4xMTdMMTcuMDgzIDE5Ljc3eiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-cread-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE5IDBoLTE0Yy0yLjc2MSAwLTUgMi4yMzktNSA1djE0YzAgMi43NjEgMi4yMzkgNSA1IDVoMTRjMi43NjIgMCA1LTIuMjM5IDUtNXYtMTRjMC0yLjc2MS0yLjIzOC01LTUtNXptLTExIDE5aC0zdi0xMWgzdjExem0tMS41LTEyLjI2OGMtLjk2NiAwLTEuNzUtLjc5LTEuNzUtMS43NjRzLjc4NC0xLjc2NCAxLjc1LTEuNzY0IDEuNzUuNzkgMS43NSAxLjc2NC0uNzgzIDEuNzY0LTEuNzUgMS43NjR6bTEzLjUgMTIuMjY4aC0zdi01LjYwNGMwLTMuMzY4LTQtMy4xMTMtNCAwdjUuNjA0aC0zdi0xMWgzdjEuNzY1YzEuMzk2LTIuNTg2IDctMi43NzcgNyAyLjQ3NnY2Ljc1OXoiLz48L3N2Zz4="></a><a href="#" class="ftr-cread-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIzLjQ5OCA2LjE4NmEzLjAxNiAzLjAxNiAwIDAwLTIuMTIyLTIuMTM2QzE5LjUwNSAzLjU0NSAxMiAzLjU0NSAxMiAzLjU0NXMtNy41MDUgMC05LjM3Ny41MDVhMy4wMTcgMy4wMTcgMCAwMC0yLjEyMiAyLjEzNkMwIDguMDU1IDAgMTIgMCAxMnMwIDMuOTQ1LjUwMSA1LjgxNGEzLjAxNyAzLjAxNyAwIDAwMi4xMjIgMi4xMzZDNC40OTUgMjAuNDU1IDEyIDIwLjQ1NSAxMiAyMC40NTVzNy41MDUgMCA5LjM3Ny0uNTA1YTMuMDE1IDMuMDE1IDAgMDAyLjEyMi0yLjEzNkMyNCAxNS45NDUgMjQgMTIgMjQgMTJzMC0zLjk0NS0uNTAyLTUuODE0ek05LjU0NSAxNS41NjhWOC40MzJMMTUuODE4IDEybC02LjI3MyAzLjU2OHoiLz48L3N2Zz4="></a></div>
+    </div>
+    <div class="ftr-legal">
+      <p>CREAD collecte vos données afin de vous adresser de la documentation. Pour en savoir plus sur le traitement de vos données et pour exercer vos droits, consultez la <a href="#" class="ftr-link">Politique de confidentialité</a>.</p>
+    </div>
+  </div>
+</footer>
+<style>
+  .footer-cread {
+    background-color: #ffffff !important; color: #1a1a1a;
+    padding: 48px 24px 32px; font-family: 'Arial', 'Helvetica', sans-serif; border-top: 1px solid #e5e7eb;
+  }
+  .footer-cread .ftr-inner { max-width: 1200px; margin: 0 auto; }
+  .footer-cread .ftr-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; margin-bottom: 32px; }
+  .footer-cread .ftr-brand { display: flex; flex-direction: column; }
+  .footer-cread .ftr-logo { font-size: 38px; font-weight: 800; letter-spacing: 2px; line-height: 1; color: #1a1a1a; margin-bottom: 10px; }
+  .footer-cread .ftr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #6b7280; }
+  .footer-cread .ftr-socials { display: flex; gap: 12px; flex-wrap: wrap; }
+  .footer-cread .ftr-cread-soc { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 50%; color: #1a1a1a; }
+  .footer-cread .ftr-cread-soc svg,   .footer-cread .ftr-cread-soc img.svg-inline { width: 18px; height: 18px; fill: currentColor; }
+  .footer-cread .ftr-legal { border-top: 1px solid #f2f2f2; padding-top: 24px; }
+  .footer-cread .ftr-legal p { font-size: 11px; line-height: 1.8; color: #999999; max-width: 1000px; margin: 0; }
+  .footer-cread .ftr-link { color: #1a1a1a; text-decoration: underline; }
+  @media (max-width: 768px) {
+    .footer-cread .ftr-main { flex-direction: column; align-items: center; gap: 24px; text-align: center; }
+    .footer-cread .ftr-brand { align-items: center; }
+    .footer-cread .ftr-socials { justify-content: center; }
+  }
+</style>
+</body>
+</html>

@@ -9,7 +9,23 @@
  *
  *  Pourquoi une recopie et non une inclusion : AMPscript n'a aucun mecanisme
  *  d'include. Recopier a la main garantissait la derive ; ce script la rend
- *  impossible. A relancer apres toute modification du JS de cascade :
+ *  impossible.
+ *
+ *  ⚠ POURQUOI LA BALISE EST ASSEMBLEE PAR AMPSCRIPT (2026-08-23)
+ *  L'API SFMC SUPPRIME tout <script> a l'upload, sur les blocs comme sur les
+ *  pages. Verifie sur un cas trivial : <p>a</p><script>var x=1;</script><p>b</p>
+ *  revient sans le script. Le JS de cascade partait donc a la poubelle en
+ *  silence — 46 Ko envoyes, 27 Ko stockes, `rafraichirCascade` absent — et rien
+ *  ne cassait visiblement : les listes restaient juste vides.
+ *
+ *  On emet donc la balise A L'EXECUTION, par concatenation : l'API ne voit
+ *  jamais la chaine "<script>", le navigateur recoit une vraie balise.
+ *  Verifie de bout en bout : la page affiche « JS EXECUTE ».
+ *
+ *  Ne JAMAIS remettre un <script> litteral dans un fichier destine a l'API.
+ *  La regle de lint 10 le refuse.
+ *
+ *  A relancer apres toute modification du JS de cascade :
  *
  *      node scripts/sync-cascade-js.js          verifie et corrige
  *      node scripts/sync-cascade-js.js --check  echoue si desynchronise (CI)
@@ -39,11 +55,51 @@ for (const attendu of ['rafraichirCascade', 'appliquerOrdre', 'window.SOCLE_DATA
     }
 }
 
-const bloc = `${DEBUT}\n<script>${cascade}</script>\n${FIN}\n`;
 let dst = fs.readFileSync(DST, 'utf8');
-const re = new RegExp(DEBUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\S]*?' + FIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '\\n?');
 
-const sortie = re.test(dst) ? dst.replace(re, bloc) : dst.replace(/\s*$/, '\n\n' + bloc);
+/* ---- LA FIN DE LIGNE EST CELLE DU FICHIER, PAS CELLE DU SCRIPT ---------
+   Sans ceci, `--check` echouait EN PERMANENCE sur un poste Windows, et pour
+   une raison entierement fausse. Le depot est en LF (`git ls-files --eol` :
+   `i/lf`), git le detend en CRLF dans la copie de travail (`w/crlf`), et ce
+   script reconstruisait son enrobage en \n : six lignes d'ecart sur 165 Ko
+   rigoureusement identiques par ailleurs.
+
+   Le cout n'etait pas seulement un test rouge. `npm test` s'ouvrait sur un
+   « picklist-handler.ampscript est DESYNCHRONISE » qui accusait le JS de
+   cascade, et lancer la correction proposee reecrivait 165 Ko pour six
+   retours-chariot — un diff illisible, et le vrai contenu noye dedans.
+
+   Verifie le 2026-09-04 : bloc extrait et bloc en place identiques au
+   caractere pres (164 836 des deux cotes), seul l'enrobage differait. */
+const EOL = dst.includes('\r\n') ? '\r\n' : '\n';
+
+/* La balise est construite a l'execution. Les morceaux "<scr" / "ipt>" sont
+   volontairement coupes : c'est ce qui rend le filtre de l'API aveugle. */
+const bloc = [
+    DEBUT,
+    '%%[',
+    'VAR @cascadeOuvre, @cascadeFerme',
+    'SET @cascadeOuvre = Concat("<scr", "ipt>")',
+    'SET @cascadeFerme = Concat("</scr", "ipt>")',
+    ']%%',
+    `%%=v(@cascadeOuvre)=%%${cascade}%%=v(@cascadeFerme)=%%`,
+    FIN,
+    '',
+].join(EOL);
+
+/* ---- `\r?\n` ET NON `\n` -----------------------------------------------
+   Le `\n?` d'origine ne pouvait PAS consommer la fin de ligne d'un fichier
+   CRLF : apres le marqueur de fin vient `\r`, que le motif ne prevoyait
+   pas. Le bloc relu s'arretait donc au marqueur, celui qu'on regenere
+   portait sa fin de ligne, et la comparaison echouait toujours — de deux
+   octets exactement. Pire, chaque execution AJOUTAIT ces deux octets :
+   le fichier grossissait d'une ligne vide a chaque passage, et la synchro
+   ne pouvait par construction jamais se declarer a jour.
+   Diagnostique le 2026-09-04 en comparant les deux blocs caractere par
+   caractere : premier ecart a l'index 165 129 sur 165 131. */
+const re = new RegExp(DEBUT.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '[\\s\\S]*?' + FIN.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(\\r?\\n)?');
+
+const sortie = re.test(dst) ? dst.replace(re, bloc) : dst.replace(/\s*$/, EOL + EOL + bloc);
 
 if (sortie === dst) { console.log('✓ JS de cascade deja synchronise'); process.exit(0); }
 if (process.argv.includes('--check')) {

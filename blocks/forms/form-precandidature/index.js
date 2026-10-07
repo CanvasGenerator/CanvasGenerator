@@ -12,6 +12,7 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
+import { montrerMessage, effacerMessage } from '../shared/message-confirmation.js';
 
 export default function (editor, categories) {
 
@@ -112,7 +113,8 @@ export default function (editor, categories) {
 
         return `
 <section class="pc-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 <style>
 .pc-section *, .pc-section *::before, .pc-section *::after { box-sizing: border-box; }
 .pc-section {
@@ -165,7 +167,10 @@ export default function (editor, categories) {
 .pc-phone-wrap { display: flex; gap: 8px; }
 .pc-phone-prefix-wrap {
     position: relative;
-    width: 92px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 .pc-phone-prefix-wrap::after {
@@ -294,14 +299,14 @@ export default function (editor, categories) {
                 <label class="pc-label">${t.mobile}<span class="req">*</span></label>
                 <div class="pc-phone-wrap">
                     <div class="pc-phone-prefix-wrap">
-                        <select class="pc-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="pc-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="pc-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -422,20 +427,21 @@ export default function (editor, categories) {
         return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 900));
     }
 
-    function showConfirmation(doc, data, t) {
-        const form    = doc.querySelector('.pc-form');
-        const success = doc.querySelector('.pc-success');
-        const title   = doc.querySelector('.pc-title');
-        const sub     = doc.querySelector('.pc-subtitle');
-        if (form)  form.style.display  = 'none';
-        if (title) title.style.display = 'none';
-        if (sub)   sub.style.display   = 'none';
-        if (success) {
-            success.style.display = 'block';
-            const msgEl = success.querySelector('.pc-success-msg');
-            const name  = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-            if (msgEl) msgEl.innerHTML = t.successMsg(name, data.Campus || '—', data.EmailAddress || '');
-        }
+    /* Retour client du 2026-09-03 : le formulaire ne disparaît plus. Le message
+     * s'ajoute au-dessus du bouton, l'écran `.pc-success` n'est plus ouvert, et
+     * le formulaire garde ses valeurs — même traitement que les six
+     * formulaires branchés au socle.
+     *
+     * ⚠ Ce bloc N'ÉCRIT PAS au CRM : le socle ne branche que `.jpo-form,
+     * .brf-form, .cnd-form, .imf-form`. Il n'y a donc rien à aligner côté page
+     * publiée, seulement l'aperçu du builder — mais c'est lui qu'on montre en
+     * recette. Le récapitulatif reste rendu en HTML : il met le campus et
+     * l'e-mail en avant, et l'aplatir en texte appauvrirait le message. */
+    function showConfirmation(data, t, form) {
+        const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
+        montrerMessage(form, [
+            { html: t.successMsg(name, data.Campus || '—', data.EmailAddress || '') },
+        ], 'succes');
     }
 
     function initPcForm(form, doc) {
@@ -451,6 +457,12 @@ export default function (editor, categories) {
             const linkEl = form.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = form.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         const emailEl = form.querySelector('[name="EmailAddress"]');
@@ -493,15 +505,26 @@ export default function (editor, categories) {
             if (!ok) return;
 
             const btn = form.querySelector('.pc-submit');
+            /* Le libelle d'origine est releve AVANT d'etre remplace par le
+               spinner : le formulaire restant affiche apres la confirmation,
+               il faut pouvoir le rendre au visiteur. */
+            const originalLabel = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.innerHTML = `<span class="pc-spinner"></span>${t.sending}`; }
+            effacerMessage(form);
 
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.pc-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (raw && !raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
@@ -509,10 +532,13 @@ export default function (editor, categories) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
 
             handleSubmit(data).then(res => {
+                /* Le bouton est rendu DANS TOUS LES CAS, succes compris :
+                   le formulaire reste affiche, un bouton fige sur
+                   « Envoi... » serait la seule chose cassee de l'ecran. */
+                if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
                 if (res.ok) {
-                    showConfirmation(doc, data, t);
+                    showConfirmation(data, t, form);
                 } else {
-                    if (btn) { btn.disabled = false; btn.textContent = t.submit; }
                     alert(t.errGeneric);
                 }
             });

@@ -16,8 +16,12 @@
 import { EDC_PICKLISTS, buildOptions } from './picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from './rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from './tracking-fields.js';
+import { validerEtRevelerRequis } from './champs-requis.js';
+import { soumettre } from './envoi-socle.js';
+import { montrerSucces, effacerMessage } from './message-confirmation.js';
 import { isProgrammeSchool, getProgrammes } from './programme-config.js';
-import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
+import { brancherCascadeProgramme } from './cascade-programme.js';
+import { socleReadSnippet } from './socle-read-snippet.js';
 
     /* ── Picklists ──────────────────────────────────────────────────── */
     const campusOptions = buildOptions(
@@ -62,6 +66,15 @@ import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
     const TRANS = {
         fr: {
             campus:      'Campus',
+            dateChoix:   'Choisissez votre date',
+            /* Campus sans date : message d'avertissement rendu en CSS pur
+               (content d'un ::before), donc sans toucher au socle. */
+            noDate:      "Aucune date n'est disponible pour ce campus. "
+                         + "L'inscription est impossible : merci de choisir un autre campus.",
+            /* « Au programme » jusqu'au retour client du 03/09 : l'intitulé
+               décrivait la journée alors que le bloc est une liste de cases à
+               cocher — donc un choix, pas une annonce. */
+            ateliers:    'Je souhaite participer à',
             youAre:      'Vous êtes',
             lastName:    'Nom',
             firstName:   'Prénom',
@@ -71,6 +84,8 @@ import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
             studyLevel:  "Niveau d'études",
             programme:   'Programme souhaité',
             programmePh: 'Sélectionnez un programme...',
+            speciality:   'Programme souhaité',
+            specialityPh: 'Sélectionnez...',
             childLastName:  'Nom de votre enfant',
             childFirstName: 'Prénom de votre enfant',
             childPhone:     'Téléphone de votre enfant',
@@ -82,12 +97,20 @@ import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
             errPhone:    'Numéro invalide (ex: 06 12 34 56 78).',
             errGeneric:  'Une erreur est survenue, veuillez réessayer.',
             sending:     'Envoi en cours...',
-            successThanks:   name => `Merci, ${name} !`,
-            successConfirm:  (date, campus, email) =>
-                `Votre inscription du <strong>${date}</strong> sur le campus de <strong>${campus}</strong> a bien été enregistrée.<br>Un e-mail de confirmation sera envoyé à <strong>${email}</strong>.`,
+            /* Le texte du socle, au mot pres : c'est lui que le visiteur lit
+               sur une page publiee. Un apercu qui dirait autre chose ferait
+               valider en recette un message qui n'existe nulle part. */
+            successThanks:   'Votre inscription est confirmée !',
+            successMsg:      'Merci pour votre inscription à notre événement. '
+                           + 'Vous recevrez toutes les informations pratiques '
+                           + 'par email.',
         },
         en: {
             campus:      'Campus',
+            dateChoix:   'Choose your date',
+            noDate:      'No date is available for this campus. '
+                         + 'Registration is not possible: please choose another campus.',
+            ateliers:    'Programme',
             youAre:      'You are',
             lastName:    'Last name',
             firstName:   'First name',
@@ -97,6 +120,8 @@ import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
             studyLevel:  'Level of study',
             programme:   'Desired programme',
             programmePh: 'Select a programme...',
+            speciality:   'Desired programme',
+            specialityPh: 'Select...',
             childLastName:  "Your child's last name",
             childFirstName: "Your child's first name",
             childPhone:     "Your child's phone",
@@ -108,9 +133,9 @@ import { SOCLE_READ_SNIPPET } from './socle-read-snippet.js';
             errPhone:    'Invalid number (e.g. 07 12 34 56 78).',
             errGeneric:  'An error occurred, please try again.',
             sending:     'Sending...',
-            successThanks:   name => `Thank you, ${name}!`,
-            successConfirm:  (date, campus, email) =>
-                `Your registration on <strong>${date}</strong> at the <strong>${campus}</strong> campus has been confirmed.<br>A confirmation email will be sent to <strong>${email}</strong>.`,
+            successThanks:   'Your registration is confirmed!',
+            successMsg:      'Thank you for registering for our event. You '
+                           + 'will receive all practical information by email.',
         }
     };
 
@@ -130,7 +155,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         return `
 <section class="jpo-section"
   ${isStage ? 'data-form-variant="stage"' : 'data-header-align="center"'}
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -251,6 +277,172 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     border-color: var(--brand-muted, #6b7280);
 }
 
+/* Dates et ateliers rendus par le socle. Vides tant que le CRM n'a pas
+   repondu : les conteneurs se replient alors sur zero hauteur. */
+.jpo-dates,
+.jpo-ateliers {
+    display: grid;
+    gap: 8px;
+}
+.jpo-dates label,
+.jpo-ateliers label {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 10px 12px;
+    border: 1px solid #e2e2e2;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1.45;
+    background: #fff;
+    transition: border-color .15s ease, background .15s ease;
+}
+.jpo-dates label:hover,
+.jpo-ateliers label:hover { border-color: #b9b9b9; }
+.jpo-dates input,
+.jpo-ateliers input { margin-top: 3px; flex-shrink: 0; }
+.jpo-dates label:has(input:checked),
+.jpo-ateliers label:has(input:checked) {
+    border-color: #1a1a1a;
+    background: #fafafa;
+}
+
+/* Une date se lit en deux temps : QUAND et OU a gauche, la conference
+   d'ouverture a droite. Le socle rend cette structure ; le CSS ne fait que la
+   poser. En dessous de 560px les deux colonnes s'empilent — sur telephone,
+   deux colonnes de 40 caracteres ne se lisent plus. */
+.socle-instance-corps {
+    display: flex;
+    flex: 1;
+    gap: 16px;
+    justify-content: space-between;
+    align-items: flex-start;
+    flex-wrap: wrap;
+}
+/* ── Meme habillage que la carte evenement du builder ────────────────────
+   Arbitrage du 03/09 : ce que le builder montre est ce que la page publiee
+   doit rendre. On reprend donc de .jpo-event-card la bordure, le fond
+   transparent, l'espacement, les tailles, l'icone calendrier a gauche, le
+   trait vertical et l'icone epingle a droite.
+
+   Les icones sont posees en CSS et non fabriquees par le socle : elles sont
+   purement decoratives, et les lui faire construire aurait ajoute du DOM a
+   maintenir a deux endroits. Le mot-cle currentColor n'existant pas dans une
+   data-URI, la couleur est celle de .jpo-event-ico, #333.
+
+   ⚠ Ces regles visent des elements que le socle cree A L'EXECUTION. Elles ne
+   survivent a la publication que grace a SELECTEURS_RUNTIME dans
+   lib/htmlCleaner.js : sans lui le nettoyeur les juge orphelines et les
+   supprime, ce qui est exactement ce qui faisait perdre ce design en ligne. */
+.jpo-dates label {
+    border-color: #e6e1da;
+    background: transparent;
+    padding: 16px 18px;
+    font-size: 12px;
+}
+.socle-instance-quand {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+}
+/* L'icone tient la colonne 1 sur TOUTE la hauteur : elle reste en regard de
+   la date meme quand l'adresse ajoute des lignes en dessous. */
+.socle-instance-quand::before {
+    content: '';
+    grid-row: 1 / -1;
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Crect x='3' y='4.5' width='18' height='16.5' rx='2'/%3E%3Cpath d='M3 9.5h18M8 2.5v4M16 2.5v4' stroke-linecap='round'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+.socle-instance-quand > * { grid-column: 2; }
+.socle-instance-date {
+    font-weight: 700;
+    font-size: 13px;
+    color: #000;
+}
+.socle-instance-lieu {
+    font-size: 12px;
+    color: #555;
+    line-height: 1.5;
+    /* L'adresse arrive du CRM avec ses propres retours a la ligne. */
+    white-space: pre-line;
+}
+/* La colonne du OU : nom du campus et adresse. Meme grille que celle du
+   QUAND, plus le trait vertical de la carte du builder. */
+.socle-instance-ou {
+    display: grid;
+    grid-template-columns: 20px 1fr;
+    column-gap: 10px;
+    row-gap: 2px;
+    align-items: start;
+    flex: 1;
+    min-width: 0;
+    border-left: 1px solid #e0dad2;
+    padding-left: 18px;
+}
+.socle-instance-ou > * { grid-column: 2; }
+.socle-instance-ou::before {
+    content: '';
+    width: 20px;
+    height: 20px;
+    margin-top: 1px;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23333' stroke-width='1.7'%3E%3Cpath d='M12 21.5s7-6.5 7-11.5a7 7 0 1 0-14 0c0 5 7 11.5 7 11.5z' stroke-linejoin='round'/%3E%3Ccircle cx='12' cy='10' r='2.6'/%3E%3C/svg%3E") no-repeat center / contain;
+}
+/* Sous 560px les deux colonnes s'empilent : un trait vertical n'a plus de
+   sens, il devient un filet horizontal. */
+@media (max-width: 560px) {
+    .socle-instance-ou {
+        border-left: 0;
+        padding-left: 0;
+        border-top: 1px solid #e0dad2;
+        padding-top: 10px;
+    }
+}
+/* Un champ sans option n'a rien a montrer : on masque le bloc entier, libelle
+   compris, plutot que de laisser un intitule orphelin. */
+.jpo-dates-field:has(.jpo-dates:empty),
+.jpo-ateliers-field:has(.jpo-ateliers:empty) { display: none; }
+
+/* ── Campus sans aucune date ──────────────────────────────────────────────
+   Tant qu'aucun campus n'est choisi, la regle ci-dessus masque le bloc : c'est
+   le bon comportement, il n'y a rien a annoncer. Des qu'un campus EST choisi
+   (le select est required, donc :valid) et que le socle n'a rendu aucune
+   date, on remonte un avertissement et on neutralise l'envoi.
+
+   Tout tient en CSS : le message passe par un ::before, qui ne compte pas dans
+   :empty — la zone reste donc vide aux yeux du selecteur, et le socle n'a pas
+   a etre modifie.
+
+   Sans ca, l'etudiant remplissait tout, soumettait, et recevait apres coup
+   « Inscription evenement sans InstanceId : aucune date choisie » — alors que
+   le compte personnel et les consentements avaient deja ete crees. */
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates-field:has(.jpo-dates:empty) {
+    display: flex;
+}
+.jpo-card:has(.jpo-campus-select:valid) .jpo-dates:empty::before {
+    content: "${t.noDate}";
+    display: block;
+    padding: 10px 12px;
+    border: 1px solid #c00;
+    border-radius: 8px;
+    background: #fff5f5;
+    color: #c00;
+    font-size: 13px;
+    line-height: 1.45;
+}
+/* pointer-events: none suffit a bloquer le clic sans toucher au JS. */
+.jpo-card:has(.jpo-campus-select:valid):has(.jpo-dates:empty) .jpo-submit {
+    background: #888;
+    cursor: not-allowed;
+    pointer-events: none;
+}
+
 .jpo-event-card {
     display: none;
     margin-top: 16px;
@@ -323,6 +515,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     display: flex;
     flex-direction: column;
     margin-bottom: 12px;
+}
+
+/* Conteneur d'isolement, un seul champ dedans. Il n'a aucun effet visuel : il
+   existe pour que le niveau d'études ne partage son parent avec aucun autre
+   champ de la cascade, le socle ne réordonnant que les champs frères. */
+.jpo-col {
+    min-width: 0;
 }
 
 .jpo-field.hidden {
@@ -416,7 +615,10 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 
 .jpo-phone-prefix-wrap {
     position: relative;
-    width: 84px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
     display: flex;
     align-items: center;
@@ -461,6 +663,13 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     outline: none;
     cursor: pointer;
 }
+
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.jpo-rgpd { flex-wrap: wrap; }
+.jpo-rgpd .jpo-err-msg { flex-basis: 100%; margin-left: 28px; }
 
 .jpo-rgpd {
     display: flex;
@@ -561,12 +770,6 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     color: var(--brand-text, #1a1a1a);
 }
 
-.jpo-success p {
-    font-size: 13px;
-    color: var(--brand-muted, #6b7280);
-    margin: 0;
-}
-
 .jpo-spinner {
     display: inline-block;
     width: 14px;
@@ -645,46 +848,63 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
     <div class="jpo-pointer"></div>
 
     <div class="jpo-success">
-        <div style="font-size:36px;margin-bottom:10px;">✅</div>
+        <div style="font-size:36px;margin-bottom:10px;">✔️</div>
         <h3 class="jpo-success-thanks"></h3>
-        <p class="jpo-success-msg"></p>
     </div>
 
     <div class="jpo-form-zone">
-    <form class="jpo-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="jpo-form" data-lang="${lang}" method="post">
 ${hidden}
         <input type="hidden" name="TypeEvenement" value="${typeEvenement}">
         <input type="hidden" name="EventDate"     value="">
+
+        <!-- ═══════ DATES ET ATELIERS, REMPLIS PAR LE CRM ═══════
+             Ces deux conteneurs DOIVENT rester DANS le <form> : le socle y
+             cree des <input type="radio" name="InstanceId">, et un champ hors
+             formulaire ne serait jamais soumis.
+
+             Vides dans le builder, qui n'execute pas le socle. En page
+             publiee, le socle y pose les dates du CRM (boutons radio, la plus
+             proche cochee) puis les conferences de la date choisie, avec leurs
+             horaires. Changer de date refiltre les conferences.
+
+             InstanceId est ce que le socle d'ecriture attend : sans lui il
+             refuse la soumission. EventDate ci-dessus ne porte qu'un texte
+             d'affichage.
+
+             Le choix de la date OUVRE le formulaire : c'est la position 2 de
+             l'Excel des champs visibles, juste apres le campus. Il ne peut pas
+             remonter plus haut, le campus vivant au-dessus du <form>. Les
+             sous-evenements, eux, restent en bas. -->
+        <div class="jpo-field jpo-dates-field">
+            <label class="jpo-label">${t.dateChoix}<span class="req">*</span></label>
+            <div class="jpo-dates" data-socle="instances"></div>
+        </div>
 ${showVousEtes ? `
-        <div class="jpo-row">
-            <div class="jpo-field">
-                <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
-                <div class="jpo-sel-wrap">
-                    <select class="jpo-select" name="VousEtes" required>
-                        ${contactTypeOptions}
-                    </select>
-                </div>
-                <span class="jpo-err-msg">${t.errRequired}</span>
-            </div>
-            <div class="jpo-field">
-                <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="jpo-sel-wrap">
-                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
-                </div>
-                <span class="jpo-err-msg">${t.errRequired}</span>
-            </div>
-        </div>` : `
+        <!-- « Mon profil » dans l'Excel, position 3. Seul sur sa ligne : le
+             niveau d'etudes qui l'accompagnait est descendu en position 8. -->
         <div class="jpo-field">
-            <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
+            <label class="jpo-label">${t.youAre}<span class="req">*</span></label>
             <div class="jpo-sel-wrap">
-                <select class="jpo-select jpo-niveau" name="StudyLevel" required>
-                    ${studyLevelOptions}
+                <select class="jpo-select" name="VousEtes" required>
+                    ${contactTypeOptions}
                 </select>
             </div>
             <span class="jpo-err-msg">${t.errRequired}</span>
-        </div>`}
+        </div>` : ''}
 
         <div class="jpo-row">
             <div class="jpo-field">
@@ -709,19 +929,62 @@ ${showVousEtes ? `
                 <label class="jpo-label">${t.mobile}<span class="req">*</span></label>
                 <div class="jpo-phone-wrap">
                     <div class="jpo-phone-prefix-wrap">
-                        <select class="jpo-phone-prefix" aria-label="Indicatif pays">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="jpo-phone-prefix" aria-label="Indicatif pays">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="jpo-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
                 </div>
                 <span class="jpo-err-msg">${t.errPhone}</span>
+            </div>
+        </div>
+
+        <!-- Niveau d'études — position 8 de l'Excel des champs visibles, juste
+             apres le telephone. Il accompagnait « Vous etes » en haut du
+             formulaire, ce que le fichier ne demande pas.
+
+             ⚠ DANS SON PROPRE .jpo-col, ET SEUL DEDANS. Le socle ne reordonne
+             que les champs qui PARTAGENT un parent et laisse intact tout
+             groupe d'un seul champ : ce conteneur rend la place ecrite ici
+             definitive, page publiee comprise. Le campus, lui, vit au-dessus
+             du <form> dans .jpo-campus-zone — autre parent, donc aucun risque
+             qu'il repasse devant. -->
+        <div class="jpo-col">
+            <div class="jpo-field">
+                <label class="jpo-label">${t.studyLevel}<span class="req">*</span></label>
+                <div class="jpo-sel-wrap">
+                    <select class="jpo-select jpo-niveau" name="StudyLevel" required>
+                        ${studyLevelOptions}
+                    </select>
+                </div>
+                <span class="jpo-err-msg">${t.errRequired}</span>
+            </div>
+        </div>
+
+        <!-- Spécialité (règle §6) — seule brique de la cascade sur les
+             formulaires événement : le contrat ne prévoit rythme, langue et
+             rentrée que sur la candidature. Masquée au départ ; c'est le socle
+             qui décide, selon la matrice de l'école et le nombre de valeurs
+             restantes. Un champ à une seule valeur reste masqué mais renseigné,
+             et part au CRM.
+
+             C'est CE champ que « Champs visibles des formulaires.xlsx » appelle
+             « Programme souhaité » — trois écoles le portent hors candidature :
+             BRASSART, IFA Paris, MoPA.
+
+             Inerte dans le builder, qui n'exécute pas le socle. -->
+        <div class="jpo-field jpo-speciality-field hidden">
+            <label class="jpo-label">${t.speciality}</label>
+            <div class="jpo-sel-wrap">
+                <select class="jpo-select" name="Speciality" data-placeholder="${t.specialityPh}">
+                    <option value="">${t.specialityPh}</option>
+                </select>
             </div>
         </div>
 
@@ -750,8 +1013,20 @@ ${showChild ? `
             <span class="jpo-err-msg">${t.errPhone}</span>
         </div>` : ''}
 
+        <!-- SOUS-EVENEMENTS, EN BAS. L'arbitrage du 30/08 avait descendu ici
+             les dates ET les sous-evenements, pour ne pas faire choisir un
+             creneau avant meme que le visiteur ait donne son nom. L'Excel des
+             champs visibles place la date en position 2 : cet arbitrage est
+             leve pour LA DATE seule, qui ouvre desormais le formulaire. Les
+             sous-evenements, absents du fichier, gardent leur place ici. -->
+        <div class="jpo-field jpo-ateliers-field">
+            <label class="jpo-label">${t.ateliers}</label>
+            <div class="jpo-ateliers" data-socle="appointments"></div>
+        </div>
+        <input type="hidden" name="Appointments" value="">
+
         <div class="jpo-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="jpo-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span>
                 <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
@@ -771,7 +1046,7 @@ ${showChild ? `
     </div>
 
 </div><!-- /.jpo-card -->
-${SOCLE_READ_SNIPPET}
+${socleReadSnippet({ formType: 'evenement', eventType: typeEvenement })}
 </section>`;
     }
 
@@ -836,22 +1111,27 @@ ${SOCLE_READ_SNIPPET}
         }
     }
 
-    function handleSubmit(data) {
-        return new Promise(resolve => setTimeout(() => resolve({ ok: true }), 900));
+    /* Envoi REEL au socle d'ecriture sur une page publiee, simulation dans le
+       builder — ou aucun socle ne tourne. Voir shared/envoi-socle.js. */
+    function handleSubmit(data, doc) {
+        return soumettre(data, doc);
     }
 
-    function showConfirmation(card, data, t) {
-        const formZone = card.querySelector('.jpo-form-zone');
-        const success  = card.querySelector('.jpo-success');
-        if (formZone) formZone.style.display = 'none';
-        if (success) {
-            success.style.display = 'block';
-            const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-            const thanks = success.querySelector('.jpo-success-thanks');
-            const msg    = success.querySelector('.jpo-success-msg');
-            if (thanks) thanks.textContent = t.successThanks(name);
-            if (msg)    msg.innerHTML      = t.successConfirm(data.EventDate || '—', data.Campus || '—', data.EmailAddress || '');
-        }
+    /* Retour client du 2026-09-03 : PLUS RIEN NE DISPARAÎT.
+     *
+     * Ce que faisait cette fonction, et pourquoi ça tombe. Elle énumérait les
+     * enfants de la carte pour tous les masquer sauf l'écran de succès — un
+     * balayage né du correctif du 31/08, quand `.jpo-campus-zone` restait
+     * affichée sous la confirmation parce qu'elle est SŒUR de la zone de
+     * formulaire, pas sa descendante. Nommer un sélecteur de plus n'aurait
+     * fait que reculer le problème au bloc suivant.
+     *
+     * Ne plus rien masquer règle ce fil définitivement : il n'y a plus de
+     * fratrie à rattraper. Le message s'ajoute au-dessus du bouton, le
+     * formulaire garde ses valeurs, et `.jpo-success` n'est plus jamais
+     * ouvert — exactement ce que fait le socle sur une page publiée. */
+    function showConfirmation(form, t) {
+        montrerSucces(form, t.successThanks, t.successMsg);
     }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -912,12 +1192,36 @@ export function attachEventFormLogic(editor) {
             const linkEl = card.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = card.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* Scoped updateEventCard — colonne gauche : date + heures + conférence ;
            colonne droite : « Campus <ville> » + adresse (comme la maquette). */
+        /* La carte figee vient de `jpoEvents`, un dictionnaire ecrit en dur dans
+           le builder : une date par campus, saisie a la main. Elle sert
+           d'illustration tant que le CRM ne repond pas — dans le builder,
+           typiquement, ou le socle ne s'execute pas.
+
+           Des que le socle publie de vraies dates, elle ment : on la retire.
+           C'est la liste de boutons radio qui fait foi. */
+        function socleAUneDate() {
+            try {
+                var D = (form.ownerDocument.defaultView || window).SOCLE_DATA;
+                return !!(D && D.instances && D.instances.length);
+            } catch (e) { return false; }
+        }
+
         function updateCard(val) {
             const cardEl = card.querySelector('.jpo-event-card');
+            if (socleAUneDate()) {
+                if (cardEl) cardEl.style.display = 'none';
+                return;
+            }
             const dateEl = card.querySelector('.jpo-event-date');
             const addrEl = card.querySelector('.jpo-event-detail');
             const confEl = card.querySelector('.jpo-event-right');
@@ -971,8 +1275,15 @@ export function attachEventFormLogic(editor) {
         })();
         const showProgramme = isProgrammeSchool(school);
 
+        /* ── Cascade de reconstitution du programme (règle §6) ────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote la
+           spécialité, et le champ Programme n'a plus lieu d'être. Sinon —
+           builder, ou Salesforce muet — on garde l'ancien select Programme
+           alimenté par niveau + campus. Les deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
         function refreshProgramme() {
-            if (!programmeField || !programmeSelect) return;
+            if (cascadeActive || !programmeField || !programmeSelect) return;
             const niveau = niveauEl ? niveauEl.value : '';
             const campus = campusSelect ? campusSelect.value : '';
             const progs  = showProgramme ? getProgrammes(niveau, campus, lang) : [];
@@ -1005,6 +1316,7 @@ export function attachEventFormLogic(editor) {
         campusSelect.addEventListener('change', refreshProgramme);
         refreshProgramme();
         refreshChild();
+        if (cascadeActive && programmeField) programmeField.classList.add('hidden');
 
         const emailEl = form.querySelector('[name="EmailAddress"]');
         if (emailEl) emailEl.addEventListener('blur', function () {
@@ -1022,14 +1334,11 @@ export function attachEventFormLogic(editor) {
             e.preventDefault();
             let ok = true;
 
-            ['VousEtes', 'LastName', 'FirstName', 'StudyLevel'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
-
-            if (!campusSelect.value) { campusSelect.classList.add('err'); ok = false; }
-            else campusSelect.classList.remove('err');
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
@@ -1052,10 +1361,16 @@ export function attachEventFormLogic(editor) {
             const data = { Campus: campusSelect.value };
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.jpo-phone-prefix');
-            const prefix = prefixEl ? prefixEl.value : '+33';
-            const raw = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (!raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
@@ -1063,12 +1378,22 @@ export function attachEventFormLogic(editor) {
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            handleSubmit(data).then(res => {
+            effacerMessage(form);
+
+            handleSubmit(data, form.ownerDocument).then(res => {
+                /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris. Il
+                   ne l'etait pas jusqu'au 03/09, et c'etait sans consequence :
+                   la confirmation emportait la carte entiere, bouton compris.
+                   Maintenant que le formulaire RESTE, un bouton fige sur
+                   « Envoi... » serait la seule chose cassee de l'ecran, et
+                   interdirait le renvoi. */
+                if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
                 if (res.ok) {
-                    showConfirmation(card, data, t);
+                    showConfirmation(form, t);
                 } else {
-                    if (btn) { btn.disabled = false; btn.textContent = originalLabel; }
-                    alert(t.errGeneric);
+                    /* Le message du socle plutot qu'un « une erreur est
+                       survenue » : c'est lui qui nomme le champ refuse. */
+                    alert(res.message || t.errGeneric);
                 }
             });
         });

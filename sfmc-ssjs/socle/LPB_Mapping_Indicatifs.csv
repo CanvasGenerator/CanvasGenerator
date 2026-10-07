@@ -1,0 +1,61 @@
+Indicatif,Pays,NbMin,NbMax,Actif
+33,France,9,9,true
+32,Belgique,8,9,true
+41,Suisse,9,9,true
+377,Monaco,8,8,true
+34,Espagne,9,9,true
+351,Portugal,9,9,true
+44,Royaume-Uni,9,10,true
+1,Etats-Unis / Canada,10,10,true
+212,Maroc,9,9,true
+213,Algerie,9,9,true
+216,Tunisie,8,8,true
+221,Senegal,9,9,true
+225,Cote d'Ivoire,10,10,true
+237,Cameroun,9,9,true
+31,Pays-Bas,9,9,false
+48,Pologne,9,9,false
+40,Roumanie,9,9,false
+420,Republique tcheque,9,9,false
+30,Grece,10,10,false
+45,Danemark,8,8,false
+47,Norvege,8,8,false
+46,Suede,7,9,false
+353,Irlande,7,9,false
+352,Luxembourg,6,9,false
+49,Allemagne,6,11,false
+39,Italie,6,11,false
+90,Turquie,10,10,false
+7,Russie / Kazakhstan,10,10,false
+27,Afrique du Sud,9,9,false
+20,Egypte,9,10,false
+233,Ghana,9,9,false
+234,Nigeria,10,10,false
+254,Kenya,9,9,false
+223,Mali,8,8,false
+226,Burkina Faso,8,8,false
+228,Togo,8,8,false
+224,Guinee,9,9,false
+243,Congo (RDC),9,9,false
+261,Madagascar,9,9,false
+230,Maurice,7,8,false
+961,Liban,7,8,false
+971,Emirats arabes unis,9,9,false
+966,Arabie saoudite,9,9,false
+974,Qatar,8,8,false
+972,Israel,9,9,false
+91,Inde,10,10,false
+86,Chine,7,11,false
+81,Japon,9,10,false
+82,Coree du Sud,8,10,false
+84,Vietnam,9,10,false
+66,Thailande,8,9,false
+65,Singapour,8,8,false
+63,Philippines,10,10,false
+60,Malaisie,8,10,false
+62,Indonesie,9,12,false
+55,Bresil,10,11,false
+52,Mexique,10,10,false
+54,Argentine,10,10,false
+61,Australie,9,9,false
+64,Nouvelle-Zelande,8,10,false

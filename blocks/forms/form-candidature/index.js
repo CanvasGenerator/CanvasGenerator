@@ -20,9 +20,14 @@
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
 import { buildHiddenFields, populateHiddenFields } from '../shared/tracking-fields.js';
-import { isProgrammeSchool, getProgrammes } from '../shared/programme-config.js';
-import { SOCLE_READ_SNIPPET } from '../shared/socle-read-snippet.js';
+import { validerEtRevelerRequis } from '../shared/champs-requis.js';
+import { soumettre } from '../shared/envoi-socle.js';
+import { montrerSucces, effacerMessage } from '../shared/message-confirmation.js';
+import { isProgrammeSchool, getProgrammes, getPtatForProgramme } from '../shared/programme-config.js';
+import { brancherCascadeProgramme } from '../shared/cascade-programme.js';
+import { socleReadSnippet } from '../shared/socle-read-snippet.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     /* ── Traductions FR / EN ─────────────────────────────────────────── */
@@ -39,13 +44,22 @@ export default function (editor, categories) {
             studyLevel:  "Niveau d'études",
             campus:      'Campus',
             programme:   'Programme souhaité',
+            speciality:  'Programme souhaité',
+            rhythm:      'Rythme',
+            language:    'Langue d\'enseignement',
+            rentree:     'Rentrée',
+            choisir:     'Sélectionnez...',
             programmePh: 'Sélectionnez un programme...',
             rgpdLink:    'ici',
             submit:      'Je candidate',
             sending:     'Envoi en cours...',
-            successTitle: name => `Merci, ${name} !`,
-            successMsg:  email =>
-                `Votre candidature a bien été enregistrée.<br>Consultez votre boîte mail : un e-mail vient d'être envoyé à <strong>${email}</strong> pour activer votre compte et accéder au portail candidature.`,
+            /* Le texte du socle, au mot pres : c'est lui que le visiteur lit
+               sur une page publiee. Un apercu qui dirait autre chose ferait
+               valider en recette un message qui n'existe nulle part. */
+            successTitle: 'Nous avons bien reçu votre demande de candidature',
+            successMsg:  'Pour la finaliser et déposer votre dossier, créez '
+                       + 'votre espace candidat via le lien envoyé par e-mail '
+                       + '(pensez à vérifier vos spams).',
             errRequired: 'Ce champ est requis.',
             errEmail:    'Format e-mail invalide.',
             errEmailDom: 'Veuillez utiliser une adresse valide.',
@@ -64,13 +78,19 @@ export default function (editor, categories) {
             studyLevel:  'Level of study',
             campus:      'Campus',
             programme:   'Desired programme',
+            speciality:  'Desired programme',
+            rhythm:      'Study mode',
+            language:    'Language of instruction',
+            rentree:     'Intake',
+            choisir:     'Select...',
             programmePh: 'Select a programme...',
             rgpdLink:    'here',
             submit:      'Apply now',
             sending:     'Sending...',
-            successTitle: name => `Thank you, ${name}!`,
-            successMsg:  email =>
-                `Your application has been registered.<br>Please check your inbox: an email has just been sent to <strong>${email}</strong> to activate your account and access the application portal.`,
+            successTitle: 'We’ve received your application request.',
+            successMsg:  'To complete and submit your application, please create your '
+                       + 'applicant account using the link sent to your email address '
+                       + '(please make sure to check your spam folder).',
             errRequired: 'This field is required.',
             errEmail:    'Invalid email format.',
             errEmailDom: 'Please use a valid email address.',
@@ -90,7 +110,8 @@ export default function (editor, categories) {
 
         return `
 <section class="cnd-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -107,9 +128,21 @@ export default function (editor, categories) {
 .cnd-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
 .cnd-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
 .cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule : elle existe pour que le campus
+   et le niveau d'études ne soient pas FRERES, le socle ne réordonnant que les
+   champs qui partagent un parent. min-width:0 parce qu'une cellule de grille
+   refuse sinon de descendre sous la largeur de son contenu. */
+.cnd-col { min-width: 0; }
 .cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
 .cnd-row .cnd-field { margin-bottom: 0; }
 .cnd-field.hidden { display: none; }
+/* Un champ masque laisse sa CELLULE de grille en place : le voisin restait
+   donc coince dans sa colonne, a droite, avec la moitie de la ligne vide a
+   cote. C'est ce que donnait le niveau d'etudes sur les ecoles ou le campus
+   n'est pas propose. La cellule vide s'efface, et celle qui reste occupe la
+   ligne entiere. */
+.cnd-row > .cnd-col:has(> .cnd-field.hidden) { display: none; }
+.cnd-row:has(> .cnd-col > .cnd-field.hidden) { grid-template-columns: 1fr; }
 .cnd-label {
     font-size: 11px;
     font-weight: 700;
@@ -146,7 +179,10 @@ export default function (editor, categories) {
 .cnd-phone-wrap { display: flex; gap: 8px; }
 .cnd-phone-prefix-wrap {
     position: relative;
-    width: 84px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 .cnd-phone-prefix-wrap::after {
@@ -176,6 +212,13 @@ export default function (editor, categories) {
     outline: none;
     cursor: pointer;
 }
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.cnd-rgpd { flex-wrap: wrap; }
+.cnd-rgpd .cnd-err-msg { flex-basis: 100%; margin-left: 28px; }
+
 .cnd-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
 .cnd-rgpd input[type="checkbox"] {
     width: 18px;
@@ -221,7 +264,6 @@ export default function (editor, categories) {
 .cnd-submit:disabled { background: #888; cursor: not-allowed; }
 .cnd-success { display: none; padding: 16px 0 8px; text-align: center; }
 .cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
-.cnd-success p { font-size: 13px; color: var(--brand-muted, #6b7280); margin: 0; }
 .cnd-spinner {
     display: inline-block; width: 14px; height: 14px;
     border: 2px solid #fff; border-top-color: transparent;
@@ -242,13 +284,25 @@ export default function (editor, categories) {
 
     <!-- Confirmation (masquée initialement) -->
     <div class="cnd-success">
-        <div style="font-size:40px;margin-bottom:10px;">📧</div>
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
         <h3 class="cnd-success-title"></h3>
-        <p class="cnd-success-msg"></p>
     </div>
 
     <!-- Formulaire -->
-    <form class="cnd-form" data-lang="${lang}" novalidate>
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="cnd-form" data-lang="${lang}" method="post">
 ${hidden}
 
         <!-- Nom / Prénom -->
@@ -265,17 +319,6 @@ ${hidden}
             </div>
         </div>
 
-        <!-- Pays de résidence -->
-        <div class="cnd-field">
-            <label class="cnd-label">${t.country}<span class="req">*</span></label>
-            <div class="cnd-sel-wrap">
-                <select class="cnd-select cnd-country" name="Country" required>
-                    ${countryOptions}
-                </select>
-            </div>
-            <span class="cnd-err-msg">${t.errRequired}</span>
-        </div>
-
         <!-- Email / Portable -->
         <div class="cnd-row">
             <div class="cnd-field">
@@ -287,14 +330,14 @@ ${hidden}
                 <label class="cnd-label">${t.mobile}<span class="req">*</span></label>
                 <div class="cnd-phone-wrap">
                     <div class="cnd-phone-prefix-wrap">
-                        <select class="cnd-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="cnd-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="cnd-input cnd-phone-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -303,25 +346,116 @@ ${hidden}
             </div>
         </div>
 
-        <!-- Niveau d'études / Campus -->
-        <div class="cnd-row">
-            <div class="cnd-field">
-                <label class="cnd-label">${t.studyLevel}<span class="req">*</span></label>
-                <div class="cnd-sel-wrap">
-                    <select class="cnd-select cnd-niveau" name="StudyLevel" required>
-                        ${studyLevelOptions}
-                    </select>
-                </div>
-                <span class="cnd-err-msg">${t.errRequired}</span>
+        <!-- Pays de résidence — ajouté sur la candidature, aligné sur la
+             brochure : juste après le téléphone, avant campus / niveau.
+             Comme sur la brochure, ce champ ne figure PAS dans la table NOM_DOM
+             du socle, qui ne réordonne que campus, niveau, spécialité, rythme,
+             langue, rentrée et programme : sa place ici est donc définitive,
+             page publiée comprise. Le socle remplit ses options depuis le value
+             set « Pays » du CRM (name="Country"), déjà pris en charge pour la
+             brochure — rien à ajouter côté écriture. -->
+        <div class="cnd-field">
+            <label class="cnd-label">${t.country}<span class="req">*</span></label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Country" required>
+                    ${countryOptions}
+                </select>
             </div>
-            <div class="cnd-field">
-                <label class="cnd-label">${t.campus}<span class="req">*</span></label>
-                <div class="cnd-sel-wrap">
-                    <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
-                        ${campusOptions}
-                    </select>
+            <span class="cnd-err-msg">${t.errRequired}</span>
+        </div>
+
+        <!-- Campus / Niveau d'études — positions 5 et 6 de l'Excel des champs
+             visibles, dans cet ordre : le campus AVANT le niveau, l'inverse de
+             la brochure.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .cnd-col. NE PAS LES REMETTRE FRERES
+             DANS LE .cnd-row.
+
+             Le socle réordonne les champs qui PARTAGENT un parent, selon
+             OrdreChamps de l'école, et laisse intact tout groupe d'un seul
+             champ. Deux .cnd-field frères formaient un groupe de deux, donc
+             leur ordre venait de la configuration et non de ce gabarit : il
+             pouvait différer entre le builder et la page publiée.
+
+             Un conteneur par champ rend l'ordre écrit ici définitif.
+
+             ⚠ NE PAS FAIRE PAREIL sur Spécialité / Rythme / Langue / Rentrée
+             juste en dessous : ces quatre-là DOIVENT rester frères. Leur ordre
+             relatif est une règle métier que le socle applique par école — IFA
+             Paris demande la langue AVANT la spécialité, parce qu'on ne peut
+             pas proposer une spécialité avant de savoir dans quelle langue
+             elle est enseignée. Les cloisonner figerait cet ordre et casserait
+             la règle.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module. -->
+        <div class="cnd-row">
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">${t.campus}<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
+                            ${campusOptions}
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">${t.errRequired}</span>
                 </div>
-                <span class="cnd-err-msg">${t.errRequired}</span>
+            </div>
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">${t.studyLevel}<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-niveau" name="StudyLevel" required>
+                            ${studyLevelOptions}
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">${t.errRequired}</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════ RECONSTITUTION DU PROGRAMME ═══════
+             Règle §6 : le programme est scindé en champs conditionnels —
+             campus → niveau → spécialité → rythme → langue → rentrée. Chacun
+             ne propose que ce qui reste atteignable, et le dernier choix
+             désigne un programme unique, donc un PTAT.
+
+             Tous masqués au départ : c'est la cascade qui décide de les
+             montrer, selon l'école (ordre, affichage progressif) et le nombre
+             de valeurs restantes. Un champ à une seule valeur reste masqué mais
+             renseigné — la réponse part au CRM sans qu'on pose la question.
+
+             Inertes dans le builder, qui n'exécute pas le socle. -->
+        <div class="cnd-field cnd-speciality-field hidden">
+            <label class="cnd-label">${t.speciality}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Speciality" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rhythm-field hidden">
+            <label class="cnd-label">${t.rhythm}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rhythm" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-language-field hidden">
+            <label class="cnd-label">${t.language}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Language" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rentree-field hidden">
+            <label class="cnd-label">${t.rentree}</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rentree" data-placeholder="${t.choisir}">
+                    <option value="">${t.choisir}</option>
+                </select>
             </div>
         </div>
 
@@ -333,11 +467,15 @@ ${hidden}
                     <option value="">${t.programmePh}</option>
                 </select>
             </div>
+            <!-- Rempli par majPtat() au choix du programme. Le socle s'en sert
+                 pour ecrire PTAT_Id__c et pour armer les regles de blocage
+                 candidature : vide, ces regles ne s'appliquent pas. -->
+            <input type="hidden" name="PTAT_Id" value="">
         </div>
 
         <!-- RGPD -->
         <div class="cnd-rgpd">
-            <input type="checkbox" name="RGPDConsent" value="true">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="cnd-rgpd-label">
                 <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
@@ -351,7 +489,7 @@ ${hidden}
     </form>
 
 </div><!-- /.cnd-card -->
-${SOCLE_READ_SNIPPET}
+${socleReadSnippet({ formType: 'candidature' })}
 </section>`;
     }
 
@@ -406,6 +544,12 @@ ${SOCLE_READ_SNIPPET}
             const linkEl = form.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché. Sans cela, une config RGPD
+               rafraîchie ici laisserait le champ caché sur l'ancienne
+               formulation : on prouverait l'acceptation d'un texte que la
+               personne n'a jamais vu. */
+            const preuveEl = form.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         /* ── Champs cachés (tracking / CRM + langue souhaitée IFA) ── */
@@ -437,11 +581,36 @@ ${SOCLE_READ_SNIPPET}
                 programmeField.classList.add('hidden');
                 programmeSelect.value = '';
             }
+            majPtat();
         }
 
-        if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
-        if (campusEl) campusEl.addEventListener('change', refreshProgramme);
-        refreshProgramme();
+        function majPtat() {
+            const ptatEl = form.querySelector('[name="PTAT_Id"]');
+            if (!ptatEl) return;
+            ptatEl.value = programmeSelect
+                ? getPtatForProgramme(programmeSelect.value)
+                : '';
+        }
+
+        /* ── Cascade de reconstitution du programme ──────────────────────
+           Quand le socle a publié les programmes, c'est ELLE qui pilote :
+           spécialité, rythme, langue et rentrée reconstituent le programme, et
+           le champ Programme devient un résultat qu'on ne montre plus.
+
+           Sinon — builder, ou Salesforce muet — on garde l'ancien
+           comportement : un select Programme alimenté par niveau + campus. Les
+           deux ne coexistent jamais. */
+        const cascadeActive = brancherCascadeProgramme(form);
+
+        if (cascadeActive) {
+            if (programmeField) programmeField.classList.add('hidden');
+        } else {
+            if (niveauEl) niveauEl.addEventListener('change', refreshProgramme);
+            if (campusEl) campusEl.addEventListener('change', refreshProgramme);
+            if (programmeSelect) programmeSelect.addEventListener('change', majPtat);
+            refreshProgramme();
+            majPtat();
+        }
 
         if (emailEl) emailEl.addEventListener('blur', function () {
             const e = validateEmail(this.value.trim(), t);
@@ -456,11 +625,11 @@ ${SOCLE_READ_SNIPPET}
             e.preventDefault();
             let ok = true;
 
-            ['LastName', 'FirstName', 'Country', 'StudyLevel', 'Campus'].forEach(name => {
-                const el = form.querySelector(`[name="${name}"]`);
-                if (el && !el.value.trim()) { showFieldErr(el, t.errRequired); ok = false; }
-                else if (el) clearFieldErr(el);
-            });
+            /* Tout champ AFFICHÉ est obligatoire — arbitrage du 30/08. La
+               liste ne peut plus être écrite ici : la cascade décide à
+               l'exécution si la spécialité apparaît, et le socle rend les dates
+               après coup. Ces champs-là n'étaient donc jamais contrôlés. */
+            if (!validerEtRevelerRequis(form, { message: t.errRequired })) ok = false;
 
             const ee = validateEmail((emailEl || {}).value || '', t);
             if (ee) { showFieldErr(emailEl, ee); ok = false; } else clearFieldErr(emailEl);
@@ -480,10 +649,16 @@ ${SOCLE_READ_SNIPPET}
             const data = {};
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.cnd-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (raw && !raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
@@ -491,29 +666,32 @@ ${SOCLE_READ_SNIPPET}
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
             data.HasOptedInPhone    = rgpd ? '1' : '0';
 
-            /* MODE TEST : simulation d'envoi */
-            new Promise(resolve => setTimeout(() => resolve({ ok: true }), 1000))
-                .then(res => {
-                    if (res.ok) {
-                        form.style.display = 'none';
-                        const card    = form.closest('.cnd-card');
-                        const titleEl = card.querySelector('.cnd-title');
-                        const subEl   = card.querySelector('.cnd-subtitle');
-                        if (titleEl) titleEl.style.display = 'none';
-                        if (subEl)   subEl.style.display   = 'none';
+            /* Envoi REEL au socle d'ecriture sur une page publiee, simulation
+               dans le builder — ou aucun socle ne tourne. Le formulaire se
+               poste a lui-meme : le socle est inclus dans la page.
+               Voir shared/envoi-socle.js. */
+            effacerMessage(form);
 
-                        const successEl = card.querySelector('.cnd-success');
-                        if (successEl) {
-                            successEl.style.display = 'block';
-                            const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-                            const titleS = successEl.querySelector('.cnd-success-title');
-                            const msgS   = successEl.querySelector('.cnd-success-msg');
-                            if (titleS) titleS.textContent = t.successTitle(name);
-                            if (msgS)   msgS.innerHTML     = t.successMsg(data.EmailAddress || '');
-                        }
+            soumettre(data, form.ownerDocument)
+                .then(res => {
+                    /* ⚠ LE BOUTON EST RENDU DANS TOUS LES CAS, succes compris.
+                       Il ne l'etait pas jusqu'au 03/09, et c'etait sans
+                       consequence : la confirmation emportait le formulaire
+                       entier, bouton compris. Maintenant que le formulaire
+                       RESTE, un bouton fige sur « Envoi... » serait la seule
+                       chose cassee de l'ecran, et interdirait le renvoi. */
+                    if (btn) { btn.disabled = false; btn.textContent = t.submit; }
+                    if (res.ok) {
+                        /* Retour du 03/09 : rien ne disparait. Le message
+                           s'ajoute au-dessus du bouton, le formulaire garde
+                           ses valeurs, et l'ecran `.cnd-success` n'est plus
+                           ouvert du tout — meme comportement que le socle sur
+                           une page publiee. */
+                        montrerSucces(form, t.successTitle, t.successMsg);
                     } else {
-                        if (btn) { btn.disabled = false; btn.textContent = t.submit; }
-                        alert(t.errGeneric);
+                        /* Le message du socle plutot qu'un « une erreur est
+                           survenue » : c'est lui qui nomme le champ refuse. */
+                        alert(res.message || t.errGeneric);
                     }
                 });
         });
@@ -532,14 +710,14 @@ ${SOCLE_READ_SNIPPET}
     editor.on('load',            () => setTimeout(tryInitCnd, 300));
 
     /* ── Enregistrement des blocs FR + EN ────────────────────────────── */
-    editor.BlockManager.add('form-candidature', {
+    ajouterBloc(editor,'form-candidature', {
         label: 'Formulaire Candidature',
         category: categories.FORMS,
         content: buildContent('fr'),
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-candidature-en', {
+    ajouterBloc(editor,'form-candidature-en', {
         label: 'Formulaire Candidature Anglais',
         category: categories.FORMS,
         content: buildContent('en'),

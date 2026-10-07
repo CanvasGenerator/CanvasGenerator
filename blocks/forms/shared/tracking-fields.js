@@ -7,13 +7,25 @@
  * Deux exports :
  *   • buildHiddenFields()   → chaîne HTML des <input type="hidden">
  *   • populateHiddenFields()→ remplit les valeurs (URL utm_*, gclid,
- *                             clientId, consent, Marque, Langue…) à l'init.
+ *                             Marque, Langue…) à l'init.
+ *
+ * ⚠ Ce que ce module NE remplit PLUS (audit tracking du 04/09) :
+ *   • `clientId` — c'est l'identifiant Google Analytics (cookie `_ga`), que
+ *     seule la CloudPage /landingpage connaît ; elle l'injecte sous `client_id`
+ *     et le socle le recopie ici. L'ancien repli — un hash maison stocké en
+ *     localStorage — écrivait un faux identifiant dans Account.ClientID__c,
+ *     un champ censé rejoindre un parcours GA4.
+ *   • `consent` / `date_consentement_cookies` — le consentement vient
+ *     d'Axeptio, lu par la CloudPage. Les cookies `cookie_consent*` lus ici
+ *     n'existaient sur aucun site du Groupe.
  *
  * Note : « Rentrée générale » N'EST PAS incluse — poussée par Flow Builder
  * côté CRM (cf. onglet « Règles métier » §4).
  */
 
 /* Champs de tracking alimentés depuis les paramètres d'URL. */
+import { resolveRgpdConfig } from './rgpd-config.js';
+
 export const UTM_FIELDS = [
     'utm_source', 'utm_medium', 'utm_campaign',
     'utm_content', 'utm_term', 'utm_id', 'utm_campus'
@@ -33,7 +45,44 @@ export const AD_FIELDS = ['gclid', 'fbclid'];
  * @param {string}  [opts.langueSouhaitee=''] - Langue d'enseignement souhaitée (défaut IFA Paris = fr)
  * @returns {string} HTML des inputs cachés
  */
+/**
+ * L'école courante au moment de CONSTRUIRE le bloc.
+ *
+ * ⚠ Ne pas confondre avec le remplissage à l'exécution, plus bas : celui-ci
+ * lit `window.CURRENT_SCHOOL`, qui n'existe QUE dans le builder. Sur une page
+ * publiée il est absent, et le champ `Marque` restait donc vide — le socle
+ * d'écriture ne pouvait ni résoudre la marque du consentement ni la campagne.
+ * Figer la valeur ici, à la construction, règle les deux.
+ */
+/** Rend une valeur sûre dans un attribut HTML entre guillemets. */
+function escapeAttr(v) {
+    return String(v == null ? '' : v)
+        .replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+        .replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function ecoleCourante() {
+    try {
+        const s = (typeof window !== 'undefined' && window.CURRENT_SCHOOL) || null;
+        return s ? String(s.id || '') : '';
+    } catch (e) { return ''; }
+}
+
 export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque = '', langueSouhaitee = '' }) {
+    /* L'ID de l'école, pas son nom : c'est lui qui sert de clé dans
+       LPB_Mapping_Ecoles et dans la clé de campagne « brochure|efap|FR ». */
+    if (!marque) marque = ecoleCourante();
+
+    /* La PREUVE du consentement : la formulation exacte que la personne coche.
+       Le socle la préfixe d'un numéro de version et l'écrit dans
+       `Legal_Texte_Accepted__c`, un champ REQUIS. Sans elle, la trace se
+       réduisait à « [v1] » — une version sans texte, qui ne prouve rien.
+
+       Même source que le libellé affiché à côté de la case : les deux ne
+       peuvent pas diverger au rendu. Si la config RGPD est rafraîchie ensuite
+       en asynchrone, chaque formulaire remet le champ à jour (voir le
+       fetchRgpdConfig de chaque bloc). */
+    const preuve = escapeAttr(resolveRgpdConfig(lang).text || '');
     const utm = UTM_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     const ads = AD_FIELDS.map(n => `<input type="hidden" name="${n}" value="">`).join('\n        ');
     return `
@@ -44,6 +93,7 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
         <input type="hidden" name="Marque"               value="${marque}">
         <input type="hidden" name="LanguePreferee"       value="${lang}">
         <input type="hidden" name="LangueSouhaitee"      value="${langueSouhaitee}">
+        <input type="hidden" name="LegalTexteAccepted"   value="${preuve}">
         <input type="hidden" name="DateDernierContact"   value="">
         <input type="hidden" name="TypeDernierContact"   value="">
         <input type="hidden" name="CampagneAssociee"     value="">
@@ -59,9 +109,8 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
 /**
  * Remplit les champs cachés à l'initialisation du formulaire.
  * - utm_* / gclid / fbclid : depuis les paramètres d'URL
- * - clientId               : localStorage (ou généré)
- * - consent / date         : depuis le cookie de consentement s'il existe
  * - Marque / Langue        : depuis window.CURRENT_SCHOOL
+ * (clientId, consent : posés par la CloudPage — voir l'en-tête du module)
  *
  * @param {HTMLFormElement} form
  * @param {Object}          opts
@@ -89,27 +138,6 @@ export function populateHiddenFields(form, { lang = 'fr' } = {}) {
         });
     }
 
-    /* ── clientId persistant (GA-like) ── */
-    try {
-        const store = win.localStorage;
-        let cid = store.getItem('edh_client_id');
-        if (!cid) {
-            cid = 'cid_' + Math.abs(hashString(String(win.navigator.userAgent) + form.dataset.lang + form.action));
-            store.setItem('edh_client_id', cid);
-        }
-        setVal('clientId', cid);
-    } catch (e) { /* stockage indisponible */ }
-
-    /* ── Consentement cookies (si bannière présente) ── */
-    try {
-        const cookieConsent = readCookie(win.document, 'cookie_consent');
-        if (cookieConsent) {
-            setVal('consent', cookieConsent);
-            const dateConsent = readCookie(win.document, 'cookie_consent_date');
-            if (dateConsent) setVal('date_consentement_cookies', dateConsent);
-        }
-    } catch (e) { /* pas de cookie */ }
-
     /* ── Marque + Langue souhaitée depuis le contexte école ── */
     try {
         const school = (typeof win !== 'undefined' && win.CURRENT_SCHOOL) ? win.CURRENT_SCHOOL : null;
@@ -126,20 +154,4 @@ export function populateHiddenFields(form, { lang = 'fr' } = {}) {
 
     /* ── Langue préférée de contact = langue du formulaire ── */
     setVal('LanguePreferee', lang);
-}
-
-/* ── Utilitaires internes ─────────────────────────────────────────── */
-function hashString(str) {
-    let h = 0;
-    for (let i = 0; i < str.length; i++) {
-        h = ((h << 5) - h + str.charCodeAt(i)) | 0;
-    }
-    return h;
-}
-
-function readCookie(doc, name) {
-    try {
-        const m = doc.cookie.match(new RegExp('(?:^|; )' + name + '=([^;]*)'));
-        return m ? decodeURIComponent(m[1]) : null;
-    } catch (e) { return null; }
 }

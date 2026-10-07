@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>IFA PARIS — Candidature</title>
+</head>
+<body>
+
+<header class="header-ifa-paris">
+  <div class="hdr-inner">
+    <div class="hdr-brand">
+      <div class="hdr-logo">IFA Paris</div>
+      <div class="hdr-baseline">L'école internationale<br>des métiers de la mode</div>
+    </div>
+    <a href="#" class="hdr-lang">FR</a>
+  </div>
+</header>
+<style>
+  .header-ifa-paris {
+    background-color: var(--brand-header, #000000);
+    color: #ffffff;
+    width: 100%;
+    font-family: 'Georgia', 'Times New Roman', serif;
+    border-bottom: 1px solid rgba(0,0,0,0.08);
+  }
+  .header-ifa-paris .hdr-inner {
+    max-width: 1200px; margin: 0 auto; padding: 16px 24px;
+    display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  }
+  .header-ifa-paris .hdr-brand { display: flex; align-items: center; gap: 20px; min-width: 0; }
+  .header-ifa-paris .hdr-logo {
+    font-size: 30px; font-weight: 800; letter-spacing: 2px; line-height: 1;
+    color: #ffffff; white-space: nowrap; flex-shrink: 0;
+  }
+  .header-ifa-paris .hdr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #ffffff; }
+  .header-ifa-paris .hdr-lang {
+    font-size: 12px; font-weight: 700; letter-spacing: 1.5px; text-decoration: none;
+    color: #ffffff; border: 1px solid currentColor; padding: 5px 13px; border-radius: 2px;
+    opacity: 0.9; flex-shrink: 0;
+  }
+  .header-ifa-paris .hdr-lang:hover { opacity: 1; }
+  @media (max-width: 768px) {
+    .header-ifa-paris .hdr-inner { padding: 12px 16px; }
+    .header-ifa-paris .hdr-logo { font-size: 22px; }
+    .header-ifa-paris .hdr-baseline { display: none; }
+  }
+</style>
+
+<section class="cnd-section"
+  data-gjs-droppable="false"
+  data-lp-form="1">
+
+<!-- ═══════════ STYLES ═══════════ -->
+<style>
+.cnd-section *, .cnd-section *::before, .cnd-section *::after { box-sizing: border-box; }
+.cnd-section {
+    display: flex; justify-content: center; align-items: flex-start;
+    padding: 40px 16px; background: transparent;
+    font-family: var(--brand-font, 'Inter', sans-serif); font-size: 13px; color: var(--brand-text, #1a1a1a);
+}
+.cnd-card {
+    width: 100%; max-width: 520px;
+    background: #F4EFEA; padding: 24px 24px 28px;
+}
+.cnd-title { font-size: 18px; font-weight: 700; color: var(--brand-text, #1a1a1a); margin: 0 0 4px; }
+.cnd-subtitle { font-size: 12px; color: var(--brand-muted, #6b7280); margin: 0 0 18px; }
+.cnd-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+/* Cellule de la grille, un champ par cellule : elle existe pour que le campus
+   et le niveau d'études ne soient pas FRERES, le socle ne réordonnant que les
+   champs qui partagent un parent. min-width:0 parce qu'une cellule de grille
+   refuse sinon de descendre sous la largeur de son contenu. */
+.cnd-col { min-width: 0; }
+.cnd-field { display: flex; flex-direction: column; margin-bottom: 12px; }
+.cnd-row .cnd-field { margin-bottom: 0; }
+.cnd-field.hidden { display: none; }
+/* Un champ masque laisse sa CELLULE de grille en place : le voisin restait
+   donc coince dans sa colonne, a droite, avec la moitie de la ligne vide a
+   cote. C'est ce que donnait le niveau d'etudes sur les ecoles ou le campus
+   n'est pas propose. La cellule vide s'efface, et celle qui reste occupe la
+   ligne entiere. */
+.cnd-row > .cnd-col:has(> .cnd-field.hidden) { display: none; }
+.cnd-row:has(> .cnd-col > .cnd-field.hidden) { grid-template-columns: 1fr; }
+.cnd-label {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: #4a4a4a;
+    margin-bottom: 6px;
+    display: block;
+}
+.cnd-label .req { color: inherit; }
+.cnd-input, .cnd-select {
+    width: 100%; height: 46px; padding: 0 14px;
+    border: 1px solid #000; border-radius: 0;
+    font-size: 13px; font-family: inherit; color: #000; background: var(--brand-background, #ffffff);
+    outline: none; appearance: none; -webkit-appearance: none; transition: border-color 0.2s;
+}
+.cnd-input:focus, .cnd-select:focus { border-color: var(--brand-muted, #6b7280); }
+.cnd-input.err, .cnd-select.err { border-color: #c00; }
+.cnd-err-msg { font-size: 10px; color: #c00; margin-top: 4px; display: none; }
+.cnd-err-msg.show { display: block; }
+.cnd-sel-wrap { position: relative; }
+.cnd-sel-wrap::after {
+    content: '';
+    position: absolute;
+    right: 16px;
+    top: 50%;
+    width: 10px;
+    height: 10px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+.cnd-phone-wrap { display: flex; gap: 8px; }
+.cnd-phone-prefix-wrap {
+    position: relative;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
+    flex-shrink: 0;
+}
+.cnd-phone-prefix-wrap::after {
+    content: '';
+    position: absolute;
+    right: 8px;
+    top: 50%;
+    width: 8px;
+    height: 8px;
+    border-right: 1.5px solid #000;
+    border-bottom: 1.5px solid #000;
+    transform: translateY(-70%) rotate(45deg);
+    pointer-events: none;
+}
+.cnd-phone-prefix {
+    width: 100%;
+    height: 46px;
+    padding: 0 20px 0 8px;
+    border: 1px solid #000;
+    border-radius: 0;
+    font-size: 11px;
+    font-family: inherit;
+    color: #000;
+    background: var(--brand-background, #ffffff);
+    appearance: none;
+    -webkit-appearance: none;
+    outline: none;
+    cursor: pointer;
+}
+
+/* Le consentement est un champ comme un autre : s'il manque, le message
+   passe A LA LIGNE sous la case, et non a cote du libelle — le conteneur
+   est en flex, un span y serait sinon aligne avec le texte legal. */
+.cnd-rgpd { flex-wrap: wrap; }
+.cnd-rgpd .cnd-err-msg { flex-basis: 100%; margin-left: 28px; }
+
+.cnd-rgpd { display: flex; align-items: flex-start; gap: 10px; margin: 16px 0 20px; }
+.cnd-rgpd input[type="checkbox"] {
+    width: 18px;
+    height: 18px;
+    border: 1px solid #000;
+    border-radius: 0;
+    background: var(--brand-background, #ffffff);
+    cursor: pointer;
+    appearance: none;
+    -webkit-appearance: none;
+    position: relative;
+    flex-shrink: 0;
+    margin-top: 0;
+}
+.cnd-rgpd input[type="checkbox"]:checked::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    font-size: 13px;
+    font-weight: 700;
+    color: #000;
+}
+.cnd-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
+.cnd-rgpd-label a { color: #000; text-decoration: underline; }
+.cnd-submit-wrap { display: block; width: 100%; }
+.cnd-submit {
+    /* display:block et NON inline-flex. Dans un conteneur flex, CSS supprime les
+       blancs situés ENTRE deux éléments. Quand l'éditeur de texte scinde le
+       libellé en plusieurs nœuds, l'espace tapé disparaissait donc :
+       « JE CANDIDATE » + « TEST » s'affichait « JE CANDIDATETEST ».
+       Un bouton centre déjà son texte, le flex n'apportait rien. */
+    width: 100%; display: block; text-align: center;
+    padding: 14px; background: #000; color: var(--brand-button-text, #ffffff);
+    border: none; border-radius: 0; font-size: 14px; font-weight: 700;
+    font-family: inherit; text-transform: uppercase; letter-spacing: 0.05em; cursor: pointer; transition: background 0.15s;
+}
+.cnd-submit::after {
+    content: '';
+}
+.cnd-submit:hover { background: #222; }
+.cnd-submit:disabled { background: #888; cursor: not-allowed; }
+.cnd-success { display: none; padding: 16px 0 8px; text-align: center; }
+.cnd-success h3 { font-size: 16px; font-weight: 700; margin: 0 0 8px; color: var(--brand-text, #1a1a1a); }
+.cnd-spinner {
+    display: inline-block; width: 14px; height: 14px;
+    border: 2px solid #fff; border-top-color: transparent;
+    border-radius: 50%; animation: cnd-spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px;
+}
+@keyframes cnd-spin { to { transform: rotate(360deg); } }
+@media(max-width:460px){
+    .cnd-row { grid-template-columns: 1fr; }
+    .cnd-phone-prefix-wrap { width: 80px; }
+}
+</style>
+
+<!-- ═══════════ CARD ═══════════ -->
+<div class="cnd-card">
+
+    <h3 class="cnd-title">Application</h3>
+    <p class="cnd-subtitle">Submit your application. You will receive an email to access your applicant portal.</p>
+
+    <!-- Confirmation (masquée initialement) -->
+    <div class="cnd-success">
+        <div style="font-size:40px;margin-bottom:10px;">✔️</div>
+        <h3 class="cnd-success-title"></h3>
+    </div>
+
+    <!-- Formulaire -->
+    <!-- POST et validation NATIVE. Le JS des blocs ne tourne QUE dans le
+         builder : sur une page publiee, il n'y a que le script du socle.
+         Un formulaire sans method partait donc en GET natif, toutes les
+         donnees dans l'URL — nom, e-mail, telephone.
+
+         L'attribut novalidate est retire : c'est le NAVIGATEUR qui exige
+         les champs affiches, sans une ligne de JS. Le socle pose et retire
+         l'attribut required en meme temps qu'il montre ou masque un champ.
+
+         ATTENTION : pas d'accent grave dans ce commentaire. Il vit DANS un
+         template literal, ou un accent grave ferme la chaine et casse tout le
+         module — l'erreur remonte alors sur le mot suivant, jamais sur la
+         cause. -->
+    <form class="cnd-form" data-lang="en" method="post">
+
+        <!-- ═══════════ CHAMPS CACHÉS (tracking + mapping CRM) ═══════════ -->
+        <input type="hidden" name="submitted"            value="true">
+        <input type="hidden" name="NomFormulaire"        value="Candidature">
+        <input type="hidden" name="TypeFormulaire"       value="candidature">
+        <input type="hidden" name="Marque"               value="">
+        <input type="hidden" name="LanguePreferee"       value="en">
+        <input type="hidden" name="LangueSouhaitee"      value="">
+        <input type="hidden" name="LegalTexteAccepted"   value="I agree to be contacted by the school for the purposes described">
+        <input type="hidden" name="DateDernierContact"   value="">
+        <input type="hidden" name="TypeDernierContact"   value="">
+        <input type="hidden" name="CampagneAssociee"     value="">
+        <input type="hidden" name="utm_source" value="">
+        <input type="hidden" name="utm_medium" value="">
+        <input type="hidden" name="utm_campaign" value="">
+        <input type="hidden" name="utm_content" value="">
+        <input type="hidden" name="utm_term" value="">
+        <input type="hidden" name="utm_id" value="">
+        <input type="hidden" name="utm_campus" value="">
+        <input type="hidden" name="gclid" value="">
+        <input type="hidden" name="fbclid" value="">
+        <input type="hidden" name="clientId"                 value="">
+        <input type="hidden" name="consent"                  value="">
+        <input type="hidden" name="date_consentement_cookies" value="">
+        <input type="hidden" name="canal"                    value="">
+        <input type="hidden" name="sous_canal"               value="">
+
+        <!-- Nom / Prénom -->
+        <div class="cnd-row">
+            <div class="cnd-field">
+                <label class="cnd-label">Last name<span class="req">*</span></label>
+                <input class="cnd-input" type="text" name="LastName" required>
+                <span class="cnd-err-msg">This field is required.</span>
+            </div>
+            <div class="cnd-field">
+                <label class="cnd-label">First name<span class="req">*</span></label>
+                <input class="cnd-input" type="text" name="FirstName" required>
+                <span class="cnd-err-msg">This field is required.</span>
+            </div>
+        </div>
+
+        <!-- Email / Portable -->
+        <div class="cnd-row">
+            <div class="cnd-field">
+                <label class="cnd-label">Email address<span class="req">*</span></label>
+                <input class="cnd-input cnd-email-input" type="email" name="EmailAddress" required>
+                <span class="cnd-err-msg">Invalid email format.</span>
+            </div>
+            <div class="cnd-field">
+                <label class="cnd-label">Mobile<span class="req">*</span></label>
+                <div class="cnd-phone-wrap">
+                    <div class="cnd-phone-prefix-wrap">
+                        <select name="Indicatif" class="cnd-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
+                        </select>
+                    </div>
+                    <input class="cnd-input cnd-phone-input" type="tel" name="MobilePhone" required placeholder="07 12 34 56 78" style="flex:1;">
+                </div>
+                <span class="cnd-err-msg">Invalid number (e.g. 07 12 34 56 78).</span>
+            </div>
+        </div>
+
+        <!-- Pays de résidence — ajouté sur la candidature, aligné sur la
+             brochure : juste après le téléphone, avant campus / niveau.
+             Comme sur la brochure, ce champ ne figure PAS dans la table NOM_DOM
+             du socle, qui ne réordonne que campus, niveau, spécialité, rythme,
+             langue, rentrée et programme : sa place ici est donc définitive,
+             page publiée comprise. Le socle remplit ses options depuis le value
+             set « Pays » du CRM (name="Country"), déjà pris en charge pour la
+             brochure — rien à ajouter côté écriture. -->
+        <div class="cnd-field">
+            <label class="cnd-label">Country of residence<span class="req">*</span></label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Country" required>
+                    <option value=""></option><option value="FR">France</option><option value="BE">Belgique</option><option value="CH">Suisse</option><option value="LU">Luxembourg</option><option value="MC">Monaco</option><option value="DE">Allemagne</option><option value="ES">Espagne</option><option value="IT">Italie</option><option value="GB">Royaume-Uni</option><option value="US">États-Unis</option><option value="CA">Canada</option><option value="MA">Maroc</option><option value="TN">Tunisie</option><option value="DZ">Algérie</option><option value="SN">Sénégal</option><option value="CI">Côte d'Ivoire</option><option value="CM">Cameroun</option><option value="OTHER">Autre</option>
+                </select>
+            </div>
+            <span class="cnd-err-msg">This field is required.</span>
+        </div>
+
+        <!-- Campus / Niveau d'études — positions 5 et 6 de l'Excel des champs
+             visibles, dans cet ordre : le campus AVANT le niveau, l'inverse de
+             la brochure.
+             ═══════════════════════════════════════════════════════════════
+             ⚠ CHAQUE CHAMP A SON PROPRE .cnd-col. NE PAS LES REMETTRE FRERES
+             DANS LE .cnd-row.
+
+             Le socle réordonne les champs qui PARTAGENT un parent, selon
+             OrdreChamps de l'école, et laisse intact tout groupe d'un seul
+             champ. Deux .cnd-field frères formaient un groupe de deux, donc
+             leur ordre venait de la configuration et non de ce gabarit : il
+             pouvait différer entre le builder et la page publiée.
+
+             Un conteneur par champ rend l'ordre écrit ici définitif.
+
+             ⚠ NE PAS FAIRE PAREIL sur Spécialité / Rythme / Langue / Rentrée
+             juste en dessous : ces quatre-là DOIVENT rester frères. Leur ordre
+             relatif est une règle métier que le socle applique par école — IFA
+             Paris demande la langue AVANT la spécialité, parce qu'on ne peut
+             pas proposer une spécialité avant de savoir dans quelle langue
+             elle est enseignée. Les cloisonner figerait cet ordre et casserait
+             la règle.
+
+             ⚠ Pas d'accent grave dans ce commentaire : il vit DANS un template
+             literal, où un accent grave ferme la chaîne et casse le module. -->
+        <div class="cnd-row">
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">Campus<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-campus lp-campus-select" name="Campus" required>
+                            <option value=""></option><option value="paris">Paris</option><option value="lille">Lille</option><option value="bordeaux">Bordeaux</option><option value="lyon">Lyon</option><option value="montpellier">Montpellier</option><option value="nice">Nice</option><option value="aix">Aix-en-Provence</option><option value="nantes">Nantes</option><option value="toulouse">Toulouse</option><option value="rennes">Rennes</option>
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">This field is required.</span>
+                </div>
+            </div>
+            <div class="cnd-col">
+                <div class="cnd-field">
+                    <label class="cnd-label">Level of study<span class="req">*</span></label>
+                    <div class="cnd-sel-wrap">
+                        <select class="cnd-select cnd-niveau" name="StudyLevel" required>
+                            <option value=""></option><option value="seconde">Seconde</option><option value="premiere">Première</option><option value="terminale">Terminale</option><option value="bac">Bac</option><option value="bac+1">Bac+1</option><option value="bac+2">Bac+2</option><option value="bac+3">Bac+3 (Licence / Bachelor)</option><option value="bac+4">Bac+4 (Master 1)</option><option value="bac+5">Bac+5 et +</option>
+                        </select>
+                    </div>
+                    <span class="cnd-err-msg">This field is required.</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- ═══════ RECONSTITUTION DU PROGRAMME ═══════
+             Règle §6 : le programme est scindé en champs conditionnels —
+             campus → niveau → spécialité → rythme → langue → rentrée. Chacun
+             ne propose que ce qui reste atteignable, et le dernier choix
+             désigne un programme unique, donc un PTAT.
+
+             Tous masqués au départ : c'est la cascade qui décide de les
+             montrer, selon l'école (ordre, affichage progressif) et le nombre
+             de valeurs restantes. Un champ à une seule valeur reste masqué mais
+             renseigné — la réponse part au CRM sans qu'on pose la question.
+
+             Inertes dans le builder, qui n'exécute pas le socle. -->
+        <div class="cnd-field cnd-speciality-field hidden">
+            <label class="cnd-label">Desired programme</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Speciality" data-placeholder="Select...">
+                    <option value="">Select...</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rhythm-field hidden">
+            <label class="cnd-label">Study mode</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rhythm" data-placeholder="Select...">
+                    <option value="">Select...</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-language-field hidden">
+            <label class="cnd-label">Language of instruction</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Language" data-placeholder="Select...">
+                    <option value="">Select...</option>
+                </select>
+            </div>
+        </div>
+        <div class="cnd-field cnd-rentree-field hidden">
+            <label class="cnd-label">Intake</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select" name="Rentree" data-placeholder="Select...">
+                    <option value="">Select...</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Programme souhaité (conditionnel : niveau + campus + école) -->
+        <div class="cnd-field cnd-programme-field hidden">
+            <label class="cnd-label">Desired programme</label>
+            <div class="cnd-sel-wrap">
+                <select class="cnd-select cnd-programme-select" name="Programme">
+                    <option value="">Select a programme...</option>
+                </select>
+            </div>
+            <!-- Rempli par majPtat() au choix du programme. Le socle s'en sert
+                 pour ecrire PTAT_Id__c et pour armer les regles de blocage
+                 candidature : vide, ces regles ne s'appliquent pas. -->
+            <input type="hidden" name="PTAT_Id" value="">
+        </div>
+
+        <!-- RGPD -->
+        <div class="cnd-rgpd">
+            <input type="checkbox" name="RGPDConsent" value="true" required>
+            <label class="cnd-rgpd-label">
+                <span data-rgpd-text>I agree to be contacted by the school for the purposes described</span> <a data-rgpd-link href="#privacy-policy" target="_blank">here</a>
+            </label>
+        </div>
+
+        <div class="cnd-submit-wrap">
+            <!-- Libellé dans un <span> éditable : sur un <button> focalisé, la
+                 touche Espace active le bouton au lieu d'insérer un caractère. -->
+            <button type="submit" class="cnd-submit"><span class="cnd-submit-label" data-gjs-type="text">Apply now</span></button>
+        </div>
+    </form>
+
+</div><!-- /.cnd-card -->
+
+        <!-- SOCLE SALESFORCE CORE — deux blocs, deux moments.
+
+             LECTURE : remplit les listes depuis le CRM à l'affichage.
+             ÉCRITURE : n'agit QUE si `submitted=true` est posté. Le
+             formulaire se poste à lui-même (shared/envoi-socle.js), et ce
+             bloc-ci est ce qui reçoit la soumission — sans lui, le POST
+             n'écrirait rien, en silence.
+
+             L'écriture vient EN PREMIER : elle doit avoir créé le compte avant
+             que la lecture ne rende la page de réponse.
+
+             Inertes dans le builder, repli statique si Salesforce est muet. -->
+        <div class="socle-read-snippet" style="display:none !important" aria-hidden="true" data-gjs-droppable="false" data-gjs-selectable="false">
+            %%[ SET @LPB_TYPE_FORM = "candidature" ]%%
+            %%=ContentBlockByKey("LPB_Form_Handler_AG")=%%
+            %%=ContentBlockByKey("LPB_Picklist_Handler_AG")=%%
+        </div>
+</section>
+
+<footer class="footer-ifa-paris">
+  <div class="ftr-inner">
+    <div class="ftr-main">
+      <div class="ftr-brand">
+        <div class="ftr-logo">IFA Paris</div>
+        <div class="ftr-baseline">L'école internationale<br>des métiers de la mode</div>
+      </div>
+      <div class="ftr-socials"><a href="#" class="ftr-ifa-paris-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTEyIDIuMTYzYzMuMjA0IDAgMy41ODQuMDEyIDQuODUuMDcgMS4zNjYuMDYyIDIuNjMzLjMzMiAzLjYwOCAxLjMwOC45NzUuOTc1IDEuMjQ1IDIuMjQyIDEuMzA4IDMuNjA4LjA1OCAxLjI2Ni4wNyAxLjY0Ni4wNyA0Ljg1cy0uMDEyIDMuNTg0LS4wNyA0Ljg1Yy0uMDYzIDEuMzY2LS4zMzMgMi42MzMtMS4zMDggMy42MDgtLjk3NS45NzUtMi4yNDIgMS4yNDUtMy42MDggMS4zMDgtMS4yNjYuMDU4LTEuNjQ2LjA3LTQuODUuMDdzLTMuNTg0LS4wMTItNC44NS0uMDdjLTEuMzY2LS4wNjMtMi42MzMtLjMzMy0zLjYwOC0xLjMwOC0uOTc1LS45NzUtMS4yNDUtMi4yNDItMS4zMDgtMy42MDhDMi4xNzUgMTUuNTg0IDIuMTYzIDE1LjIwNCAyLjE2MyAxMnMuMDEyLTMuNTg0LjA3LTQuODVjLjA2Mi0xLjM2Ni4zMzItMi42MzMgMS4zMDgtMy42MDhDNC41MTYgMi41NjcgNS43ODMgMi4yOTcgNy4xNSAyLjIzNCA4LjQxNiAyLjE3NiA4Ljc5NiAyLjE2MyAxMiAyLjE2M3ptMCA1LjgzOGEzLjk5OSAzLjk5OSAwIDEwMCA3Ljk5OCAzLjk5OSAzLjk5OSAwIDAwMC03Ljk5OHptMCA2LjU5OGEyLjU5OSAyLjU5OSAwIDExMC01LjE5OCAyLjU5OSAyLjU5OSAwIDAxMCA1LjE5OHptNS4wOTYtNi43NTJhLjkzNi45MzYgMCAxMS0xLjg3MiAwIC45MzYuOTM2IDAgMDExLjg3MiAweiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-ifa-paris-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIyLjY3NSAwaC0yMS4zNUMuNTkzIDAgMCAuNTkzIDAgMS4zMjV2MjEuMzUxQzAgMjMuNDA3LjU5MyAyNCAxLjMyNSAyNGgxMS40OTV2LTkuMjk0SDkuNjkydi0zLjYyMmgzLjEyOFY4LjQxM2MwLTMuMSAxLjg5My00Ljc4OCA0LjY1OS00Ljc4OCAxLjMyNSAwIDIuNDYzLjA5OSAyLjc5NS4xNDN2My4yNGgtMS45MThjLTEuNTA0IDAtMS43OTUuNzE1LTEuNzk1IDEuNzYzdjIuMzEzaDMuNTg3bC0uNDY3IDMuNjIyaC0zLjEyVjI0aDYuMTE2QzIzLjQwNyAyNCAyNCAyMy40MDcgMjQgMjIuNjc2VjEuMzI1QzI0IC41OTMgMjMuNDA3IDAgMjIuNjc1IDB6Ii8+PC9zdmc+"></a><a href="#" class="ftr-ifa-paris-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE4LjI0NCAyLjI1aDMuMzA4bC03LjIyNyA4LjI2IDguNTAyIDExLjI0SDE2LjE3bC01LjIxNC02LjgxN0w0Ljk5IDIxLjc1SDEuNjhsNy43My04LjgzNUwxLjI1NCAyLjI1SDguMTM0bDQuNzEzIDYuMjMxIDUuMzk3LTYuMjMxem0tMS4xNjEgMTcuNTJoMS44MzNMNy4wODQgNC4xMjZINS4xMTdMMTcuMDgzIDE5Ljc3eiIvPjwvc3ZnPg=="></a><a href="#" class="ftr-ifa-paris-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTE5IDBoLTE0Yy0yLjc2MSAwLTUgMi4yMzktNSA1djE0YzAgMi43NjEgMi4yMzkgNSA1IDVoMTRjMi43NjIgMCA1LTIuMjM5IDUtNXYtMTRjMC0yLjc2MS0yLjIzOC01LTUtNXptLTExIDE5aC0zdi0xMWgzdjExem0tMS41LTEyLjI2OGMtLjk2NiAwLTEuNzUtLjc5LTEuNzUtMS43NjRzLjc4NC0xLjc2NCAxLjc1LTEuNzY0IDEuNzUuNzkgMS43NSAxLjc2NC0uNzgzIDEuNzY0LTEuNzUgMS43NjR6bTEzLjUgMTIuMjY4aC0zdi01LjYwNGMwLTMuMzY4LTQtMy4xMTMtNCAwdjUuNjA0aC0zdi0xMWgzdjEuNzY1YzEuMzk2LTIuNTg2IDctMi43NzcgNyAyLjQ3NnY2Ljc1OXoiLz48L3N2Zz4="></a><a href="#" class="ftr-ifa-paris-soc" aria-label="social"><img class=" svg-inline" alt="" aria-hidden="true" src="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCI+PHBhdGggZD0iTTIzLjQ5OCA2LjE4NmEzLjAxNiAzLjAxNiAwIDAwLTIuMTIyLTIuMTM2QzE5LjUwNSAzLjU0NSAxMiAzLjU0NSAxMiAzLjU0NXMtNy41MDUgMC05LjM3Ny41MDVhMy4wMTcgMy4wMTcgMCAwMC0yLjEyMiAyLjEzNkMwIDguMDU1IDAgMTIgMCAxMnMwIDMuOTQ1LjUwMSA1LjgxNGEzLjAxNyAzLjAxNyAwIDAwMi4xMjIgMi4xMzZDNC40OTUgMjAuNDU1IDEyIDIwLjQ1NSAxMiAyMC40NTVzNy41MDUgMCA5LjM3Ny0uNTA1YTMuMDE1IDMuMDE1IDAgMDAyLjEyMi0yLjEzNkMyNCAxNS45NDUgMjQgMTIgMjQgMTJzMC0zLjk0NS0uNTAyLTUuODE0ek05LjU0NSAxNS41NjhWOC40MzJMMTUuODE4IDEybC02LjI3MyAzLjU2OHoiLz48L3N2Zz4="></a></div>
+    </div>
+    <div class="ftr-legal">
+      <p>IFA PARIS collecte vos données afin de vous adresser de la documentation. Pour en savoir plus sur le traitement de vos données et pour exercer vos droits, consultez la <a href="#" class="ftr-link">Politique de confidentialité</a>.</p>
+    </div>
+  </div>
+</footer>
+<style>
+  .footer-ifa-paris {
+    background-color: #ffffff !important; color: #1a1a1a;
+    padding: 48px 24px 32px; font-family: 'Georgia', 'Times New Roman', serif; border-top: 1px solid #e5e7eb;
+  }
+  .footer-ifa-paris .ftr-inner { max-width: 1200px; margin: 0 auto; }
+  .footer-ifa-paris .ftr-main { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; margin-bottom: 32px; }
+  .footer-ifa-paris .ftr-brand { display: flex; flex-direction: column; }
+  .footer-ifa-paris .ftr-logo { font-size: 38px; font-weight: 800; letter-spacing: 2px; line-height: 1; color: #1a1a1a; margin-bottom: 10px; }
+  .footer-ifa-paris .ftr-baseline { font-size: 12px; font-weight: 600; line-height: 1.3; color: #6b7280; }
+  .footer-ifa-paris .ftr-socials { display: flex; gap: 12px; flex-wrap: wrap; }
+  .footer-ifa-paris .ftr-ifa-paris-soc { width: 38px; height: 38px; display: flex; align-items: center; justify-content: center; background: #f5f5f5; border-radius: 50%; color: #1a1a1a; }
+  .footer-ifa-paris .ftr-ifa-paris-soc svg,   .footer-ifa-paris .ftr-ifa-paris-soc img.svg-inline { width: 18px; height: 18px; fill: currentColor; }
+  .footer-ifa-paris .ftr-legal { border-top: 1px solid #f2f2f2; padding-top: 24px; }
+  .footer-ifa-paris .ftr-legal p { font-size: 11px; line-height: 1.8; color: #999999; max-width: 1000px; margin: 0; }
+  .footer-ifa-paris .ftr-link { color: #1a1a1a; text-decoration: underline; }
+  @media (max-width: 768px) {
+    .footer-ifa-paris .ftr-main { flex-direction: column; align-items: center; gap: 24px; text-align: center; }
+    .footer-ifa-paris .ftr-brand { align-items: center; }
+    .footer-ifa-paris .ftr-socials { justify-content: center; }
+  }
+</style>
+</body>
+</html>

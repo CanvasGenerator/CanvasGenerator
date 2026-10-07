@@ -1,0 +1,668 @@
+{
+ "_note": "Definitions relevees sur la BU RECETTE (536010339) le 05/10/2026 par scripts/creer-de-prod.js --relever. Nom == CustomerKey, toutes non sendable. Les dossiers sont ceux crees en prod sous LP_Builder.",
+ "dossiers": {
+  "LPB 1 - Mapping CRM": [
+   "LPB_Mapping_Ecoles",
+   "LPB_Mapping_Campus",
+   "LPB_Mapping_Campagnes",
+   "LPB_Mapping_Niveaux",
+   "LPB_Mapping_Indicatifs"
+  ],
+  "LPB 2 - Configuration formulaires": [
+   "LPB_Config_Formulaires",
+   "LPB_Config_Champs_Ecole",
+   "LPB_Config_Conditions",
+   "LPB_Dico_Traductions"
+  ],
+  "LPB 3 - Journeys et API": [
+   "LPB_Config_Api"
+  ],
+  "LPB 4 - Technique": [
+   "LPB_Log_Soumissions",
+   "LPB_File_Soumissions",
+   "LPB_Cache_Lecture"
+  ]
+ },
+ "copieConfig": [
+  "LPB_Mapping_Niveaux",
+  "LPB_Mapping_Indicatifs",
+  "LPB_Config_Formulaires",
+  "LPB_Config_Champs_Ecole",
+  "LPB_Config_Conditions",
+  "LPB_Dico_Traductions"
+ ],
+ "de": {
+  "LPB_Mapping_Ecoles": {
+   "champs": [
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Libelle",
+     "type": "Text",
+     "longueur": 80
+    },
+    {
+     "nom": "CampusPrefix",
+     "type": "Text",
+     "longueur": 60
+    },
+    {
+     "nom": "SchoolAccountId",
+     "type": "Text",
+     "longueur": 18
+    },
+    {
+     "nom": "BusinessBrandId",
+     "type": "Text",
+     "longueur": 18
+    },
+    {
+     "nom": "BrandCode",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "Actif",
+     "type": "Boolean",
+     "defaut": "true"
+    }
+   ]
+  },
+  "LPB_Mapping_Campus": {
+   "champs": [
+    {
+     "nom": "Campus",
+     "type": "Text",
+     "longueur": 80,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "SchoolAccountId",
+     "type": "Text",
+     "longueur": 18
+    },
+    {
+     "nom": "Actif",
+     "type": "Boolean",
+     "defaut": "true"
+    },
+    {
+     "nom": "Commentaire",
+     "type": "Text",
+     "longueur": 200
+    }
+   ]
+  },
+  "LPB_Mapping_Campagnes": {
+   "champs": [
+    {
+     "nom": "Cle",
+     "type": "Text",
+     "longueur": 80,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "FormType",
+     "type": "Text",
+     "longueur": 30
+    },
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "Zone",
+     "type": "Text",
+     "longueur": 10
+    },
+    {
+     "nom": "CampaignId",
+     "type": "Text",
+     "longueur": 18
+    },
+    {
+     "nom": "Libelle",
+     "type": "Text",
+     "longueur": 120
+    },
+    {
+     "nom": "Actif",
+     "type": "Boolean",
+     "defaut": "false"
+    }
+   ]
+  },
+  "LPB_Mapping_Niveaux": {
+   "champs": [
+    {
+     "nom": "Niveau",
+     "type": "Text",
+     "longueur": 60,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Ordre",
+     "type": "Number",
+     "requis": true
+    },
+    {
+     "nom": "Verifie",
+     "type": "Boolean",
+     "defaut": "false"
+    }
+   ]
+  },
+  "LPB_Mapping_Indicatifs": {
+   "champs": [
+    {
+     "nom": "Indicatif",
+     "type": "Text",
+     "longueur": 6,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Pays",
+     "type": "Text",
+     "longueur": 100
+    },
+    {
+     "nom": "NbMin",
+     "type": "Text",
+     "longueur": 3
+    },
+    {
+     "nom": "NbMax",
+     "type": "Text",
+     "longueur": 3
+    },
+    {
+     "nom": "Actif",
+     "type": "Text",
+     "longueur": 5
+    }
+   ]
+  },
+  "LPB_Config_Formulaires": {
+   "champs": [
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Progressif",
+     "type": "Boolean",
+     "defaut": "true"
+    },
+    {
+     "nom": "OrdreChamps",
+     "type": "Text",
+     "longueur": 140
+    },
+    {
+     "nom": "LangueDefaut",
+     "type": "Text",
+     "longueur": 10
+    },
+    {
+     "nom": "SpecialiteVisible",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "SpecialiteNiveauMin",
+     "type": "Number"
+    },
+    {
+     "nom": "RythmeVisible",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "RythmeNiveauMin",
+     "type": "Number"
+    },
+    {
+     "nom": "LangueVisible",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "LangueNiveauMin",
+     "type": "Number"
+    },
+    {
+     "nom": "RentreeDecalee",
+     "type": "Boolean",
+     "defaut": "false"
+    },
+    {
+     "nom": "BrochureSpecialite",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "BrochureSpecialiteNiveauMin",
+     "type": "Number"
+    },
+    {
+     "nom": "Commentaire",
+     "type": "Text",
+     "longueur": 250
+    }
+   ]
+  },
+  "LPB_Config_Champs_Ecole": {
+   "champs": [
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 50,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "CampusVisible",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "ProgrammeVisible",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Commentaire",
+     "type": "Text",
+     "longueur": 500
+    }
+   ]
+  },
+  "LPB_Config_Conditions": {
+   "champs": [
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 50,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "TypeFormulaire",
+     "type": "Text",
+     "longueur": 30,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Champ",
+     "type": "Text",
+     "longueur": 30,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Conditions",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "Actif",
+     "type": "Text",
+     "longueur": 5,
+     "defaut": "true"
+    },
+    {
+     "nom": "Commentaire",
+     "type": "Text",
+     "longueur": 500
+    }
+   ]
+  },
+  "LPB_Dico_Traductions": {
+   "champs": [
+    {
+     "nom": "Cle",
+     "type": "Text",
+     "longueur": 200,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Fr",
+     "type": "Text",
+     "longueur": 200,
+     "requis": true
+    },
+    {
+     "nom": "En",
+     "type": "Text",
+     "longueur": 200
+    },
+    {
+     "nom": "Champ",
+     "type": "Text",
+     "longueur": 120
+    },
+    {
+     "nom": "Origine",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "Actif",
+     "type": "Text",
+     "longueur": 5
+    },
+    {
+     "nom": "DateMaj",
+     "type": "Date"
+    }
+   ]
+  },
+  "LPB_Config_Api": {
+   "champs": [
+    {
+     "nom": "Cle",
+     "type": "Text",
+     "longueur": 50,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Valeur",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "Note",
+     "type": "Text",
+     "longueur": 300
+    }
+   ]
+  },
+  "LPB_Log_Soumissions": {
+   "champs": [
+    {
+     "nom": "RowId",
+     "type": "Text",
+     "longueur": 60,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "RunId",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Ordre",
+     "type": "Number"
+    },
+    {
+     "nom": "Horodatage",
+     "type": "Date"
+    },
+    {
+     "nom": "Etape",
+     "type": "Text",
+     "longueur": 60
+    },
+    {
+     "nom": "Statut",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Objet",
+     "type": "Text",
+     "longueur": 60
+    },
+    {
+     "nom": "RecordId",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Detail",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "Email",
+     "type": "Text",
+     "longueur": 120
+    },
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "FormType",
+     "type": "Text",
+     "longueur": 30
+    }
+   ]
+  },
+  "LPB_File_Soumissions": {
+   "champs": [
+    {
+     "nom": "RunId",
+     "type": "Text",
+     "longueur": 50,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Horodatage",
+     "type": "Date"
+    },
+    {
+     "nom": "Url",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "PageId",
+     "type": "Text",
+     "longueur": 100
+    },
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "FormType",
+     "type": "Text",
+     "longueur": 30
+    },
+    {
+     "nom": "Email",
+     "type": "Text",
+     "longueur": 254
+    },
+    {
+     "nom": "Statut",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Tentatives",
+     "type": "Number"
+    },
+    {
+     "nom": "DerniereTentative",
+     "type": "Date"
+    },
+    {
+     "nom": "RunTraitement",
+     "type": "Text",
+     "longueur": 50
+    },
+    {
+     "nom": "RecordId",
+     "type": "Text",
+     "longueur": 18
+    },
+    {
+     "nom": "Journal",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "Detail",
+     "type": "Text",
+     "longueur": 500
+    },
+    {
+     "nom": "Payload1",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Payload2",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Payload3",
+     "type": "Text",
+     "longueur": 4000
+    }
+   ]
+  },
+  "LPB_Cache_Lecture": {
+   "champs": [
+    {
+     "nom": "Cle",
+     "type": "Text",
+     "longueur": 120,
+     "pk": true,
+     "requis": true
+    },
+    {
+     "nom": "Famille",
+     "type": "Text",
+     "longueur": 120
+    },
+    {
+     "nom": "Ecole",
+     "type": "Text",
+     "longueur": 40
+    },
+    {
+     "nom": "MisAJour",
+     "type": "Date"
+    },
+    {
+     "nom": "Epoch",
+     "type": "Text",
+     "longueur": 20
+    },
+    {
+     "nom": "Octets",
+     "type": "Number"
+    },
+    {
+     "nom": "Json1",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json2",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json3",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json4",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json5",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json6",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json7",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json8",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json9",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json10",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json11",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json12",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json13",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json14",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json15",
+     "type": "Text",
+     "longueur": 4000
+    },
+    {
+     "nom": "Json16",
+     "type": "Text",
+     "longueur": 4000
+    }
+   ]
+  }
+ }
+}

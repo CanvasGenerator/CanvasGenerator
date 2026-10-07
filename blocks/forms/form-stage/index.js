@@ -9,11 +9,12 @@
 
 import { buildEventBlock, attachEventFormLogic } from '../shared/event-form.js';
 
+import { ajouterBloc } from '../shared/blocs-desactives.js';
 export default function (editor, categories) {
 
     attachEventFormLogic(editor);
 
-    editor.BlockManager.add('form-stage', {
+    ajouterBloc(editor,'form-stage', {
         label: 'Formulaire Stage',
         category: categories.FORMS,
         content: buildEventBlock({
@@ -26,7 +27,7 @@ export default function (editor, categories) {
         attributes: { class: 'gjs-fonts gjs-f-form' }
     });
 
-    editor.BlockManager.add('form-stage-en', {
+    ajouterBloc(editor,'form-stage-en', {
         label: 'Formulaire Stage Anglais',
         category: categories.FORMS,
         content: buildEventBlock({

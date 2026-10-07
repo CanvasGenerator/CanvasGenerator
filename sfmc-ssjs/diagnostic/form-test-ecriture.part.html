@@ -23,11 +23,14 @@
       <b>Succ&egrave;s.</b><br>
       Person Account : <code>%%=v(@paId)=%%</code> %%[IF @isNew == "true" THEN]%%(cr&eacute;&eacute;)%%[ELSE]%%(existant, compl&eacute;t&eacute;)%%[ENDIF]%%<br>
       PersonContactId : <code>%%=v(@paContactId)=%%</code><br>
-      Journal : <code>%%=v(@journal)=%%</code>
+      Journal : <code>%%=v(@journal)=%%</code><br>
+      RunId : <code>%%=v(@runId)=%%</code>
+      <span style="opacity:.8;font-size:12px">&mdash; a reporter dans la requete de lecture du log</span>
     </div>
   %%[ ELSE ]%%
     <div style="background:#7f1d1d;color:#fff;padding:14px 18px;border-radius:8px;margin-bottom:18px">
-      <b>&Eacute;chec.</b> %%=v(@sfErrorMsg)=%%
+      <b>&Eacute;chec.</b> %%=v(@sfErrorMsg)=%%<br>
+      RunId : <code>%%=v(@runId)=%%</code>
     </div>
   %%[ ENDIF ]%%
 %%[ ENDIF ]%%
@@ -98,19 +101,34 @@ NEXT @tI
   <fieldset style="border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px">
     <legend style="font-weight:700">Identit&eacute;</legend>
     <p>E-mail (cl&eacute; de d&eacute;doublonnage)<br>
-       <input name="EmailAddress" value="test.socle+01@example.com" size="42" required></p>
-    <p>Nom <input name="LastName" value="TEST-SOCLE">
-       &nbsp; Pr&eacute;nom <input name="FirstName" value="Anouar"></p>
+       <input name="EmailAddress" value="phase1.a@example.invalid" size="42" required></p>
+    <p>Nom <input name="LastName" value="PHASE1" required>
+       &nbsp; Pr&eacute;nom <input name="FirstName" value="Alpha" required></p>
+    <p style="color:#b91c1c;font-size:13px">Le pr&eacute;nom est OBLIGATOIRE :
+       la r&egrave;gle <code>VR_PersonAccount_NameMandatory</code> refuse la
+       cr&eacute;ation d'un Person Account sans <code>FirstName</code>.</p>
     <p>Pays <input name="Country" value="France">
-       &nbsp; Indicatif <input name="Indicatif" value="+33" size="6">
+       &nbsp; Indicatif <input name="Indicatif" value="33" size="6">
        &nbsp; Mobile <input name="MobilePhone" value="612345678" size="12"></p>
-    <p>Niveau <input name="StudyLevel" value="Bac+3">
+    <p>Niveau <input name="StudyLevel" value="BAC+3">
        &nbsp; Vous &ecirc;tes <input name="VousEtes" value="Student"></p>
+    <p style="color:#777;font-size:13px">Valeurs relev&eacute;es sur l'org &mdash; toute autre
+       valeur est ignor&eacute;e en silence par Salesforce :<br>
+       <code>Indicatif</code> : <b>33</b> (et non +33) &middot;
+       <code>Niveau</code> : <b>BAC+3</b>, BAC+1, BAC+2, Terminale, Coll&egrave;ge
+       (majuscules ; <i>Bac obtenu</i> n'existe PAS sur Account) &middot;
+       <code>Vous &ecirc;tes</code> : Student, Parent, EDH Student, Career Change &middot;
+       <code>Pays</code> : France, Afghanistan (<i>Maroc</i> n'existe pas)</p>
   </fieldset>
 
   <fieldset style="border:1px solid #ddd;border-radius:8px;padding:14px 18px;margin-bottom:14px">
     <legend style="font-weight:700">Contexte</legend>
     <p>&Eacute;cole (<code>Marque</code>) <input name="Marque" value="efap" size="14"></p>
+    <p>Campus <input name="Campus" value="EFAP PARIS" size="24">
+       <span style="color:#777;font-size:13px">&mdash; le LIBELLE COMPLET, tel que
+       la cascade l'envoie. Il sert a resoudre <code>Ecole__c</code> : le socle
+       cherche le compte <code>EDH School</code> portant exactement ce nom.
+       Vide = <code>Ecole__c</code> non renseigne.</span></p>
     <p>Type de formulaire
       <select name="TypeFormulaire">
         <option value="brochure">brochure &mdash; CampaignMember</option>
@@ -118,7 +136,20 @@ NEXT @tI
         <option value="evenement">evenement &mdash; Summit Registration (JPO / Atelier / Stage)</option>
         <option value="immersion">immersion &mdash; Summit Registration (decision v4 du 02/07)</option>
       </select></p>
-    <p>Nom du formulaire <input name="NomFormulaire" value="TEST socle ecriture" size="30"></p>
+    <p>Nom du formulaire <input name="NomFormulaire" value="T1 creation" size="30"></p>
+
+    <p style="background:#fef3c7;padding:10px 14px;border-radius:6px">
+      <b>Bissection de la cr&eacute;ation</b> &mdash; outil de diagnostic temporaire.<br>
+      <select name="TestCreateMode">
+        <option value="">normal &mdash; 12 champs (celui qui &eacute;choue)</option>
+        <option value="min">min &mdash; RecordTypeId + LastName + PersonEmail</option>
+        <option value="identite">identite &mdash; min + pr&eacute;nom, pays, indicatif, mobile</option>
+        <option value="qualif">qualif &mdash; identite + niveau, vous &ecirc;tes</option>
+        <option value="sansrt">sansRT &mdash; LastName + PersonEmail, SANS RecordTypeId</option>
+      </select><br>
+      <span style="font-size:13px;color:#78350f">Changer d'e-mail &agrave; chaque essai : un compte
+      cr&eacute;&eacute; ferait passer l'essai suivant en mise &agrave; jour.<br>
+      <b>sansRT</b> cr&eacute;e un compte ENTREPRISE &mdash; &agrave; supprimer apr&egrave;s.</span></p>
     <p style="color:#777;font-size:13px">Laisser vide ce qui ne s'applique pas :
        sans <code>CampaignId</code> aucun CampaignMember n'est &eacute;crit,
        sans <code>InstanceId</code> aucune Registration.</p>

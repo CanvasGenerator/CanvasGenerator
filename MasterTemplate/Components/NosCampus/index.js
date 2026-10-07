@@ -103,7 +103,10 @@ export default function(editor, categories) {
                             }
                             if (!campuses.length) return; // garde le contenu bake
                             list.innerHTML = campuses.map(function(c) {
-                                var label = prefix + esc((c.name || '').toUpperCase());
+                                /* Le nom part tel qu'il est saisi : le retour
+                                   client du 02/09 ne veut plus de capitales
+                                   (« les campus doivent etre en minuscule »). */
+                                var label = prefix + esc(c.name || '');
                                 var link = (c.link || '').trim();
                                 return link
                                     ? '<a href="' + esc(link) + '" target="_blank" rel="noopener" class="mnc-campus-name mnc-campus-link">' + label + '</a>'
@@ -150,7 +153,9 @@ export default function(editor, categories) {
 
                 if (campuses.length) {
                     const namesHtml = campuses.map(c => {
-                        const label = `${prefix}${escapeHtml((c.name || '').toUpperCase())}`;
+                        /* Meme regle que dans le script de la page publiee
+                           ci-dessus : plus de capitales forcees. */
+                        const label = `${prefix}${escapeHtml(c.name || '')}`;
                         const link = (c.link || '').trim();
                         return link
                             ? `<a href="${escapeHtml(link)}" target="_blank" rel="noopener" class="mnc-campus-name mnc-campus-link">${label}</a>`

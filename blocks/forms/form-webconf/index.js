@@ -10,6 +10,7 @@
 
 import { EDC_PICKLISTS, buildOptions } from '../shared/picklist-config.js';
 import { fetchRgpdConfig, resolveRgpdConfig } from '../shared/rgpd-config.js';
+import { montrerMessage, effacerMessage, COCHE } from '../shared/message-confirmation.js';
 
 export default function (editor, categories) {
 
@@ -126,7 +127,8 @@ export default function (editor, categories) {
 
         return `
 <section class="wbc-section"
-  data-gjs-droppable="false">
+  data-gjs-droppable="false"
+  data-lp-form="1">
 
 <!-- ═══════════ STYLES ═══════════ -->
 <style>
@@ -331,7 +333,10 @@ export default function (editor, categories) {
 
 .wbc-phone-prefix-wrap {
     position: relative;
-    width: 92px;
+    /* 112px et non 84 : le socle remplace les options par les 201
+       indicatifs du CRM, dont les libelles sont du genre
+       "+212 (Maroc)" la ou la liste de repli disait "MA (+212)". */
+    width: 112px;
     flex-shrink: 0;
 }
 
@@ -552,14 +557,14 @@ export default function (editor, categories) {
                 <label class="wbc-label">${t.mobile}<span class="req">*</span></label>
                 <div class="wbc-phone-wrap">
                     <div class="wbc-phone-prefix-wrap">
-                        <select class="wbc-phone-prefix" aria-label="Prefix">
-                            <option value="+33" selected>FR (+33)</option>
-                            <option value="+32">BE (+32)</option>
-                            <option value="+41">CH (+41)</option>
-                            <option value="+352">LU (+352)</option>
-                            <option value="+1">US (+1)</option>
-                            <option value="+44">GB (+44)</option>
-                            <option value="+212">MA (+212)</option>
+                        <select name="Indicatif" class="wbc-phone-prefix" aria-label="Prefix">
+                            <option value="33" selected>FR (+33)</option>
+                            <option value="32">BE (+32)</option>
+                            <option value="41">CH (+41)</option>
+                            <option value="352">LU (+352)</option>
+                            <option value="1">US (+1)</option>
+                            <option value="44">GB (+44)</option>
+                            <option value="212">MA (+212)</option>
                         </select>
                     </div>
                     <input class="wbc-input" type="tel" name="MobilePhone" required placeholder="${t.mobilePh}" style="flex:1;">
@@ -652,6 +657,9 @@ export default function (editor, categories) {
             const linkEl = card.querySelector('[data-rgpd-link]');
             if (textEl) textEl.textContent = text;
             if (linkEl) { linkEl.textContent = linkLabel; linkEl.href = url; }
+            /* La preuve suit le texte affiché : voir les autres formulaires. */
+            const preuveEl = card.querySelector('[name="LegalTexteAccepted"]');
+            if (preuveEl && text) preuveEl.value = text;
         });
 
         function updateCard(val) {
@@ -716,38 +724,57 @@ export default function (editor, categories) {
             if (!ok) return;
 
             const btn = form.querySelector('.wbc-submit');
+            /* Le libellé d'origine est relevé AVANT d'être remplacé par le
+               spinner : le formulaire restant affiché après la confirmation,
+               il faut pouvoir le rendre au visiteur. */
+            const originalLabel = btn ? btn.innerHTML : '';
             if (btn) { btn.disabled = true; btn.innerHTML = `<span class="wbc-spinner"></span>${t.sending}`; }
 
             const data = { TypeWebconf: typeSelect.value };
             new FormData(form).forEach((v, k) => { data[k] = v; });
 
-            const prefixEl = form.querySelector('.wbc-phone-prefix');
-            const prefix   = prefixEl ? prefixEl.value : '+33';
-            const raw      = (data.MobilePhone || '').replace(/[\s\-.]/g, '').replace(/^0/, '');
-            if (!raw.startsWith('+')) data.MobilePhone = prefix + raw;
+            /* Le numero et l'indicatif partent SEPAREMENT : le socle ecrit
+               MobileNumber__c et IndicatifPick__c, et cette picklist attend
+               "33" sans le "+". Concatener les deux laissait
+               IndicatifPick__c vide et mettait "+33612345678" dans le
+               numero. Indicatif part tout seul via FormData, maintenant que
+               le select porte un name. */
+            data.MobilePhone = (data.MobilePhone || '')
+                .replace(/[\s\-.()]/g, '')
+                .replace(/^\+/, '')
+                .replace(/^0/, '');
 
             const rgpd = data.RGPDConsent === 'true';
             data.HasOptedInEmail    = rgpd ? '1' : '0';
             data.HasOptedInSMS      = rgpd ? '1' : '0';
             data.HasOptedInWhatsApp = rgpd ? '1' : '0';
 
-            /* Mode test — simule un appel API */
+            effacerMessage(form);
+
+            /* Mode test — simule un appel API.
+             *
+             * Retour client du 2026-09-03 : le formulaire ne disparaît plus.
+             * Le message s'ajoute au-dessus du bouton, l'écran `.wbc-success`
+             * n'est plus ouvert, et le bouton redevient cliquable — même
+             * traitement que les six formulaires branchés au socle.
+             *
+             * ⚠ Ce bloc N'ÉCRIT PAS au CRM : le socle ne branche que
+             * `.jpo-form, .brf-form, .cnd-form, .imf-form`. Il n'y a donc rien
+             * à aligner côté page publiée, seulement l'aperçu du builder — mais
+             * c'est lui qu'on montre en recette. Le récapitulatif reste rendu
+             * en HTML : il met la date et le sujet en gras, et l'aplatir en
+             * texte appauvrirait le message pour rien. */
             setTimeout(() => {
-                const formZone = card.querySelector('.wbc-form-zone');
-                const success  = card.querySelector('.wbc-success');
-                if (formZone) formZone.style.display = 'none';
-                if (success) {
-                    success.style.display = 'block';
-                    const name   = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
-                    const thanks = success.querySelector('.wbc-success-thanks');
-                    const msg    = success.querySelector('.wbc-success-msg');
-                    if (thanks) thanks.textContent = t.successThanks(name);
-                    if (msg)    msg.innerHTML      = t.successConfirm(
+                if (btn) { btn.disabled = false; btn.innerHTML = originalLabel; }
+                const name = ((data.FirstName || '') + ' ' + (data.LastName || '')).trim();
+                montrerMessage(form, [
+                    COCHE + ' ' + t.successThanks(name),
+                    { html: t.successConfirm(
                         data.WebconfDate  || '—',
                         data.WebconfTopic || '—',
                         data.EmailAddress || ''
-                    );
-                }
+                    ) },
+                ], 'succes');
             }, 900);
         });
     }
