@@ -35,7 +35,10 @@ let src = process.env;
 const from = opt('from');
 if (from) src = JSON.parse(fs.readFileSync(path.resolve(from), 'utf8'));
 
-const sub = src.SFMC_JOURNEY_SUBDOMAIN || src.SFMC_SUBDOMAIN;
+/* Le .env peut porter l'URL d'auth complete (https://xxx.auth.marketingcloudapis.com/)
+   au lieu du seul sous-domaine : on ne garde que le premier segment, comme
+   lib/sfmc.js. Sans ca, AuthBaseUrl valait https://https://xxx.auth…/.auth… (07/10). */
+const sub = String(src.SFMC_JOURNEY_SUBDOMAIN || src.SFMC_SUBDOMAIN || '').replace(/^https?:\/\//, '').split('.')[0].split('/')[0].trim();
 const lignes = {
     AuthBaseUrl: sub ? `https://${sub}.auth.marketingcloudapis.com/` : '',
     RestBaseUrl: sub ? `https://${sub}.rest.marketingcloudapis.com/` : '',

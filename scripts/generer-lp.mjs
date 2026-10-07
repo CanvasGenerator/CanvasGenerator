@@ -324,6 +324,11 @@ if (PUSH) {
 }
 
 /* -- execution ----------------------------------------------------------- */
+/* CloudPage qui sert les pages : `landingpage` en interne et en recette,
+   `landing-page2` en prod (BU 536009308, creee le 07/10/2026). N'agit que sur
+   le tableau de liens affiche ; le socle lit window.location. --url= force. */
+const URLS_CLOUDPAGE = { interne: 'https://cloud.groupe-edh.net/landingpage', recette: 'https://cloud.groupe-edh.net/landingpage', prod: 'https://cloud.groupe-edh.net/landing-page2' };
+const URL_CLOUDPAGE = ((args.find((a) => a.startsWith('--url=')) || '').split('=')[1] || URLS_CLOUDPAGE[LOT]).replace(/\/$/, '');
 const CLE_TRAITEMENT = `${PREFIXES[LOT]}_TRAITEMENT_V0`;
 if (PAGE_TRAITEMENT) process.env.SFMC_PAGE_TRAITEMENT = CLE_TRAITEMENT;
 
@@ -434,7 +439,7 @@ if (liens.length) {
     console.log('\n  | École | Formulaire | Lien |');
     console.log('  |---|---|---|');
     for (const l of liens) {
-        console.log(`  | ${l.ecole} | ${l.formulaire} | https://cloud.groupe-edh.net/landingpage?id=${l.cle} |`);
+        console.log(`  | ${l.ecole} | ${l.formulaire} | ${URL_CLOUDPAGE}?id=${l.cle} |`);
     }
 }
 if (echecs.length) process.exitCode = 1;
