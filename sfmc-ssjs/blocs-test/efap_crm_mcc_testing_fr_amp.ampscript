@@ -1,0 +1,177 @@
+%%[
+/* ===========================================================================
+   efap_crm_mcc_testing_fr_amp — LECTURE CRM D'UN E-MAIL, VIA MC CONNECT
+   ---------------------------------------------------------------------------
+   Bloc AMPscript inclus par l'enveloppe `efap_crm_mcc_testing_fr` (SSJS en
+   try/catch : une lecture refusee par l'org affiche l'exception au lieu de
+   tuer la page). Appel, sur la CloudPage LPB_Page (prod) ou landingpage
+   (recette) :
+
+     ?id=efap_crm_mcc_testing_fr&email=<adresse>
+     ?school=efap&name=crm_mcc_testing&lang=fr&email=<adresse>
+
+   Tout ce que le socle ecrit pour une soumission est relu, dans l'ordre du
+   handler : compte, points de contact, consentements par canal, membre de
+   campagne, interaction, candidature, inscriptions Summit et rendez-vous,
+   puis le journal LPB (LPB_Log_Soumissions) et la file (LPB_File_Soumissions).
+
+   Regles du connecteur (cf. memoire de session) :
+     - AMPscript seulement : les fonctions Salesforce en SSJS sont mortes dans
+       les deux orgs ; pas de try/catch ici, c'est l'enveloppe qui l'assure ;
+     - champs cites nommement, tous presents en prod ET en recette (releves
+       EntityParticle du 07/10) ; Last_Marketing_Engagement_Date__c (recette
+       seule) est volontairement exclu ;
+     - pas de Min(), pas de RegExReplace : Substring pour tronquer.
+   =========================================================================== */
+VAR @email, @accs, @nA, @a, @acc, @paId, @ctId
+VAR @cps, @nC, @c, @cp, @cpId, @cons, @nK, @k, @ko
+VAR @cms, @nM, @m, @ints, @nI, @i, @apps, @nP, @p
+VAR @regs, @nR, @r, @regId, @rdv, @nV, @v
+VAR @logs, @nL, @l, @row, @det, @files, @nF, @f
+
+SET @email = Trim(RequestParameter("email"))
+]%%
+<div style="font:13px/1.45 Menlo,Consolas,monospace;max-width:1100px;margin:16px auto;padding:0 12px;color:#111">
+<h2 style="font:600 18px system-ui,sans-serif;margin:0 0 4px">Lecture CRM — %%=v(@email)=%%</h2>
+<div style="color:#666;margin-bottom:14px">via MC Connect, %%=Format(Now(), "yyyy-MM-dd HH:mm:ss")=%% (heure serveur)</div>
+%%[ IF Empty(@email) THEN ]%%
+<p style="color:#b00">Parametre manquant : ajouter <code>&amp;email=adresse@exemple.com</code> a l'URL.</p>
+%%[ ELSE
+
+SET @accs = RetrieveSalesforceObjects("Account",
+    "Id,PersonContactId,RecordTypeId,FirstName,LastName,PersonEmail,PersonAccountType__c,ContactStatus__c,Ecole__c,Speciality__c,Academic_Level_List__c,LivingCountry__c,IndicatifPick__c,MobileNumber__c,PreferredLangage__c,SourceCreation__c,CreationSourceDetail__c,FormType__c,PTAT_Id__c,Application_Requested__c,UTMSource__c,UTMMedium__c,UTMCampaign__c,UTMCampus__c,AcquisitionChannel__c,AcquisitionSubChannel__c,Consent__c,DateConsentementCookies__c,DateOfLastMarketingContactPoint__c,LastMarketingContactPointType__c,CreatedDate,LastModifiedDate",
+    "PersonEmail", "=", @email)
+SET @nA = RowCount(@accs)
+]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">1. Account — %%=v(@nA)=%% compte(s)</h3>
+%%[ IF @nA == 0 THEN ]%%<p style="color:#b00">Aucun compte personnel avec cet e-mail.</p>%%[ ENDIF ]%%
+%%[ FOR @a = 1 TO @nA DO
+    SET @acc  = Row(@accs, @a)
+    SET @paId = Field(@acc, "Id")
+    SET @ctId = Field(@acc, "PersonContactId")
+]%%
+<table style="border-collapse:collapse;width:100%;margin-bottom:10px">
+<tr><td style="padding:2px 8px;color:#666;width:260px">Id / PersonContactId</td><td style="padding:2px 8px"><b>%%=v(@paId)=%%</b> / %%=v(@ctId)=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">RecordTypeId</td><td style="padding:2px 8px">%%=v(Field(@acc,"RecordTypeId"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Nom</td><td style="padding:2px 8px">%%=v(Field(@acc,"FirstName"))=%% %%=v(Field(@acc,"LastName"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">PersonAccountType__c (Vous êtes)</td><td style="padding:2px 8px">%%=v(Field(@acc,"PersonAccountType__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">ContactStatus__c (Statut du contact)</td><td style="padding:2px 8px">%%=v(Field(@acc,"ContactStatus__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Ecole__c</td><td style="padding:2px 8px">%%=v(Field(@acc,"Ecole__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Speciality__c</td><td style="padding:2px 8px">%%=v(Field(@acc,"Speciality__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Academic_Level_List__c</td><td style="padding:2px 8px">%%=v(Field(@acc,"Academic_Level_List__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">LivingCountry__c / langue</td><td style="padding:2px 8px">%%=v(Field(@acc,"LivingCountry__c"))=%% / %%=v(Field(@acc,"PreferredLangage__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Mobile</td><td style="padding:2px 8px">+%%=v(Field(@acc,"IndicatifPick__c"))=%% %%=v(Field(@acc,"MobileNumber__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">SourceCreation__c / detail / FormType__c</td><td style="padding:2px 8px">%%=v(Field(@acc,"SourceCreation__c"))=%% / %%=v(Field(@acc,"CreationSourceDetail__c"))=%% / %%=v(Field(@acc,"FormType__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">PTAT_Id__c / Application_Requested__c</td><td style="padding:2px 8px">%%=v(Field(@acc,"PTAT_Id__c"))=%% / %%=v(Field(@acc,"Application_Requested__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">UTM source / medium / campaign / campus</td><td style="padding:2px 8px">%%=v(Field(@acc,"UTMSource__c"))=%% / %%=v(Field(@acc,"UTMMedium__c"))=%% / %%=v(Field(@acc,"UTMCampaign__c"))=%% / %%=v(Field(@acc,"UTMCampus__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Canal / sous-canal (CRM)</td><td style="padding:2px 8px">%%=v(Field(@acc,"AcquisitionChannel__c"))=%% / %%=v(Field(@acc,"AcquisitionSubChannel__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Consent__c / cookies</td><td style="padding:2px 8px">%%=v(Field(@acc,"Consent__c"))=%% / %%=v(Field(@acc,"DateConsentementCookies__c"))=%%</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Dernier point de contact</td><td style="padding:2px 8px">%%=v(Field(@acc,"DateOfLastMarketingContactPoint__c"))=%% (%%=v(Field(@acc,"LastMarketingContactPointType__c"))=%%)</td></tr>
+<tr><td style="padding:2px 8px;color:#666">Cree / modifie</td><td style="padding:2px 8px">%%=v(Field(@acc,"CreatedDate"))=%% / %%=v(Field(@acc,"LastModifiedDate"))=%%</td></tr>
+</table>
+
+%%[ /* ---- 2. Points de contact e-mail + consentements ---------------------- */
+    SET @cps = RetrieveSalesforceObjects("ContactPointEmail", "Id,EmailAddress,IsPrimary,CreatedDate", "ParentId", "=", @paId)
+    SET @nC = RowCount(@cps) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">2. ContactPointEmail — %%=v(@nC)=%%</h3>
+%%[ FOR @c = 1 TO @nC DO
+        SET @cp = Row(@cps, @c)  SET @cpId = Field(@cp, "Id") ]%%
+<div style="margin:4px 0">• <b>%%=v(@cpId)=%%</b> %%=v(Field(@cp,"EmailAddress"))=%% primaire=%%=v(Field(@cp,"IsPrimary"))=%% cree=%%=v(Field(@cp,"CreatedDate"))=%%</div>
+%%[     SET @cons = RetrieveSalesforceObjects("ContactPointConsent",
+            "Id,Name,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,BusinessBrandId,CaptureSource,CaptureSourceDetail__c,CaptureDate,LastMarketingEngagementDate__c,Legal_Texte_Accepted__c,Opt_In_Date__c,Opt_Out_Date__c,CreatedDate",
+            "ContactPointId", "=", @cpId)
+        SET @nK = RowCount(@cons) ]%%
+<table style="border-collapse:collapse;width:100%;margin:2px 0 8px 18px;font-size:12px">
+<tr style="background:#f3f3f3"><th style="text-align:left;padding:3px 6px">Consentement</th><th style="text-align:left;padding:3px 6px">Canal</th><th style="text-align:left;padding:3px 6px">PrivacyConsentStatus</th><th style="text-align:left;padding:3px 6px">Status__c</th><th style="text-align:left;padding:3px 6px">GDPR</th><th style="text-align:left;padding:3px 6px">Marque</th><th style="text-align:left;padding:3px 6px">Source / detail</th><th style="text-align:left;padding:3px 6px">Engagement</th><th style="text-align:left;padding:3px 6px">Opt-in / out</th><th style="text-align:left;padding:3px 6px">Cree</th></tr>
+%%[     IF @nK == 0 THEN ]%%<tr><td colspan="10" style="padding:3px 6px;color:#b00">aucun consentement</td></tr>%%[ ENDIF ]%%
+%%[     FOR @k = 1 TO @nK DO  SET @ko = Row(@cons, @k) ]%%
+<tr><td style="padding:3px 6px">%%=v(Field(@ko,"Id"))=%%<br><span style="color:#666">%%=v(Field(@ko,"Name"))=%%</span></td><td style="padding:3px 6px">%%=v(Field(@ko,"Channel__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"PrivacyConsentStatus"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"Status__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"GDPR_Status__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"BusinessBrandId"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"CaptureSource"))=%% / %%=v(Field(@ko,"CaptureSourceDetail__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"LastMarketingEngagementDate__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"Opt_In_Date__c"))=%% / %%=v(Field(@ko,"Opt_Out_Date__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"CreatedDate"))=%%</td></tr>
+%%[     NEXT @k ]%%
+</table>
+%%[ NEXT @c ]%%
+
+%%[ /* ---- 3. Points de contact telephone + consentements ------------------ */
+    SET @cps = RetrieveSalesforceObjects("ContactPointPhone", "Id,TelephoneNumber,PhoneType,IsPrimary,CreatedDate", "ParentId", "=", @paId)
+    SET @nC = RowCount(@cps) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">3. ContactPointPhone — %%=v(@nC)=%%</h3>
+%%[ FOR @c = 1 TO @nC DO
+        SET @cp = Row(@cps, @c)  SET @cpId = Field(@cp, "Id") ]%%
+<div style="margin:4px 0">• <b>%%=v(@cpId)=%%</b> %%=v(Field(@cp,"TelephoneNumber"))=%% type=%%=v(Field(@cp,"PhoneType"))=%% primaire=%%=v(Field(@cp,"IsPrimary"))=%% cree=%%=v(Field(@cp,"CreatedDate"))=%%</div>
+%%[     SET @cons = RetrieveSalesforceObjects("ContactPointConsent",
+            "Id,Name,Channel__c,PrivacyConsentStatus,Status__c,GDPR_Status__c,BusinessBrandId,CaptureSource,CaptureSourceDetail__c,LastMarketingEngagementDate__c,Opt_In_Date__c,Opt_Out_Date__c,CreatedDate",
+            "ContactPointId", "=", @cpId)
+        SET @nK = RowCount(@cons) ]%%
+<table style="border-collapse:collapse;width:100%;margin:2px 0 8px 18px;font-size:12px">
+<tr style="background:#f3f3f3"><th style="text-align:left;padding:3px 6px">Consentement</th><th style="text-align:left;padding:3px 6px">Canal</th><th style="text-align:left;padding:3px 6px">PrivacyConsentStatus</th><th style="text-align:left;padding:3px 6px">Status__c</th><th style="text-align:left;padding:3px 6px">GDPR</th><th style="text-align:left;padding:3px 6px">Marque</th><th style="text-align:left;padding:3px 6px">Source / detail</th><th style="text-align:left;padding:3px 6px">Engagement</th><th style="text-align:left;padding:3px 6px">Opt-in / out</th><th style="text-align:left;padding:3px 6px">Cree</th></tr>
+%%[     IF @nK == 0 THEN ]%%<tr><td colspan="10" style="padding:3px 6px;color:#b00">aucun consentement</td></tr>%%[ ENDIF ]%%
+%%[     FOR @k = 1 TO @nK DO  SET @ko = Row(@cons, @k) ]%%
+<tr><td style="padding:3px 6px">%%=v(Field(@ko,"Id"))=%%<br><span style="color:#666">%%=v(Field(@ko,"Name"))=%%</span></td><td style="padding:3px 6px">%%=v(Field(@ko,"Channel__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"PrivacyConsentStatus"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"Status__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"GDPR_Status__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"BusinessBrandId"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"CaptureSource"))=%% / %%=v(Field(@ko,"CaptureSourceDetail__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"LastMarketingEngagementDate__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"Opt_In_Date__c"))=%% / %%=v(Field(@ko,"Opt_Out_Date__c"))=%%</td><td style="padding:3px 6px">%%=v(Field(@ko,"CreatedDate"))=%%</td></tr>
+%%[     NEXT @k ]%%
+</table>
+%%[ NEXT @c ]%%
+
+%%[ /* ---- 4. Membres de campagne ------------------------------------------ */
+    SET @cms = RetrieveSalesforceObjects("CampaignMember", "Id,CampaignId,Status,CampaignMemberStatus__c,UTM_Source__c,UTM_Campaign__c,CreatedDate", "ContactId", "=", @ctId)
+    SET @nM = RowCount(@cms) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">4. CampaignMember — %%=v(@nM)=%%</h3>
+%%[ FOR @m = 1 TO @nM DO SET @row = Row(@cms, @m) ]%%
+<div style="margin:3px 0">• <b>%%=v(Field(@row,"Id"))=%%</b> campagne=%%=v(Field(@row,"CampaignId"))=%% statut=%%=v(Field(@row,"Status"))=%% / %%=v(Field(@row,"CampaignMemberStatus__c"))=%% utm=%%=v(Field(@row,"UTM_Source__c"))=%% / %%=v(Field(@row,"UTM_Campaign__c"))=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
+%%[ NEXT @m ]%%
+
+%%[ /* ---- 5. Interactions ------------------------------------------------- */
+    SET @ints = RetrieveSalesforceObjects("Interaction__c", "Id,Name,RecordTypeId,FormType__c,Status__c,InteractionDate__c,Campaign__c,CampaignMemberId__c,Brand__c,SourceSystem__c,CreatedDate", "PersonAccount__c", "=", @paId)
+    SET @nI = RowCount(@ints) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">5. Interaction__c — %%=v(@nI)=%%</h3>
+%%[ FOR @i = 1 TO @nI DO SET @row = Row(@ints, @i) ]%%
+<div style="margin:3px 0">• <b>%%=v(Field(@row,"Id"))=%%</b> %%=v(Field(@row,"Name"))=%% RT=%%=v(Field(@row,"RecordTypeId"))=%% type=%%=v(Field(@row,"FormType__c"))=%% statut=%%=v(Field(@row,"Status__c"))=%% date=%%=v(Field(@row,"InteractionDate__c"))=%% campagne=%%=v(Field(@row,"Campaign__c"))=%% membre=%%=v(Field(@row,"CampaignMemberId__c"))=%% marque=%%=v(Field(@row,"Brand__c"))=%% source=%%=v(Field(@row,"SourceSystem__c"))=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
+%%[ NEXT @i ]%%
+
+%%[ /* ---- 6. Candidatures ------------------------------------------------- */
+    SET @apps = RetrieveSalesforceObjects("IndividualApplication", "Id,Status,ProgramTermApplnTimelineId,FinalDecision__c,CreatedDate", "ContactId", "=", @ctId)
+    SET @nP = RowCount(@apps) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">6. IndividualApplication — %%=v(@nP)=%%</h3>
+%%[ FOR @p = 1 TO @nP DO SET @row = Row(@apps, @p) ]%%
+<div style="margin:3px 0">• <b>%%=v(Field(@row,"Id"))=%%</b> statut=%%=v(Field(@row,"Status"))=%% decision=%%=v(Field(@row,"FinalDecision__c"))=%% PTAT=%%=v(Field(@row,"ProgramTermApplnTimelineId"))=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
+%%[ NEXT @p ]%%
+
+%%[ /* ---- 7. Inscriptions Summit + rendez-vous ----------------------------- */
+    SET @regs = RetrieveSalesforceObjects("summit__Summit_Events_Registration__c", "Id,Name,summit__Event_Instance__c,summit__Registrant_Email__c,summit__New_Contact_Created__c,CreatedDate", "summit__Contact__c", "=", @ctId)
+    SET @nR = RowCount(@regs) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">7. Summit Registration — %%=v(@nR)=%%</h3>
+%%[ FOR @r = 1 TO @nR DO SET @row = Row(@regs, @r)  SET @regId = Field(@row, "Id") ]%%
+<div style="margin:3px 0">• <b>%%=v(@regId)=%%</b> %%=v(Field(@row,"Name"))=%% instance=%%=v(Field(@row,"summit__Event_Instance__c"))=%% email=%%=v(Field(@row,"summit__Registrant_Email__c"))=%% nouveau-contact=%%=v(Field(@row,"summit__New_Contact_Created__c"))=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
+%%[     SET @rdv = RetrieveSalesforceObjects("summit__Summit_Events_Appointments__c", "Id,Name,summit__Appointment_Type__c,summit__Appointment_Status__c,summit__Appointment_Date__c,summit__Appointment_Time__c,CreatedDate", "summit__Event_Registration__c", "=", @regId)
+        SET @nV = RowCount(@rdv)
+        FOR @v = 1 TO @nV DO SET @row = Row(@rdv, @v) ]%%
+<div style="margin:2px 0 2px 24px;color:#333">↳ rdv <b>%%=v(Field(@row,"Id"))=%%</b> %%=v(Field(@row,"Name"))=%% type=%%=v(Field(@row,"summit__Appointment_Type__c"))=%% statut=%%=v(Field(@row,"summit__Appointment_Status__c"))=%% date=%%=v(Field(@row,"summit__Appointment_Date__c"))=%% %%=v(Field(@row,"summit__Appointment_Time__c"))=%%</div>
+%%[     NEXT @v
+NEXT @r ]%%
+
+%%[ NEXT @a ]%%
+
+%%[ /* ---- 8. Journal LPB (DE, pas CRM) : 60 dernieres lignes --------------- */
+    SET @logs = LookupOrderedRows("LPB_Log_Soumissions", 60, "Horodatage DESC", "Email", @email)
+    SET @nL = RowCount(@logs) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:22px 0 6px">8. LPB_Log_Soumissions — %%=v(@nL)=%% ligne(s), les plus recentes d'abord</h3>
+<table style="border-collapse:collapse;width:100%;font-size:12px">
+<tr style="background:#f3f3f3"><th style="text-align:left;padding:3px 6px">Horodatage</th><th style="text-align:left;padding:3px 6px">Run</th><th style="text-align:left;padding:3px 6px">Etape</th><th style="text-align:left;padding:3px 6px">Statut</th><th style="text-align:left;padding:3px 6px">Objet</th><th style="text-align:left;padding:3px 6px">RecordId</th><th style="text-align:left;padding:3px 6px">Detail</th></tr>
+%%[ FOR @l = 1 TO @nL DO
+        SET @row = Row(@logs, @l)
+        SET @det = Field(@row, "Detail")
+        IF Length(@det) > 220 THEN SET @det = Concat(Substring(@det, 1, 220), "…") ENDIF ]%%
+<tr style="%%[ IF Field(@row,"Statut") == "KO" OR Field(@row,"Statut") == "error" OR Field(@row,"Statut") == "blocked" THEN ]%%background:#fdecea%%[ ENDIF ]%%"><td style="padding:3px 6px;white-space:nowrap">%%=v(Field(@row,"Horodatage"))=%%</td><td style="padding:3px 6px">%%=v(Field(@row,"RunId"))=%%</td><td style="padding:3px 6px;white-space:nowrap">%%=v(Field(@row,"Etape"))=%%</td><td style="padding:3px 6px">%%=v(Field(@row,"Statut"))=%%</td><td style="padding:3px 6px">%%=v(Field(@row,"Objet"))=%%</td><td style="padding:3px 6px">%%=v(Field(@row,"RecordId"))=%%</td><td style="padding:3px 6px">%%=v(@det)=%%</td></tr>
+%%[ NEXT @l ]%%
+</table>
+
+%%[ /* ---- 9. File asynchrone ----------------------------------------------- */
+    SET @files = LookupOrderedRows("LPB_File_Soumissions", 20, "Horodatage DESC", "Email", @email)
+    SET @nF = RowCount(@files) ]%%
+<h3 style="font:600 15px system-ui,sans-serif;margin:22px 0 6px">9. LPB_File_Soumissions — %%=v(@nF)=%% ligne(s)</h3>
+%%[ FOR @f = 1 TO @nF DO SET @row = Row(@files, @f)
+        SET @det = Field(@row, "Journal")
+        IF Length(@det) > 300 THEN SET @det = Concat(Substring(@det, 1, 300), "…") ENDIF ]%%
+<div style="margin:3px 0">• <b>%%=v(Field(@row,"RunId"))=%%</b> %%=v(Field(@row,"Horodatage"))=%% %%=v(Field(@row,"Ecole"))=%%/%%=v(Field(@row,"FormType"))=%% statut=<b>%%=v(Field(@row,"Statut"))=%%</b> tentatives=%%=v(Field(@row,"Tentatives"))=%% derniere=%%=v(Field(@row,"DerniereTentative"))=%% traitement=%%=v(Field(@row,"RunTraitement"))=%% record=%%=v(Field(@row,"RecordId"))=%%<br><span style="color:#555;margin-left:14px">%%=v(@det)=%%</span></div>
+%%[ NEXT @f ]%%
+
+%%[ ENDIF ]%%
+</div>
