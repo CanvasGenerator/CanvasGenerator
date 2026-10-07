@@ -2,6 +2,7 @@ const { supabaseRequest, getQueryParam, requireField, slugify, extractFormIds, e
 const { readSchoolsForApi } = require('./schools');
 const { combineBilingualHtml } = require('../lib/bilingual');
 const sfmcAuth = require('../lib/sfmc-auth');
+const { buildSfmcKey, sfmcUrlName } = require('../lib/lp-naming');
 
 const DEFAULT_ORGANIZATION = {
     name: 'Reetain Holding',
@@ -103,39 +104,67 @@ function normalizeBaseUrl(value = '') {
 }
 
 /**
- * Chemin public d'une page : la langue est TOUJOURS dans l'URL, `/fr/...` compris.
+ * Chemin public d'une page, ajouté à l'URL de l'école (gestionnaire des écoles) :
+ *   FR     → /pages/<nom>          (ex. https://www.efap.com/pages/test)
+ *   autres → /<lang>/pages/<nom>   (ex. https://www.efap.com/en/pages/test)
+ * <nom> = partie centrale de la clé SFMC (efap_test_fr → test, voir sfmcUrlName) :
+ * la CloudPage reconstruit la clé du bloc depuis l'URL. À défaut de clé, le slug.
  *
- * Ce chemin est CALCULE (jamais stocke) : les pages francaises deja en base
- * basculent donc sur `/fr/<slug>` sans migration ni recreation. Les liens deja
- * diffuses sans prefixe continuent d'etre servis, voir resolvePublicPageByHostPath.
+ * Ce chemin est CALCULE (jamais stocke) : toutes les pages existantes passent au
+ * nouveau format sans migration. Les anciens liens (/fr/<slug>, /<slug>) restent
+ * reconnus, voir resolvePublicPageByHostPath.
  */
-function buildPublicPagePath({ slug = '', language = 'FR' } = {}) {
-    const cleanSlug = slugify(slug) || 'page';
+function buildPublicPagePath({ slug = '', language = 'FR', urlName = null } = {}) {
+    const name = urlName || slugify(slug) || 'page';
     const lang = String(language || 'FR').trim().toLowerCase() || 'fr';
-    return `/${lang}/${cleanSlug}`;
+    return lang === 'fr' ? `/pages/${name}` : `/${lang}/pages/${name}`;
 }
 
-function buildPublicPageUrl({ baseUrl = '', slug = '', language = 'FR' } = {}) {
+function buildPublicPageUrl({ baseUrl = '', slug = '', language = 'FR', urlName = null } = {}) {
     const normalizedBaseUrl = normalizeBaseUrl(baseUrl);
     if (!normalizedBaseUrl) return '';
-    return `${normalizedBaseUrl}${buildPublicPagePath({ slug, language })}`;
+    return `${normalizedBaseUrl}${buildPublicPagePath({ slug, language, urlName })}`;
+}
+
+/**
+ * Clés SFMC figées à la création (Projects.properties.sfmcKey), par nom de projet.
+ * Avec `names` (quelques pages) : une requête par nom ; sinon toute la table.
+ */
+async function loadSfmcKeys(names = null) {
+    const map = new Map();
+    const select = 'select=project_name,sfmcKey:properties->>sfmcKey';
+    const rows = names
+        ? (await Promise.all(names.filter(Boolean).map(name => supabaseRequest(
+            'GET', `/Projects?project_name=eq.${encodeURIComponent(name)}&${select}&limit=1`
+        ).catch(() => [])))).flat()
+        : await supabaseRequest('GET', `/Projects?${select}`);
+    (Array.isArray(rows) ? rows : []).forEach(r => { if (r && r.sfmcKey) map.set(r.project_name, r.sfmcKey); });
+    return map;
+}
+
+/** Nom d'URL d'une page structurée : clé figée, sinon clé calculée depuis son nom. */
+function pageUrlName(page, sfmcKeys) {
+    const name = page?.metadata?.legacyProjectName;
+    if (!name) return null;
+    return sfmcUrlName((sfmcKeys && sfmcKeys.get(name)) || buildSfmcKey(name));
 }
 
 /**
  * Decoupe un chemin public en { language, slug }.
  *
- * `/en/open-day`  -> EN + open-day
- * `/fr/portes-ouvertes` -> FR + portes-ouvertes
- * `/portes-ouvertes` -> FR + portes-ouvertes  (liens diffuses AVANT le prefixe /fr,
- *                       toujours servis pour ne casser aucune URL existante)
+ * `/pages/portes-ouvertes` -> FR + portes-ouvertes   (format actuel)
+ * `/en/pages/open-day`      -> EN + open-day
+ * `/en/open-day`  -> EN + open-day              (anciens formats, toujours servis
+ * `/fr/portes-ouvertes` -> FR + portes-ouvertes  pour ne casser aucune URL
+ * `/portes-ouvertes` -> FR + portes-ouvertes     déjà diffusée)
  */
 function splitLanguageAndSlug(path = '/') {
-    const segments = String(path || '').split('/').filter(Boolean);
+    let segments = String(path || '').split('/').filter(Boolean);
     const hasLangPrefix = segments.length > 1 && /^[a-z]{2}$/i.test(segments[0]);
-    return {
-        language: hasLangPrefix ? segments[0].toUpperCase() : 'FR',
-        slug: (hasLangPrefix ? segments.slice(1) : segments).join('-')
-    };
+    const language = hasLangPrefix ? segments[0].toUpperCase() : 'FR';
+    if (hasLangPrefix) segments = segments.slice(1);
+    if (segments.length > 1 && segments[0].toLowerCase() === 'pages') segments = segments.slice(1);
+    return { language, slug: segments.join('-') };
 }
 
 function parsePublicBaseUrl(baseUrl = '') {
@@ -342,6 +371,8 @@ async function getLanguageLinksForPage(page, { entity = null, mode = 'public' } 
     if (!siblings.length) siblings = [page];
 
     const isPreview = mode === 'preview';
+    const sfmcKeys = isPreview ? null
+        : await loadSfmcKeys(siblings.map(s => s.metadata?.legacyProjectName)).catch(() => null);
     const baseUrl = entity?.base_url || '';
     const seen = new Set();
     const links = [];
@@ -361,8 +392,9 @@ async function getLanguageLinksForPage(page, { entity = null, mode = 'public' } 
         } else {
             if (!isCurrent && sibling.status !== 'published') continue;
             if (!isCurrent && getPublicationSettings(sibling).active === false) continue;
-            path = buildPublicPagePath({ slug: sibling.slug, language });
-            url = buildPublicPageUrl({ baseUrl, slug: sibling.slug, language });
+            const urlName = pageUrlName(sibling, sfmcKeys);
+            path = buildPublicPagePath({ slug: sibling.slug, language, urlName });
+            url = buildPublicPageUrl({ baseUrl, slug: sibling.slug, language, urlName });
         }
 
         seen.add(language);
@@ -963,6 +995,8 @@ async function listMigratedDashboardPages() {
         '/entities?select=id,name,slug,base_url,metadata'
     );
     const entityMap = new Map((Array.isArray(entities) ? entities : []).map(entity => [entity.id, entity]));
+    // Clés SFMC figées → nom de page dans l'URL publique.
+    const sfmcKeys = await loadSfmcKeys().catch(() => null);
 
     // Langues disponibles par page (modèle multilingue). Une seule requête, groupée
     // par page_id. Tolère l'absence de la table (schéma pas encore migré).
@@ -1021,11 +1055,13 @@ async function listMigratedDashboardPages() {
             const groupLanguages = isGroupRoot
                 ? [...new Set([language, ...(languagesByGroupRoot.get(page.id) || [])])]
                 : [language];
-            const publicPath = buildPublicPagePath({ slug: page.slug, language });
+            const urlName = pageUrlName(page, sfmcKeys);
+            const publicPath = buildPublicPagePath({ slug: page.slug, language, urlName });
             const publicUrl = buildPublicPageUrl({
                 baseUrl: entity.base_url || '',
                 slug: page.slug,
-                language
+                language,
+                urlName
             });
 
             return {
@@ -1642,13 +1678,33 @@ async function resolvePublicPageByHostPath({ host, path = '/' } = {}) {
     const { language, slug } = splitLanguageAndSlug(pathWithoutBase);
     if (!slug) return null;
 
-    const pages = await supabaseRequest(
-        'GET',
-        `/pages?entity_id=eq.${encodeURIComponent(entity.id)}&slug=eq.${encodeURIComponent(slug)}&language=eq.${encodeURIComponent(language)}&select=*&limit=1`
-    );
-    if (!pages?.length) return null;
+    // 1. Format actuel : le nom dans l'URL est celui de la clé SFMC
+    //    (école + nom + langue), comme le fait la CloudPage.
+    let page = null;
+    const schoolId = entity.metadata?.legacySchoolId || entity.slug;
+    if (schoolId) {
+        const wantedKey = `${schoolId}_${slug}_${language.toLowerCase()}`;
+        const candidates = await supabaseRequest(
+            'GET',
+            `/pages?entity_id=eq.${encodeURIComponent(entity.id)}&language=eq.${encodeURIComponent(language)}&status=neq.deleted&select=*`
+        );
+        const list = Array.isArray(candidates) ? candidates : [];
+        const sfmcKeys = await loadSfmcKeys(list.map(p => p.metadata?.legacyProjectName)).catch(() => null);
+        page = list.find(p => {
+            const name = p.metadata?.legacyProjectName;
+            return name && ((sfmcKeys && sfmcKeys.get(name)) || buildSfmcKey(name)) === wantedKey;
+        }) || null;
+    }
 
-    const page = pages[0];
+    // 2. Anciens liens déjà diffusés : recherche par slug.
+    if (!page) {
+        const pages = await supabaseRequest(
+            'GET',
+            `/pages?entity_id=eq.${encodeURIComponent(entity.id)}&slug=eq.${encodeURIComponent(slug)}&language=eq.${encodeURIComponent(language)}&select=*&limit=1`
+        );
+        if (!pages?.length) return null;
+        page = pages[0];
+    }
     let version = null;
     if (page.current_version_id) {
         const versionResult = await supabaseRequest(
@@ -1662,7 +1718,12 @@ async function resolvePublicPageByHostPath({ host, path = '/' } = {}) {
         entity,
         page,
         version,
-        public_url: buildPublicPageUrl({ baseUrl: entity.base_url, slug: page.slug, language: page.language })
+        public_url: buildPublicPageUrl({
+            baseUrl: entity.base_url,
+            slug: page.slug,
+            language: page.language,
+            urlName: pageUrlName(page, await loadSfmcKeys([page.metadata?.legacyProjectName]).catch(() => null))
+        })
     };
 }
 
