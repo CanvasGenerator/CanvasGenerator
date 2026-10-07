@@ -216,7 +216,7 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
     const garde = src.indexOf('IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN');
     const crm = src.indexOf('RetrieveSalesforceObjects("summit__Summit_Events_Instance__c"');
     egal(bloc > 0 && garde > bloc && crm > garde, true, 'bloc DE, puis garde, puis chemin CRM');
-    for (const de of ['ENT.summit__Summit_Events__c_Salesforce_1', 'ENT.summit__Summit_Events_Instance__c_Salesforce_1', 'ENT.summit__Summit_Events_Appointment_Type__c_Salesforce', 'ENT.BusinessBrand_Salesforce']) {
+    for (const de of ['ENT.summit__Summit_Events__c_Salesforce', 'ENT.summit__Summit_Events_Instance__c_Salesforce', 'ENT.summit__Summit_Events_Appointment_Type__c_Salesforce', 'ENT.BusinessBrand_Salesforce']) {
         egal(src.includes('LookupRows("' + de + '"'), true, 'lecture de ' + de);
     }
     egal(/catch \(eDeSyncEvt\) \{\s*Variable\.SetValue\("@evtDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
@@ -224,7 +224,7 @@ test('socle de lecture : evenements et marque depuis les DE synchronisees, CRM e
     egal(src.includes('desync=%%=v(@deSyncEtat)=%%'), true, 'etat dans le commentaire socle ampscript');
 });
 /* 30/09 : programmes, campus, PTAT et rentrees depuis les trois DE partagees
-   par la synchro (LearningProgram_Salesforce_1, ProgramTermApplnTimeline_Salesforce,
+   par la synchro (LearningProgram_Salesforce, ProgramTermApplnTimeline_Salesforce,
    AcademicTerm_Salesforce), par LookupRows seulement ; la famille prog sort
    du cache quand la DE la sert ; le cache picklists porte la date du jour. */
 test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisees, cache 7 j / 7 j / 1 j', () => {
@@ -234,11 +234,11 @@ test('socle de lecture : programmes, PTAT et rentrees depuis les DE synchronisee
     const garde = src.indexOf('IF @cacheProg != "hit" AND @progDeSync != "true" AND Length(@prefixUp) > 0 AND Lowercase(@actif) == "true" THEN');
     const crm = src.indexOf('RetrieveSalesforceObjects("ProgramTermApplnTimeline"');
     egal(reset > 0 && bloc > reset && garde > bloc && crm > garde, true, 'remise a zero, bloc DE, garde, puis chemin CRM');
-    for (const de of ['ENT.AcademicTerm_Salesforce', 'ENT.ProgramTermApplnTimeline_Salesforce', 'ENT.LearningProgram_Salesforce_1']) {
+    for (const de of ['ENT.AcademicTerm_Salesforce', 'ENT.ProgramTermApplnTimeline_Salesforce', 'ENT.LearningProgram_Salesforce']) {
         egal(src.includes('LookupRows("' + de + '"'), true, 'lecture de ' + de);
     }
     egal(src.includes('LookupRows("ENT.AcademicTerm_Salesforce", "IsActive", "True")'), true, 'seules les rentrees actives');
-    egal(src.includes('LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False")'), true, 'programmes inactifs lus aussi, comme le CRM');
+    egal(src.includes('LookupRows("ENT.LearningProgram_Salesforce", "IsActive", "False")'), true, 'programmes inactifs lus aussi, comme le CRM');
     egal(/if \(candDe && !ptatProgDe\[pidDe\]\) continue;\s*if \(candDe && !String\(pDe\.Speciality__c \|\| ""\)\.length\) continue;/.test(src), true, 'candidature : ni programme sans PTAT ni sans specialite');
     egal(/catch \(eDeSyncProg\) \{\s*Variable\.SetValue\("@progDeSync", "false"\)/.test(src), true, 'en erreur, le chemin CRM reprend');
     /* 02/10 : le cache sert et ecrit aussi le resultat des DE synchronisees,
