@@ -315,7 +315,13 @@ SET @ECRIRE_DATE_ENGAGEMENT_LEGACY = "%%ENV:SFMC_CPC_DATE_ENGAGEMENT_LEGACY%%"
 
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
-SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
+/* RecordType « Form » de Interaction__c : propre a chaque org. Recette
+   012AW00000AxdXSYAZ ; prod 012MI00000Fzh4GYAR (releve par sonde le 07/10/2026,
+   quatre RecordTypes actifs : Chatbot, Form, SMS, WhatsApp). Avec l'Id de
+   recette, la creation echouait en prod et la page mourait apres
+   « 70 - campaignmember cree » (test-prod-efapcand1). Injecte a la
+   publication : SFMC_RT_INTERACTION_FORM, defaut = recette. */
+SET @RT_INTERACTION_FORM = "%%ENV:SFMC_RT_INTERACTION_FORM%%"
 VAR @itPreview, @itContext, @itHorodatage, @itHorodatageUtc, @evtParent
 VAR @refCanal, @refSous, @cle, @pos, @reste
 VAR @detailOrigine, @nCpRows, @payload, @morceau, @morceauEncadre, @pz, @offset
