@@ -793,7 +793,13 @@ try {
         /* La casse s'applique APRES le dictionnaire : celui-ci est indexe sur
            le libelle BRUT du CRM, chercher « Paris » quand la DE connait
            « PARIS » ne trouverait plus rien. */
-        if (langue !== 'en') return casseLisible(brut, propre);
+        if (langue !== 'en') {
+            /* Valeur CRM anglaise sur une page francaise (org de prod) : le
+               dictionnaire donne le francais par valeur, sinon le libelle CRM. */
+            var fr = D && D.libellesFr;
+            if (fr && fr[brut]) return casseLisible(fr[brut], propre);
+            return casseLisible(brut, propre);
+        }
         var dico = D && D.traductions;
         if (dico && dico[brut]) return casseLisible(dico[brut], propre);
         var repli = libelleAnglaisRepli(name, option);

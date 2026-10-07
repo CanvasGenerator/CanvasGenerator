@@ -58,7 +58,7 @@ VAR @cfgSpecV, @cfgSpecN, @cfgRythV, @cfgRythN, @cfgLangV, @cfgLangN
 VAR @formTypePage, @ord
 VAR @condRows, @condRow, @i9, @condSpec, @condRyth, @condLang
 VAR @chpRows, @chp, @cfgCampusV
-VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD
+VAR @jsDico, @dicoRows, @nDico, @dicoEn, @sepD, @jsLibFr, @sepF, @dicoCle, @dicoFr
 VAR @indRows, @nInd, @indRow, @jsLongTel, @sepL, @nbMin, @nbMax, @indVal
 VAR @CTA_DOC_ACTIF, @ctaRows, @nCta, @ctaRow, @jsCtaDoc, @sepCta, @ctaUrl, @ctaTitre
 VAR @campusRows, @nCampus, @k, @campusIdIndex, @instCampusId, @instCampusNom
@@ -486,18 +486,35 @@ ENDIF
    puis scripts/traduire-dico.js (remplit l'anglais via Gemini). La DE reste
    corrigeable a la main, et une correction n'est jamais ecrasee.
    ========================================================================== */
+/* Libelles FRANCAIS par valeur CRM : `Cle` -> `Fr` quand ils different.
+   L'org de PROD porte des valeurs ANGLAISES la ou la recette avait du francais
+   — PersonAccountType__c : « Student », « Career Change », « EDH Student »
+   (releve par sonde le 07/10/2026). Le CRM n'a pas de libelle francais a
+   offrir (Label = Value), et la page francaise les affichait tels quels.
+   Une ligne du dictionnaire par valeur (Cle = valeur CRM, Fr = libelle a
+   afficher) suffit ; sans ligne, le libelle CRM reste, comme avant. */
 SET @jsDico = ""
 SET @sepD = ""
+SET @jsLibFr = ""
+SET @sepF = ""
 SET @dicoRows = LookupRows("LPB_Dico_Traductions", "Actif", "true")
 SET @nDico = RowCount(@dicoRows)
 FOR @i = 1 TO @nDico DO
     SET @row = Row(@dicoRows, @i)
     SET @dicoEn = Field(@row, "En")
+    SET @dicoCle = Field(@row, "Cle")
+    SET @dicoFr = Field(@row, "Fr")
     IF NOT Empty(@dicoEn) THEN
         SET @jsDico = Concat(@jsDico, @sepD, "'",
-            Replace(Replace(Field(@row, "Fr"), "\", "\\"), "'", "\'"), "':'",
+            Replace(Replace(@dicoFr, "\", "\\"), "'", "\'"), "':'",
             Replace(Replace(@dicoEn, "\", "\\"), "'", "\'"), "'")
         SET @sepD = ","
+    ENDIF
+    IF NOT Empty(@dicoFr) AND @dicoFr != @dicoCle THEN
+        SET @jsLibFr = Concat(@jsLibFr, @sepF, "'",
+            Replace(Replace(@dicoCle, "\", "\\"), "'", "\'"), "':'",
+            Replace(Replace(@dicoFr, "\", "\\"), "'", "\'"), "'")
+        SET @sepF = ","
     ENDIF
 NEXT @i
 
@@ -1711,6 +1728,9 @@ window.SOCLE_DATA = {
         "language":   {%%=v(@jsLibLang)=%%}
     },
     "traductions": {%%=v(@jsDico)=%%},
+    /* Libelles francais par valeur CRM, pour les orgs dont les valeurs sont
+       anglaises (prod : « Student » -> « Étudiant »). Vide en recette. */
+    "libellesFr": {%%=v(@jsLibFr)=%%},
     /* Longueurs de numero attendues, par indicatif. Objet VIDE = aucun
        controle par pays, le generique 7-14 reste seul en vigueur. */
     "longueursTel": {%%=v(@jsLongTel)=%%},
@@ -2427,7 +2447,13 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         /* La casse s'applique APRES le dictionnaire : celui-ci est indexe sur
            le libelle BRUT du CRM, chercher « Paris » quand la DE connait
            « PARIS » ne trouverait plus rien. */
-        if (langue !== 'en') return casseLisible(brut, propre);
+        if (langue !== 'en') {
+            /* Valeur CRM anglaise sur une page francaise (org de prod) : le
+               dictionnaire donne le francais par valeur, sinon le libelle CRM. */
+            var fr = D && D.libellesFr;
+            if (fr && fr[brut]) return casseLisible(fr[brut], propre);
+            return casseLisible(brut, propre);
+        }
         var dico = D && D.traductions;
         if (dico && dico[brut]) return casseLisible(dico[brut], propre);
         var repli = libelleAnglaisRepli(name, option);
