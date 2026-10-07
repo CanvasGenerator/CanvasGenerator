@@ -317,7 +317,9 @@ test('handler : reabonnement SFMC du Subscriber avant le tir de journey', () => 
 test('handler : CaptureSourceDetail__c envoye dans chaque creation de consentement', () => {
     const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
     const creations = src.match(/CreateSalesforceObject\("ContactPointConsent", (\d+),[\s\S]*?\)\n/g) || [];
-    egal(creations.length, 3, 'trois variantes de creation');
+    /* 4 depuis le 07/10 : la variante a 11 champs se dedouble selon SFMC_CPC_DATE_ENGAGEMENT_LEGACY
+       (Last_Marketing_Engagement_Date__c n'existe pas dans l'org de prod). */
+    egal(creations.length, 4, 'quatre variantes de creation');
     for (const c of creations) {
         egal(c.includes('"CaptureSourceDetail__c",  @detailOrigine,'), true, 'CaptureSourceDetail__c = @detailOrigine dans chaque variante');
         const nb = Number(/ContactPointConsent", (\d+),/.exec(c)[1]);

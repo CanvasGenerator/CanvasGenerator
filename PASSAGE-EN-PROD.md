@@ -144,6 +144,7 @@ Le préfixe du lot (`Prod_`) doit être celui de `PREFIXES` dans `generer-lp.mjs
 | `SFMC_LECTURE_DE_SYNC` | `true` | événements, marque, programmes, PTAT et rentrées depuis les DE synchronisées `ENT.*` : `BusinessBrand_Salesforce`, `summit__Summit_Events__c_Salesforce`, `summit__Summit_Events_Instance__c_Salesforce`, `summit__Summit_Events_Appointment_Type__c_Salesforce`, `LearningProgram_Salesforce`, `ProgramTermApplnTimeline_Salesforce`, `AcademicTerm_Salesforce` (jeu partagé 32716 de l'Enterprise : en prod, vérifier qu'elles existent avec ces noms et sont visibles de la BU cible, sinon le socle retombe sur le CRM page par page) |
 | `SFMC_SOCLE_DEPOUILLE` | `true` (défaut) | socle inliné sans commentaires hors SSJS |
 | `SFMC_LOG_DETAIL` | `false` | lignes de journal « avant … » (diagnostic seulement) |
+| `SFMC_CPC_DATE_ENGAGEMENT_LEGACY` | `false` | l'org de prod n'a pas `Last_Marketing_Engagement_Date__c` sur ContactPointConsent (INVALID_FIELD, 07/10) ; `true` en recette où le champ existe |
 
 Ces drapeaux sont **injectés à la publication** : tout changement impose de republier le lot.
 Plan de repli : republier avec `SFMC_ASYNC_SOUMISSION=false SFMC_CACHE_LECTURE=false

@@ -300,6 +300,19 @@ SET @ECRIRE_DATE_ENGAGEMENT = "true"
 VAR @ECRIRE_MARQUE_CONSENT
 SET @ECRIRE_MARQUE_CONSENT = "true"
 
+/* ---- GRAPHIE HISTORIQUE DE LA DATE D'ENGAGEMENT (champ Date) -----------
+   `Last_Marketing_Engagement_Date__c` existe dans l'org de RECETTE (doublon
+   de libelle releve le 02/09) mais PAS dans l'org de PROD : INVALID_FIELD
+   « No such column 'Last_Marketing_Engagement_Date__c' on entity
+   'ContactPointConsent' », sonde LPB_TST_Sonde_CPC_Prod du 07/10/2026. Le
+   handler mourait apres « 30 - account cree », a la creation du consentement,
+   et la file restait en_cours. `LastMarketingEngagementDate__c` (Date/heure)
+   existe dans les deux orgs et reste envoyee.
+   Drapeau injecte a la publication (lib/socle-env.js) : true en recette,
+   false en prod. */
+VAR @ECRIRE_DATE_ENGAGEMENT_LEGACY
+SET @ECRIRE_DATE_ENGAGEMENT_LEGACY = "%%ENV:SFMC_CPC_DATE_ENGAGEMENT_LEGACY%%"
+
 VAR @OBJET_INTERACTION, @RT_INTERACTION_FORM
 SET @OBJET_INTERACTION   = "Interaction__c"
 SET @RT_INTERACTION_FORM = "012AW00000AxdXSYAZ"
@@ -2306,19 +2319,36 @@ IF IndexOf(@submitted, "true") > 0 THEN
                                compte du 01/09. Envoye explicitement depuis le
                                02/10, meme valeur que celle posee sur le compte ; le
                                trigger ne touche pas un champ deja renseigne. */
-                            SET @cpcId = CreateSalesforceObject("ContactPointConsent", 11,
-                                "ContactPointId",          @cpId,
-                                "Channel__c",              @canalValue,
-                                "Name",                    Concat("Consent ", @canalValue, " - ", @email,
-                                                                  " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
-                                "PrivacyConsentStatus",    "OptIn",
-                                "Status__c",               "Opt-in",
-                                "CaptureSource",           "SFMC CloudPage",
-                                "CaptureSourceDetail__c",  @detailOrigine,
-                                "Legal_Texte_Accepted__c", @preuve,
-                                "Last_Marketing_Engagement_Date__c", @itHorodatage,
-                                "LastMarketingEngagementDate__c",    @itHorodatageUtc,
-                                "BusinessBrandId",         @brandId)
+                            IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true" THEN
+                                SET @cpcId = CreateSalesforceObject("ContactPointConsent", 11,
+                                    "ContactPointId",          @cpId,
+                                    "Channel__c",              @canalValue,
+                                    "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                      " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                    "PrivacyConsentStatus",    "OptIn",
+                                    "Status__c",               "Opt-in",
+                                    "CaptureSource",           "SFMC CloudPage",
+                                    "CaptureSourceDetail__c",  @detailOrigine,
+                                    "Legal_Texte_Accepted__c", @preuve,
+                                    "Last_Marketing_Engagement_Date__c", @itHorodatage,
+                                    "LastMarketingEngagementDate__c",    @itHorodatageUtc,
+                                    "BusinessBrandId",         @brandId)
+                            ELSE
+                                /* Org sans la graphie Date (prod) : 10 champs, verifie
+                                   par la sonde du 07/10 (0ZXMI0000000HvJ4AU). */
+                                SET @cpcId = CreateSalesforceObject("ContactPointConsent", 10,
+                                    "ContactPointId",          @cpId,
+                                    "Channel__c",              @canalValue,
+                                    "Name",                    Concat("Consent ", @canalValue, " - ", @email,
+                                                                      " - ", Format(Now(), "yyyy-MM-dd HH:mm:ss")),
+                                    "PrivacyConsentStatus",    "OptIn",
+                                    "Status__c",               "Opt-in",
+                                    "CaptureSource",           "SFMC CloudPage",
+                                    "CaptureSourceDetail__c",  @detailOrigine,
+                                    "Legal_Texte_Accepted__c", @preuve,
+                                    "LastMarketingEngagementDate__c",    @itHorodatageUtc,
+                                    "BusinessBrandId",         @brandId)
+                            ENDIF
 
                         ELSEIF @ECRIRE_MARQUE_CONSENT == "true" AND NOT Empty(@brandId) THEN
                             SET @cpcId = CreateSalesforceObject("ContactPointConsent", 9,
