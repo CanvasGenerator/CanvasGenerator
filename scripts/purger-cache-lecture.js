@@ -42,7 +42,7 @@
  *  celui du serveur SFMC (UTC-6, sans heure d'ete) : la cle tombe a 07:00
  *  (hiver) ou 08:00 (ete) heure de Paris, le cron du matin se lance apres.
  *  Options : --url=<base> (defaut https://cloud.groupe-edh.net/landingpage, et
- *  https://cloud.groupe-edh.net/landing-page2 pour --rechauffer=prod),
+ *  https://cloud.groupe-edh.net/LPB_Page pour --rechauffer=prod),
  *  --parallele=<n>, --lang=en pour viser les pages EN a la place des FR.
  *
  *  Identifiants : ceux du .env (SFMC_CLIENT_ID / SECRET / SUBDOMAIN / ACCOUNT_ID),
@@ -52,7 +52,7 @@ const path = require('node:path');
 
 const DE = 'LPB_Cache_Lecture';
 const URL_DEFAUT = 'https://cloud.groupe-edh.net/landingpage';
-const URL_DEFAUT_PROD = 'https://cloud.groupe-edh.net/landing-page2'; // CloudPage de la BU de prod, 07/10/2026
+const URL_DEFAUT_PROD = 'https://cloud.groupe-edh.net/LPB_Page'; // CloudPage de la BU de prod, 07/10/2026
 const FAMILLES = ['picklists', 'programmes', 'evenements'];
 /* Type de formulaire -> familles de cache qu'une visite de la page ecrit.
    Memes codes et meme ordre que FORMULAIRES dans scripts/generer-lp.mjs. */
