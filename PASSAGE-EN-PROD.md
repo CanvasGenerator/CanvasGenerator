@@ -141,7 +141,7 @@ Le préfixe du lot (`Prod_`) doit être celui de `PREFIXES` dans `generer-lp.mjs
 | `SFMC_ASYNC_SOUMISSION` | `true` | réception immédiate, traitement sur la page dédiée + rejeu |
 | `SFMC_SOCLE_RECEPTION_SEULE` | (automatique) | posé par `generer-lp` : pages du visiteur sans les régions de traitement du handler dès que la page de traitement est publiée ; ne pas le poser à la main |
 | `SFMC_CACHE_LECTURE` | `true` | picklists sous une clé du jour dans `LPB_Cache_Lecture` (programmes et dates y restent en repli si la DE synchronisée manque) |
-| `SFMC_LECTURE_DE_SYNC` | `true` | événements, marque, programmes, PTAT et rentrées depuis les DE synchronisées `ENT.*` : `BusinessBrand_Salesforce`, `summit__Summit_Events__c_Salesforce_1`, `summit__Summit_Events_Instance__c_Salesforce_1`, `summit__Summit_Events_Appointment_Type__c_Salesforce`, `LearningProgram_Salesforce_1`, `ProgramTermApplnTimeline_Salesforce`, `AcademicTerm_Salesforce` (jeu partagé 32716 de l'Enterprise : en prod, vérifier qu'elles existent avec ces noms et sont visibles de la BU cible, sinon le socle retombe sur le CRM page par page) |
+| `SFMC_LECTURE_DE_SYNC` | `true` | événements, marque, programmes, PTAT et rentrées depuis les DE synchronisées `ENT.*` : `BusinessBrand_Salesforce`, `summit__Summit_Events__c_Salesforce`, `summit__Summit_Events_Instance__c_Salesforce`, `summit__Summit_Events_Appointment_Type__c_Salesforce`, `LearningProgram_Salesforce`, `ProgramTermApplnTimeline_Salesforce`, `AcademicTerm_Salesforce` (jeu partagé 32716 de l'Enterprise : en prod, vérifier qu'elles existent avec ces noms et sont visibles de la BU cible, sinon le socle retombe sur le CRM page par page) |
 | `SFMC_SOCLE_DEPOUILLE` | `true` (défaut) | socle inliné sans commentaires hors SSJS |
 | `SFMC_LOG_DETAIL` | `false` | lignes de journal « avant … » (diagnostic seulement) |
 
@@ -157,7 +157,7 @@ SFMC_LECTURE_DE_SYNC=false` rend le comportement synchrone historique, sans autr
   Salesforce du socle (`RetrieveSalesforceObjects`, `CreateSalesforceObject`) passe par lui.
   En recette, MC Connect n'est pas rattaché à la BU (ticket connu) — les CloudPages
   fonctionnent quand même en AMPscript ; vérifier la même chose en prod dès la première page.
-- **Synchronized Data Sources** : le second jeu (`*_Salesforce_1`, `BusinessBrand_Salesforce`,
+- **Synchronized Data Sources** : le jeu refait le 07/10/2026 (dossier 50890, noms **sans** suffixe `_1` — le socle lit ces noms depuis cette date ; `BusinessBrand_Salesforce`,
   summit instances/événements/types d'atelier) doit être visible de la BU de prod, sinon
   `SFMC_LECTURE_DE_SYNC=false`. Pour aller plus loin : demander la synchro de
   `LearningProgram` (avec `Academic_Level_List__c`, `Speciality__c`, `Rhythm__c`,

@@ -15,7 +15,7 @@
  *      npm run deploy:socle -- --push --mid=536010339   # deploiement reel
  *
  *  --mid est OBLIGATOIRE avec --push : il confirme la Business Unit visee.
- *  536010339 = RECETTE EDH · 536009308 = entreprise parente (a eviter).
+ *  536010339 = RECETTE EDH · 536009308 = entreprise parente = BU de PROD depuis le 05/10/2026.
  *      npm run deploy:socle -- --push --only=LPB_Socle_Read_AG
  *
  *  Par securite, le mode SIMULATION est le defaut : rien n'est envoye a SFMC

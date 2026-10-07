@@ -772,7 +772,9 @@ ENDIF
 <script runat="server">
 /* ==LECTURE_DE_SYNC_PROG== Programmes, campus, PTAT et rentrees depuis les
    DE synchronisees Salesforce (Enterprise, prefixe ENT., ~15 min) :
-   ENT.LearningProgram_Salesforce_1, ENT.ProgramTermApplnTimeline_Salesforce,
+   ENT.LearningProgram_Salesforce, ENT.ProgramTermApplnTimeline_Salesforce,
+   (noms SANS suffixe _1 depuis le 07/10/2026 : la synchro a ete refaite en
+   un seul jeu, dossier 50890 de l'Enterprise, partage aux BU),
    ENT.AcademicTerm_Salesforce. Memes regles que le chemin CRM ci-dessous et
    memes blocs JS : programmes dont le campus commence par le prefixe de
    l'ecole (actifs ET inactifs, comme le CRM) ; en candidature, ni programme
@@ -822,8 +824,8 @@ try {
         for (var pc = 0; pc < ptatsDe.length; pc++) ptatProgDe[String(ptatsDe[pc].LearningProgramId)] = true;
         /* Programmes : actifs puis inactifs — le CRM ne filtre pas IsActive. */
         var progsDe = [];
-        var lotsDe = [Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "True") || [],
-                      Platform.Function.LookupRows("ENT.LearningProgram_Salesforce_1", "IsActive", "False") || []];
+        var lotsDe = [Platform.Function.LookupRows("ENT.LearningProgram_Salesforce", "IsActive", "True") || [],
+                      Platform.Function.LookupRows("ENT.LearningProgram_Salesforce", "IsActive", "False") || []];
         for (var lo = 0; lo < lotsDe.length; lo++) {
             for (var lp = 0; lp < lotsDe[lo].length; lp++) progsDe.push(lotsDe[lo][lp]);
         }
@@ -1165,7 +1167,7 @@ try {
             if (cn) campusNomsDe.push(cn);
         }
         /* Evenements du type : le type vit sur l'evenement parent dans la DE. */
-        var evRowsDe = Platform.Function.LookupRows("ENT.summit__Summit_Events__c_Salesforce_1", "EventType__c", typeEvtCrmDe) || [];
+        var evRowsDe = Platform.Function.LookupRows("ENT.summit__Summit_Events__c_Salesforce", "EventType__c", typeEvtCrmDe) || [];
         var evTypeDe = {};
         for (var e = 0; e < evRowsDe.length; e++) evTypeDe[String(evRowsDe[e].Id)] = true;
         var vuesDe = {}, instDe = [];
@@ -1177,10 +1179,10 @@ try {
             }
         }
         if (prefixUpDe.length == 0) {
-            for (var e2 = 0; e2 < evRowsDe.length; e2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "summit__Event__c", String(evRowsDe[e2].Id)));
+            for (var e2 = 0; e2 < evRowsDe.length; e2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce", "summit__Event__c", String(evRowsDe[e2].Id)));
         } else {
-            for (var k = 0; k < campusIdsDe.length; k++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "Campus__c", campusIdsDe[k]));
-            for (var k2 = 0; k2 < campusNomsDe.length; k2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce_1", "campusNameFor__c", campusNomsDe[k2]));
+            for (var k = 0; k < campusIdsDe.length; k++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce", "Campus__c", campusIdsDe[k]));
+            for (var k2 = 0; k2 < campusNomsDe.length; k2++) ajouterDe(Platform.Function.LookupRows("ENT.summit__Summit_Events_Instance__c_Salesforce", "campusNameFor__c", campusNomsDe[k2]));
         }
         var jsInstDe = [], evtIndexDe = {}, evtListeDe = [], nbInstDe = 0, nbStatutDe = 0;
         for (var j = 0; j < instDe.length; j++) {

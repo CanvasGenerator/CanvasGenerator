@@ -12,6 +12,7 @@
  *        pendant qu'on developpe.
  *
  *    --lot=recette            `Recette_<TYPE>_<ECOLE>_V0`
+ *    --lot=prod               `Prod_<TYPE>_<ECOLE>_V0` (BU de prod, --confirme-prod)
  *        Les pages que le client et les ecoles regardent. On n'y publie QUE
  *        sur demande explicite, une fois l'interne valide. Le lot exige en
  *        plus `--confirme-recette` : un `--push` distrait ne peut pas les
@@ -150,7 +151,7 @@ height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>
 
 /* Le prefixe de cle EST la separation entre les deux lots. Rien d'autre ne les
    distingue cote SFMC : meme dossier, meme gabarit, meme socle. */
-const PREFIXES = { interne: 'Interne', recette: 'Recette' };
+const PREFIXES = { interne: 'Interne', recette: 'Recette', prod: 'Prod' };
 const SORTIE = path.join(process.cwd(), '.lp-pages', LOT);
 
 const RACINE = process.cwd();
@@ -284,7 +285,7 @@ try {
 
 /* -- garde-fous ---------------------------------------------------------- */
 if (!PREFIXES[LOT]) {
-    console.error(`❌ --lot=${LOT || '(vide)'} inconnu. Valeurs admises : interne, recette.`);
+    console.error(`❌ --lot=${LOT || '(vide)'} inconnu. Valeurs admises : interne, recette, prod.`);
     process.exit(1);
 }
 if (!LANGUES[LANG]) {
@@ -295,6 +296,13 @@ if (!LANGUES[LANG]) {
 /* La recette est ce que le client regarde : une publication y change ce qu'il
    voit a l'instant meme, et une page publiee ne se depublie pas d'un revert.
    Le drapeau ne peut donc pas etre devine — il faut l'avoir tape. */
+/* La prod est l'environnement des visiteurs : meme regle, un cran au-dessus.
+   Le lot `prod` publie dans la BU de prod (--mid=536009308) et ne se tape
+   qu'avec --confirme-prod. */
+if (PUSH && LOT === 'prod' && !args.includes('--confirme-prod')) {
+    console.error('❌ Publication en PROD demandee sans --confirme-prod.');
+    process.exit(1);
+}
 if (PUSH && LOT === 'recette' && !CONFIRME_RECETTE) {
     console.error('❌ Publication en RECETTE demandee sans --confirme-recette.\n'
                 + '   La recette est l\'environnement du client. Valider d\'abord en interne\n'
