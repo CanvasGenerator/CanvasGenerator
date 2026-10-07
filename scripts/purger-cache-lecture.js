@@ -41,7 +41,8 @@
  *  comme un echec. Le jour des evenements est
  *  celui du serveur SFMC (UTC-6, sans heure d'ete) : la cle tombe a 07:00
  *  (hiver) ou 08:00 (ete) heure de Paris, le cron du matin se lance apres.
- *  Options : --url=<base> (defaut https://cloud.groupe-edh.net/landingpage),
+ *  Options : --url=<base> (defaut https://cloud.groupe-edh.net/landingpage, et
+ *  https://cloud.groupe-edh.net/landing-page2 pour --rechauffer=prod),
  *  --parallele=<n>, --lang=en pour viser les pages EN a la place des FR.
  *
  *  Identifiants : ceux du .env (SFMC_CLIENT_ID / SECRET / SUBDOMAIN / ACCOUNT_ID),
@@ -51,6 +52,7 @@ const path = require('node:path');
 
 const DE = 'LPB_Cache_Lecture';
 const URL_DEFAUT = 'https://cloud.groupe-edh.net/landingpage';
+const URL_DEFAUT_PROD = 'https://cloud.groupe-edh.net/landing-page2'; // CloudPage de la BU de prod, 07/10/2026
 const FAMILLES = ['picklists', 'programmes', 'evenements'];
 /* Type de formulaire -> familles de cache qu'une visite de la page ecrit.
    Memes codes et meme ordre que FORMULAIRES dans scripts/generer-lp.mjs. */
@@ -217,7 +219,7 @@ async function main() {
         process.exit(2);
     }
     if (args.rechauffer === true || (args.rechauffer && !/^[a-z]+$/.test(lot))) {
-        console.error('--rechauffer attend le lot des pages a visiter : --rechauffer=interne ou --rechauffer=recette');
+        console.error('--rechauffer attend le lot des pages a visiter : --rechauffer=interne, --rechauffer=recette ou --rechauffer=prod');
         process.exit(2);
     }
     if (sansPurge && !lot) {
@@ -230,7 +232,7 @@ async function main() {
 
     if (lot) {
         const pages = pagesARechauffer(lot, { famille, ecole, lang: args.lang });
-        const urlBase = typeof args.url === 'string' && args.url ? args.url.replace(/\/$/, '') : URL_DEFAUT;
+        const urlBase = typeof args.url === 'string' && args.url ? args.url.replace(/\/$/, '') : (lot === 'prod' ? URL_DEFAUT_PROD : URL_DEFAUT);
         const parallele = Math.max(1, parseInt(args.parallele, 10) || 2);
         if (!pages.length) {
             console.error(`[rechauffe cache] aucune page pour ${lot}${famille ? ' / ' + famille : ''}${ecole ? ' / ' + ecole : ''} : ecole inconnue de schools.json ?`);
