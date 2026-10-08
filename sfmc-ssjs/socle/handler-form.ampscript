@@ -2214,17 +2214,33 @@ IF IndexOf(@submitted, "true") > 0 THEN
                              - brochure → la date a chaque soumission (aucun tampon
                                CRM sur ce formulaire, donc aucune course) ;
                              - sinon → rien : le CRM fait progresser la date. */
+                        /* Meme drapeau qu'a la creation : `Last_Marketing_Engagement_Date__c`
+                           n'existe pas dans l'org de prod (SFMC_CPC_DATE_ENGAGEMENT_LEGACY=false).
+                           Oublie ici le 07/10 : un compte connu dont un consentement etait
+                           en Opt-out tuait la page juste apres « 30 - account existant »
+                           (testefap@yopmail.com, 08/10). */
                         IF Field(@cpcRow, "Status__c") != "Opt-in" THEN
-                            SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                                "Status__c", "Opt-in",
-                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
-                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true" THEN
+                                SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                    "Status__c", "Opt-in",
+                                    "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                    "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            ELSE
+                                SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                    "Status__c", "Opt-in",
+                                    "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            ENDIF
                             SET @majs = "1"
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-statut-maj CPC:", @canalValue, "-date-maj")
                         ELSEIF @formType == "brochure" THEN
-                            SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
-                                "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
-                                "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true" THEN
+                                SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                    "Last_Marketing_Engagement_Date__c", @cpcHorodatage,
+                                    "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            ELSE
+                                SET @n = UpdateSingleSalesforceObject("ContactPointConsent", @cpcId,
+                                    "LastMarketingEngagementDate__c", @cpcHorodatageUtc)
+                            ENDIF
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-date-maj")
                         ELSE
                             SET @journal = Concat(@journal, " CPC:", @canalValue, "-inchange")

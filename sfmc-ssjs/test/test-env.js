@@ -329,6 +329,21 @@ test('handler : CaptureSourceDetail__c envoye dans chaque creation de consenteme
     egal(src.indexOf('SET @detailOrigine = RequestParameter("NomFormulaire")') < src.indexOf('CreateSalesforceObject("ContactPointConsent", 11,'), true, '@detailOrigine est pose avant, sur le chemin commun aux deux comptes');
 });
 
+/* 08/10 : toute ECRITURE de Last_Marketing_Engagement_Date__c (creation ET
+   update) est sous IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true". Le 07/10 seule
+   la creation l'etait : un compte connu avec un consentement en Opt-out
+   (testefap@yopmail.com) tuait la page de prod a l'update du statut. */
+test('handler : Last_Marketing_Engagement_Date__c n est ecrit que sous le drapeau legacy, creation et update', () => {
+    const src = require('node:fs').readFileSync(path.join(__dirname, '..', 'socle', 'handler-form.ampscript'), 'utf8');
+    const ecritures = [...src.matchAll(/"Last_Marketing_Engagement_Date__c", @/g)].map((m) => m.index);
+    egal(ecritures.length, 3, 'trois ecritures : creation, update du statut, update brochure');
+    for (const i of ecritures) {
+        const avant = src.slice(Math.max(0, i - 2500), i);
+        const ouverture = avant.lastIndexOf('IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true" THEN');
+        egal(ouverture >= 0 && !/\n\s*ELSE\s*\n/.test(avant.slice(ouverture)), true, 'ecriture a l offset ' + i + ' dans la branche legacy=true');
+    }
+});
+
 /* 01/10 : un opt-out en attente dans Journey_OptOut_Entry_DE (file de
    l'automation de desabonnement, cle ConsentId) est leve quand la personne
    recoche le canal : l'opt-in est plus recent, la journey ne doit pas repasser
@@ -361,9 +376,12 @@ test('handler : l update du compte existant suit le bloc consentement', () => {
     /* Essai du 24/09 : en UPDATE, seul le statut part — la date d'engagement
        est posee par le CRM lui-meme, et son trigger refuse toute regression. */
     const zoneCpc = src.slice(src.indexOf('FOR @i = 1 TO 5 DO'), src.indexOf('ETAPE 3a'));
-    const updates = [...zoneCpc.matchAll(/(ELSEIF @formType == "brochure" THEN|IF Field\(@cpcRow, "Status__c"\) != "Opt-in" THEN)\s*SET @n = UpdateSingleSalesforceObject\("ContactPointConsent", @cpcId,([\s\S]*?)\)/g)].map((m) => [m[1], m[2]]);
-    egal(updates.length, 2, 'deux updates de consentement : statut qui change, et brochure');
-    egal(updates.every(([, args]) => /LastMarketingEngagementDate__c/.test(args) && /@cpcHorodatageUtc/.test(args)), true, 'la date part avec le statut et sur la brochure, calculee au plus tard');
+    /* 08/10 : chaque branche se dedouble selon SFMC_CPC_DATE_ENGAGEMENT_LEGACY
+       (IF legacy THEN update avec les deux dates ELSE update avec la seule
+       date/heure), d'ou quatre updates. */
+    const updates = [...zoneCpc.matchAll(/(ELSEIF @formType == "brochure" THEN|IF Field\(@cpcRow, "Status__c"\) != "Opt-in" THEN)\s*(?:\/\*[\s\S]*?\*\/\s*)?IF @ECRIRE_DATE_ENGAGEMENT_LEGACY == "true" THEN\s*SET @n = UpdateSingleSalesforceObject\("ContactPointConsent", @cpcId,([\s\S]*?)\)\s*ELSE\s*SET @n = UpdateSingleSalesforceObject\("ContactPointConsent", @cpcId,([\s\S]*?)\)\s*ENDIF/g)].map((m) => [m[1], m[2], m[3]]);
+    egal(updates.length, 2, 'deux branches d update (statut qui change, brochure), chacune sous le drapeau legacy');
+    egal(updates.every(([, legacy, prod]) => /LastMarketingEngagementDate__c/.test(legacy) && /LastMarketingEngagementDate__c/.test(prod) && /@cpcHorodatageUtc/.test(prod) && !/Last_Marketing_Engagement_Date__c/.test(prod)), true, 'la date/heure part dans les deux variantes, le champ legacy seulement dans la premiere');
     egal(/ELSE\s*SET @journal = Concat\(@journal, " CPC:", @canalValue, "-inchange"\)/.test(zoneCpc), true, 'hors brochure et sans changement de statut : aucun update');
 });
 
