@@ -1385,6 +1385,33 @@ test('Une cellule videe REVIENT quand son champ revient [REGRESSION]', () => {
          'le niveau garde la rangee entiere alors que la specialite est revenue a cote');
 });
 
+/* 08/10 : un evenement sur plusieurs jours (stage MoPA du 19 au 23/10) affiche
+   « Du lundi 19 octobre 2026 au vendredi 23 octobre 2026 » ; un seul jour, ou
+   une fin absente ou egale au debut, garde la date seule. Les fonctions sont
+   extraites du JS de cascade et evaluees telles quelles. */
+test('Instance sur plusieurs jours : « Du <debut> au <fin> »', () => {
+    /* Extraction par comptage d'accolades : le socle depouille n'a plus
+       l'indentation ni les commentaires de la source. */
+    const fonction = (nom) => {
+        const i = CASCADE.indexOf('function ' + nom + '(');
+        if (i < 0) throw new Error('fonction introuvable : ' + nom);
+        let j = CASCADE.indexOf('{', i), prof = 0;
+        for (; j < CASCADE.length; j++) { if (CASCADE[j] === '{') prof++; else if (CASCADE[j] === '}' && --prof === 0) break; }
+        return CASCADE.slice(i, j + 1) + '\n';
+    };
+    const variable = (re) => { const m = re.exec(CASCADE); if (!m) throw new Error('variable introuvable : ' + re); return m[0] + '\n'; };
+    const src = variable(/var JOURS\s*=\s*\[[^\]]*\];/) + variable(/var MOIS\s*=\s*\[[\s\S]*?\];/)
+        + fonction('dateLongue') + fonction('periodeLongue') + fonction('libelleInstance') + fonction('plage') + fonction('heureSeule');
+    const ctx = {};
+    vm.runInNewContext(src + ';this.periodeLongue = periodeLongue; this.libelleInstance = libelleInstance;', ctx);
+    egal(ctx.periodeLongue({ date: '2026-10-19', dateFin: '2026-10-23' }), 'Du lundi 19 octobre 2026 au vendredi 23 octobre 2026', 'plusieurs jours');
+    egal(ctx.periodeLongue({ date: '2026-10-19', dateFin: '2026-10-19' }), 'Lundi 19 octobre 2026', 'meme jour');
+    egal(ctx.periodeLongue({ date: '2026-10-19', dateFin: '' }), 'Lundi 19 octobre 2026', 'fin absente');
+    egal(ctx.periodeLongue({ date: '2026-10-19T00:00:00.000Z', dateFin: '2026-10-23T00:00:00.000Z' }), 'Du lundi 19 octobre 2026 au vendredi 23 octobre 2026', 'dates ISO completes (chemin CRM)');
+    egal(ctx.periodeLongue({ date: '2026-10-19', dateFin: '2026-10-10' }), 'Lundi 19 octobre 2026', 'fin avant le debut : ignoree');
+    egal(ctx.libelleInstance({ date: '2026-10-19', dateFin: '2026-10-23', heure: '09:00', heureFin: '16:30', campus: 'MoPA' }), 'du 2026-10-19 au 2026-10-23 · 9h - 16h30 · MoPA', 'libelle texte');
+});
+
 console.log(`\n  ${ok} test(s) passe(s), ${echecs.length} echec(s)\n`);
 if (echecs.length) {
     echecs.forEach((e) => console.error('  ✗ ' + e + '\n'));
