@@ -83,6 +83,7 @@ export default function (editor, categories) {
                 /* Desktop → 3 cards */
                 .carrous-card {
                     flex: 0 0 calc(100% / 3);
+                    min-width: 0;
                     padding: 8px;
                 }
 
@@ -90,6 +91,8 @@ export default function (editor, categories) {
                     background: var(--brand-background, #ffffff);
                     border: 2px solid;
                     height: 100%;
+                    max-width: 100%;
+                    margin: 0 auto;
                     display: flex;
                     flex-direction: column;
                 }
@@ -317,15 +320,16 @@ export default function (editor, categories) {
                     // desktop, où le CSS en prévoit 3) : les cartes restaient
                     // collées à gauche sous des flèches centrées. On mesure la
                     // disposition prévue par le CSS (styles en ligne retirés), puis
-                    // on les répartit sur la largeur, centrées — même logique que
-                    // le Carrousel Programmes v2 du Master Template.
+                    // on les centre. Chaque carte garde la largeur d'UN emplacement
+                    // (1/3 sur desktop) : étirées à 50 %, deux cartes paraissaient
+                    // décalées par rapport aux flèches (recette BRASSART, 10/2026).
                     function fit() {
                         const cards = Array.from(track.children);
                         cards.forEach(c => { c.style.flex = ''; });
                         track.style.justifyContent = '';
                         const slots = getVisible();
                         if (cards.length && cards.length < slots) {
-                            const basis = (100 / Math.max(cards.length, 2)) + '%';
+                            const basis = (100 / slots) + '%';
                             cards.forEach(c => { c.style.flex = '0 0 ' + basis; });
                             track.style.justifyContent = 'center';
                         }

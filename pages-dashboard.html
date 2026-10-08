@@ -1633,7 +1633,7 @@
                             <div class="cms-version-title">Version ${escHtml(v.version_number)} ${isCurrent ? '<span class="cms-badge cms-badge-status-published">Courante</span>' : ''} ${isHidden ? '<span class="cms-badge cms-badge-status-deleted">Masquée</span>' : ''}</div>
                             <div class="cms-version-meta">${formatDateTime(v.created_at)}${v.change_summary ? ` · ${escHtml(v.change_summary)}` : ''}</div>
                         </div>
-                        <div class="cms-version-size">HTML ${formatBytes((v.html || '').length)}</div>
+                        <div class="cms-version-size">${v.html ? `HTML ${formatBytes(v.html.length)}` : ''}</div>
                         <div class="cms-version-actions">
                             ${isCurrent || isHidden ? '' : `<button class="cms-btn cms-btn-history" onclick="openRestoreModal('${escJsAttr(page.id)}', '${escJsAttr(v.id)}', '${escJsAttr(v.version_number)}')"><i class="fas fa-rotate-left"></i> Restaurer</button>
                             <button class="cms-btn cms-btn-del" onclick="hideVersion('${escJsAttr(page.id)}', '${escJsAttr(v.id)}')"><i class="fas fa-eye-slash"></i></button>`}

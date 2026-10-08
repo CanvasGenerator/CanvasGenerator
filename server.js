@@ -35,7 +35,7 @@ const faqStore = require('./lib/faq');
 const { withSfmcKey } = require('./lib/lp-naming');
 const { injectLanguageSwitch } = require('./lib/lang-switch');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
-const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights } = require('./lib/api-shared');
+const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights, addResponsiveGuard } = require('./lib/api-shared');
 const { handleAuthRoute, enforceAuth, isAuthEnabled } = require('./lib/auth');
 
 const port = process.env.PORT || 8000;
@@ -435,7 +435,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
         if (headCode) $('head').append(`\n    ${headCode}`);
         if (bodyCode) $('body').append(`\n    ${bodyCode}`);
 
-        return relaxFaqSectionHeights($.html());
+        return addResponsiveGuard(relaxFaqSectionHeights($.html()));
     }
 
     const seoTags = properties ? `
@@ -445,7 +445,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     ${schemaLd ? `<script type="application/ld+json">${schemaLd}</script>` : ''}
 ` : '';
 
-    return relaxFaqSectionHeights(`<!DOCTYPE html>
+    return addResponsiveGuard(relaxFaqSectionHeights(`<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -458,7 +458,7 @@ function buildStoredHtml({ projectName, html = '', css = '', properties = {} }) 
     <style>${css}</style>
 </head>
 <body>${html}${bodyCode}</body>
-</html>`);
+</html>`));
 }
 
 async function applyCustomMarketingCode(projectName, properties) {
@@ -2882,7 +2882,7 @@ Règles importantes :
 
             // Répare à la volée les pages DÉJÀ en base dont la section FAQ porte une
             // hauteur figée (les réponses dépliées débordaient sur le bloc suivant).
-            finalHtml = relaxFaqSectionHeights(finalHtml);
+            finalHtml = addResponsiveGuard(relaxFaqSectionHeights(finalHtml));
 
 
             // ── Sélecteur de langue du header ─────────────────────────────
@@ -2964,7 +2964,7 @@ let finalPublicHtml = ensureFontLinks(rewriteAssetsToRoot(resolved.version.html)
                 finalPublicHtml = ensureFormAnchors(finalPublicHtml).html;
 
                 // Hauteur figée sur une section FAQ → contenu déplié qui déborde.
-                finalPublicHtml = relaxFaqSectionHeights(finalPublicHtml);
+                finalPublicHtml = addResponsiveGuard(relaxFaqSectionHeights(finalPublicHtml));
 
                 // ── Sélecteur de langue du header → page sœur de l'autre langue ──────
                 // Calculé au moment de SERVIR : à l'enregistrement de la page FR, la page

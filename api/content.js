@@ -1633,7 +1633,23 @@ async function getPage(req, res, pageId) {
     const result = await supabaseRequest('GET', `/pages?id=eq.${encodeURIComponent(pageId)}&select=*&limit=1`);
     if (!result?.length) return res.status(404).json({ error: 'Page not found' });
     const page = result[0];
-    const versions = await supabaseRequest('GET', `/page_versions?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=version_number.desc`);
+    // Liste LÉGÈRE de toutes les versions + contenu complet de la seule version
+    // courante. Avant : `select=*` sans limite → html, css, project_data et
+    // html_sfmc de CHAQUE version. Une page enregistrée souvent dépassait le
+    // délai de Postgres (« canceling statement due to statement timeout ») et
+    // ne s'ouvrait plus. L'éditeur n'utilise que la version courante
+    // (getCurrentVersion) ; le tableau de bord n'affiche de la liste que
+    // numéro, date et résumé.
+    const versions = await supabaseRequest('GET', `/page_versions?page_id=eq.${encodeURIComponent(pageId)}&select=id,page_id,version_number,change_summary,metadata,created_at,created_by,created_by_name,page_variant_id,language&order=version_number.desc`) || [];
+    const currentId = page.current_version_id || (versions[0] && versions[0].id);
+    if (currentId) {
+        const full = await supabaseRequest('GET', `/page_versions?id=eq.${encodeURIComponent(currentId)}&select=*&limit=1`);
+        const i = versions.findIndex(v => v.id === currentId);
+        if (full && full[0]) {
+            if (i >= 0) versions[i] = full[0];
+            else versions.unshift(full[0]);
+        }
+    }
     const drafts = await supabaseRequest('GET', `/page_drafts?page_id=eq.${encodeURIComponent(pageId)}&select=*&order=updated_at.desc`);
     // Variantes de langue (modèle « un projet, plusieurs langues »). En cas d'échec
     // (schéma pas encore migré), on n'échoue pas le chargement de la page.
