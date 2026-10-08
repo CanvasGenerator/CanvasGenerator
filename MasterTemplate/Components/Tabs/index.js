@@ -166,15 +166,13 @@ export default function(editor, categories) {
         components: tabLabelComps(t.sub, t.title),
     }));
 
-    /* ── Onglets mobiles + panneaux (interleavés) ── */
+    /* ── Panneaux ──
+       Plus d'onglets mobiles statiques : le script les GÉNÈRE à partir des
+       en-têtes desktop. Ils étaient une copie à maintenir à la main, invisible
+       en vue desktop dans l'éditeur : renommer ou supprimer un onglet desktop
+       laissait l'ancien libellé en mobile (recette BRASSART, 10/2026). */
     const bodyComps = [];
     TABS.forEach((t, i) => {
-        bodyComps.push({
-            tagName: 'div',
-            classes: i === 0 ? ['mta-mob-tab', 'mta-active'] : ['mta-mob-tab'],
-            attributes: { 'data-tab': String(i) },
-            components: tabLabelComps(t.sub, t.title),
-        });
         bodyComps.push({
             tagName: 'div',
             classes: i === 0 ? ['mta-pane', 'mta-pane-active'] : ['mta-pane'],
@@ -190,6 +188,391 @@ export default function(editor, categories) {
         { tagName: 'div', classes: ['mta-headers'], components: headerComps },
         ...bodyComps,
     ];
+
+    // CSS de l'onglet « contenu libre ». Aussi ajouté à la volée par la commande
+    // d'ajout : les pages existantes n'ont pas cette règle dans leur CSS.
+    const FREE_PANE_CSS = '.mta-free { padding: 28px 32px; min-height: 120px; background: var(--brand-background, #ffffff); color: var(--brand-text, #1a1a1a); line-height: 1.6; } .mta-free h3 { font-size: 16px; font-weight: 800; margin: 0 0 10px; } @media (max-width: 768px) { .mta-free { padding: 22px 20px; } }';
+
+    /* ══════════════════════════════════════════════════════
+       SCRIPT COMMUN (v1 et v2)
+       • Onglets mobiles GÉNÉRÉS depuis les en-têtes desktop : une seule source
+         de vérité. Les anciens onglets mobiles statiques (pages existantes)
+         sont masqués, plus jamais affichés avec un libellé périmé.
+       • Ligne d'en-têtes : autant de colonnes que d'onglets (1 à N), au lieu
+         de 3 colonnes figées.
+       • Clics câblés par `onclick` et non `addEventListener` : le script est
+         relancé après un ajout/suppression d'onglet, et un double écouteur
+         ouvrait puis refermait aussitôt le détail d'une étape.
+       • Colonnes d'étapes selon leur nombre (comportement de la v2) :
+         desktop 1 à 4 sur une ligne, 5+ par 3 ; tablette 2 ; mobile 1.
+    ══════════════════════════════════════════════════════ */
+    const tabsScript = function() {
+        var root = this;
+        var wrapper = root.querySelector('.mta-wrapper') || root;
+        var win = root.ownerDocument.defaultView || window;
+        var doc = root.ownerDocument;
+
+        function kids(sel) {
+            return Array.prototype.filter.call(wrapper.children, function(c) { return c.matches(sel); });
+        }
+        function headers() {
+            var bar = kids('.mta-headers')[0];
+            return bar ? Array.prototype.filter.call(bar.children, function(c) { return c.matches('.mta-tab-hd'); }) : [];
+        }
+
+        function switchTab(idx) {
+            headers().forEach(function(h) { h.classList.toggle('mta-active', h.getAttribute('data-tab') === idx); });
+            kids('.mta-pane').forEach(function(p) { p.classList.toggle('mta-pane-active', p.getAttribute('data-pane') === idx); });
+            kids('.mta-mob-tab').forEach(function(m) { m.classList.toggle('mta-active', m.getAttribute('data-tab') === idx); });
+            paint();
+        }
+
+        // Les onglets générés n'ont pas d'id : les couleurs posées au Style
+        // Manager sur un en-tête (#id) ne les atteignent pas. On recopie donc
+        // les couleurs CALCULÉES de l'en-tête desktop (masqué en mobile, mais
+        // son style reste calculé) → même rendu qu'en desktop.
+        function paint() {
+            var cs = win.getComputedStyle;
+            kids('.mta-mob-tab[data-mta-gen]').forEach(function(m) {
+                var h = headers().filter(function(x) { return x.getAttribute('data-tab') === m.getAttribute('data-tab'); })[0];
+                if (!h) return;
+                m.style.backgroundColor = cs(h).backgroundColor;
+                ['.mta-tab-hd-sub', '.mta-tab-hd-title'].forEach(function(sel) {
+                    var from = h.querySelector(sel), to = m.querySelector(sel);
+                    if (from && to) to.style.color = cs(from).color;
+                });
+            });
+        }
+
+        function sync() {
+            var hds = headers();
+            var bar = kids('.mta-headers')[0];
+            if (bar && hds.length) bar.style.gridTemplateColumns = 'repeat(' + hds.length + ', minmax(0, 1fr))';
+
+            kids('.mta-mob-tab[data-mta-gen]').forEach(function(m) { m.parentNode.removeChild(m); });
+            kids('.mta-mob-tab').forEach(function(m) { m.style.display = 'none'; });
+
+            hds.forEach(function(h) {
+                var idx = h.getAttribute('data-tab');
+                h.onclick = function() { switchTab(idx); };
+                var pane = kids('.mta-pane[data-pane="' + idx + '"]')[0];
+                if (!pane) return;
+                var mob = doc.createElement('div');
+                mob.className = 'mta-mob-tab' + (h.classList.contains('mta-active') ? ' mta-active' : '');
+                mob.setAttribute('data-tab', idx);
+                mob.setAttribute('data-mta-gen', '');
+                mob.innerHTML = h.innerHTML;
+                Array.prototype.forEach.call(mob.querySelectorAll('[id]'), function(n) { n.removeAttribute('id'); });
+                mob.onclick = function() { switchTab(idx); };
+                wrapper.insertBefore(mob, pane);
+            });
+
+            // Aucun panneau actif (onglet actif supprimé) → le premier onglet.
+            var active = hds.filter(function(h) { return h.classList.contains('mta-active'); })[0];
+            if (!active && hds[0]) switchTab(hds[0].getAttribute('data-tab'));
+            else paint();
+        }
+
+        wrapper.querySelectorAll('[data-expandable="true"]').forEach(function(label) {
+            label.onclick = function() {
+                var details = label.parentElement.querySelector('.mta-step-details');
+                var icon    = label.querySelector('.mta-expand-icon');
+                if (!details) return;
+                var open = details.classList.toggle('mta-open');
+                if (icon) icon.textContent = open ? '˄' : '˅';
+            };
+        });
+
+        function layout() {
+            var w = win.innerWidth;
+            wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
+                var steps = grid.querySelectorAll(':scope > .mta-step');
+                steps.forEach(function(s) { s.style.minWidth = '0'; });
+                if (w <= 768) { grid.style.gridTemplateColumns = ''; return; }
+                var n = steps.length || 1;
+                var cols = w <= 1024 ? Math.min(n, 2) : (n <= 4 ? n : 3);
+                grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
+            });
+        }
+
+        // Relance (ajout/suppression d'onglet) : on retire l'écouteur et les
+        // observateurs de l'exécution précédente avant d'en poser de nouveaux.
+        if (wrapper.__mtaCleanup) wrapper.__mtaCleanup();
+        var observers = [];
+        function observeWrapper() {
+            if (!win.MutationObserver) return;
+            // L'éditeur re-rend les enfants du wrapper à chaque modification du
+            // modèle, ce qui efface les onglets générés : on les régénère.
+            var obs = new win.MutationObserver(function() {
+                obs.disconnect();
+                sync();
+                obs.observe(wrapper, { childList: true });
+            });
+            obs.observe(wrapper, { childList: true });
+            observers.push(obs);
+            wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
+                var o = new win.MutationObserver(layout);
+                o.observe(grid, { childList: true });
+                observers.push(o);
+            });
+        }
+        win.addEventListener('resize', layout);
+        wrapper.__mtaCleanup = function() {
+            win.removeEventListener('resize', layout);
+            observers.forEach(function(o) { o.disconnect(); });
+        };
+
+        sync();
+        // Page publiée : toujours ouvrir sur le PREMIER onglet. Dans l'éditeur,
+        // l'onglet affiché est celui qu'on édite (enregistré dans le modèle) et
+        // ne doit pas changer quand le script est relancé.
+        var inEditor = !!(win.frameElement && /\bgjs-frame\b/.test(win.frameElement.className || ''));
+        if (!inEditor && !wrapper.__mtaStarted) {
+            var firstHd = headers()[0];
+            if (firstHd) switchTab(firstHd.getAttribute('data-tab'));
+        }
+        wrapper.__mtaStarted = true;
+        layout();
+        observeWrapper();
+    };
+
+    /* ══════════════════════════════════════════════════════
+       COMMANDES : ajouter / supprimer un onglet
+       Déclenchées par les boutons du panneau de droite (traits) quand le bloc
+       est sélectionné. Chaque école peut ainsi ajouter, par exemple, un onglet
+       « Admissions internationales » :
+         • version ÉTAPES   → même présentation que les autres onglets ;
+         • version LIBRE    → zone où l'on écrit et dépose n'importe quel bloc
+                              (texte, deux colonnes, image…), pour les écoles
+                              dont la présentation diffère.
+    ══════════════════════════════════════════════════════ */
+    const TAB_TYPES = ['mc-tabs-admission', 'mc-tabs-admission-v2'];
+
+    function findTabsRoot(cmp) {
+        for (let c = cmp; c; c = c.parent()) {
+            if (TAB_TYPES.includes(c.get('type'))) return c;
+        }
+        return null;
+    }
+
+    function tabsParts(root) {
+        const wrapper = root.find('.mta-wrapper')[0];
+        const bar = wrapper && wrapper.components().filter(c => c.getClasses().includes('mta-headers'))[0];
+        return { wrapper, bar };
+    }
+
+    // Onglet VISÉ par les boutons : celui dont on a cliqué le titre ou le contenu
+    // (on remonte la sélection jusqu'à un en-tête data-tab ou un panneau
+    // data-pane) ; à défaut l'onglet actif du modèle, sinon le premier.
+    function currentTabIdx(root, bar, selected) {
+        for (let c = selected; c && c !== root; c = c.parent()) {
+            const a = c.getAttributes();
+            const cls = c.getClasses();
+            if (cls.includes('mta-tab-hd') && a['data-tab'] != null) return a['data-tab'];
+            if (cls.includes('mta-pane') && a['data-pane'] != null) return a['data-pane'];
+        }
+        const active = bar.components().filter(h => h.getClasses().includes('mta-active'))[0];
+        const first = active || bar.components().at(0);
+        return first ? first.getAttributes()['data-tab'] : null;
+    }
+
+    function paneOf(wrapper, idx) {
+        return wrapper.components().filter(c => c.getClasses().includes('mta-pane') && c.getAttributes()['data-pane'] === idx)[0];
+    }
+
+    // Affiche un onglet en écrivant l'état actif dans le MODÈLE. Le simple clic
+    // dans le canvas ne changeait que le DOM : GrapesJS réappliquait ensuite les
+    // classes du modèle et le contenu de l'onglet cliqué disparaissait.
+    function showTabInModel(wrapper, bar, idx) {
+        bar.components().forEach(h => {
+            const on = h.getAttributes()['data-tab'] === idx;
+            if (on !== h.getClasses().includes('mta-active')) on ? h.addClass('mta-active') : h.removeClass('mta-active');
+        });
+        wrapper.components().filter(c => c.getClasses().includes('mta-pane')).forEach(p => {
+            const on = p.getAttributes()['data-pane'] === idx;
+            if (on !== p.getClasses().includes('mta-pane-active')) on ? p.addClass('mta-pane-active') : p.removeClass('mta-pane-active');
+        });
+    }
+
+    // Applique l'onglet actif dans le MODÈLE (classes exportées), retire les
+    // anciens onglets mobiles statiques (désormais générés), relance le script.
+    function activateTab(root, wrapper, bar, idx) {
+        showTabInModel(wrapper, bar, idx);
+        wrapper.components().filter(c => c.getClasses().includes('mta-mob-tab')).forEach(m => m.remove());
+        setTimeout(() => { if (root.view) root.view.updateScript(); }, 0);
+    }
+
+    function addTab(ed, kind) {
+        const root = findTabsRoot(ed.getSelected());
+        if (!root) return;
+        const { wrapper, bar } = tabsParts(root);
+        if (!wrapper || !bar) return;
+
+        const used = bar.components().map(h => parseInt(h.getAttributes()['data-tab'], 10)).filter(n => !isNaN(n));
+        wrapper.components().forEach(c => {
+            const n = parseInt(c.getAttributes()['data-pane'], 10);
+            if (!isNaN(n)) used.push(n);
+        });
+        const idx = String(used.length ? Math.max(...used) + 1 : 0);
+
+        bar.append({
+            tagName: 'div', classes: ['mta-tab-hd'], attributes: { 'data-tab': idx },
+            components: tabLabelComps('Admission', 'Admissions internationales'),
+        });
+
+        let content;
+        if (kind === 'free') {
+            if (!ed.Css.getRule('.mta-free')) ed.Css.addRules(FREE_PANE_CSS);
+            content = [{
+                tagName: 'div', classes: ['mta-free'], droppable: true,
+                components: [
+                    { type: 'text', tagName: 'h3', editable: true, components: 'Admissions internationales' },
+                    { type: 'text', tagName: 'p', editable: true, components: 'Décrivez ici le parcours d’admission des candidats internationaux. Vous pouvez aussi glisser n’importe quel bloc dans cette zone (texte, image, deux colonnes…).' },
+                ],
+            }];
+        } else {
+            content = [{
+                tagName: 'div', classes: ['mta-steps-grid'],
+                components: [
+                    { step: '1', title: 'Candidature en ligne', iconId: 'computer', items: ['Formulaire en ligne'] },
+                    { step: '2', title: 'Entretien',            iconId: 'users',    items: ['Entretien à distance'] },
+                    { step: '3', title: 'Résultats',            iconId: 'chart',    items: ['Réponse par email'] },
+                ].map(makeStep),
+            }];
+        }
+        wrapper.append({ tagName: 'div', classes: ['mta-pane'], attributes: { 'data-pane': idx }, components: content });
+
+        activateTab(root, wrapper, bar, idx);
+    }
+
+    editor.Commands.add('mta-add-tab-steps', { run: ed => addTab(ed, 'steps') });
+    editor.Commands.add('mta-add-tab-free',  { run: ed => addTab(ed, 'free') });
+    editor.Commands.add('mta-remove-tab', {
+        run(ed) {
+            const root = findTabsRoot(ed.getSelected());
+            if (!root) return;
+            const { wrapper, bar } = tabsParts(root);
+            if (!wrapper || !bar) return;
+            if (bar.components().length <= 1) { alert('Le bloc doit garder au moins un onglet.'); return; }
+
+            const idx = currentTabIdx(root, bar, ed.getSelected());
+            const hd = bar.components().filter(h => h.getAttributes()['data-tab'] === idx)[0];
+            const title = hd ? (hd.view && hd.view.el ? hd.view.el.textContent.trim() : '') : '';
+            if (!confirm('Supprimer l’onglet affiché' + (title ? ' « ' + title + ' »' : '') + ' et son contenu ?')) return;
+
+            if (hd) hd.remove();
+            wrapper.components()
+                .filter(c => c.getAttributes()['data-pane'] === idx || (c.getClasses().includes('mta-mob-tab') && c.getAttributes()['data-tab'] === idx))
+                .forEach(c => c.remove());
+
+            const first = bar.components().at(0);
+            activateTab(root, wrapper, bar, first.getAttributes()['data-tab']);
+            ed.select(root);
+        }
+    });
+
+    /* Ajouts DANS l'onglet visé (celui dont on a cliqué le titre ou le contenu). */
+    const PANE_TEXT_CSS = '.mta-pane-text { padding: 18px 24px; line-height: 1.6; color: var(--brand-text, #1a1a1a); background: var(--brand-background, #ffffff); }';
+
+    function inCurrentTab(ed, fn) {
+        const root = findTabsRoot(ed.getSelected());
+        if (!root) return;
+        const { wrapper, bar } = tabsParts(root);
+        if (!wrapper || !bar) return;
+        const idx = currentTabIdx(root, bar, ed.getSelected());
+        const pane = idx != null && paneOf(wrapper, idx);
+        if (!pane) return;
+        showTabInModel(wrapper, bar, idx);
+        const added = fn(pane);
+        // Relance du script : dépliage des nouvelles étapes, colonnes, onglets mobiles.
+        setTimeout(() => {
+            if (root.view) root.view.updateScript();
+            if (added) ed.select(added);
+        }, 0);
+    }
+
+    editor.Commands.add('mta-add-step', {
+        run: ed => inCurrentTab(ed, pane => {
+            let grid = pane.find('.mta-steps-grid')[0];
+            if (!grid) grid = pane.append({ tagName: 'div', classes: ['mta-steps-grid'] })[0];
+            const steps = grid.components().filter(c => c.getClasses().includes('mta-step'));
+            const n = steps.length + 1;
+            let step;
+            if (steps.length) {
+                // Copie de la dernière étape : même langue, même mise en forme ;
+                // seul le numéro change. Les textes se modifient ensuite.
+                step = grid.append(steps[steps.length - 1].clone())[0];
+                const num = step.find('.mta-badge strong')[0];
+                if (num) num.components(String(n));
+            } else {
+                step = grid.append(makeStep({ step: String(n), title: 'Nouvelle étape', iconId: 'check', items: ['Détail à personnaliser'] }))[0];
+            }
+            return step;
+        })
+    });
+
+    editor.Commands.add('mta-add-text', {
+        run: ed => inCurrentTab(ed, pane => {
+            if (!ed.Css.getRule('.mta-pane-text')) ed.Css.addRules(PANE_TEXT_CSS);
+            const free = pane.find('.mta-free')[0];
+            return (free || pane).append({
+                type: 'text', tagName: 'div', classes: ['mta-pane-text'], editable: true,
+                components: 'Texte à personnaliser (double-cliquez pour modifier).',
+            })[0];
+        })
+    });
+
+    /* Encadré « Onglets Admission » du panneau de droite.
+       Des traits n'apparaissaient que si le BLOC ENTIER était sélectionné ; or on
+       clique presque toujours un en-tête ou une étape. L'encadré s'affiche dès que
+       la sélection est N'IMPORTE OÙ dans un bloc d'onglets (findTabsRoot remonte
+       au bloc), juste au-dessus des traits. */
+    function tabToolsBox() {
+        let box = document.getElementById('mta-tab-tools');
+        if (box) return box;
+        const traits = document.getElementById('traits-container');
+        if (!traits || !traits.parentNode) return null;
+        box = document.createElement('div');
+        box.id = 'mta-tab-tools';
+        box.style.cssText = 'display:none;margin:12px 16px;padding:12px;border:1px solid #d6d9e0;border-radius:8px;background:#f7f8fb;font-family:inherit;';
+        const btn = 'display:block;width:100%;margin-top:8px;padding:8px 10px;border:1px solid #1a7a5e;border-radius:6px;background:#fff;color:#1a7a5e;font-size:13px;font-weight:600;cursor:pointer;text-align:left;';
+        const sep = '<div style="margin-top:14px;font-size:11px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#888;">';
+        box.innerHTML = '<div style="font-size:12px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;color:#555;">Onglets Admission</div>'
+            + '<div style="margin-top:6px;font-size:11px;color:#777;line-height:1.4;">Cliquez sur le titre d’un onglet pour l’afficher : les ajouts ci-dessous se font dans cet onglet.</div>'
+            + sep + 'Onglet sélectionné : <span data-role="tab-name" style="color:#1a7a5e;text-transform:none;"></span></div>'
+            + '<button type="button" data-cmd="mta-add-step" style="' + btn + '">＋ Ajouter une étape</button>'
+            + '<button type="button" data-cmd="mta-add-text" style="' + btn + '">＋ Ajouter un texte</button>'
+            + '<button type="button" data-cmd="mta-remove-tab" style="' + btn + 'border-color:#c0392b;color:#c0392b;">－ Supprimer cet onglet</button>'
+            + sep + 'Nouvel onglet</div>'
+            + '<button type="button" data-cmd="mta-add-tab-steps" style="' + btn + '">＋ Onglet avec étapes</button>'
+            + '<button type="button" data-cmd="mta-add-tab-free" style="' + btn + '">＋ Onglet contenu libre</button>'
+            + '<div style="margin-top:8px;font-size:11px;color:#777;line-height:1.4;">« Contenu libre » : zone où glisser n’importe quel bloc (texte, image, deux colonnes…).</div>';
+        box.querySelectorAll('button[data-cmd]').forEach(b => {
+            b.onclick = () => editor.runCommand(b.getAttribute('data-cmd'));
+        });
+        traits.parentNode.insertBefore(box, traits);
+        return box;
+    }
+
+    editor.on('component:selected component:deselected', () => {
+        const box = tabToolsBox();
+        const sel = editor.getSelected();
+        const root = findTabsRoot(sel);
+        if (box) box.style.display = root ? 'block' : 'none';
+        if (!root) return;
+        const { wrapper, bar } = tabsParts(root);
+        if (!wrapper || !bar) return;
+        const idx = currentTabIdx(root, bar, sel);
+        // Clic sur un titre (ou dans un contenu) → cet onglet devient l'onglet
+        // affiché, dans le modèle : il reste visible pendant l'édition.
+        if (idx != null) showTabInModel(wrapper, bar, idx);
+        const hd = bar.components().filter(h => h.getAttributes()['data-tab'] === idx)[0];
+        const name = box && box.querySelector('[data-role="tab-name"]');
+        if (name) {
+            const t = hd && hd.find('.mta-tab-hd-title')[0];
+            name.textContent = (t && t.view && t.view.el ? t.view.el.textContent.trim() : '') || '—';
+        }
+    });
 
     /* ══════════════════════════════════════════════════════
        BLOC GrapesJS : Onglets Admission
@@ -316,6 +699,9 @@ export default function(editor, categories) {
                 }
                 .mta-step-details.mta-open { display: block; }
 
+                /* ── Onglet « contenu libre » (présentation propre à l'école) ── */
+                ${FREE_PANE_CSS}
+
                 /* ── Mobile tabs ── */
                 .mta-mob-tab { display: none; }
 
@@ -360,150 +746,32 @@ export default function(editor, categories) {
     });
 
     /* ══════════════════════════════════════════════════════
-       TYPE mc-tabs-admission : script de tab + expand
+       TYPE mc-tabs-admission : pages existantes.
+       Même script que la v2 (tabsScript) : c'est un CORRECTIF, pas un
+       changement de présentation — ces pages affichaient en mobile des
+       onglets périmés (libellés non synchronisés avec le desktop).
+       Le script n'utilise que `this` (jamais d'id en dur) : plusieurs
+       instances par page et pages déclinées restent indépendantes.
     ══════════════════════════════════════════════════════ */
     editor.DomComponents.addType('mc-tabs-admission', {
         model: {
             defaults: {
                 'script-props': [],
-                script: function() {
-                    // `this` = l'élément racine du composant (scopé par GrapesJS).
-                    // ⚠️ BUG CORRIGÉ : on n'utilise PLUS document.getElementById('mta-wrapper')
-                    // car cet identifiant hardcodé causait deux problèmes :
-                    //   1. Après déclinaison, le script est ré-exécuté dans un nouveau contexte
-                    //      et getElementById peut trouver l'élément du mauvais projet.
-                    //   2. Avec plusieurs instances du composant sur la même page, seule
-                    //      la première instance répondait aux clics.
-                    // Solution : utiliser uniquement `this` (rootElement scopé par GrapesJS).
-                    var root = this;
-                    var wrapper = root.querySelector('.mta-wrapper');
-                    if (!wrapper) {
-                        // Fallback sûr : si `root` est directement le wrapper
-                        wrapper = root.classList.contains('mta-wrapper') ? root : root;
-                    }
-                    if (!wrapper) return;
-
-                    var tabHds  = wrapper.querySelectorAll('.mta-tab-hd');
-                    var panes   = wrapper.querySelectorAll('.mta-pane');
-                    var mobTabs = wrapper.querySelectorAll('.mta-mob-tab');
-
-                    function switchTab(idx) {
-                        tabHds.forEach(function(h)  { h.classList.remove('mta-active'); });
-                        panes.forEach(function(p)   { p.classList.remove('mta-pane-active'); });
-                        mobTabs.forEach(function(m) { m.classList.remove('mta-active'); });
-
-                        var activeHd = wrapper.querySelector('.mta-tab-hd[data-tab="' + idx + '"]');
-                        if (activeHd) activeHd.classList.add('mta-active');
-
-                        var pane = wrapper.querySelector('.mta-pane[data-pane="' + idx + '"]');
-                        if (pane) pane.classList.add('mta-pane-active');
-
-                        var mobActive = wrapper.querySelector('.mta-mob-tab[data-tab="' + idx + '"]');
-                        if (mobActive) mobActive.classList.add('mta-active');
-                    }
-
-                    tabHds.forEach(function(hd) {
-                        hd.addEventListener('click', function() {
-                            switchTab(hd.getAttribute('data-tab'));
-                        });
-                    });
-                    mobTabs.forEach(function(mob) {
-                        mob.addEventListener('click', function() {
-                            switchTab(mob.getAttribute('data-tab'));
-                        });
-                    });
-
-                    // Expand/collapse step details
-                    wrapper.querySelectorAll('[data-expandable="true"]').forEach(function(label) {
-                        label.addEventListener('click', function() {
-                            var details = label.parentElement.querySelector('.mta-step-details');
-                            var icon    = label.querySelector('.mta-expand-icon');
-                            if (!details) return;
-                            var open = details.classList.toggle('mta-open');
-                            if (icon) icon.textContent = open ? '˄' : '˅';
-                        });
-                    });
-                }
+                script: tabsScript,
             }
         }
     });
 
     /* ══════════════════════════════════════════════════════
-       TYPE mc-tabs-admission-v2 — blocs déposés à partir de maintenant.
-       Même contenu et même CSS que la version d'origine ; seul le
-       fonctionnement change : on peut ajouter / supprimer des étapes dans
-       chaque onglet sans casser la mise en page. Le script compte les étapes
-       de chaque grille et règle le nombre de colonnes :
-         • desktop (> 1024px) : 1 à 4 étapes sur une ligne, 5+ par rangées de 3 ;
-         • tablette (769–1024px) : 2 colonnes ;
-         • mobile (≤ 768px) : rien n'est imposé, le CSS du bloc (1 colonne) s'applique.
-       Recalcul au redimensionnement et à chaque ajout/suppression d'étape.
+       TYPE mc-tabs-admission-v2 — blocs déposés depuis la palette.
+       Même script que la v1 (voir tabsScript) ; le bloc déposé
+       n'embarque plus d'onglets mobiles statiques.
     ══════════════════════════════════════════════════════ */
     editor.DomComponents.addType('mc-tabs-admission-v2', {
         extend: 'mc-tabs-admission',
         model: {
             defaults: {
-                script: function() {
-                    var root = this;
-                    var wrapper = root.querySelector('.mta-wrapper') || root;
-
-                    var tabHds  = wrapper.querySelectorAll('.mta-tab-hd');
-                    var panes   = wrapper.querySelectorAll('.mta-pane');
-                    var mobTabs = wrapper.querySelectorAll('.mta-mob-tab');
-
-                    function switchTab(idx) {
-                        tabHds.forEach(function(h)  { h.classList.remove('mta-active'); });
-                        panes.forEach(function(p)   { p.classList.remove('mta-pane-active'); });
-                        mobTabs.forEach(function(m) { m.classList.remove('mta-active'); });
-
-                        var activeHd = wrapper.querySelector('.mta-tab-hd[data-tab="' + idx + '"]');
-                        if (activeHd) activeHd.classList.add('mta-active');
-
-                        var pane = wrapper.querySelector('.mta-pane[data-pane="' + idx + '"]');
-                        if (pane) pane.classList.add('mta-pane-active');
-
-                        var mobActive = wrapper.querySelector('.mta-mob-tab[data-tab="' + idx + '"]');
-                        if (mobActive) mobActive.classList.add('mta-active');
-                    }
-
-                    tabHds.forEach(function(hd) {
-                        hd.addEventListener('click', function() { switchTab(hd.getAttribute('data-tab')); });
-                    });
-                    mobTabs.forEach(function(mob) {
-                        mob.addEventListener('click', function() { switchTab(mob.getAttribute('data-tab')); });
-                    });
-
-                    wrapper.querySelectorAll('[data-expandable="true"]').forEach(function(label) {
-                        label.addEventListener('click', function() {
-                            var details = label.parentElement.querySelector('.mta-step-details');
-                            var icon    = label.querySelector('.mta-expand-icon');
-                            if (!details) return;
-                            var open = details.classList.toggle('mta-open');
-                            if (icon) icon.textContent = open ? '˄' : '˅';
-                        });
-                    });
-
-                    // Colonnes selon le nombre d'étapes et la largeur d'écran.
-                    var win = root.ownerDocument.defaultView || window;
-                    function layout() {
-                        var w = win.innerWidth;
-                        wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
-                            var steps = grid.querySelectorAll(':scope > .mta-step');
-                            steps.forEach(function(s) { s.style.minWidth = '0'; });
-                            if (w <= 768) { grid.style.gridTemplateColumns = ''; return; }
-                            var n = steps.length || 1;
-                            var cols = w <= 1024 ? Math.min(n, 2) : (n <= 4 ? n : 3);
-                            grid.style.gridTemplateColumns = 'repeat(' + cols + ', minmax(0, 1fr))';
-                        });
-                    }
-                    layout();
-                    win.addEventListener('resize', layout);
-                    if (win.MutationObserver) {
-                        wrapper.querySelectorAll('.mta-steps-grid').forEach(function(grid) {
-                            new win.MutationObserver(layout).observe(grid, { childList: true });
-                        });
-                    }
-                }
+                script: tabsScript,
             }
         }
     });

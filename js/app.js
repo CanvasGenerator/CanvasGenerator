@@ -176,6 +176,13 @@ function bindHdrLangClick(comp) {
         node.__langBound = true;
         node.style.cursor = 'pointer';
         node.addEventListener('click', (e) => {
+            // Premier clic : sélection normale (barre d'outils, corbeille…). Une
+            // page sans traduction doit pouvoir SUPPRIMER ce bouton ; or le clic
+            // basculait toujours la langue, et le bouton était impossible à
+            // sélectionner. La bascule se fait donc au clic sur le bouton DÉJÀ
+            // sélectionné (ou via le sélecteur FR/EN de la barre du haut).
+            const ed = window.editor;
+            if (ed && ed.getSelected() !== comp) return;
             e.preventDefault();
             e.stopPropagation();
             const cur = normLang(currentProjectLanguage);
@@ -1844,6 +1851,37 @@ function relaxFaqSectionHeights(html) {
     return out;
 }
 
+/**
+ * Garde-fou responsive (deux colonnes, carrousel, onglets admission) : neutralise
+ * en ≤ 1024px les hauteurs/largeurs figées au Style Manager, qui faisaient
+ * chevaucher le bloc suivant une fois les colonnes empilées.
+ * Miroir exact de RESPONSIVE_GUARD_CSS / addResponsiveGuard (lib/api-shared.js).
+ * Aussi injecté dans le canvas : la vue tablette/mobile de l'éditeur montre ce
+ * que montrera la page publiée.
+ */
+const RESPONSIVE_GUARD_CSS = [
+    // Onglets mobiles (générés, absents à l'export) : style de base en :where().
+    ':where(.mta-mob-tab){display:none}',
+    '@media (max-width:768px){:where(.mta-mob-tab){display:block;padding:16px 20px;cursor:pointer;background:#bd2bf3;border-bottom:1px solid #000}:where(.mta-mob-tab[data-tab="2"]){background:#8a3ffc}:where(.mta-mob-tab) :where(.mta-tab-hd-sub){display:block;font-size:11px;margin-bottom:3px;color:rgba(255,255,255,.9)}:where(.mta-mob-tab) :where(.mta-tab-hd-title){display:block;font-size:14px;font-weight:700;color:#fff}:where(.mta-mob-tab.mta-active){background:var(--brand-background,#fff);border-bottom-color:#e0e0e0}:where(.mta-mob-tab.mta-active) :where(.mta-tab-hd-sub),:where(.mta-mob-tab.mta-active) :where(.mta-tab-hd-title){color:var(--brand-text,#1a1a1a)}}',
+    '.carrous-card{min-width:0}.carrous-card>.card-inner{max-width:100%;margin-left:auto;margin-right:auto}',
+    '@media (max-width:1024px){',
+    '.two-col-section,.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{height:auto!important;max-height:none!important}',
+    '.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{width:auto!important;max-width:100%!important;min-width:0!important}',
+    '.two-col-section img,.two-col-section .col-text *{max-width:100%!important}',
+    '.carrous-card{height:auto!important}',
+    '.carrous-card>.card-inner{width:auto!important;height:100%!important}',
+    '.carrous-card>.card-inner>:not(img){width:auto!important;max-width:100%!important;height:auto!important}',
+    '.mta-section,.mta-wrapper,.integration,.integration .onglets{height:auto!important;max-height:none!important;max-width:100%!important}',
+    '.mta-wrapper>.mta-headers,.mta-tab-hd{width:auto!important;height:auto!important;max-width:100%!important}',
+    '}'
+].join('');
+
+function addResponsiveGuard(html) {
+    const source = String(html || '').replace(/<style data-lp-responsive-guard>[\s\S]*?<\/style>/gi, '');
+    if (!/two-col-section|carrous-card|mta-section|class="[^"]*\bintegration\b/i.test(source) || !/<\/head>/i.test(source)) return source;
+    return source.replace(/<\/head>/i, `<style data-lp-responsive-guard>${RESPONSIVE_GUARD_CSS}</style></head>`);
+}
+
 function buildFinalHtml(bodyHtml, css, properties = {}) {
     // Le bloc de scripts renvoyé APRÈS </body> par getHtml() porte le comportement
     // des blocs (onglets, +/- FAQ, carrousels…) → il doit être réinjecté dans le body.
@@ -1947,7 +1985,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
         brandCss = `:root { ${brandVars} }\nbody { font-family: var(--brand-font); }\n`;
     }
 
-    return relaxFaqSectionHeights(`<!DOCTYPE html>
+    return addResponsiveGuard(relaxFaqSectionHeights(`<!DOCTYPE html>
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
@@ -1960,7 +1998,7 @@ function buildFinalHtml(bodyHtml, css, properties = {}) {
 <body>
 ${bodyHtml}${runtimeScripts}
 </body>
-</html>`);
+</html>`));
 }
 
 // Marqueurs du bloc de scripts de comportement des blocs (onglets, FAQ, carrousels…).
@@ -2583,13 +2621,18 @@ async function projectNameExists(fullName) {
  *
  * @returns {Promise<{ newFullName: string, newTitle: string, formsSwitched: number }>}
  */
-async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
+/**
+ * @param {object} [target] page sœur EXISTANTE à mettre à jour ({ projectName })
+ *   au lieu d'en créer une : même nom de projet, même titre, donc même URL ;
+ *   seuls le contenu et le SEO sont retraduits depuis la source.
+ */
+async function duplicatePageToLanguage({ sourceFullName, targetLang, target = null }) {
     const lang = normLang(targetLang);
     const label = LANG_LABELS[lang] || lang;
     const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
     const editor = window.editor;
 
-    window.showLoading(`Duplication vers ${label}...`);
+    window.showLoading(target ? `Mise à jour de la traduction ${label}...` : `Duplication vers ${label}...`);
 
     // 1) Source : on part du projectData, jamais du HTML — c'est lui qui porte les
     //    composants, donc la garantie que la mise en page est reproduite à l'identique.
@@ -2618,9 +2661,23 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
     //    (le serveur le dérive de properties.title → /en/open-day), et c'est un
     //    appel très court — inutile de traduire la page entière si l'utilisateur
     //    annule à l'étape 3.
+    //
+    // Mise à jour d'une page sœur existante : on garde SON titre et SON nom de
+    // projet (donc son slug / son URL, déjà diffusés) et ses réglages propres ;
+    // on ne demande rien puisque l'utilisateur a choisi de la remplacer.
+    let targetProps = null;
+    if (target) {
+        const tRes = await fetch(`/api/project/${encodeURIComponent(target.projectName)}`);
+        if (!tRes.ok) throw new Error(`Page ${label} illisible (${tRes.status}).`);
+        targetProps = { ...((await tRes.json()).properties || {}) };
+        seoProps.canonical = targetProps.canonical || '';
+    }
+
     const sourceTitle = sourceProps.title || displayTitleFromFullName(sourceFullName);
     let newTitle = sanitizeProjectTitle(sourceTitle);
-    try {
+    if (target) {
+        newTitle = targetProps.title || target.title || displayTitleFromFullName(target.projectName);
+    } else try {
         const [translated] = await translateStringList([sourceTitle], lang);
         newTitle = sanitizeProjectTitle(translated) || newTitle;
     } catch (e) {
@@ -2634,7 +2691,7 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
     // lui, un titre dont la traduction est identique à l'original (« Open Day » →
     // « Open Day ») produirait le même nom de projet que la source, et /api/save
     // (on_conflict=project_name) ÉCRASERAIT la page d'origine.
-    if (await projectNameExists(`school-${schoolId}__${newTitle}__${lang}`)) {
+    if (!target && await projectNameExists(`school-${schoolId}__${newTitle}__${lang}`)) {
         window.hideLoading();
         const choice = await askChoice({
             title: 'Une page existe déjà',
@@ -2659,7 +2716,7 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
         }
         window.showLoading(`Duplication vers ${label}...`);
     }
-    const finalFullName = `school-${schoolId}__${newTitle}__${lang}`;
+    const finalFullName = target ? target.projectName : `school-${schoolId}__${newTitle}__${lang}`;
 
     // 4) Traduction du texte de la page + du SEO (un seul appel réseau).
     await translateProjectDataAndSeo(pd, seoProps, lang);
@@ -2687,7 +2744,9 @@ async function duplicatePageToLanguage({ sourceFullName, targetLang }) {
 
     // 6) Enregistrement sous la nouvelle identité. `is_original_language: false` +
     //    `source_project_name` rattachent la page au groupe de langues côté serveur.
-    const propsToSave = { ...sourceProps, ...seoProps, title: newTitle, status: 'draft' };
+    // Mise à jour : les réglages de la page cible (code GTM, sfmcKey…) priment
+    // sur ceux de la source ; seul le SEO vient de la traduction.
+    const propsToSave = { ...sourceProps, ...(targetProps || {}), ...seoProps, title: newTitle, status: 'draft' };
     delete propsToSave.rawHtml;   // reconstruit par le serveur
     delete propsToSave.formIds;   // recalculé par ensureFormAnchors
     // Ces deux drapeaux sont hérités des properties de la SOURCE : les laisser
@@ -3024,6 +3083,55 @@ async function switchLanguage(targetLang) {
         const sibling = languagePageFor(targetLang);
         langSwitchBusy = true;
         try {
+            // Depuis la page d'ORIGINE vers une traduction déjà créée : la page
+            // d'origine a pu changer depuis → on propose (par défaut) de mettre la
+            // traduction à jour au lieu de seulement l'ouvrir.
+            const current = currentLanguagePages.find(pg => pg.isCurrent);
+            if (sibling && current && current.isOriginal && !sibling.isOriginal) {
+                const label = LANG_LABELS[targetLang] || targetLang;
+                const choice = await askChoice({
+                    title: `Mettre à jour la page ${label} ?`,
+                    body: `<p class="modal-message">La page ${label} existe déjà. Voulez-vous la mettre à jour`
+                        + ` avec la version actuelle de cette page ?</p>`
+                        + `<p class="modal-message">Cette page sera d'abord enregistrée, puis son contenu retraduit`
+                        + ` remplacera celui de la page ${label}. Les retouches faites à la main sur la page ${label}`
+                        + ` seront perdues. Son adresse ne change pas.</p>`,
+                    actions: [
+                        { label: 'Mettre à jour la traduction', className: 'btn-primary', value: 'update' },
+                        { label: `Ouvrir la page ${label} sans la modifier`, className: 'btn-secondary', value: 'open' },
+                        { label: 'Annuler', className: 'btn-secondary', value: 'cancel' }
+                    ],
+                    dismissValue: 'cancel'
+                });
+                if (choice === 'cancel') { renderLanguageSwitch(); return; }
+                if (choice === 'update') {
+                    const schoolId = (CURRENT_SCHOOL && CURRENT_SCHOOL.id) || 'unknown';
+                    const sourceFullName = tabStore.get(`reetain-builder__${schoolId}__currentFullName`);
+                    // La traduction part de la version ENREGISTRÉE : sans cette
+                    // sauvegarde, les dernières modifications seraient ignorées.
+                    if (!sourceFullName || !(await window.saveCurrentPage({ silent: true }))) {
+                        renderLanguageSwitch();
+                        return;
+                    }
+                    try {
+                        const result = await duplicatePageToLanguage({ sourceFullName, targetLang, target: sibling });
+                        const faq = result.faqSwitch;
+                        await window.showAlert({
+                            title: 'Traduction mise à jour',
+                            message: `La page ${label} « ${result.newTitle} » a été mise à jour (brouillon). Vous l'éditez maintenant.`
+                                + (faq && faq.missing ? `\n\nFAQ : ${faq.missing} question(s) n'ont pas encore de version ${targetLang} dans la base FAQ.` : '')
+                        });
+                    } catch (e) {
+                        window.hideLoading();
+                        if (!(e && e.cancelled)) {
+                            console.error('mise à jour de la traduction', e);
+                            await window.showAlert({ title: 'Erreur', message: 'Échec de la mise à jour de la traduction. ' + e.message });
+                        }
+                        renderLanguageSwitch();
+                    }
+                    return;
+                }
+            }
             if (sibling) {
                 window.showLoading(`Ouverture de la version ${LANG_LABELS[targetLang] || targetLang}...`);
                 await window.loadProject(
@@ -3250,7 +3358,7 @@ body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-seri
                     style.id = 'brand-variables';
                     doc.head.appendChild(style);
                 }
-                style.innerHTML = css + headerOverrideCss + fontBaseCss;
+                style.innerHTML = css + headerOverrideCss + fontBaseCss + RESPONSIVE_GUARD_CSS;
                 // 3. Forcer le chargement de la font de l'école (regular + bold)
                 // pour qu'elle soit rendue immédiatement, sans attendre un repaint
                 // (les @font-face sont chargés paresseusement par défaut).
@@ -4061,7 +4169,11 @@ function initUI(editor) {
     }
 
     // Save Project
-    document.getElementById('btn-save').onclick = async () => {
+    // Aussi exposée en window.saveCurrentPage : la mise à jour d'une traduction
+    // enregistre d'abord la page d'origine ({ silent: true } → pas de popup de
+    // succès, renvoie true si l'enregistrement a réussi). Appelée par le clic,
+    // elle reçoit l'événement, d'où le paramètre déstructuré avec défaut.
+    document.getElementById('btn-save').onclick = window.saveCurrentPage = async ({ silent = false } = {}) => {
         const schoolId = CURRENT_SCHOOL?.id || 'unknown';
         const selectedLanguage = normLang(currentProjectLanguage);
 
@@ -4173,11 +4285,13 @@ function initUI(editor) {
                 // « à mettre à jour » (stale) puisque l'original vient de changer.
                 await refreshVariants(currentStructuredPageId);
                 hideLoading();
-                await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} (brouillon).` });
+                if (!silent) await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} (brouillon).` });
+                return true;
             } catch (e) {
                 hideLoading();
                 console.error(e);
                 await showAlert({ title: 'Erreur de sauvegarde', message: 'Impossible de sauvegarder le projet. ' + e.message });
+                return false;
             }
         } else {
             // New project -> Show language selection modal first
