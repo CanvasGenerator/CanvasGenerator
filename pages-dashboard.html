@@ -166,9 +166,8 @@
                 <select id="filter-status" class="cms-filter">
                     <option value="">Pages actives</option>
                     <option value="draft">Brouillons</option>
-                    <option value="review">En revue</option>
-                    <option value="approved">Validées</option>
                     <option value="published">Publiées</option>
+                    <option value="unpublished">Dépubliées</option>
                     <option value="archived">Archivées</option>
                     <option value="all">Tout afficher</option>
                 </select>
@@ -431,27 +430,23 @@
     <div id="status-modal" class="cms-modal-overlay" style="display:none;">
         <div class="cms-modal">
             <div class="cms-modal-header">
-                <h3><i class="fas fa-flag" style="color:#1a7a5e;margin-right:8px;"></i>Changer le statut</h3>
+                <h3><i class="fas fa-flag" style="color:#1a7a5e;margin-right:8px;"></i>Publication de la page</h3>
                 <button class="cms-modal-close" id="status-modal-close">&times;</button>
             </div>
             <div class="cms-modal-body">
                 <p class="cms-modal-copy" id="status-page-label">—</p>
-                <label class="cms-modal-label" for="status-value">Statut</label>
+                <p class="cms-modal-copy">Statut actuel : <strong id="status-current">—</strong></p>
+                <label class="cms-modal-label" for="status-value">Action</label>
                 <select id="status-value" class="cms-modal-input">
-                    <option value="draft">Brouillon</option>
-                    <option value="review">En revue</option>
-                    <option value="approved">Validé</option>
-                    <option value="published">Publié</option>
-                    <option value="archived">Archivé</option>
+                    <option value="published">Publier sur SFMC (met en ligne la dernière version enregistrée)</option>
+                    <option value="unpublished">Dépublier de SFMC (retire la page en ligne)</option>
                 </select>
-                <label class="cms-modal-label" for="status-note">Note interne</label>
-                <input id="status-note" class="cms-modal-input" type="text" placeholder="Optionnel">
                 <div class="cms-inline-error" id="status-error" style="display:none;"></div>
             </div>
             <div class="cms-modal-footer">
                 <button class="cms-btn-cancel" id="status-cancel">Annuler</button>
                 <button class="cms-btn-confirm" id="status-confirm">
-                    <i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour
+                    <i class="fas fa-flag" style="margin-right:6px;"></i>Valider
                 </button>
             </div>
         </div>
@@ -701,23 +696,24 @@
             return baseUrl ? `${baseUrl}/pages/${slug}` : `/pages/${slug}`;
         }
 
+        // Trois statuts de publication (lib/statut-page.js), écrits par
+        // « Publish to SFMC » / « Dépublier » : Brouillon, Publié, Dépublié.
+        // Archivé et Corbeille sont des rangements, pas des états de publication.
+        // Les anciennes valeurs de workflow (review / approved) ne correspondent
+        // à aucune mise en ligne : elles s'affichent « Brouillon ».
         function getStatusLabel(page) {
             const status = page.status || 'draft';
-            if (status === 'review') return 'En revue';
-            if (status === 'approved') return 'Validé';
-            if (status === 'published') {
-                return page.publication?.active === false ? 'Publié · inactif' : 'Publié · actif';
-            }
-            if (status === 'archived') return 'Archivé';
-            if (status === 'deleted') return 'Corbeille';
+            if (status === 'published')   return 'Publié';
+            if (status === 'unpublished') return 'Dépublié';
+            if (status === 'archived')    return 'Archivé';
+            if (status === 'deleted')     return 'Corbeille';
             return 'Brouillon';
         }
 
         function getStatusClass(page) {
             const s = page.status || 'draft';
-            if (s === 'review')    return 'cms-badge-status-review';
-            if (s === 'approved')  return 'cms-badge-status-approved';
-            if (s === 'published') return 'cms-badge-status-published';
+            if (s === 'published')   return 'cms-badge-status-published';
+            if (s === 'unpublished') return 'cms-badge-status-unpublished';
             if (s === 'archived')  return 'cms-badge-status-archived';
             if (s === 'deleted')   return 'cms-badge-status-deleted';
             return 'cms-badge-status-draft';
@@ -911,9 +907,9 @@
                 <a href="${getBuilderUrl(page)}" class="cms-btn cms-btn-edit" title="Éditer"><i class="fas fa-pen"></i></a>
                 <a href="/preview/${encodeURIComponent(page.project_name)}" target="_blank" class="cms-btn cms-btn-preview" title="Prévisualiser"><i class="fas fa-eye"></i></a>
                 <button class="cms-btn cms-btn-dup" title="Dupliquer" onclick="openDuplicate('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-copy"></i></button>
+                <button class="cms-btn cms-btn-history" title="Publier / Dépublier" onclick="openStatusModal('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.status || 'draft')}')"><i class="fas fa-flag"></i></button>
                 <button class="cms-btn cms-btn-history" title="SEO" onclick="openSeoModal('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.seoTitle || '')}', '${escJsAttr(page.seoDescription || '')}', '${escJsAttr(page.school || 'site.com')}')"><i class="fas fa-magnifying-glass-chart"></i></button>
                 ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Versions" onclick="openVersions('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-clock-rotate-left"></i></button>` : ''}
-                ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Statut" onclick="openStatusModal('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.status || 'draft')}')"><i class="fas fa-flag"></i></button>` : ''}
                 ${page.page_id ? `<button class="cms-btn cms-btn-history" title="Déplacer" onclick="openMoveModal('${escJsAttr(page.page_id)}', '${escJsAttr(page.title || page.project_name)}', '${escJsAttr(page.entity_id || '')}')"><i class="fas fa-folder-open"></i></button>` : ''}
                 <button class="cms-btn cms-btn-del" title="Supprimer" onclick="openDelete('${escJsAttr(page.project_name)}', '${escJsAttr(page.title || page.project_name)}')"><i class="fas fa-trash-alt"></i></button>
             `;
@@ -1379,9 +1375,11 @@
                 const matchEntity = !selectedEntityId || pageMatchesEntity(p, selectedEntityId);
                 const matchFolder = !selectedFolderId || p.folder_id === selectedFolderId;
                 
-                const matchStatus = currentView === 'trash' ? true : 
-                                status === 'all' ? true : 
-                                status ? ps === status : true;
+                // review / approved (ancien workflow) comptent comme brouillons.
+                const psFiltre    = (ps === 'review' || ps === 'approved') ? 'draft' : ps;
+                const matchStatus = currentView === 'trash' ? true :
+                                status === 'all' ? true :
+                                status ? psFiltre === status : true;
 
                 // Type filter
                 const isOriginal = String(p.is_original_language) !== 'false';
@@ -1512,29 +1510,31 @@
         document.getElementById('move-confirm').onclick     = movePage;
 
         // ── Status workflow ───────────────────────────────────────────────────
-        function openStatusModal(pageId, title, status) {
-            statusTarget = { pageId };
+        function openStatusModal(projectName, title, status) {
+            statusTarget = { projectName };
             document.getElementById('status-page-label').textContent = title;
-            document.getElementById('status-value').value            = status || 'draft';
-            document.getElementById('status-note').value             = '';
+            document.getElementById('status-current').textContent    = getStatusLabel({ status });
+            document.getElementById('status-value').value            = status === 'published' ? 'unpublished' : 'published';
             document.getElementById('status-error').style.display    = 'none';
             document.getElementById('status-error').textContent      = '';
             document.getElementById('status-modal').style.display    = 'flex';
         }
         function closeStatusModal() { document.getElementById('status-modal').style.display = 'none'; statusTarget = null; }
+        // Publier / Dépublier = vraie action SFMC (mêmes routes que l'éditeur) ;
+        // le serveur met ensuite le statut à jour (Publié / Dépublié).
         async function updatePageStatus() {
             if (!statusTarget) return;
-            const status  = document.getElementById('status-value').value;
-            const note    = document.getElementById('status-note').value.trim();
+            const action  = document.getElementById('status-value').value;
             const errorEl = document.getElementById('status-error');
             const btn     = document.getElementById('status-confirm');
-            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> Mise à jour…'; errorEl.style.display = 'none';
+            btn.disabled = true; btn.innerHTML = '<i class="fas fa-circle-notch fa-spin"></i> ' + (action === 'published' ? 'Publication…' : 'Dépublication…'); errorEl.style.display = 'none';
             try {
-                const res = await fetch(`/api/content/pages/${encodeURIComponent(statusTarget.pageId)}/status`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status, note }) });
+                const url = action === 'published' ? '/api/publish-sfmc' : '/api/unpublish-sfmc';
+                const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ projectName: statusTarget.projectName }) });
                 if (!res.ok) throw new Error(await readErrorMessage(res));
                 closeStatusModal(); await loadPages();
             } catch (e) { errorEl.textContent = e.message; errorEl.style.display = 'block'; }
-            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-flag" style="margin-right:6px;"></i>Mettre à jour'; }
+            finally { btn.disabled = false; btn.innerHTML = '<i class="fas fa-flag" style="margin-right:6px;"></i>Valider'; }
         }
         document.getElementById('status-modal-close').onclick = closeStatusModal;
         document.getElementById('status-cancel').onclick      = closeStatusModal;

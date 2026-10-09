@@ -1,7 +1,3 @@
-<style>
-    html { background: #ffffff !important; }
-    body { max-width: none !important; margin: 0 !important; }
-</style>
 <script runat="server">
 Platform.Load("Core", "1.1.1");
 
@@ -189,6 +185,28 @@ if (pageSchool != "" && pageName != "") {
 } else {
     cbKey = rawId;      /* ancien format : ?id= = clé complète */
 }
+
+/* ---------------------------------------------------------------------
+ * 2bis. Google Tag Manager — un conteneur par école (?school=)
+ *    Le script GTM est écrit ICI, dans la CloudPage : SFMC supprime les
+ *    <script> client des Content Blocks à leur enregistrement.
+ * ------------------------------------------------------------------ */
+var GTM_IDS = {
+    "efap":        "GTM-NM7G8V9",
+    "ifa-paris":   "GTM-NBXZRK8",
+    "brassart":    "GTM-52GFCN3",
+    "cread":       "GTM-MJRTDTJ",
+    "mopa":        "GTM-TX6KR8J",
+    "ecole-bleue": "GTM-K8Q4NDRX",
+    "esec":        "GTM-WMND2GN",
+    "efj":         "GTM-5CVJCTF",
+    "icart":       "GTM-W944F2W",
+    "3wa":         "GTM-M9LVS7DR"
+};
+var gtmId = "";
+if (pageSchool != "" && GTM_IDS[pageSchool] != null) { gtmId = String(GTM_IDS[pageSchool]); }
+/* Garde-fou : seul un ID GTM bien formé est injecté dans la page */
+if (!/^GTM-[A-Z0-9]{4,12}$/.test(gtmId)) { gtmId = ""; }
 
 /* ---------------------------------------------------------------------
  * 3. Résolution du tracking — ordre de priorité strict
@@ -447,16 +465,35 @@ if (cbKey == "") {
 }
 
 /* ---------------------------------------------------------------------
- * 8 bis. SEO de la LP dans le <head> de la CloudPage
- *
- *    La LP arrive comme un document complet (<head> avec son <title>, sa
- *    meta description, sa canonical, ses hreflang…), mais elle est écrite
- *    dans le <body> de cette CloudPage : son <head> y est ignoré. Le titre
- *    affiché (onglet, Google) était donc toujours « EDH — Landing Page »,
- *    et la description vide.
- *    On remonte ici ces balises dans le vrai <head> (section HTML plus bas)
- *    et on les retire du contenu pour ne pas les doubler. Le reste du <head>
- *    de la LP (CSS, polices) est laissé tel quel.
+ * 8bis. Traductions de la page (DE LPB_Traductions_Pages)
+ *    { en: "application" } = la page existe en anglais sous ce nom.
+ *    Langue absente = pas de traduction dans SFMC -> le bouton ne fait rien.
+ * ------------------------------------------------------------------ */
+var LANG_LINKS = {};
+if (cbError == "" && cbResolvedBy != "") {
+    try {
+        var cleAffichee = (cbResolvedBy.indexOf("repli") > -1) ? cbKeyLegacy : cbKey;
+        var deTrad = DataExtension.Init("LPB_Traductions_Pages");
+        var moi = deTrad.Rows.Lookup(["Cle"], [cleAffichee]);
+        if (moi && moi.length > 0) {
+            var soeurs = deTrad.Rows.Lookup(["Groupe"], [moi[0].Groupe]);
+            for (var si = 0; si < soeurs.length; si++) {
+                var sl = lower(soeurs[si].Langue);
+                if (sl != "" && sl != pageLang && soeurs[si].Nom) { LANG_LINKS[sl] = String(soeurs[si].Nom); }
+            }
+        }
+    } catch (e) { LANG_LINKS = {}; }
+}
+
+/* ---------------------------------------------------------------------
+ * 8ter. SEO de la LP dans le <head> de la CloudPage
+ *    La LP arrive comme un document complet (<title>, meta description,
+ *    canonical, hreflang…) mais elle est écrite dans le <body> de cette
+ *    CloudPage : son <head> y est ignoré. Le titre affiché (onglet, Google)
+ *    était donc toujours « EDH — Landing Page », et la description vide.
+ *    On remonte ces balises dans le vrai <head> (plus bas) et on les retire
+ *    du contenu pour ne pas les doubler. Le reste du <head> de la LP (CSS,
+ *    polices) n'est pas touché.
  * ------------------------------------------------------------------ */
 var lpTitle = "";
 var lpSeoTags = "";
@@ -530,10 +567,12 @@ var TEST_CASES = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script runat="server">
-        /* Titre et balises SEO de la LP (section 8 bis) ; titre générique à défaut.
+        /* Titre et balises SEO de la LP (section 8ter) ; titre générique à défaut.
            Le titre de la LP est déjà échappé par le builder : écrit tel quel. */
         Write('<title>' + (lpTitle != "" ? lpTitle : 'EDH — Landing Page') + '</title>');
         if (lpSeoTags != "") { Write('\n    ' + lpSeoTags); }
+    </script>
+    <script runat="server">
         Write('<meta name="lpb-content-block" content="' + htmlEscape(cbKey) + '">');
         Write('<meta name="lpb-canal" content="' + htmlEscape(canal + " / " + sous_canal) + '">');
     </script>
@@ -548,7 +587,8 @@ var TEST_CASES = [
             "lang": pageLang,
             "trackingOrigin": tracking_origin,
             "canal": canal,
-            "sous_canal": sous_canal
+            "sous_canal": sous_canal,
+            "langues": LANG_LINKS
         };
         var bootstrapJs = "";
         bootstrapJs += "window.tracking_params = " + toSafeJson(TRACKING_PARAMS) + ";\n";
@@ -559,6 +599,28 @@ var TEST_CASES = [
         bootstrapJs += "window.LPB.lang = window.LPB.meta.lang;\n";
         bootstrapJs += "window.LPB.trackingOrigin = window.LPB.meta.trackingOrigin;\n";
         Write('<' + 'script>\n' + bootstrapJs + '<' + '/script>');
+    </script>
+
+    <!-- Google Tag Manager — chargé APRÈS le chargement complet de la page -->
+    <script runat="server">
+        if (gtmId != "") {
+            var gtmJs = ""
+                + "window.dataLayer = window.dataLayer || [];\n"
+                + "(function (w, d, id) {\n"
+                + "    function chargerGTM() {\n"
+                + "        if (w.__lpbGtmCharge) { return; }\n"
+                + "        w.__lpbGtmCharge = true;\n"
+                + "        w.dataLayer.push({ 'gtm.start': new Date().getTime(), event: 'gtm.js' });\n"
+                + "        var s = d.createElement('script');\n"
+                + "        s.async = true;\n"
+                + "        s.src = 'https://www.googletagmanager.com/gtm.js?id=' + id;\n"
+                + "        d.getElementsByTagName('head')[0].appendChild(s);\n"
+                + "    }\n"
+                + "    if (d.readyState === 'complete') { chargerGTM(); }\n"
+                + "    else { w.addEventListener('load', chargerGTM); }\n"
+                + "})(window, document, '" + gtmId + "');\n";
+            Write('<' + 'script>\n' + gtmJs + '<' + '/script>');
+        }
     </script>
 
     <script>
@@ -786,8 +848,23 @@ var TEST_CASES = [
         }
         .lpb-demo button:hover { background: #b30510; }
     </style>
+
+    <!-- Pleine largeur : le LP Builder limite la page à 1280px centrée (fond gris).
+         !important car la règle du Content Block arrive plus loin dans la page. -->
+    <style>
+        html { background: #ffffff !important; }
+        body { max-width: none !important; margin: 0 !important; }
+    </style>
 </head>
 <body>
+
+<!-- Google Tag Manager (noscript) -->
+<script runat="server">
+    if (gtmId != "") {
+        Write('<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=' + gtmId
+            + '" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>');
+    }
+</script>
 
 <!-- =========== CONTENU : Content Block (prod) OU variables (TEST_MODE) =========== -->
 <script runat="server">
@@ -823,6 +900,9 @@ if (TEST_MODE || isDebug) {
     Write('<div class="section"><div class="section-header"><span class="title">Content Block demandé</span><span class="tag">KEY</span></div>');
     Write(debugRow("ecole", pageSchool + (pageSchool != pageSchoolRaw ? "  (site : " + pageSchoolRaw + ")" : ""), "ok"));
     Write(debugRow("nom de la page (name / id)", pageName, "ok"));
+    Write(debugRow("GTM", gtmId, gtmId != "" ? "ok" : "warn"));
+    Write(debugRow("traductions (DE LPB_Traductions_Pages)", Stringify(LANG_LINKS), "ok"));
+    Write(debugRow("titre SEO (LP)", lpTitle, lpTitle != "" ? "ok" : "warn"));
     Write(debugRow("lang", pageLang, "ok"));
     Write(debugRow("clé reconstruite", cbKey, "ok"));
     Write(debugRow("repli ?id= tel quel", cbKeyLegacy));
