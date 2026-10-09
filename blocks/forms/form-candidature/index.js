@@ -243,7 +243,7 @@ export default function (editor, categories) {
     font-weight: 700;
     color: #000;
 }
-.cnd-rgpd-label { font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
+.cnd-rgpd-label { flex: 1 1 0; min-width: 0; font-size: 11px; color: var(--brand-text, #1a1a1a); line-height: 1.5; cursor: pointer; }
 .cnd-rgpd-label a { color: #000; text-decoration: underline; }
 .cnd-submit-wrap { display: block; width: 100%; }
 .cnd-submit {

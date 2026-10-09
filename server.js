@@ -181,7 +181,9 @@ function injectAnchorScrollFix(html) {
         + `var t=document.getElementById(id)||document.getElementsByName(id)[0];`
         + `if(!t)return;`
         + `t.scrollIntoView({behavior:'smooth',block:'start'});`
-        + `if(window.history&&history.replaceState){history.replaceState(null,'','#'+id);}`
+        // Adresse COMPLÈTE : un '#id' seul serait résolu contre le <base href="/">
+        // → l'URL devenait localhost/#id (racine de l'outil, pas l'aperçu).
+        + `if(window.history&&history.replaceState){history.replaceState(null,'',location.pathname+location.search+'#'+id);}`
         + `}catch(_){}}document.addEventListener('click',h,true);})();`
         + `</script>`;
     return /<\/body>/i.test(s) ? s.replace(/<\/body>/i, script + '</body>') : s + script;
@@ -2591,15 +2593,15 @@ Règles importantes :
                     formIds:              Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:           p.created_at,
                     source:               'legacy',
-                    status:               statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
+                    status:               (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.status || props.status || 'draft',
                     // Auteur de la derniere modification. La table Projects ne le
                     // connait pas : il vit sur la page structuree, que statusOverlay
                     // fournit deja (indexee par metadata.legacyProjectName).
                     // Sans ceci, toute page absente de listMigratedDashboardPages()
                     // retombait sur cette projection et affichait « — » alors que
                     // la base contenait bien l'auteur.
-                    updated_by_name:      statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_name || null,
-                    updated_by_email:     statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_email || null,
+                    updated_by_name:      (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.updated_by_name || null,
+                    updated_by_email:     (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.updated_by_email || null,
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }

@@ -1870,6 +1870,10 @@ const RESPONSIVE_GUARD_CSS = [
     ':where(.mta-mob-tab){display:none}',
     '@media (max-width:768px){:where(.mta-mob-tab){display:block;padding:16px 20px;cursor:pointer;background:#bd2bf3;border-bottom:1px solid #000}:where(.mta-mob-tab[data-tab="2"]){background:#8a3ffc}:where(.mta-mob-tab) :where(.mta-tab-hd-sub){display:block;font-size:11px;margin-bottom:3px;color:rgba(255,255,255,.9)}:where(.mta-mob-tab) :where(.mta-tab-hd-title){display:block;font-size:14px;font-weight:700;color:#fff}:where(.mta-mob-tab.mta-active){background:var(--brand-background,#fff);border-bottom-color:#e0e0e0}:where(.mta-mob-tab.mta-active) :where(.mta-tab-hd-sub),:where(.mta-mob-tab.mta-active) :where(.mta-tab-hd-title){color:var(--brand-text,#1a1a1a)}}',
     '.carrous-card{min-width:0}.carrous-card>.card-inner{max-width:100%;margin-left:auto;margin-right:auto}',
+    // Étapes des onglets admission : colonnes égales, texte borné (cf. lib/api-shared.js).
+    // !important sur la grille : dans le canvas, le CSS de la page arrive APRÈS ce garde-fou.
+    '.integration .etape>div:not(.etape-icone){min-width:0;flex:1 1 0}.integration .etape-texte{max-width:100%;height:auto!important}',
+    '@media (min-width:769px){.integration .etapes-grille{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))!important}}',
     '@media (max-width:1024px){',
     '.two-col-section,.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{height:auto!important;max-height:none!important}',
     '.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{width:auto!important;max-width:100%!important;min-width:0!important}',
@@ -1882,8 +1886,12 @@ const RESPONSIVE_GUARD_CSS = [
     '}'
 ].join('');
 
+// Miroir de lib/css-consentement.js : texte de consentement à côté de sa case
+// dans le canvas, comme sur la page publiée.
+const CONSENTEMENT_CSS = ['brf', 'cnd', 'imf', 'pc', 'wbc', 'jpo'].map(c => `.${c}-rgpd-label`).join(',') + '{flex:1 1 0;min-width:0}';
+
 function addResponsiveGuard(html) {
-    const source = String(html || '').replace(/<style data-lp-responsive-guard>[\s\S]*?<\/style>/gi, '');
+    const source = String(html || '').replace(/<style data-lp-responsive-guard(?:="")?>[\s\S]*?<\/style>/gi, '');
     if (!/two-col-section|carrous-card|mta-section|class="[^"]*\bintegration\b/i.test(source) || !/<\/head>/i.test(source)) return source;
     return source.replace(/<\/head>/i, `<style data-lp-responsive-guard>${RESPONSIVE_GUARD_CSS}</style></head>`);
 }
@@ -3364,7 +3372,7 @@ body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-seri
                     style.id = 'brand-variables';
                     doc.head.appendChild(style);
                 }
-                style.innerHTML = css + headerOverrideCss + fontBaseCss + RESPONSIVE_GUARD_CSS;
+                style.innerHTML = css + headerOverrideCss + fontBaseCss + RESPONSIVE_GUARD_CSS + CONSENTEMENT_CSS;
                 // 3. Forcer le chargement de la font de l'école (regular + bold)
                 // pour qu'elle soit rendue immédiatement, sans attendre un repaint
                 // (les @font-face sont chargés paresseusement par défaut).
