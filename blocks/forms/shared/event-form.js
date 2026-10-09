@@ -1028,8 +1028,7 @@ ${showChild ? `
         <div class="jpo-rgpd">
             <input type="checkbox" name="RGPDConsent" value="true" required>
             <label class="jpo-rgpd-label">
-                <span data-rgpd-text>${rgpd.text}</span>
-                <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
+                <span data-rgpd-text>${rgpd.text}</span> <a data-rgpd-link href="${rgpd.url}" target="_blank">${rgpd.linkLabel}</a>
             </label>
         </div>
 

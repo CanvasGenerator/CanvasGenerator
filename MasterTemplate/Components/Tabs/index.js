@@ -213,6 +213,13 @@ export default function(editor, categories) {
         var wrapper = root.querySelector('.mta-wrapper') || root;
         var win = root.ownerDocument.defaultView || window;
         var doc = root.ownerDocument;
+        var inEditor = !!(win.frameElement && /\bgjs-frame\b/.test(win.frameElement.className || ''));
+        // Option « onglets non cliquables » (data-mta-fixe="1" sur le wrapper),
+        // pour une page dont tous les onglets ont les mêmes étapes : sur la page
+        // publiée, tous les titres sont affichés à l'identique, sans clic, avec
+        // le contenu du premier onglet. Dans l'éditeur, les onglets restent
+        // cliquables pour pouvoir modifier leur contenu.
+        var fixe = wrapper.getAttribute('data-mta-fixe') === '1' && !inEditor;
 
         function kids(sel) {
             return Array.prototype.filter.call(wrapper.children, function(c) { return c.matches(sel); });
@@ -254,20 +261,41 @@ export default function(editor, categories) {
             kids('.mta-mob-tab[data-mta-gen]').forEach(function(m) { m.parentNode.removeChild(m); });
             kids('.mta-mob-tab').forEach(function(m) { m.style.display = 'none'; });
 
+            // Onglets non cliquables : panneau du premier onglet, au-dessus duquel
+            // on place TOUS les onglets mobiles.
+            var premier = hds[0] && kids('.mta-pane[data-pane="' + hds[0].getAttribute('data-tab') + '"]')[0];
+
             hds.forEach(function(h) {
                 var idx = h.getAttribute('data-tab');
-                h.onclick = function() { switchTab(idx); };
+                if (fixe) {
+                    h.onclick = null;
+                    h.style.cursor = 'default';
+                    h.classList.add('mta-active');
+                } else {
+                    h.onclick = function() { switchTab(idx); };
+                }
                 var pane = kids('.mta-pane[data-pane="' + idx + '"]')[0];
                 if (!pane) return;
                 var mob = doc.createElement('div');
-                mob.className = 'mta-mob-tab' + (h.classList.contains('mta-active') ? ' mta-active' : '');
+                mob.className = 'mta-mob-tab' + ((fixe || h.classList.contains('mta-active')) ? ' mta-active' : '');
                 mob.setAttribute('data-tab', idx);
                 mob.setAttribute('data-mta-gen', '');
                 mob.innerHTML = h.innerHTML;
                 Array.prototype.forEach.call(mob.querySelectorAll('[id]'), function(n) { n.removeAttribute('id'); });
-                mob.onclick = function() { switchTab(idx); };
-                wrapper.insertBefore(mob, pane);
+                if (fixe) {
+                    mob.style.cursor = 'default';
+                    wrapper.insertBefore(mob, premier || pane);
+                } else {
+                    mob.onclick = function() { switchTab(idx); };
+                    wrapper.insertBefore(mob, pane);
+                }
             });
+
+            if (fixe) {
+                kids('.mta-pane').forEach(function(p) { p.classList.toggle('mta-pane-active', p === premier); });
+                paint();
+                return;
+            }
 
             // Aucun panneau actif (onglet actif supprimé) → le premier onglet.
             var active = hds.filter(function(h) { return h.classList.contains('mta-active'); })[0];
@@ -327,9 +355,9 @@ export default function(editor, categories) {
         sync();
         // Page publiée : toujours ouvrir sur le PREMIER onglet. Dans l'éditeur,
         // l'onglet affiché est celui qu'on édite (enregistré dans le modèle) et
-        // ne doit pas changer quand le script est relancé.
-        var inEditor = !!(win.frameElement && /\bgjs-frame\b/.test(win.frameElement.className || ''));
-        if (!inEditor && !wrapper.__mtaStarted) {
+        // ne doit pas changer quand le script est relancé. (Onglets non
+        // cliquables : déjà réglés par sync, ne rien basculer.)
+        if (!inEditor && !fixe && !wrapper.__mtaStarted) {
             var firstHd = headers()[0];
             if (firstHd) switchTab(firstHd.getAttribute('data-tab'));
         }
@@ -526,10 +554,33 @@ export default function(editor, categories) {
 
     /* Encadré « Onglets Admission » du panneau de droite : module partagé avec
        le bloc « Comment intégrer… ? » (blocks/shared/onglets-outils.js). */
+    // Option « onglets non cliquables » : attribut data-mta-fixe sur le wrapper,
+    // lu par le script du bloc (voir tabsScript).
+    const estFixe = root => {
+        const { wrapper } = tabsParts(root);
+        return !!wrapper && wrapper.getAttributes()['data-mta-fixe'] === '1';
+    };
+    editor.Commands.add('mta-toggle-fixe', {
+        run(ed) {
+            const root = findTabsRoot(ed.getSelected());
+            if (!root) return;
+            const { wrapper } = tabsParts(root);
+            if (!wrapper) return;
+            if (estFixe(root)) wrapper.removeAttributes('data-mta-fixe');
+            else wrapper.addAttributes({ 'data-mta-fixe': '1' });
+        }
+    });
+
     installerOutilsOnglets(editor, {
         id: 'mta-tab-tools',
         prefixe: 'mta',
         trouverBloc: findTabsRoot,
+        bascule: {
+            cmd: 'mta-toggle-fixe',
+            libelle: root => estFixe(root)
+                ? '☑ Onglets non cliquables (activé)'
+                : '☐ Onglets non cliquables (désactivé)',
+        },
         surSelection(root, sel) {
             const { wrapper, bar } = tabsParts(root);
             if (!wrapper || !bar) return '';

@@ -21,7 +21,9 @@
  *        appelé à chaque sélection dans le bloc : affiche l'onglet visé dans le
  *        modèle et renvoie son nom (affiché dans l'encadré)
  */
-export function installerOutilsOnglets(editor, { id, prefixe, trouverBloc, surSelection }) {
+export function installerOutilsOnglets(editor, { id, prefixe, trouverBloc, surSelection, bascule = null }) {
+    // bascule (optionnelle) : { cmd, libelle(racine) } — bouton d'option du
+    // bloc dont le libellé reflète l'état courant (ex. onglets non cliquables).
     function encadre() {
         let box = document.getElementById(id);
         if (box) return box;
@@ -41,9 +43,21 @@ export function installerOutilsOnglets(editor, { id, prefixe, trouverBloc, surSe
             + sep + 'Nouvel onglet</div>'
             + `<button type="button" data-cmd="${prefixe}-add-tab-steps" style="${btn}">＋ Onglet avec étapes</button>`
             + `<button type="button" data-cmd="${prefixe}-add-tab-free" style="${btn}">＋ Onglet contenu libre</button>`
-            + '<div style="margin-top:8px;font-size:11px;color:#777;line-height:1.4;">« Contenu libre » : zone où glisser n’importe quel bloc (texte, image, deux colonnes…).</div>';
+            + '<div style="margin-top:8px;font-size:11px;color:#777;line-height:1.4;">« Contenu libre » : zone où glisser n’importe quel bloc (texte, image, deux colonnes…).</div>'
+            + (bascule
+                ? sep + 'Option</div>'
+                  + `<button type="button" data-cmd="${bascule.cmd}" data-role="bascule" style="${btn}"></button>`
+                  + '<div style="margin-top:8px;font-size:11px;color:#777;line-height:1.4;">Onglets non cliquables : tous les titres s’affichent, seul le contenu du 1er onglet est montré (quand tous les onglets ont les mêmes étapes). Effet visible sur la page publiée / l’aperçu.</div>'
+                : '');
         box.querySelectorAll('button[data-cmd]').forEach(b => {
-            b.onclick = () => editor.runCommand(b.getAttribute('data-cmd'));
+            b.onclick = () => {
+                editor.runCommand(b.getAttribute('data-cmd'));
+                // Le libellé du bouton d'option suit l'état après le clic.
+                if (bascule && b.getAttribute('data-role') === 'bascule') {
+                    const racine = trouverBloc(editor.getSelected());
+                    if (racine) b.textContent = bascule.libelle(racine);
+                }
+            };
         });
         traits.parentNode.insertBefore(box, traits);
         return box;
@@ -58,7 +72,10 @@ export function installerOutilsOnglets(editor, { id, prefixe, trouverBloc, surSe
         const nom = surSelection(racine, sel);
         const champ = box && box.querySelector('[data-role="tab-name"]');
         if (champ) champ.textContent = nom || '—';
+        const opt = box && bascule && box.querySelector('[data-role="bascule"]');
+        if (opt) opt.textContent = bascule.libelle(racine);
     });
+
 }
 
 /** Texte affiché d'un composant (dans le canvas), sans espaces superflus. */

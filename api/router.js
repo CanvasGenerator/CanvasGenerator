@@ -1,5 +1,5 @@
 const { syncComponentToSfmc, isSfmcConfigured, isSfmcCredentialsConfigured, createDataExtension, createFormAsset, syncProjectToSfmc, unpublishProjectFromSfmc, uploadImageFromDataUrl, replaceInlineImagesWithSfmcUrls, customerKeyFor, assetNameFor, findAssetIdByCustomerKey, sfmcFetch, listCampuses, upsertCampus, deleteCampus } = require('../lib/sfmc');
-const { supabaseRequest, buildStoredHtml, relaxFaqSectionHeights, addResponsiveGuard, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
+const { supabaseRequest, buildStoredHtml, relaxFaqSectionHeights, addResponsiveGuard, finaliserPage, buildProjectNameFromSource, ensureFormAnchors, extractFormIds, slugify } = require('../lib/api-shared');
 const { handleSchoolsRoute, readSchoolsForApi } = require('./schools');
 const { normalizeBranding, fontStackById } = require('../js/fonts');
 const { listBlocks, getDefaultBlockIds } = require('../blocks/registry');
@@ -1160,7 +1160,7 @@ module.exports = async function handler(req, res) {
             res.setHeader('Content-Type', 'text/html');
             // relaxFaqSectionHeights : répare à la volée les pages DÉJÀ en base dont
             // la section FAQ porte une hauteur figée (contenu déplié qui déborde).
-            let previewHtml = addResponsiveGuard(relaxFaqSectionHeights(ensureFormAnchors(html).html));
+            let previewHtml = finaliserPage(relaxFaqSectionHeights(ensureFormAnchors(html).html));
 
             // ── Sélecteur de langue du header ─────────────────────────────
             // Modèle « une page par langue » : `.hdr-lang` devient un lien vers l'aperçu
@@ -1211,7 +1211,7 @@ module.exports = async function handler(req, res) {
                     return res.status(404).send('Page version not found');
                 }
 
-                let publicHtml = addResponsiveGuard(relaxFaqSectionHeights(ensureFormAnchors(resolved.version.html).html));
+                let publicHtml = finaliserPage(relaxFaqSectionHeights(ensureFormAnchors(resolved.version.html).html));
 
                 // ── Sélecteur de langue du header → page sœur de l'autre langue ──────
                 // Calculé au moment de SERVIR : à l'enregistrement de la page FR, la page
