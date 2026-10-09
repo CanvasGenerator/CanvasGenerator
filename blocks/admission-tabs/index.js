@@ -331,6 +331,23 @@ export default function (editor, categories) {
         const { onglets, nav } = parties(root);
         if (!onglets || !nav) return;
 
+        // Barre d'onglets vidée pour n'afficher qu'un seul contenu (ESEC, 3WA,
+        // École Bleue) : le contenu VISIBLE n'a plus de bouton. On lui en rend
+        // un avant d'ajouter le nouvel onglet — sinon, une fois sur le nouvel
+        // onglet, plus moyen d'y revenir. Les panneaux masqués sans bouton
+        // (anciens contenus) restent masqués.
+        const avecBouton = new Set(boutons(nav).map(b => b.getAttributes()['data-tab']));
+        const visibles = panneaux(onglets).filter(p => p.getClasses().includes('actif'));
+        (visibles.length ? visibles : panneaux(onglets).slice(0, 1))
+            .filter(p => !avecBouton.has(p.getAttributes()['data-panel']))
+            .forEach(p => {
+                nav.append({
+                    type: 'text', tagName: 'button', classes: ['onglet-btn'], editable: true,
+                    attributes: { type: 'button', 'data-tab': p.getAttributes()['data-panel'] },
+                    components: texteDe(p.find('h3')[0]) || 'Admissions',
+                });
+            });
+
         const pris = boutons(nav).map(b => parseInt(b.getAttributes()['data-tab'], 10))
             .concat(panneaux(onglets).map(p => parseInt(p.getAttributes()['data-panel'], 10)))
             .filter(n => !isNaN(n));
