@@ -1218,6 +1218,7 @@ try {
             if (!cNameR && cidR && campusNomDe[cidR]) cNameR = campusNomDe[cidR];
             nbInstDe++;
             jsInstDe.push("{value:'" + escDe(r.Id) + "',label:'" + escDe(r.summit__Instance_Title__c) + "',date:'" + dateR
+                + "',dateFin:'" + jourDe(r.summit__Instance_End_Date__c)
                 + "',heure:'" + heureDe(r.summit__Instance_Start_Time__c) + "',heureFin:'" + heureDe(r.summit__Instance_End_Time__c)
                 + "',campus:'" + escDe(cNameR) + "',address:'" + escDe(r.summit__Location_Address_Override__c)
                 + "',evenement:'" + escDe(evId) + "',jours:" + deltaR + "}");
@@ -1314,7 +1315,7 @@ IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
        est vide sur les 868 instances du nouvel import — et reste a false.
        Seule l'exception de date de l'immersion (@dBorne) est conservee. */
     SET @rows = RetrieveSalesforceObjects("summit__Summit_Events_Instance__c",
-        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c,summit__Active_Status__c",
+        "Id,Name,campusNameFor__c,Campus__c,summit__Event__c,summit__Event_Name__c,eventType__c,summit__Instance_Start_Date__c,summit__Instance_End_Date__c,summit__Instance_Start_Time__c,summit__Instance_End_Time__c,summit__Location_Address_Override__c,summit__Open_Registration__c,summit__Active_Status__c",
         "eventType__c",          "=",  @typeEvtCrm,
         "summit__Instance_Start_Date__c", ">=", @dBorne)
     SET @replLibelle = "false"
@@ -1412,6 +1413,7 @@ IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
                     SET @jsInstances = Concat(@jsInstances, @sepI, "{value:'", @iid,
                         "',label:'",     Replace(Replace(Field(@row,"Name"), "\", "\\"), "'", "\'"),
                         "',date:'",      Field(@row, "summit__Instance_Start_Date__c"),
+                        "',dateFin:'",   Field(@row, "summit__Instance_End_Date__c"),
                         "',heure:'",     Field(@row, "summit__Instance_Start_Time__c"),
                         "',heureFin:'",  Field(@row, "summit__Instance_End_Time__c"),
                         "',campus:'",    Replace(Replace(@instCampusNom, "\", "\\"), "'", "\'"),
@@ -3950,6 +3952,23 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return d || f;
     }
 
+    /**
+     * « Du lundi 19 octobre 2026 au vendredi 23 octobre 2026 » quand
+     * l'instance s'etale sur plusieurs jours (stage, immersion), la date
+     * seule sinon. Demande du 08/10 : le stage MoPA du 19 au 23/10 ne montrait
+     * que le 19. `dateFin` vient de summit__Instance_End_Date__c, lue sur les
+     * deux chemins (CRM et DE synchronisee) ; absente ou egale au debut, rien
+     * ne change.
+     */
+    function periodeLongue(inst) {
+        var debut = String(inst.date || '').slice(0, 10);
+        var fin = String(inst.dateFin || '').slice(0, 10);
+        if (!debut) return '';
+        if (!fin || fin <= debut) return dateLongue(debut);
+        var d = dateLongue(debut), f = dateLongue(fin);
+        return 'Du ' + d.charAt(0).toLowerCase() + d.slice(1) + ' au ' + f.charAt(0).toLowerCase() + f.slice(1);
+    }
+
     /** Le texte a afficher pour une date : horaires et adresse compris. */
     var JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
     var MOIS  = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin',
@@ -3990,7 +4009,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
     function libelleInstance(inst) {
         var bouts = [];
-        if (inst.date)   bouts.push(inst.date);
+        if (inst.date)   bouts.push(inst.dateFin && String(inst.dateFin).slice(0, 10) > String(inst.date).slice(0, 10) ? 'du ' + inst.date + ' au ' + String(inst.dateFin).slice(0, 10) : inst.date);
         var h = plage(inst.heure, inst.heureFin);
         if (h)           bouts.push(h);
         if (inst.campus) bouts.push(inst.campus);
@@ -5956,7 +5975,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
 
                     var quand = document.createElement('strong');
                     quand.className = 'socle-instance-date';
-                    quand.textContent = dateLongue(inst.date)
+                    quand.textContent = periodeLongue(inst)
                         || casseLisible(inst.label || inst.value, false);
                     gauche.appendChild(quand);
 

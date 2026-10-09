@@ -2296,6 +2296,23 @@ try {
         return d || f;
     }
 
+    /**
+     * « Du lundi 19 octobre 2026 au vendredi 23 octobre 2026 » quand
+     * l'instance s'etale sur plusieurs jours (stage, immersion), la date
+     * seule sinon. Demande du 08/10 : le stage MoPA du 19 au 23/10 ne montrait
+     * que le 19. `dateFin` vient de summit__Instance_End_Date__c, lue sur les
+     * deux chemins (CRM et DE synchronisee) ; absente ou egale au debut, rien
+     * ne change.
+     */
+    function periodeLongue(inst) {
+        var debut = String(inst.date || '').slice(0, 10);
+        var fin = String(inst.dateFin || '').slice(0, 10);
+        if (!debut) return '';
+        if (!fin || fin <= debut) return dateLongue(debut);
+        var d = dateLongue(debut), f = dateLongue(fin);
+        return 'Du ' + d.charAt(0).toLowerCase() + d.slice(1) + ' au ' + f.charAt(0).toLowerCase() + f.slice(1);
+    }
+
     /** Le texte a afficher pour une date : horaires et adresse compris. */
     var JOURS = ['dimanche', 'lundi', 'mardi', 'mercredi', 'jeudi', 'vendredi', 'samedi'];
     var MOIS  = ['janvier', 'fevrier', 'mars', 'avril', 'mai', 'juin',
@@ -2336,7 +2353,7 @@ try {
 
     function libelleInstance(inst) {
         var bouts = [];
-        if (inst.date)   bouts.push(inst.date);
+        if (inst.date)   bouts.push(inst.dateFin && String(inst.dateFin).slice(0, 10) > String(inst.date).slice(0, 10) ? 'du ' + inst.date + ' au ' + String(inst.dateFin).slice(0, 10) : inst.date);
         var h = plage(inst.heure, inst.heureFin);
         if (h)           bouts.push(h);
         if (inst.campus) bouts.push(inst.campus);
@@ -4302,7 +4319,7 @@ try {
 
                     var quand = document.createElement('strong');
                     quand.className = 'socle-instance-date';
-                    quand.textContent = dateLongue(inst.date)
+                    quand.textContent = periodeLongue(inst)
                         || casseLisible(inst.label || inst.value, false);
                     gauche.appendChild(quand);
 
