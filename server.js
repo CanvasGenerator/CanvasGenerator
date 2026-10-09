@@ -36,6 +36,7 @@ const { withSfmcKey } = require('./lib/lp-naming');
 const { injectLanguageSwitch } = require('./lib/lang-switch');
 const { renderSchoolHeaderHtml, renderSchoolFooterHtml } = require('./lib/school-blocks');
 const { ensureFormAnchors, extractFormIds, slugify, relaxFaqSectionHeights, addResponsiveGuard, finaliserPage } = require('./lib/api-shared');
+const { marquerStatutPublication, statutPourEnregistrement } = require('./lib/statut-page');
 const { handleAuthRoute, enforceAuth, isAuthEnabled } = require('./lib/auth');
 
 const port = process.env.PORT || 8000;
@@ -977,8 +978,9 @@ http.createServer(async (req, res) => {
                 // Code marketing personnalisé (école + page)
                 if (properties) await applyCustomMarketingCode(projectName, properties);
 
-                // Toute sauvegarde repasse la page en brouillon.
-                if (properties) properties.status = 'draft';
+                // Statut : un enregistrement ne dépublie pas une page en ligne
+                // (publiée / dépubliée conservé, brouillon sinon — lib/statut-page.js).
+                if (properties) properties.status = await statutPourEnregistrement(projectName);
 
                 // Nom SFMC : nouvelle clé école_id_langue figée à la création ; une page existante garde son nom.
                 if (properties) await withSfmcKey(projectName, properties);
@@ -1163,8 +1165,8 @@ http.createServer(async (req, res) => {
                 }
 
                 const mergedProperties = { ...(project.properties || {}), ...properties };
-                // Toute sauvegarde repasse la page en brouillon.
-                mergedProperties.status = 'draft';
+                // Statut : un enregistrement ne dépublie pas une page en ligne.
+                mergedProperties.status = await statutPourEnregistrement(projectName);
 
                 // 1. Écrire dans seo_history (source de vérité — INSERT obligatoire, pas silencieux)
                 const seoHistoryProps = { ...mergedProperties };
@@ -1924,17 +1926,7 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     // SFMC désactivé (SFMC_SYNC_ENABLED != true) : on marque la
                     // page publiée côté app SANS pousser vers SFMC, pour ne pas
                     // bloquer la publication tant que la lecture n'est pas prête.
-                    const pubRes = await supabaseRequest(
-                        'GET',
-                        `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
-                    );
-                    const pubProj = pubRes && pubRes[0];
-                    if (pubProj) {
-                        const pubProps = { ...(pubProj.properties || {}), status: 'published' };
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            properties: pubProps
-                        });
-                    }
+                    await marquerStatutPublication(projectName, 'published');
                     res.writeHead(200, { 'Content-Type': 'application/json' });
                     return res.end(JSON.stringify({ message: 'Published (SFMC désactivé — non poussé)', projectName, status: 'published', sfmc: { skipped: true, reason: 'SFMC_SYNC_ENABLED=false' } }));
                 }
@@ -1956,11 +1948,8 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                 console.log(`☁️  [PUBLISH] Publication manuelle vers SFMC pour "${projectName}"...`);
                 const result = await syncProjectToSfmc({ projectName, fullHtml: htmlToSend });
 
-                // Marquer la page comme publiée.
-                const publishedProps = { ...(project.properties || {}), status: 'published' };
-                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                    properties: publishedProps
-                });
+                // Marquer la page comme publiée (Projects + tableau de bord).
+                await marquerStatutPublication(projectName, 'published');
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ message: 'Published', projectName, status: 'published', sfmc: result }));
@@ -1987,21 +1976,11 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                     return res.end(JSON.stringify({ error: 'projectName required' }));
                 }
                 if (!isSfmcConfigured()) {
-                    // SFMC désactivé : on repasse la page en brouillon côté app
+                    // SFMC désactivé : la page passe « dépubliée » côté app
                     // sans appeler SFMC, pour ne pas bloquer.
-                    const dftRes = await supabaseRequest(
-                        'GET',
-                        `/Projects?project_name=eq.${encodeURIComponent(projectName)}&select=properties&limit=1`
-                    );
-                    const dftProj = dftRes && dftRes[0];
-                    if (dftProj) {
-                        const dftProps = { ...(dftProj.properties || {}), status: 'draft' };
-                        await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                            properties: dftProps
-                        });
-                    }
+                    await marquerStatutPublication(projectName, 'unpublished');
                     res.writeHead(200, { 'Content-Type': 'application/json' });
-                    return res.end(JSON.stringify({ message: 'Unpublished (SFMC désactivé)', projectName, status: 'draft', sfmc: { skipped: true } }));
+                    return res.end(JSON.stringify({ message: 'Unpublished (SFMC désactivé)', projectName, status: 'unpublished', sfmc: { skipped: true } }));
                 }
 
                 const projectRes = await supabaseRequest(
@@ -2017,14 +1996,11 @@ a.mf-link:hover,a[class*="-link"]:hover{color:${colors.linkHover}!important;}
                 console.log(`☁️  [UNPUBLISH] Dépublication SFMC pour "${projectName}"...`);
                 const result = await unpublishProjectFromSfmc({ projectName });
 
-                // Repasser en brouillon (que l'asset ait été supprimé ou déjà absent).
-                const draftProps = { ...(project.properties || {}), status: 'draft' };
-                await supabaseRequest('PATCH', `/Projects?project_name=eq.${encodeURIComponent(projectName)}`, {
-                    properties: draftProps
-                });
+                // Statut « dépubliée » (que l'asset ait été supprimé ou déjà absent).
+                await marquerStatutPublication(projectName, 'unpublished');
 
                 res.writeHead(200, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: 'Unpublished', projectName, status: 'draft', sfmc: result }));
+                res.end(JSON.stringify({ message: 'Unpublished', projectName, status: 'unpublished', sfmc: result }));
             } catch (e) {
                 console.error('❌ Error unpublishing from SFMC:', e.message);
                 res.writeHead(e.status || 500, { 'Content-Type': 'application/json' });

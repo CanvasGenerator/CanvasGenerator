@@ -2793,6 +2793,12 @@ body {
     color: #047857;
 }
 
+.cms-badge-status-unpublished {
+    background: #fffbeb;
+    color: #b45309;
+    border: 1px solid #fcd34d;
+}
+
 .cms-badge-status-archived {
     background: #fff7ed;
     color: #c2410c;

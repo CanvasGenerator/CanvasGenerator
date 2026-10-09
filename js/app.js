@@ -252,14 +252,20 @@ function updateStatusBadge() {
         return;
     }
 
+    // Trois statuts (lib/statut-page.js) : brouillon, publiée, dépubliée.
     const status = (currentProjectProperties && currentProjectProperties.status) || 'draft';
     const isPublished = status === 'published';
+    const style = isPublished
+        ? { txt: '● Publié',   bg: '#dcfce7', fg: '#166534', bd: '#86efac' }
+        : status === 'unpublished'
+            ? { txt: '● Dépublié', bg: '#fef3c7', fg: '#92400e', bd: '#fcd34d' }
+            : { txt: '● Brouillon', bg: '#f3f4f6', fg: '#6b7280', bd: '#d1d5db' };
 
     badge.style.display = 'inline-block';
-    badge.textContent = isPublished ? '● Publié' : '● Brouillon';
-    badge.style.background = isPublished ? '#dcfce7' : '#f3f4f6';
-    badge.style.color = isPublished ? '#166534' : '#6b7280';
-    badge.style.border = isPublished ? '1px solid #86efac' : '1px solid #d1d5db';
+    badge.textContent = style.txt;
+    badge.style.background = style.bg;
+    badge.style.color = style.fg;
+    badge.style.border = '1px solid ' + style.bd;
 
     if (unpubBtn) unpubBtn.style.display = isPublished ? 'inline-flex' : 'none';
 }
@@ -4100,9 +4106,10 @@ function initUI(editor) {
             const res = await fetch('/api/save', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: saveBody });
             hideLoading();
             if (!res.ok) throw new Error(await res.text());
-            currentProjectProperties.status = 'draft';
+            // Enregistrer ne dépublie pas : publiée / dépubliée conservé.
+            if (!['published', 'unpublished'].includes(currentProjectProperties.status)) currentProjectProperties.status = 'draft';
             updateStatusBadge();
-            await showAlert({ title: 'Succès', message: 'Projet enregistré en brouillon. Utilisez « Publish to SFMC » pour le publier.' });
+            await showAlert({ title: 'Succès', message: currentProjectProperties.status === 'published' ? 'Modifications enregistrées. La page en ligne ne change qu’après « Publish to SFMC ».' : 'Projet enregistré. Utilisez « Publish to SFMC » pour le publier.' });
         } catch (e) { 
             hideLoading();
             console.error(e);
@@ -4277,7 +4284,8 @@ function initUI(editor) {
                     tabStore.set(`reetain-builder__${schoolId}__currentPageId`, savedPageId);
                 }
                 currentProjectLanguage = selectedLanguage;
-                currentProjectProperties.status = 'draft';
+                // Enregistrer ne dépublie pas : publiée / dépubliée conservé.
+                if (!['published', 'unpublished'].includes(currentProjectProperties.status)) currentProjectProperties.status = 'draft';
                 // Nom SFMC tel que fixé par le serveur (nouvelle page seulement).
                 if (saveData.sfmcKey) currentProjectProperties.sfmcKey = saveData.sfmcKey;
                 updatePageIdBadge();
@@ -4285,7 +4293,7 @@ function initUI(editor) {
                 // « à mettre à jour » (stale) puisque l'original vient de changer.
                 await refreshVariants(currentStructuredPageId);
                 hideLoading();
-                if (!silent) await showAlert({ title: 'Succès', message: `Projet sauvegardé en ${selectedLanguage} (brouillon).` });
+                if (!silent) await showAlert({ title: 'Succès', message: currentProjectProperties.status === 'published' ? `Modifications enregistrées (${selectedLanguage}). La page en ligne ne change qu'après « Publish to SFMC ».` : `Projet sauvegardé en ${selectedLanguage}.` });
                 return true;
             } catch (e) {
                 hideLoading();
@@ -4546,8 +4554,8 @@ function initUI(editor) {
             const data = await res.json();
             const sfmcAction = data?.sfmc?.action;
 
-            // Repasser en brouillon dans l'UI.
-            currentProjectProperties.status = 'draft';
+            // Statut « Dépublié » dans l'UI.
+            currentProjectProperties.status = 'unpublished';
             updateStatusBadge();
 
             hideLoading();
