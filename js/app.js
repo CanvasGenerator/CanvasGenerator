@@ -767,7 +767,34 @@ function initEditor(schoolId) {
 
     // Ré-injecter les CSS vars à chaque fois que le canvas iframe est rechargé
     // (nécessaire pour les composants custom GrapesJS comme les carousels)
+    // Espace dans un texte éditable posé sur un <button> (titres d'onglets…) :
+    // sur un bouton, la touche Espace le CLIQUE au lieu d'insérer un espace
+    // (titres « MBASPÉCIALISÉS », « 2e-3e-4eannée » contournés par des &nbsp;).
+    // On insère l'espace nous-mêmes et on bloque l'activation du bouton.
+    const espaceDansBouton = e => {
+        if (e.key !== ' ' || e.ctrlKey || e.metaKey || e.altKey) return null;
+        const t = e.target;
+        if (!t || !t.isContentEditable || !t.closest || !t.closest('button')) return null;
+        return t;
+    };
+    const installerEspaceBoutons = () => {
+        const doc = editor.Canvas.getDocument();
+        if (!doc || doc.__espaceBoutons) return;
+        doc.__espaceBoutons = true;
+        doc.addEventListener('keydown', e => {
+            if (!espaceDansBouton(e)) return;
+            e.preventDefault();
+            doc.execCommand('insertText', false, ' ');
+        }, true);
+        doc.addEventListener('keyup', e => { if (espaceDansBouton(e)) e.preventDefault(); }, true);
+    };
+    // Le document du canvas est recréé au chargement d'un projet sans nouveau
+    // « canvas:frame:load » : on (ré)installe aussi à la sélection / l'édition.
+    editor.on('component:selected', installerEspaceBoutons);
+    editor.on('rte:enable', installerEspaceBoutons);
+
     editor.on('canvas:frame:load', () => {
+        installerEspaceBoutons();
         injectBrandVariables(editor, CURRENT_SCHOOL);
         injectComponentFixedStyles(editor);
         // Si l'aperçu est actif, réappliquer la largeur fixe 1280px + ancrage : le
@@ -776,6 +803,7 @@ function initEditor(schoolId) {
     });
 
     editor.on('load', () => {
+        installerEspaceBoutons();
         filterBlocksBySchool(editor, schoolId);
         injectBrandVariables(editor, CURRENT_SCHOOL);
         restrictFontSelector(editor, CURRENT_SCHOOL);
@@ -1872,8 +1900,9 @@ const RESPONSIVE_GUARD_CSS = [
     '.carrous-card{min-width:0}.carrous-card>.card-inner{max-width:100%;margin-left:auto;margin-right:auto}',
     // Étapes des onglets admission : colonnes égales, texte borné (cf. lib/api-shared.js).
     // !important sur la grille : dans le canvas, le CSS de la page arrive APRÈS ce garde-fou.
+    '.integration .etapes-grille,.integration .etape{width:auto!important;height:auto!important;max-width:100%}',
     '.integration .etape>div:not(.etape-icone){min-width:0;flex:1 1 0}.integration .etape-texte{max-width:100%;height:auto!important}',
-    '@media (min-width:769px){.integration .etapes-grille{grid-template-columns:repeat(auto-fit,minmax(170px,1fr))!important}}',
+    '@media (min-width:769px){.integration .etapes-grille{grid-template-columns:repeat(3,minmax(0,1fr))!important}.integration .etapes-grille:has(>.etape:nth-child(4)){grid-template-columns:repeat(4,minmax(0,1fr))!important}.integration .etapes-grille:not(:has(>.etape:nth-child(2))){grid-template-columns:minmax(0,1fr)!important}}',
     '@media (max-width:1024px){',
     '.two-col-section,.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{height:auto!important;max-height:none!important}',
     '.two-col-section .col-container,.two-col-section .col-text,.two-col-section .col-image{width:auto!important;max-width:100%!important;min-width:0!important}',
