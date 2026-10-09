@@ -447,6 +447,30 @@ if (cbKey == "") {
 }
 
 /* ---------------------------------------------------------------------
+ * 8 bis. SEO de la LP dans le <head> de la CloudPage
+ *
+ *    La LP arrive comme un document complet (<head> avec son <title>, sa
+ *    meta description, sa canonical, ses hreflang…), mais elle est écrite
+ *    dans le <body> de cette CloudPage : son <head> y est ignoré. Le titre
+ *    affiché (onglet, Google) était donc toujours « EDH — Landing Page »,
+ *    et la description vide.
+ *    On remonte ici ces balises dans le vrai <head> (section HTML plus bas)
+ *    et on les retire du contenu pour ne pas les doubler. Le reste du <head>
+ *    de la LP (CSS, polices) est laissé tel quel.
+ * ------------------------------------------------------------------ */
+var lpTitle = "";
+var lpSeoTags = "";
+if (cbHtml != "") {
+    var reTitre = /<title[^>]*>([\s\S]*?)<\/title>/i;
+    var reSeo = /<meta\s[^>]*(?:name|property)\s*=\s*["'](?:description|keywords|robots|og:[^"']*|twitter:[^"']*)["'][^>]*>|<link\s[^>]*rel\s*=\s*["'](?:canonical|alternate)["'][^>]*>/gi;
+    var mTitre = cbHtml.match(reTitre);
+    if (mTitre) { lpTitle = trimStr(mTitre[1]); }
+    var balisesSeo = cbHtml.match(reSeo);
+    if (balisesSeo) { lpSeoTags = balisesSeo.join("\n    "); }
+    cbHtml = cbHtml.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, "").replace(reSeo, "");
+}
+
+/* ---------------------------------------------------------------------
  * 9. Jeux de test (affichés en TEST_MODE / &debug=1)
  *    Remplacer ECOLE / PAGE par une page réellement publiée quand TEST_MODE=false.
  * ------------------------------------------------------------------ */
@@ -505,8 +529,11 @@ var TEST_CASES = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EDH — Landing Page</title>
     <script runat="server">
+        /* Titre et balises SEO de la LP (section 8 bis) ; titre générique à défaut.
+           Le titre de la LP est déjà échappé par le builder : écrit tel quel. */
+        Write('<title>' + (lpTitle != "" ? lpTitle : 'EDH — Landing Page') + '</title>');
+        if (lpSeoTags != "") { Write('\n    ' + lpSeoTags); }
         Write('<meta name="lpb-content-block" content="' + htmlEscape(cbKey) + '">');
         Write('<meta name="lpb-canal" content="' + htmlEscape(canal + " / " + sous_canal) + '">');
     </script>
