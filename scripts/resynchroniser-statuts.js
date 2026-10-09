@@ -33,16 +33,17 @@ async function main() {
     }
     const projets = await supabaseRequest('GET', '/Projects?select=project_name,properties') || [];
     const pages = await supabaseRequest('GET', '/pages?select=id,status,metadata&status=neq.deleted') || [];
+    // Nom EXACT : « Candidature__FR » et « candidature__FR » sont deux pages.
     const pageParNom = new Map(pages
         .filter(p => p.metadata && p.metadata.legacyProjectName)
-        .map(p => [p.metadata.legacyProjectName.toLowerCase(), p]));
+        .map(p => [p.metadata.legacyProjectName, p]));
 
     const lignes = [];
     for (const projet of projets) {
         const nom = projet.project_name;
         const props = projet.properties || {};
         if (props.status === 'deleted' || props.status === 'archived') continue;
-        const page = pageParNom.get(nom.toLowerCase());
+        const page = pageParNom.get(nom);
         if (!page) continue;   // à la corbeille côté structuré, ou jamais migrée
 
         const naming = await resolveSfmcNaming(nom, props);

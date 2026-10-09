@@ -298,13 +298,13 @@ module.exports = async function handler(req, res) {
                     formIds:      Array.isArray(props.formIds) ? props.formIds : extractFormIds(p.html || props.rawHtml || ''),
                     updated_at:   p.created_at,
                     source:       'legacy',
-                    status:       statusOverlay.get((p.project_name || '').toLowerCase())?.status || props.status || 'draft',
+                    status:       (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.status || props.status || 'draft',
                     // Auteur de la derniere modification : porte par la page
                     // structuree, fournie par statusOverlay. Meme correctif que
                     // dans server.js — sans lui le dashboard affiche « — » pour
                     // toute page absente de listMigratedDashboardPages().
-                    updated_by_name:  statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_name || null,
-                    updated_by_email: statusOverlay.get((p.project_name || '').toLowerCase())?.updated_by_email || null,
+                    updated_by_name:  (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.updated_by_name || null,
+                    updated_by_email: (statusOverlay.get(p.project_name) || statusOverlay.get((p.project_name || '').toLowerCase()))?.updated_by_email || null,
                     is_original_language: isOriginal,
                     page_group_id:        pageGroupId,
                     publication:  props.publication || { active: true, redirectUrl: '' }

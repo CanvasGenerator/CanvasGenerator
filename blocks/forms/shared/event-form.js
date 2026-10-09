@@ -704,6 +704,8 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
 }
 
 .jpo-rgpd-label {
+    flex: 1 1 0;
+    min-width: 0;
     font-size: 11px;
     color: var(--brand-text, #1a1a1a);
     line-height: 1.5;

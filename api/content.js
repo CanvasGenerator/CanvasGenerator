@@ -967,9 +967,16 @@ async function getStructuredStatusByLegacyName() {
         // La table `pages` ne porte pas de HTML (il vit dans page_versions), la
         // charge reste donc légère.
         const pages = await supabaseRequest('GET', '/pages?select=*');
+        // Clé EXACTE d'abord : « Candidature__FR » et « candidature__FR » sont
+        // deux pages distinctes. Indexées seulement en minuscules, la page à la
+        // corbeille héritait du statut « publié » de l'autre et réapparaissait
+        // dans le tableau de bord. La clé en minuscules ne sert que de repli
+        // (lecture : nom exact, puis nom en minuscules).
         (Array.isArray(pages) ? pages : []).forEach(page => {
             const name = page.metadata?.legacyProjectName;
-            if (name) map.set(name.toLowerCase(), page);
+            if (!name) return;
+            map.set(name, page);
+            if (!map.has(name.toLowerCase())) map.set(name.toLowerCase(), page);
         });
     } catch (e) {
         // Schéma structuré absent : on retombe simplement sur les données legacy.
@@ -987,7 +994,7 @@ async function listLegacyProjectsWithStatus() {
     const structuredPages = await getStructuredStatusByLegacyName();
 
     return projects.map(project => {
-        const page = structuredPages.get((project.project_name || '').toLowerCase());
+        const page = structuredPages.get(project.project_name) || structuredPages.get((project.project_name || '').toLowerCase());
         return {
             ...project,
             status: page?.status || project.status || 'draft',

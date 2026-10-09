@@ -486,18 +486,73 @@ if (cbError == "" && cbResolvedBy != "") {
 }
 
 /* ---------------------------------------------------------------------
- * 8ter. SEO de la LP dans le <head> de la CloudPage
- *    La LP arrive comme un document complet (<title>, meta description,
- *    canonical, hreflang…) mais elle est écrite dans le <body> de cette
- *    CloudPage : son <head> y est ignoré. Le titre affiché (onglet, Google)
- *    était donc toujours « EDH — Landing Page », et la description vide.
- *    On remonte ces balises dans le vrai <head> (plus bas) et on les retire
- *    du contenu pour ne pas les doubler. Le reste du <head> de la LP (CSS,
- *    polices) n'est pas touché.
+ * 8ter. Bloc head de la LP (« <clé>_head »)
+ *    À chaque publication, le LP Builder pousse DEUX Content Blocks :
+ *      • <clé>       la page complète ;
+ *      • <clé>_head  le contenu du <head> de la page (titre, meta SEO, CSS,
+ *                    polices…), écrit tel quel dans le <head> ci-dessous.
+ *    Les deux portent la même version (meta lpb-version / lpb-head-fin). Si
+ *    elle correspond, on écrit le bloc head dans le <head> et on retire ce
+ *    même head de la page avant de l'écrire dans le <body>. Sinon (page
+ *    publiée avant ce mécanisme, bloc head absent ou d'une autre publication)
+ *    → repli : rendu précédent (section 8quater).
+ * ------------------------------------------------------------------ */
+var lpHead = "";
+var lpVersion = "";
+var lpHeadInfo = "";
+if (cbHtml != "" && cbResolvedBy.indexOf("ContentBlockByKey") == 0) {
+    var mVersion = cbHtml.match(/<meta name="lpb-version" content="([A-Za-z0-9]+)">/);
+    if (!mVersion) {
+        lpHeadInfo = "page publiée avant le bloc head → repli";
+    } else {
+        lpVersion = mVersion[1];
+        var cleHead = ((cbResolvedBy.indexOf("repli") > -1) ? cbKeyLegacy : cbKey) + "_head";
+        var repDebut = '<meta name="lpb-version" content="' + lpVersion + '">';
+        var repFin = '<meta name="lpb-head-fin" content="' + lpVersion + '">';
+        var headLu = "";
+        if (KEY_PATTERN.test(cleHead)) {
+            try {
+                Variable.SetValue("@lpb_cb_key", cleHead);
+                headLu = Platform.Function.TreatAsContent("%" + "%=ContentBlockByKey(@lpb_cb_key, \"\", false, \"\")=%" + "%");
+            } catch (e) { headLu = ""; }
+            headLu = (headLu == null) ? "" : String(headLu);
+        }
+        var iDebut = cbHtml.indexOf(repDebut);
+        var iFin = cbHtml.indexOf(repFin);
+        if (headLu == "") {
+            lpHeadInfo = cleHead + " introuvable → repli";
+        } else if (headLu.indexOf(repDebut) < 0 || headLu.indexOf(repFin) < 0) {
+            lpHeadInfo = cleHead + " d'une autre publication → repli";
+        } else if (iDebut < 0 || iFin < iDebut) {
+            lpHeadInfo = "repères absents de la page → repli";
+        } else {
+            lpHead = headLu;
+            cbHtml = cbHtml.substring(0, iDebut) + cbHtml.substring(iFin + repFin.length);
+            lpHeadInfo = cleHead + " (version " + lpVersion + ", " + lpHead.length + " caractères)";
+        }
+    }
+}
+
+/* GTM : celui de la page (code marketing de l'école / de la page, géré dans
+   le LP Builder) prime. Le bloc head l'apporte → la CloudPage n'écrit pas le
+   sien (section 2bis), sinon le conteneur serait chargé deux fois. Idem pour
+   le <noscript> : la page le pose en tête de son <body>. Sans GTM dans la
+   page → GTM de la CloudPage, comme avant. */
+var gtmParLaPage = (lpHead.indexOf("googletagmanager.com/gtm.js") > -1);
+var gtmNoscriptParLaPage = (cbHtml.indexOf("googletagmanager.com/ns.html") > -1);
+
+/* ---------------------------------------------------------------------
+ * 8quater. Repli : SEO de la LP dans le <head> de la CloudPage
+ *    Uniquement sans bloc head (8ter). La LP arrive comme un document
+ *    complet mais elle est écrite dans le <body> de cette CloudPage : son
+ *    <head> y est ignoré. On remonte <title>, meta SEO, canonical et
+ *    hreflang dans le vrai <head> (plus bas) et on les retire du contenu
+ *    pour ne pas les doubler. Le reste du <head> de la LP (CSS, polices)
+ *    reste dans le contenu, comme avant.
  * ------------------------------------------------------------------ */
 var lpTitle = "";
 var lpSeoTags = "";
-if (cbHtml != "") {
+if (cbHtml != "" && lpHead == "") {
     var reTitre = /<title[^>]*>([\s\S]*?)<\/title>/i;
     var reSeo = /<meta\s[^>]*(?:name|property)\s*=\s*["'](?:description|keywords|robots|og:[^"']*|twitter:[^"']*)["'][^>]*>|<link\s[^>]*rel\s*=\s*["'](?:canonical|alternate)["'][^>]*>/gi;
     var mTitre = cbHtml.match(reTitre);
@@ -567,9 +622,13 @@ var TEST_CASES = [
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <script runat="server">
-        /* Titre et balises SEO de la LP (section 8ter) ; titre générique à défaut.
-           Le titre de la LP est déjà échappé par le builder : écrit tel quel. */
-        Write('<title>' + (lpTitle != "" ? lpTitle : 'EDH — Landing Page') + '</title>');
+        /* Avec le bloc head (8ter), le titre et les meta SEO viennent de lui
+           (écrit en fin de <head>). Sinon : balises remontées par le repli
+           (8quater) ; titre générique à défaut. Le titre de la LP est déjà
+           échappé par le builder : écrit tel quel. */
+        if (lpHead == "" || !/<title[\s>]/i.test(lpHead)) {
+            Write('<title>' + (lpTitle != "" ? lpTitle : 'EDH — Landing Page') + '</title>');
+        }
         if (lpSeoTags != "") { Write('\n    ' + lpSeoTags); }
     </script>
     <script runat="server">
@@ -603,7 +662,7 @@ var TEST_CASES = [
 
     <!-- Google Tag Manager — chargé APRÈS le chargement complet de la page -->
     <script runat="server">
-        if (gtmId != "") {
+        if (gtmId != "" && !gtmParLaPage) {
             var gtmJs = ""
                 + "window.dataLayer = window.dataLayer || [];\n"
                 + "(function (w, d, id) {\n"
@@ -855,12 +914,18 @@ var TEST_CASES = [
         html { background: #ffffff !important; }
         body { max-width: none !important; margin: 0 !important; }
     </style>
+
+    <!-- Head de la LP (bloc « <clé>_head », section 8ter) : en DERNIER, comme
+         l'était le head de la LP dans le contenu → même ordre des CSS. -->
+    <script runat="server">
+        if (lpHead != "") { Write(lpHead); }
+    </script>
 </head>
 <body>
 
 <!-- Google Tag Manager (noscript) -->
 <script runat="server">
-    if (gtmId != "") {
+    if (gtmId != "" && !gtmNoscriptParLaPage) {
         Write('<noscript><iframe src="https://www.googletagmanager.com/ns.html?id=' + gtmId
             + '" height="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>');
     }
@@ -900,9 +965,11 @@ if (TEST_MODE || isDebug) {
     Write('<div class="section"><div class="section-header"><span class="title">Content Block demandé</span><span class="tag">KEY</span></div>');
     Write(debugRow("ecole", pageSchool + (pageSchool != pageSchoolRaw ? "  (site : " + pageSchoolRaw + ")" : ""), "ok"));
     Write(debugRow("nom de la page (name / id)", pageName, "ok"));
-    Write(debugRow("GTM", gtmId, gtmId != "" ? "ok" : "warn"));
+    Write(debugRow("GTM", (gtmParLaPage ? "celui de la page (bloc head)" : gtmId + " (CloudPage)")
+        + (gtmNoscriptParLaPage ? " — noscript : page" : " — noscript : CloudPage"), (gtmParLaPage || gtmId != "") ? "ok" : "warn"));
     Write(debugRow("traductions (DE LPB_Traductions_Pages)", Stringify(LANG_LINKS), "ok"));
-    Write(debugRow("titre SEO (LP)", lpTitle, lpTitle != "" ? "ok" : "warn"));
+    Write(debugRow("bloc head (LP)", lpHeadInfo, lpHead != "" ? "ok" : "warn"));
+    Write(debugRow("titre SEO (LP)", lpHead != "" ? "— (dans le bloc head)" : lpTitle, (lpHead != "" || lpTitle != "") ? "ok" : "warn"));
     Write(debugRow("lang", pageLang, "ok"));
     Write(debugRow("clé reconstruite", cbKey, "ok"));
     Write(debugRow("repli ?id= tel quel", cbKeyLegacy));
@@ -1079,6 +1146,48 @@ if (TEST_MODE || isDebug) {
     } else {
         window.setTimeout(refresh, 250);
     }
+})();
+</script>
+
+<!-- Bouton de langue du header (.hdr-lang / .dh-lang)
+     Nom de la page dans l'autre langue : DE LPB_Traductions_Pages (window.LPB.meta.langues).
+     Sur le site de l'école : /<nom> (FR) <-> /<lang>/<nom>. Sur la CloudPage directe : ?id=&lang=.
+     Pas de traduction dans SFMC -> le clic ne fait rien. -->
+<script>
+(function () {
+    document.addEventListener("click", function (e) {
+        var t = e.target;
+        while (t && t.nodeType === 1 && !(t.classList.contains("hdr-lang") || t.classList.contains("dh-lang"))) {
+            t = t.parentNode;
+        }
+        if (!t || t.nodeType !== 1) { return; }
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var cible = (t.getAttribute("data-lang-switch") || t.textContent || "").replace(/\s+/g, "").toLowerCase();
+        var meta = (window.LPB && window.LPB.meta) || {};
+        var nomCible = meta.langues && meta.langues[cible];
+        if (!nomCible) { return; }   /* pas de traduction : on ne fait rien */
+
+        var u = new URL(window.location.href);
+        if (u.hostname.indexOf("groupe-edh.net") > -1) {
+            /* CloudPage appelée directement : ?id=<nom>&lang=<lang> */
+            u.searchParams.delete("name");
+            u.searchParams.set("id", nomCible);
+            u.searchParams.set("lang", cible);
+        } else {
+            /* Site de l'école : /brochure (FR) <-> /en/brochure. On remplace le
+               dernier segment par le nom traduit et on pose/retire le préfixe
+               de langue ; les paramètres de tracking (?utm_…) sont conservés. */
+            var segs = u.pathname.split("/").filter(function (s) { return s !== ""; });
+            if (segs.length && /^[a-z]{2}$/.test(segs[0])) { segs.shift(); }
+            if (segs.length) { segs[segs.length - 1] = nomCible; } else { segs.push(nomCible); }
+            if (cible !== "fr") { segs.unshift(cible); }
+            u.pathname = "/" + segs.join("/");
+        }
+        window.location.href = u.toString();
+    }, true);
 })();
 </script>
 
