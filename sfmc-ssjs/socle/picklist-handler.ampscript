@@ -3398,6 +3398,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
        <option> reellement presentes. Le faire avant ne verrait que les 7
        options statiques du builder. */
     brancherRechercheIndicatif();
+    brancherRechercheCountry();
     remplir('Campus', D.campus, valeur('Campus'));
     preselectionnerCampus();
     appliquerCampus();
@@ -5184,9 +5185,58 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         return -1;
     }
 
-    /** Construit le champ de recherche par-dessus le <select> des indicatifs. */
+    /**
+     * Score d'un PAYS (champ Country) : plus petit = plus pertinent, -1 = exclu.
+     *   0  le libelle commence par la saisie        « esp » -> Espagne
+     *   1  un mot du libelle commence par la saisie « sud » -> Coree du Sud, Afrique du Sud
+     *   2  le libelle contient la saisie (3 lettres et plus)
+     *   3  la VALEUR (anglais, celle du CRM) commence par la saisie « spa » -> Spain / Espagne
+     * Demande du 09/10 : sur mobile, le <select> natif ouvre la roue du systeme
+     * et ne se filtre pas au clavier ; 196 pays a faire defiler. Le champ de
+     * recherche des indicatifs est repris tel quel, seule la pertinence change.
+     */
+    function scorePays(saisie, texte, value) {
+        if (!saisie) return 4;
+        var q = cleRecherche(saisie).replace(/\s+/g, ' ');
+        if (!q) return 4;
+        var t = cleRecherche(texte), v = cleRecherche(value);
+        if (t.indexOf(q) === 0) return 0;
+        if (t.indexOf(' ' + q) !== -1 || t.indexOf('-' + q) !== -1 || t.indexOf('(' + q) !== -1) return 1;
+        if (q.length >= 3 && t.indexOf(q) !== -1) return 2;
+        if (v && v !== t && v.indexOf(q) === 0) return 3;
+        return -1;
+    }
+
+    /** Le champ de recherche des indicatifs : voir brancherRecherche. */
     function brancherRechercheIndicatif() {
-        var select = document.querySelector('select[name="Indicatif"]');
+        brancherRecherche(document.querySelector('select[name="Indicatif"]'), {
+            score: function (q, e) { return scoreIndicatif(q, e.value, e.pays); },
+            placeholder: langueAffichage() === 'en' ? 'Code or country' : 'Indicatif ou pays',
+            aria: 'Indicatif pays',
+            marque: 'combo-indicatif',
+            hotes: ['.jpo-phone-prefix-wrap', '.brf-phone-prefix-wrap', '.cnd-phone-prefix-wrap',
+                    '.imf-phone-prefix-wrap', '.pc-phone-prefix-wrap', '.wbc-phone-prefix-wrap']
+        });
+    }
+
+    /** Le champ de recherche du pays de residence (brochure, candidature, precandidature). */
+    function brancherRechercheCountry() {
+        brancherRecherche(document.querySelector('select[name="Country"]'), {
+            score: function (q, e) { return scorePays(q, e.texte, e.value); },
+            placeholder: langueAffichage() === 'en' ? 'Type to search a country' : 'Tapez pour chercher un pays',
+            aria: langueAffichage() === 'en' ? 'Country of residence' : 'Pays de résidence',
+            marque: 'combo-pays',
+            hotes: ['.jpo-sel-wrap', '.brf-sel-wrap', '.cnd-sel-wrap', '.imf-sel-wrap', '.pc-sel-wrap', '.wbc-sel-wrap']
+        });
+    }
+
+    /**
+     * Construit un champ de recherche par-dessus un <select> : la saisie ne
+     * sert qu'a filtrer, la valeur postee reste celle du <select>. Ecrit pour
+     * les indicatifs (02/09), generalise au pays (09/10) ; `cfg.score(q, entree)`
+     * porte la seule difference.
+     */
+    function brancherRecherche(select, cfg) {
         if (!select || select.__socleCombo) return;
 
         /* Sous ~20 pays, la liste deroulante native suffit et reste plus
@@ -5224,12 +5274,10 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
            police et du chevron `::after` deja dessines par l'ecole. Rien n'est
            restyle ici — chaque ecole a sa maquette, une bordure ecrite dans le
            socle jurerait sur les dix. */
-        var hote = select.closest
-            ? (select.closest('.jpo-phone-prefix-wrap') || select.closest('.brf-phone-prefix-wrap')
-               || select.closest('.cnd-phone-prefix-wrap') || select.closest('.imf-phone-prefix-wrap')
-               || select.closest('.pc-phone-prefix-wrap') || select.closest('.wbc-phone-prefix-wrap')
-               || select.parentNode)
-            : select.parentNode;
+        var hote = null;
+        if (select.closest) {
+            for (var h = 0; h < cfg.hotes.length && !hote; h++) hote = select.closest(cfg.hotes[h]);
+        }
         hote = hote || select.parentNode;
 
         /* Les six conteneurs du builder sont deja `position:relative` ; ce
@@ -5246,14 +5294,14 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         saisie.setAttribute('role', 'combobox');
         saisie.setAttribute('aria-expanded', 'false');
         saisie.setAttribute('aria-autocomplete', 'list');
-        saisie.setAttribute('aria-label', select.getAttribute('aria-label') || 'Indicatif pays');
-        saisie.placeholder = langueAffichage() === 'en' ? 'Code or country' : 'Indicatif ou pays';
+        saisie.setAttribute('aria-label', select.getAttribute('aria-label') || cfg.aria);
+        saisie.placeholder = cfg.placeholder;
         /* Le champ HERITE de l'apparence du <select> : chaque ecole a sa
            maquette, et une bordure ecrite ici jurerait sur les dix. On recopie
            donc les classes du select plutot que d'inventer un style. */
         /* Les memes classes que le <select>, PUIS son rendu calcule. */
         saisie.className = select.className;
-        saisie.setAttribute('data-socle', 'combo-indicatif');
+        saisie.setAttribute('data-socle', cfg.marque);
 
         var liste = document.createElement('ul');
         liste.setAttribute('role', 'listbox');
@@ -5369,7 +5417,7 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
         function rendre(q) {
             var trouvees = [];
             for (var k = 0; k < entrees.length; k++) {
-                var s = scoreIndicatif(q, entrees[k].value, entrees[k].pays);
+                var s = cfg.score(q, entrees[k]);
                 if (s !== -1) trouvees.push({ e: entrees[k], s: s });
             }
             /* Tri STABLE par pertinence : a score egal, on garde l'ordre

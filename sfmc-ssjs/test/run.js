@@ -13,6 +13,7 @@ const etapes = [
     ['Longueur du telephone',    ['test-telephone.js']],
     ['Format de l e-mail',       ['test-email.js']],
     ['Recherche indicatif',      ['test-recherche-indicatif.js']],
+    ['Recherche pays',           ['test-recherche-pays.js']],
     ['Sous-evenements',          ['test-ateliers.js']],
     ['Champs requis',            ['test-requis.js']],
     ['Envoi au socle',           ['test-envoi.js']],
