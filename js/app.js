@@ -3350,12 +3350,17 @@ function injectBrandVariables(editor, school, intoMainDoc = false) {
 
     // Font par défaut de l'école appliquée à la racine du canvas. La font-family
     // s'hérite naturellement en CSS : tout composant déposé qui ne fixe pas SA
-    // propre font hérite donc automatiquement de celle-ci, en poids/style normal.
+    // propre font hérite donc automatiquement de celle-ci.
     // SANS !important et faible spécificité → un override de font sur un composant
     // précis (via le Style Manager, sélecteur #id) prime toujours.
+    // Plus de « font-weight / font-style: normal » imposé à chaque composant :
+    // l'éditeur effaçait le gras et l'italique (<b>, <strong>, gras hérité du
+    // bloc parent) que l'aperçu et la page publiée affichent bien — le client
+    // publiait du gras sans le voir (École Bleue, 12/10). Le canvas montre
+    // désormais la même graisse que la page publiée.
     const fontBaseCss = `
 body, #wrapper, .gjs-wrapper { font-family: var(--brand-font, 'Inter', sans-serif); }
-[data-gjs-type] { font-family: inherit; font-weight: normal; font-style: normal; }
+[data-gjs-type] { font-family: inherit; }
 [data-gjs-type] * { font-family: inherit; }`;
 
     if (intoMainDoc) {
