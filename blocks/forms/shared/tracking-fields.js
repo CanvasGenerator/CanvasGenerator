@@ -130,10 +130,15 @@ export function populateHiddenFields(form, { lang = 'fr' } = {}) {
         params = new win.URLSearchParams(win.location.search);
     } catch (e) { /* contexte iframe/canvas : pas d'URL exploitable */ }
 
-    /* ── Paramètres d'URL : utm_* + identifiants pub ── */
+    /* ── Paramètres d'URL : utm_* + identifiants pub ──
+       Les liens décorés depuis les sites du Groupe remplacent « utm_ » par
+       « sf_ » (doc Tracking) pour ne pas polluer GA4 : sf_source, sf_campus…
+       On lit les deux graphies, utm_ d'abord. La CloudPage fait de même côté
+       serveur ; ce repli vaut pour une page servie sans elle. */
     if (params) {
         UTM_FIELDS.concat(AD_FIELDS).forEach(name => {
-            const v = params.get(name);
+            let v = params.get(name);
+            if (!v && name.indexOf('utm_') === 0) v = params.get('sf_' + name.slice(4));
             if (v) setVal(name, v);
         });
     }
