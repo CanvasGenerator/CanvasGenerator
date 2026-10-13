@@ -884,13 +884,6 @@ var TEST_CASES = [
                 });
             } catch (e) {}
         });
-        /* Repli pour le lien « Gestion des cookies » tant que le SDK Axeptio
-           n'a pas défini la fonction (il la redéfinit en se chargeant). */
-        if (typeof window.openAxeptioCookies !== "function") {
-            window.openAxeptioCookies = function () {
-                window._axcb.push(function (sdk) { try { sdk.openCookies(); } catch (e) {} });
-            };
-        }
 
         /* --- dataLayer : event form_sent, APRÈS la réponse du socle ------
            L'événement partait sur `submit` en phase de capture : avant la
@@ -1114,9 +1107,6 @@ var TEST_CASES = [
     <style>
         html { background: #ffffff !important; }
         body { max-width: none !important; margin: 0 !important; }
-        .lpb-cookies { text-align: center; font: 12px/1.4 Arial, Helvetica, sans-serif; padding: 10px 16px 14px; }
-        .lpb-cookies a { color: inherit; opacity: .75; text-decoration: underline; }
-        .lpb-cookies a:hover { opacity: 1; }
     </style>
 
     <!-- Head de la LP (bloc « <clé>_head », section 8ter) : en DERNIER, comme
@@ -1140,12 +1130,6 @@ var TEST_CASES = [
     if (!TEST_MODE) {
         if (cbError == "") {
             Write(cbHtml);
-            /* Lien de gestion du consentement, demandé par l'équipe Tracking
-               (08/10) : <a href="javascript:openAxeptioCookies()">. La
-               fonction est posée par le SDK Axeptio, chargé par GTM ; un
-               repli (script client, plus haut) la définit en attendant. */
-            Write('<div class="lpb-cookies"><a href="javascript:openAxeptioCookies()">'
-                + (pageLang == "fr" ? "Gestion des cookies" : "Cookie settings") + '</a></div>');
         } else {
             Write('<div class="lpb-error">');
             Write('<h1>Landing page indisponible</h1>');
