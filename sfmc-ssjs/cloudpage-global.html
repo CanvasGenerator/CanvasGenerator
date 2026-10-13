@@ -942,6 +942,12 @@ var TEST_CASES = [
             var national = brut.replace(/[^0-9]/g, "").replace(/^0/, "");
             return "+" + (indic || "33") + national;
         }
+        /* Formulaires sans champ pays (JPO, atelier, stage, immersion) : France
+           par défaut, décision du 13/10, même règle que le socle côté CRM. */
+        function paysParDefaut(form, repli) {
+            var type = (champExact(form, ["TypeFormulaire"]) || repli("TypeFormulaire") || "").toLowerCase();
+            return (type === "evenement" || type === "immersion") ? "France" : "";
+        }
         function lireCorps(corps) {
             var map = {};
             var paires = String(corps || "").split("&");
@@ -969,7 +975,7 @@ var TEST_CASES = [
             window.dataLayer.push({
                 "event": "form_sent",
                 "form_lang": P.lang || "fr",
-                "user_data_country": champExact(f, ["Country"]) || pick(f, ["country", "pays"]) || repli("Country"),
+                "user_data_country": champExact(f, ["Country"]) || pick(f, ["country", "pays"]) || repli("Country") || paysParDefaut(f, repli),
                 "user_data_email": champExact(f, ["EmailAddress"]) || pick(f, ["email", "mail"]) || repli("EmailAddress"),
                 "user_data_phone": telephoneE164(f, repli),
                 "user_campus": campusChoisi(f) || repli("Campus") || repli("CampusChoisi")

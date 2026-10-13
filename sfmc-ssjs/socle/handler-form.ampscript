@@ -478,6 +478,15 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @vousEtes   = RequestParameter("VousEtes")
     SET @ecole      = RequestParameter("Marque")
     SET @formType   = Lowercase(RequestParameter("TypeFormulaire"))
+    /* Pays par defaut France pour les formulaires sans champ pays (JPO,
+       atelier, stage, immersion ; decision du 13/10). Le champ cache
+       Country=France existe dans les blocs depuis cette date, mais le HTML
+       d'un formulaire est fige dans la page au depot du bloc : une
+       republication ne le regenere pas. La regle est donc aussi ici. */
+    IF Empty(@country) AND (@formType == "evenement" OR @formType == "immersion") THEN
+        SET @country = "France"
+        SET @countryDefaut = "1"
+    ENDIF
 
     /* ---- TYPE DE PROFIL ABSENT : « Étudiant », D'OFFICE --------------------
        Beaucoup de formulaires n'ont pas de champ « Vous êtes » : la
