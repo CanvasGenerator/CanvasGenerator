@@ -151,7 +151,9 @@ export function buildEventBlock({ typeEvenement, nomAction, submitLabel, formTit
         const isStage = formVariant === 'stage';
         const t = TRANS[lang] || TRANS.fr;
         const rgpd = resolveRgpdConfig(lang);
-        const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang });
+        /* Pas de champ pays sur les formulaires evenement : France par defaut
+           (decision du 13/10), CRM et dataLayer. Voir tracking-fields.js. */
+        const hidden = buildHiddenFields({ formName: nomAction, formType: 'evenement', lang, paysDefaut: 'France' });
         return `
 <section class="jpo-section"
   ${isStage ? 'data-form-variant="stage"' : 'data-header-align="center"'}

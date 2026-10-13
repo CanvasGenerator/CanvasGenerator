@@ -43,6 +43,13 @@ export const AD_FIELDS = ['gclid', 'fbclid'];
  * @param {string}  opts.lang              - 'fr' | 'en' → Langue préférée de contact
  * @param {string}  [opts.marque='']       - Marque / école (rempli dynamiquement si vide)
  * @param {string}  [opts.langueSouhaitee=''] - Langue d'enseignement souhaitée (défaut IFA Paris = fr)
+ * @param {string}  [opts.paysDefaut='']      - Pays de résidence envoyé d'office quand le formulaire
+ *                                              n'en demande pas (JPO, atelier, stage, immersion :
+ *                                              « France », décision du 13/10). Part avec
+ *                                              CountryDefaut=1 : le socle ne s'en sert que pour
+ *                                              remplir un pays VIDE, jamais pour écraser un pays
+ *                                              déjà connu du CRM. Alimente aussi user_data_country
+ *                                              dans le dataLayer (CloudPage).
  * @returns {string} HTML des inputs cachés
  */
 /**
@@ -68,7 +75,7 @@ function ecoleCourante() {
     } catch (e) { return ''; }
 }
 
-export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque = '', langueSouhaitee = '' }) {
+export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque = '', langueSouhaitee = '', paysDefaut = '' }) {
     /* L'ID de l'école, pas son nom : c'est lui qui sert de clé dans
        LPB_Mapping_Ecoles et dans la clé de campagne « brochure|efap|FR ». */
     if (!marque) marque = ecoleCourante();
@@ -103,7 +110,9 @@ export function buildHiddenFields({ formName, formType = '', lang = 'fr', marque
         <input type="hidden" name="consent"                  value="">
         <input type="hidden" name="date_consentement_cookies" value="">
         <input type="hidden" name="canal"                    value="">
-        <input type="hidden" name="sous_canal"               value="">`;
+        <input type="hidden" name="sous_canal"               value="">${paysDefaut ? `
+        <input type="hidden" name="Country"                  value="${escapeAttr(paysDefaut)}">
+        <input type="hidden" name="CountryDefaut"            value="1">` : ''}`;
 }
 
 /**

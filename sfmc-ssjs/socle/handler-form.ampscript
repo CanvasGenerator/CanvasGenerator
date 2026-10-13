@@ -173,7 +173,7 @@ SET @vDateCookiesCrm = ""
 SET @cpcDateCrm      = ""
 
 VAR @submitted, @email, @emailInvalide, @ecole, @formType
-VAR @lastName, @firstName, @country, @indicatif, @mobile, @studyLevel, @vousEtes
+VAR @lastName, @firstName, @country, @countryDefaut, @indicatif, @mobile, @studyLevel, @vousEtes
 VAR @speciality, @specRows, @progRows
 VAR @ptatId, @campaignId, @brandId, @legalText, @legalFooter
 VAR @utmS, @utmM, @utmC, @utmCo, @utmT, @utmI, @gclid, @fbclid, @clientId, @canal, @sousCanal
@@ -467,6 +467,11 @@ IF IndexOf(@submitted, "true") > 0 THEN
     SET @lastName   = RequestParameter("LastName")
     SET @firstName  = RequestParameter("FirstName")
     SET @country    = RequestParameter("Country")
+    /* CountryDefaut=1 : le formulaire n'a pas de champ pays et envoie « France »
+       d'office (JPO, atelier, stage, immersion, 13/10). A la creation du
+       compte c'est la valeur ecrite ; a la mise a jour elle ne remplit qu'un
+       LivingCountry__c VIDE, jamais un pays deja connu. */
+    SET @countryDefaut = RequestParameter("CountryDefaut")
     SET @indicatif  = RequestParameter("Indicatif")
     SET @mobile     = RequestParameter("MobilePhone")
     SET @studyLevel = RequestParameter("StudyLevel")
@@ -1411,7 +1416,14 @@ IF IndexOf(@submitted, "true") > 0 THEN
             ENDIF
 
             SET @vPays   = Field(@row, "LivingCountry__c")
-            IF NOT Empty(@country)    AND @vPays   != @country    THEN SET @vPays   = @country    SET @champsMaj = Concat(@champsMaj, " LivingCountry__c") ENDIF
+            IF NOT Empty(@country) AND @vPays != @country THEN
+                IF @countryDefaut == "1" AND NOT Empty(@vPays) THEN
+                    SET @journal = Concat(@journal, " PAYS:defaut-ignore(", @vPays, ")")
+                ELSE
+                    SET @vPays = @country
+                    SET @champsMaj = Concat(@champsMaj, " LivingCountry__c")
+                ENDIF
+            ENDIF
             SET @vIndic  = Field(@row, "IndicatifPick__c")
             IF NOT Empty(@indicatif)  AND @vIndic  != @indicatif  THEN SET @vIndic  = @indicatif  SET @champsMaj = Concat(@champsMaj, " IndicatifPick__c") ENDIF
             /* MobileNumber__c et JAMAIS PersonMobilePhone : l'E.164 est calcule

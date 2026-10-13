@@ -104,7 +104,9 @@ export default function (editor, categories) {
         const rgpd = resolveRgpdConfig(lang);
         const studyLevelOptions = buildOptions(EDC_PICKLISTS.studyLevel, '');
         const campusOptions      = buildOptions(EDC_PICKLISTS.campus,      '');
-        const hidden = buildHiddenFields({ formName: 'Demande_Immersion', formType: 'immersion', lang });
+        /* Pas de champ pays sur ce formulaire : France par defaut (decision du
+           13/10), CRM et dataLayer. Voir tracking-fields.js. */
+        const hidden = buildHiddenFields({ formName: 'Demande_Immersion', formType: 'immersion', lang, paysDefaut: 'France' });
 
         return `
 <section class="imf-section"
