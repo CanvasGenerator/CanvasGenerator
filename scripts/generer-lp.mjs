@@ -123,23 +123,20 @@ const GTM = {
  *  l'upload — constate le 24/09 sur les 20 pages EN, le commentaire GTM
  *  arrivait en ligne vide de son script. Le <noscript>, lui, passe.
  *
- *  Depuis le 02/10 le conteneur ne se charge qu'a `window.load` : GTM tire
- *  Axeptio (bandeau cookies, 21 Ko d'images, une police) et les tags, soit
- *  2 a 4 s de reseau qui n'ont rien a faire avant que le formulaire soit
- *  utilisable. `dataLayer` existe des le depart, les pushes d'avant le
- *  chargement restent dans le tableau et GTM les rejoue. Le handler lit le
- *  cookie Axeptio a la soumission, bien apres. */
+ *  Du 02/10 au 13/10 le conteneur ne se chargeait qu'a `window.load`
+ *  (Axeptio et les tags pesent 2 a 4 s de reseau). L'equipe Tracking demande
+ *  le snippet officiel SANS modification (retour du 08/10) : on le rend
+ *  tel quel, en tete du <head>. */
 function gtmPour(ecoleId) {
     const g = GTM[ecoleId];
     if (!GTM_ACTIF || !g) return { head: '', body: '' };
     return {
         head: `%%[ VAR @gtmOuvre, @gtmFerme SET @gtmOuvre = Concat("<scr", "ipt>") SET @gtmFerme = Concat("</scr", "ipt>") ]%%
 <!-- Google Tag Manager -->
-%%=v(@gtmOuvre)=%%(function(w,d,s,l,i){w[l]=w[l]||[];var go=function(){w[l].push({'gtm.start':
+%%=v(@gtmOuvre)=%%(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':
 new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],
 j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=
-'https://${g.hote}/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);};
-if(d.readyState==='complete'){go();}else{w.addEventListener('load',go);}
+'https://${g.hote}/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);
 })(window,document,'script','dataLayer','${g.id}');%%=v(@gtmFerme)=%%
 <!-- End Google Tag Manager -->`,
         body: `<!-- Google Tag Manager (noscript) -->
