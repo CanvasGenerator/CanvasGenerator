@@ -5,9 +5,17 @@ Platform.Load("Core", "1.1.1");
  * EDH — LPBuilder CloudPage
  * ---------------------------------------------------------------------
  * Rôle : point d'entrée proxifié. Le serveur EDH redirige vers cette page
- *        avec ?id=<CustomerKey du Content Block> (+ params de tracking).
- *        La page résout le tracking, l'expose (AMPscript + JS) puis rend
- *        le Content Block demandé.
+ *        avec l'école, le nom de la page et la langue :
+ *          ?ecole=efap&id=candidature&lang=fr   (+ params de tracking)
+ *        La page reconstruit la CustomerKey du Content Block publié par le
+ *        LP Builder — <ecole>_<nom>_<lang>, ex. efap_candidature_fr — résout
+ *        le tracking, l'expose (AMPscript + JS) puis rend le Content Block.
+ *
+ *        - Le nom peut être passé en ?name= ou en ?id= (name prioritaire).
+ *        - lang absente ou invalide -> fr.
+ *        - Sans ?ecole=, ?id= est utilisé tel quel comme clé (ancien format).
+ *        - Si la clé reconstruite est introuvable, ?id= est tenté tel quel
+ *          (liens déjà diffusés, ex. id=Recette_JPO_EFAP_V0).
  *
  * Debug : ajouter &debug=1 pour afficher la console de diagnostic.
  *
@@ -137,11 +145,86 @@ var authorization = Platform.Request.GetRequestHeader("Authorization");
 var host          = Platform.Request.GetRequestHeader("Host");
 var protocol      = Platform.Request.GetRequestHeader("X-Forwarded-Proto");
 
-var cbKey     = rawParam("id");
-var pageLang  = lower(rawParam("lang"));
 var pageSrc   = rawParam("source");
 var isDebug   = (rawParam("debug") == "1" || lower(rawParam("debug")) == "true");
-if (pageLang == "") { pageLang = "fr"; }
+
+/* Langue : 2 lettres, fr par défaut (URL sans /en/ = page française) */
+var pageLang  = lower(rawParam("lang"));
+if (!/^[a-z]{2}$/.test(pageLang)) { pageLang = "fr"; }
+
+/* École + nom de la page -> CustomerKey "<ecole>_<nom>_<lang>"
+   (même format que le LP Builder : lib/lp-naming.js, buildSfmcKey).
+   Le nom est repris tel quel (underscores conservés : test_logo),
+   seulement passé en minuscules comme les clés générées par le builder. */
+/* Slug d'école du site -> identifiant du builder (schools.json). Le site
+   envoie ifaparis, ecolebleue et 3wacademy là où les clés publiées portent
+   ifa-paris, ecole-bleue et 3wa. On traduit ICI, avant de composer la clé ;
+   un slug inconnu est gardé tel quel (il finit en « introuvable », lisible
+   en debug), jamais deviné. */
+var SCHOOL_ALIASES = {
+    "ifaparis":    "ifa-paris",
+    "ifa_paris":   "ifa-paris",
+    "ecolebleue":  "ecole-bleue",
+    "ecole_bleue": "ecole-bleue",
+    "3wacademy":   "3wa",
+    "3w-academy":  "3wa",
+    "3w":          "3wa"
+};
+var pageSchoolRaw = lower(rawParam("school"));
+var pageSchool    = pageSchoolRaw;
+if (pageSchool != "" && SCHOOL_ALIASES[pageSchool] != null) { pageSchool = SCHOOL_ALIASES[pageSchool]; }
+var pageName   = rawParam("name");
+if (pageName == "") { pageName = rawParam("id"); }
+var rawId      = rawParam("id");
+
+var cbKey       = "";   /* clé tentée en premier */
+var cbKeyLegacy = "";   /* repli : ?id= tel quel */
+if (pageSchool != "" && pageName != "") {
+    cbKey = pageSchool + "_" + lower(pageName) + "_" + pageLang;
+    if (rawId != "" && rawId != cbKey) { cbKeyLegacy = rawId; }
+} else {
+    cbKey = rawId;      /* ancien format : ?id= = clé complète */
+}
+
+/* ---------------------------------------------------------------------
+ * 2bis. Google Tag Manager — un conteneur par école, servi par le
+ *    sous-domaine de tracking (sGTM) de la marque. Liste fournie par
+ *    l'équipe Tracking le 24/09 (edh-gtm-liste.txt) : à intégrer telle
+ *    quelle, sans la modifier (retour du 08/10 : la librairie partait de
+ *    www.googletagmanager.com au lieu de ces sous-domaines).
+ *
+ *    Deux usages, plus bas :
+ *      - section 8quater : les pages publiées par le builder portent DÉJÀ
+ *        le conteneur (code marketing de l'école, figé à la publication),
+ *        mais avec l'hôte www.googletagmanager.com. On réécrit l'hôte au
+ *        rendu, ce qui corrige toutes les pages déjà en ligne sans les
+ *        republier. Le snippet rendu est alors octet pour octet celui de
+ *        la liste.
+ *      - <head> / <body> : si la page n'en porte aucun, la CloudPage écrit
+ *        le snippet officiel, en tête du <head>, sans le différer.
+ * ------------------------------------------------------------------ */
+var GTM_CONTENEURS = {
+    "efap":        { id: "GTM-NM7G8V9",  hote: "sgtm.efap.com" },
+    "ifa-paris":   { id: "GTM-NBXZRK8",  hote: "sgtm.ifaparis.com" },
+    "brassart":    { id: "GTM-52GFCN3",  hote: "sgtm.brassart.fr" },
+    "cread":       { id: "GTM-MJRTDTJ",  hote: "sgtm.cread.fr" },
+    "mopa":        { id: "GTM-TX6KR8J",  hote: "sgtm.ecole-mopa.fr" },
+    "ecole-bleue": { id: "GTM-K8Q4NDRX", hote: "sgtm.ecole-bleue.fr" },
+    "esec":        { id: "GTM-WMND2GN",  hote: "sgtm.esec.fr" },
+    "efj":         { id: "GTM-5CVJCTF",  hote: "sgtm.efj.fr" },
+    "icart":       { id: "GTM-W944F2W",  hote: "sgtm.icart.fr" },
+    "3wa":         { id: "GTM-M9LVS7DR", hote: "sgtm.3wacademy.fr" }
+};
+var gtmId = "";
+var gtmHote = "";
+if (pageSchool != "" && GTM_CONTENEURS[pageSchool] != null) {
+    gtmId   = String(GTM_CONTENEURS[pageSchool].id);
+    gtmHote = String(GTM_CONTENEURS[pageSchool].hote);
+}
+/* Garde-fou : seuls un ID et un hôte bien formés sont injectés dans la page */
+if (!/^GTM-[A-Z0-9]{4,12}$/.test(gtmId) || !/^[a-z0-9.-]+$/.test(gtmHote)) { gtmId = ""; gtmHote = ""; }
+var gtmDejaDansLaPage = false;   /* posé en 8quater, une fois la LP lue */
+var gtmHotesReecrits  = 0;       /* nombre d'URL googletagmanager.com réécrites */
 
 /* ---------------------------------------------------------------------
  * 3. Résolution du tracking — ordre de priorité strict
@@ -154,7 +237,7 @@ var utm_medium   = lower(trackParam("medium"));
 var utm_campaign = lower(trackParam("campaign"));
 var utm_content  = lower(trackParam("content"));
 var utm_term     = lower(trackParam("term"));
-/* utm_id / sf_id : distincts du ?id= (clé du Content Block), pas de collision */
+/* utm_id / sf_id : distincts du ?id= (nom de la page), pas de collision */
 var utm_id       = trackParam("id");
 
 var campus       = lower(rawParam("sf_campus"));
@@ -242,13 +325,50 @@ else                                                                            
 
 /* ---------------------------------------------------------------------
  * 5. Consentement — valeur serveur par défaut, réécrite par Axeptio côté client
+ *
+ *    consent = consentement PUBLICITAIRE (doc Tracking), booléen 1/0.
+ *    Jusqu'au 13/10 la page mettait 1 dès qu'un cookie Axeptio existait.
+ *    Or Axeptio pose ses cookies aussi quand on refuse tout
+ *    (axeptio_authorized_vendors = ",,") et même avant toute réponse
+ *    ($$completed:false) : la valeur était 1 quoi que fasse le visiteur
+ *    (retour Tracking du 08/10). On lit donc les vendors réellement
+ *    acceptés, et seul un choix terminé compte.
+ *
+ *    Cookies Axeptio :
+ *      axeptio_cookies            {"$$completed":true,"$$date":"<ISO>","<vendor>":true|false,...}
+ *      axeptio_authorized_vendors ",<vendor>,<vendor>,"   (",," si tout refusé)
  * ------------------------------------------------------------------ */
+/* Vendors qui valent « consentement publicitaire ». Liste à valider avec
+   l'équipe Tracking : google_analytics seul ne vaut pas 1. La même liste
+   est reprise côté navigateur (VENDORS_PUB, plus bas). */
+var VENDORS_PUB = /ads|pixel|tiktok|snap|linkedin|meta|facebook|instagram|criteo|bing|pinterest|twitter|doubleclick|adform|taboola|outbrain|retarget|remarket/i;
+function consentDepuisVendors(noms) {
+    for (var vi = 0; vi < noms.length; vi++) {
+        if (noms[vi] != "" && VENDORS_PUB.test(noms[vi])) { return "1"; }
+    }
+    return "0";
+}
+function cookieDecode(v) {
+    if (v == null) { return ""; }
+    var out = String(v);
+    try { out = decodeURIComponent(out); } catch (e) {}
+    return out;
+}
 var consent = rawParam("consent");
 var date_consentement_cookies = rawParam("date_consentement_cookies");
+var axVendors = "";
+var axChoix   = "";
+try { axVendors = cookieDecode(Platform.Request.GetCookieValue("axeptio_authorized_vendors")); } catch (e) { axVendors = ""; }
+try { axChoix   = cookieDecode(Platform.Request.GetCookieValue("axeptio_cookies")); } catch (e) { axChoix = ""; }
+var axComplet = (axChoix.indexOf('"$$completed":true') > -1);
+var axDate = "";
+var mAxDate = axChoix.match(/"\$\$date":"([^"]+)"/);
+if (mAxDate) { axDate = trimStr(mAxDate[1]); }
 if (consent == "") {
-    var axCookie = "";
-    try { axCookie = Platform.Request.GetCookieValue("axeptio_authorized_vendors"); } catch (e) {}
-    consent = (axCookie != null && axCookie != "") ? "1" : "0";
+    consent = axComplet ? consentDepuisVendors(axVendors.split(",")) : "0";
+}
+if (date_consentement_cookies == "" && axComplet && axDate != "") {
+    date_consentement_cookies = axDate;
 }
 
 /* ---------------------------------------------------------------------
@@ -274,6 +394,8 @@ var AMP_VARS = {
     "sous_canal": sous_canal,
     "campus": campus,
     "lang": pageLang,
+    "ecole": pageSchool,
+    "page_name": pageName,
     "cb_key": cbKey,
     "page_source": pageSrc,
     "tracking_origin": tracking_origin,
@@ -316,6 +438,11 @@ var FORM_PARAMS = {
     "canal": canal,
     "sous_canal": sous_canal,
     "campus": campus,
+    /* utm_campus : c'est le NOM du champ caché des formulaires. La page ne
+       fournissait que `campus`, injecté sous ce nom-là ; le champ utm_campus
+       restait vide quand le site passait sf_campus (retour Tracking du
+       08/10). Les deux clés portent la même valeur. */
+    "utm_campus": campus,
     "lang": pageLang
 };
 
@@ -335,7 +462,7 @@ try {
 }
 
 /* ---------------------------------------------------------------------
- * 8. Rendu du Content Block demandé (?id = CustomerKey / External Key)
+ * 8. Rendu du Content Block demandé (CustomerKey reconstruite en section 2)
  *
  *    >>> TEST_MODE = true  : la page affiche TOUTES les variables calculées
  *                            à la place du Content Block (mode recette).
@@ -344,91 +471,234 @@ try {
  * ------------------------------------------------------------------ */
 var TEST_MODE = false;
 
+var KEY_PATTERN = /^[A-Za-z0-9 ._:@#\/-]{1,200}$/;
 var cbHtml = "";
 var cbError = "";
 var cbResolvedBy = "";
+var cbTried = [];       /* clés tentées, pour le debug */
 
-if (TEST_MODE) {
-    cbResolvedBy = "— (TEST_MODE : aucun appel ContentBlockByKey)";
-    if (cbKey == "") {
-        cbError = "Aucun identifiant fourni (paramètre ?id= manquant).";
-    } else if (!/^[A-Za-z0-9 ._:@#\/-]{1,200}$/.test(cbKey)) {
-        cbError = "Identifiant de Content Block invalide.";
-    }
-} else if (cbKey == "") {
-    cbError = "Aucun identifiant de Content Block fourni (paramètre ?id= manquant).";
-} else if (!/^[A-Za-z0-9 ._:@#\/-]{1,200}$/.test(cbKey)) {
-    cbError = "Identifiant de Content Block invalide.";
-} else {
+/* Lit un Content Block ; "" si introuvable ou vide.
+   ⚠️ Platform.Function.ContentBlockByKey sur une clé inexistante lève une erreur
+   FATALE que try/catch ne rattrape pas (page GenericError.aspx). On passe donc par
+   la fonction AMPscript, dont le 3e argument (false) désactive l'erreur et renvoie
+   le 4e ("") à la place. La clé transite par une variable AMPscript : aucune
+   valeur de l'URL n'est concaténée dans l'expression.
+   Les %% sont découpés pour ne pas être interprétés à la publication. */
+function readBlockBy(fn, key, label) {
+    var html = "";
+    cbTried.push(label ? label : key);
     try {
-        cbHtml = Platform.Function.ContentBlockByKey(cbKey);
-        cbResolvedBy = "ContentBlockByKey";
-    } catch (e1) {
-        /* Repli : l'app peut fournir un chemin Content Builder plutôt qu'une clé */
-        if (cbKey.indexOf("/") > -1) {
-            try {
-                cbHtml = Platform.Function.ContentBlockByName(cbKey);
-                cbResolvedBy = "ContentBlockByName";
-            } catch (e2) {
-                cbError = "Content Block introuvable pour l'identifiant demandé.";
-            }
-        } else {
-            cbError = "Content Block introuvable pour l'identifiant demandé.";
-        }
+        Variable.SetValue("@lpb_cb_key", key);
+        html = Platform.Function.TreatAsContent("%" + "%=" + fn + "(@lpb_cb_key, \"\", false, \"\")=%" + "%");
+    } catch (e) { html = ""; }
+    return (html == null) ? "" : String(html);
+}
+function readBlock(key) { return readBlockBy("ContentBlockByKey", key); }
+
+if (cbKey == "") {
+    cbError = "Aucune page demandée (paramètres ?ecole= et ?id= manquants).";
+} else if (!KEY_PATTERN.test(cbKey) || (cbKeyLegacy != "" && !KEY_PATTERN.test(cbKeyLegacy))) {
+    cbError = "Identifiant de page invalide.";
+} else if (TEST_MODE) {
+    cbResolvedBy = "— (TEST_MODE : aucun appel ContentBlockByKey)";
+} else {
+    /* 1. Clé reconstruite <ecole>_<nom>_<lang> (ou ?id= seul, ancien format) */
+    cbHtml = readBlock(cbKey);
+    if (trimStr(cbHtml) != "") { cbResolvedBy = "ContentBlockByKey (" + cbKey + ")"; }
+
+    /* 2. Repli : ?id= tel quel (liens déjà diffusés avec une clé complète) */
+    if (trimStr(cbHtml) == "" && cbKeyLegacy != "") {
+        cbHtml = readBlock(cbKeyLegacy);
+        if (trimStr(cbHtml) != "") { cbResolvedBy = "ContentBlockByKey (repli ?id=" + cbKeyLegacy + ")"; }
     }
-    if (cbError == "" && (cbHtml == null || trimStr(cbHtml) == "")) {
-        cbError = "Le Content Block demandé est vide.";
+
+    /* 3. Repli : l'app peut fournir un chemin Content Builder plutôt qu'une clé */
+    if (trimStr(cbHtml) == "" && rawId.indexOf("/") > -1) {
+        cbHtml = readBlockBy("ContentBlockByName", rawId, rawId + " (par nom)");
+        if (trimStr(cbHtml) != "") { cbResolvedBy = "ContentBlockByName"; }
+    }
+
+    if (cbHtml == null || trimStr(cbHtml) == "") {
+        cbHtml = "";
+        cbError = "Landing page introuvable pour l'identifiant demandé.";
     }
 }
 
 /* ---------------------------------------------------------------------
+ * 8bis. Traductions de la page (DE LPB_Traductions_Pages)
+ *    { en: "application" } = la page existe en anglais sous ce nom.
+ *    Langue absente = pas de traduction dans SFMC -> le bouton ne fait rien.
+ * ------------------------------------------------------------------ */
+var LANG_LINKS = {};
+if (cbError == "" && cbResolvedBy != "") {
+    try {
+        var cleAffichee = (cbResolvedBy.indexOf("repli") > -1) ? cbKeyLegacy : cbKey;
+        var deTrad = DataExtension.Init("LPB_Traductions_Pages");
+        var moi = deTrad.Rows.Lookup(["Cle"], [cleAffichee]);
+        if (moi && moi.length > 0) {
+            var soeurs = deTrad.Rows.Lookup(["Groupe"], [moi[0].Groupe]);
+            for (var si = 0; si < soeurs.length; si++) {
+                var sl = lower(soeurs[si].Langue);
+                if (sl != "" && sl != pageLang && soeurs[si].Nom) { LANG_LINKS[sl] = String(soeurs[si].Nom); }
+            }
+        }
+    } catch (e) { LANG_LINKS = {}; }
+}
+
+/* ---------------------------------------------------------------------
+ * 8ter. Bloc head de la LP (« <clé>_head »)
+ *    À chaque publication, le LP Builder pousse DEUX Content Blocks :
+ *      • <clé>       la page complète ;
+ *      • <clé>_head  le contenu du <head> de la page (titre, meta SEO, CSS,
+ *                    polices…), écrit tel quel dans le <head> ci-dessous.
+ *    Les deux portent la même version (meta lpb-version / lpb-head-fin). Si
+ *    elle correspond, on écrit le bloc head dans le <head> et on retire ce
+ *    même head de la page avant de l'écrire dans le <body>. Sinon (page
+ *    publiée avant ce mécanisme, bloc head absent ou d'une autre publication)
+ *    → repli : rendu précédent (section 8quater).
+ * ------------------------------------------------------------------ */
+var lpHead = "";
+var lpVersion = "";
+var lpHeadInfo = "";
+if (cbHtml != "" && cbResolvedBy.indexOf("ContentBlockByKey") == 0) {
+    var mVersion = cbHtml.match(/<meta name="lpb-version" content="([A-Za-z0-9]+)">/);
+    if (!mVersion) {
+        lpHeadInfo = "page publiée avant le bloc head → repli";
+    } else {
+        lpVersion = mVersion[1];
+        var cleHead = ((cbResolvedBy.indexOf("repli") > -1) ? cbKeyLegacy : cbKey) + "_head";
+        var repDebut = '<meta name="lpb-version" content="' + lpVersion + '">';
+        var repFin = '<meta name="lpb-head-fin" content="' + lpVersion + '">';
+        var headLu = "";
+        if (KEY_PATTERN.test(cleHead)) {
+            try {
+                Variable.SetValue("@lpb_cb_key", cleHead);
+                headLu = Platform.Function.TreatAsContent("%" + "%=ContentBlockByKey(@lpb_cb_key, \"\", false, \"\")=%" + "%");
+            } catch (e) { headLu = ""; }
+            headLu = (headLu == null) ? "" : String(headLu);
+        }
+        var iDebut = cbHtml.indexOf(repDebut);
+        var iFin = cbHtml.indexOf(repFin);
+        if (headLu == "") {
+            lpHeadInfo = cleHead + " introuvable → repli";
+        } else if (headLu.indexOf(repDebut) < 0 || headLu.indexOf(repFin) < 0) {
+            lpHeadInfo = cleHead + " d'une autre publication → repli";
+        } else if (iDebut < 0 || iFin < iDebut) {
+            lpHeadInfo = "repères absents de la page → repli";
+        } else {
+            lpHead = headLu;
+            cbHtml = cbHtml.substring(0, iDebut) + cbHtml.substring(iFin + repFin.length);
+            lpHeadInfo = cleHead + " (version " + lpVersion + ", " + lpHead.length + " caractères)";
+        }
+    }
+}
+
+/* GTM : celui de la page (code marketing de l'école / de la page, géré dans
+   le LP Builder) prime. Le bloc head l'apporte → la CloudPage n'écrit pas le
+   sien (section 2bis), sinon le conteneur serait chargé deux fois. Idem pour
+   le <noscript> : la page le pose en tête de son <body>. Sans GTM dans la
+   page → GTM de la CloudPage, comme avant. */
+/* Hôte sGTM de la marque (2bis) : les pages publiées portent le conteneur
+   avec www.googletagmanager.com ; on réécrit l'hôte au rendu, dans le bloc
+   head (gtm.js) et dans le corps (noscript ns.html, ou les deux pour une
+   page sans bloc head). Le snippet rendu devient octet pour octet celui de
+   la liste de l'équipe Tracking, sans republier les pages. */
+/* split/join plutôt qu'un replace à motif $1 : aucune dépendance au moteur
+   SSJS, et le compte des occurrences vient gratuitement. */
+function reecrireHoteGtm(html) {
+    var out = String(html == null ? "" : html);
+    var cibles = ["gtm.js", "ns.html"];
+    for (var ci = 0; ci < cibles.length; ci++) {
+        var morceaux = out.split("https://www.googletagmanager.com/" + cibles[ci]);
+        gtmHotesReecrits += morceaux.length - 1;
+        out = morceaux.join("https://" + gtmHote + "/" + cibles[ci]);
+    }
+    return out;
+}
+if (gtmHote != "") {
+    lpHead = reecrireHoteGtm(lpHead);
+    cbHtml = reecrireHoteGtm(cbHtml);
+}
+/* Le conteneur de la page peut être dans le bloc head OU, pour une page sans
+   bloc head (repli 8quater), dans le corps : dans les deux cas la CloudPage
+   n'écrit pas le sien, sinon il serait chargé deux fois. */
+var gtmParLaPage = (lpHead.indexOf("/gtm.js") > -1 || cbHtml.indexOf("/gtm.js") > -1);
+var gtmNoscriptParLaPage = (cbHtml.indexOf("/ns.html") > -1);
+gtmDejaDansLaPage = gtmParLaPage;
+
+/* ---------------------------------------------------------------------
+ * 8quater. Repli : SEO de la LP dans le <head> de la CloudPage
+ *    Uniquement sans bloc head (8ter). La LP arrive comme un document
+ *    complet mais elle est écrite dans le <body> de cette CloudPage : son
+ *    <head> y est ignoré. On remonte <title>, meta SEO, canonical et
+ *    hreflang dans le vrai <head> (plus bas) et on les retire du contenu
+ *    pour ne pas les doubler. Le reste du <head> de la LP (CSS, polices)
+ *    reste dans le contenu, comme avant.
+ * ------------------------------------------------------------------ */
+var lpTitle = "";
+var lpSeoTags = "";
+if (cbHtml != "" && lpHead == "") {
+    var reTitre = /<title[^>]*>([\s\S]*?)<\/title>/i;
+    var reSeo = /<meta\s[^>]*(?:name|property)\s*=\s*["'](?:description|keywords|robots|og:[^"']*|twitter:[^"']*)["'][^>]*>|<link\s[^>]*rel\s*=\s*["'](?:canonical|alternate)["'][^>]*>/gi;
+    var mTitre = cbHtml.match(reTitre);
+    if (mTitre) { lpTitle = trimStr(mTitre[1]); }
+    var balisesSeo = cbHtml.match(reSeo);
+    if (balisesSeo) { lpSeoTags = balisesSeo.join("\n    "); }
+    cbHtml = cbHtml.replace(/<title[^>]*>[\s\S]*?<\/title>/gi, "").replace(reSeo, "");
+}
+
+/* ---------------------------------------------------------------------
  * 9. Jeux de test (affichés en TEST_MODE / &debug=1)
- *    Remplacer CB_LP_TEST par une vraie External Key quand TEST_MODE=false.
+ *    Remplacer ECOLE / PAGE par une page réellement publiée quand TEST_MODE=false.
  * ------------------------------------------------------------------ */
 var baseURL = fullURL;
 var _qi = baseURL.indexOf("?");
 if (_qi > -1) { baseURL = baseURL.substring(0, _qi); }
 
-var CB = "CB_LP_TEST";
+var CB = "ecole=efap&id=candidature";
 var TEST_CASES = [
     ["Direct (aucun param)",
-        "id=" + CB],
+        CB],
+    ["Page anglaise (lang=en -> efap_candidature_en)",
+        CB + "&lang=en"],
+    ["Ancien format (?id= = clé complète)",
+        "id=Recette_JPO_EFAP_V0"],
     ["Emailing / nurturing (préfixe sf_)",
-        "id=" + CB + "&sf_source=SFMC&sf_medium=email&sf_campaign=2026_NURTURING_MBA&sf_content=cta_header&sf_id=CAMP-4471&sf_campus=paris&lang=fr"],
+        CB + "&sf_source=SFMC&sf_medium=email&sf_campaign=2026_NURTURING_MBA&sf_content=cta_header&sf_id=CAMP-4471&sf_campus=paris&lang=fr"],
     ["Emailing / newsletter (préfixe utm_)",
-        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_janvier&utm_content=bloc2&utm_id=NL-2026-01"],
+        CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_janvier&utm_content=bloc2&utm_id=NL-2026-01"],
     ["Emailing / invitation JPO + campus",
-        "id=" + CB + "&sf_source=sfmc&sf_medium=email&sf_campaign=invitation_jpo_mars&sf_campus=lyon"],
+        CB + "&sf_source=sfmc&sf_medium=email&sf_campaign=invitation_jpo_mars&sf_campus=lyon"],
     ["Emailing / automatisation",
-        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=auto_relance_dossier"],
+        CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=auto_relance_dossier"],
     ["Emailing / loyalty",
-        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=loyalty_alumni"],
+        CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=loyalty_alumni"],
     ["SMS (medium déduit : sms)",
-        "id=" + CB + "&utm_source=sms_oscar&utm_campaign=relance_candidature"],
+        CB + "&utm_source=sms_oscar&utm_campaign=relance_candidature"],
     ["AI (medium déduit : ai)",
-        "id=" + CB + "&utm_source=chatgpt.com"],
+        CB + "&utm_source=chatgpt.com"],
     ["Source inconnue (medium déduit : issue)",
-        "id=" + CB + "&sf_source=partenaire_studyrama&sf_campaign=salon_2026"],
+        CB + "&sf_source=partenaire_studyrama&sf_campaign=salon_2026"],
     ["Paid Search / GOOGLE-ADS-PMAX",
-        "id=" + CB + "&utm_source=google&utm_medium=cpc&utm_campaign=FR_PMAX_MBA_2026&utm_term=mba%20paris&gclid=Cj0KCQjwTEST123"],
+        CB + "&utm_source=google&utm_medium=cpc&utm_campaign=FR_PMAX_MBA_2026&utm_term=mba%20paris&gclid=Cj0KCQjwTEST123"],
     ["Paid Search / GOOGLE-ADS-SEARCH",
-        "id=" + CB + "&sf_source=google&sf_medium=cpc&sf_campaign=FR_SEARCH_BACHELOR&gclid=Cj0KCQjwTEST456"],
+        CB + "&sf_source=google&sf_medium=cpc&sf_campaign=FR_SEARCH_BACHELOR&gclid=Cj0KCQjwTEST456"],
     ["Paid Social / FACEBOOK-ADS",
-        "id=" + CB + "&utm_source=fb&utm_medium=paid_social&utm_campaign=retargeting_jpo&fbclid=IwAR_TEST_789"],
+        CB + "&utm_source=fb&utm_medium=paid_social&utm_campaign=retargeting_jpo&fbclid=IwAR_TEST_789"],
     ["Paid Social / TIKTOK-ADS",
-        "id=" + CB + "&utm_source=tiktok&utm_medium=paid_social&utm_campaign=awareness_bts"],
+        CB + "&utm_source=tiktok&utm_medium=paid_social&utm_campaign=awareness_bts"],
     ["WhatsApp",
-        "id=" + CB + "&utm_source=oscar&utm_medium=push&utm_campaign=whatsapp_relance_dossier"],
+        CB + "&utm_source=oscar&utm_medium=push&utm_campaign=whatsapp_relance_dossier"],
     ["Consentement déjà donné",
-        "id=" + CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_fev&consent=1&date_consentement_cookies=2026-08-13%2010%3A30%3A00"],
+        CB + "&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_fev&consent=1&date_consentement_cookies=2026-08-13%2010%3A30%3A00"],
     ["Anglais (lang=en)",
-        "id=" + CB + "&lang=en&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_international"],
+        CB + "&lang=en&utm_source=sfmc&utm_medium=email&utm_campaign=newsletter_international"],
     ["Tout en majuscules (test lowercase)",
-        "id=" + CB + "&UTM_SOURCE=SFMC&UTM_MEDIUM=EMAIL&UTM_CAMPAIGN=2026_NURTURING_MBA"],
-    ["Erreur : id manquant",
+        CB + "&UTM_SOURCE=SFMC&UTM_MEDIUM=EMAIL&UTM_CAMPAIGN=2026_NURTURING_MBA"],
+    ["Erreur : école et id manquants",
         "utm_source=sfmc&utm_medium=email&utm_campaign=newsletter"],
     ["Erreur : id invalide (test validation)",
-        "id=%3Cscript%3Ealert(1)%3C%2Fscript%3E&utm_source=sfmc"]
+        "ecole=efap&id=%3Cscript%3Ealert(1)%3C%2Fscript%3E&utm_source=sfmc"]
 ];
 </script>
 <!DOCTYPE html>
@@ -436,7 +706,16 @@ var TEST_CASES = [
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>EDH — Landing Page</title>
+    <script runat="server">
+        /* Avec le bloc head (8ter), le titre et les meta SEO viennent de lui
+           (écrit en fin de <head>). Sinon : balises remontées par le repli
+           (8quater) ; titre générique à défaut. Le titre de la LP est déjà
+           échappé par le builder : écrit tel quel. */
+        if (lpHead == "" || !/<title[\s>]/i.test(lpHead)) {
+            Write('<title>' + (lpTitle != "" ? lpTitle : 'EDH — Landing Page') + '</title>');
+        }
+        if (lpSeoTags != "") { Write('\n    ' + lpSeoTags); }
+    </script>
     <script runat="server">
         Write('<meta name="lpb-content-block" content="' + htmlEscape(cbKey) + '">');
         Write('<meta name="lpb-canal" content="' + htmlEscape(canal + " / " + sous_canal) + '">');
@@ -447,10 +726,13 @@ var TEST_CASES = [
         /* Tout passe par des objets : Stringify sur un objet est fiable en SSJS */
         var LPB_META = {
             "contentBlock": cbKey,
+            "ecole": pageSchool,
+            "pageName": pageName,
             "lang": pageLang,
             "trackingOrigin": tracking_origin,
             "canal": canal,
-            "sous_canal": sous_canal
+            "sous_canal": sous_canal,
+            "langues": LANG_LINKS
         };
         var bootstrapJs = "";
         bootstrapJs += "window.tracking_params = " + toSafeJson(TRACKING_PARAMS) + ";\n";
@@ -463,6 +745,19 @@ var TEST_CASES = [
         Write('<' + 'script>\n' + bootstrapJs + '<' + '/script>');
     </script>
 
+    <!-- Google Tag Manager — snippet officiel de l'équipe Tracking (sGTM),
+         écrit tel quel, seulement si la LP n'en porte pas déjà un (8ter) -->
+    <script runat="server">
+        if (gtmId != "" && !gtmParLaPage) {
+            var gtmJs = "(function(w,d,s,l,i){w[l]=w[l]||[];w[l].push({'gtm.start':\n"
+                + "new Date().getTime(),event:'gtm.js'});var f=d.getElementsByTagName(s)[0],\n"
+                + "j=d.createElement(s),dl=l!='dataLayer'?'&l='+l:'';j.async=true;j.src=\n"
+                + "'https://" + gtmHote + "/gtm.js?id='+i+dl;f.parentNode.insertBefore(j,f);\n"
+                + "})(window,document,'script','dataLayer','" + gtmId + "');";
+            Write('<!-- Google Tag Manager -->\n<' + 'script>' + gtmJs + '<' + '/script>\n<!-- End Google Tag Manager -->');
+        }
+    </script>
+
     <script>
     (function () {
         "use strict";
@@ -471,11 +766,10 @@ var TEST_CASES = [
         for (var k in P) { if (Object.prototype.hasOwnProperty.call(P, k)) { KEYS.push(k); } }
 
         function nowStamp() {
-            /* ISO UTC avec Z : c'est le seul format que le CRM accepte pour
-               DateConsentementCookies__c (Date/Heure). L'ancien « AAAA-MM-JJ HH:MM:SS »
-               local tuait la deuxieme soumission de tout visiteur ayant accepte
-               les cookies (25/09). Le socle normalise aussi de son cote. */
-            return new Date().toISOString().slice(0, 19) + "Z";
+            var d = new Date();
+            function p(n) { return (n < 10 ? "0" : "") + n; }
+            return d.getFullYear() + "-" + p(d.getMonth() + 1) + "-" + p(d.getDate()) + " " +
+                   p(d.getHours()) + ":" + p(d.getMinutes()) + ":" + p(d.getSeconds());
         }
         function getCookie(name) {
             var m = document.cookie.match(new RegExp("(?:^|; )" + name.replace(/([.$?*|{}()\[\]\\\/+^])/g, "\\$1") + "=([^;]*)"));
@@ -483,27 +777,31 @@ var TEST_CASES = [
         }
 
         /* --- client_id : l'identifiant Google Analytics du navigateur ---
-           Le serveur ne peut pas le fournir : il vit dans le cookie `_ga`,
-           pose par gtag cote client. Sans lui, Account.ClientID__c et
-           CampaignMember.Client_ID__c restent vides, et on perd le lien entre
-           la soumission et le parcours web qui l'a precedee.
+           Il vit dans le cookie `_ga`, posé par gtag une fois GTM chargé et
+           le consentement donné. Il n'existe donc pas forcément quand cette
+           page se charge (première visite, bandeau pas encore répondu) : lu
+           une seule fois au parsing du <head>, il était toujours vide à la
+           première visite (retour Tracking du 08/10). On le relit à chaque
+           remplissage et à la soumission. Sans lui, Account.ClientID__c et
+           CampaignMember.Client_ID__c restent vides.
 
            Format du cookie : GA1.2.1234567890.1690000000
            Le client id est la paire finale : 1234567890.1690000000
 
-           Jamais ecrase s'il a deja ete fourni par l'URL. */
-        (function poserClientId() {
-            if (P.client_id) { return; }
+           Jamais écrasé s'il a déjà été fourni par l'URL. */
+        function lireClientId() {
+            if (P.client_id) { return P.client_id; }
             var ga = getCookie("_ga");
-            if (!ga) { return; }
+            if (!ga) { return ""; }
             var m = ga.match(/GA\d+\.\d+\.(\d+\.\d+)$/);
-            if (!m) { return; }
+            if (!m) { return ""; }
             P.client_id = m[1];
-            if (KEYS.indexOf("client_id") === -1) { KEYS.push("client_id"); }
-        })();
+            return P.client_id;
+        }
 
         /* --- Remplissage des formulaires ------------------------------ */
         function fillForm(form) {
+            lireClientId();
             for (var i = 0; i < KEYS.length; i++) {
                 var key = KEYS[i];
                 var value = P[key] == null ? "" : String(P[key]);
@@ -536,28 +834,75 @@ var TEST_CASES = [
         }
         window.LPB.fillForms = fillAllForms;
 
-        /* --- Consentement Axeptio (lecture seule, Axeptio vient du GTM) - */
-        function applyConsent(value) {
+        /* --- Consentement Axeptio (lecture seule, Axeptio vient du GTM) -
+           consent = consentement PUBLICITAIRE (doc Tracking), pas « un
+           cookie Axeptio existe ». Axeptio pose ses cookies aussi quand on
+           refuse tout (axeptio_authorized_vendors = ",,") et avant même toute
+           réponse ($$completed:false) : la présence du cookie valait 1 quoi
+           que fasse le visiteur (retour Tracking du 08/10). On lit les
+           vendors réellement acceptés, et seul un choix terminé compte.
+           Même liste VENDORS_PUB que côté serveur (section 5). */
+        var VENDORS_PUB = /ads|pixel|tiktok|snap|linkedin|meta|facebook|instagram|criteo|bing|pinterest|twitter|doubleclick|adform|taboola|outbrain|retarget|remarket/i;
+        function consentDepuisChoix(choix) {
+            for (var c in choix) {
+                if (Object.prototype.hasOwnProperty.call(choix, c) && c.indexOf("$$") !== 0
+                    && choix[c] === true && VENDORS_PUB.test(c)) { return "1"; }
+            }
+            return "0";
+        }
+        function applyConsent(value, date) {
             P.consent = value;
             window.tracking_params.consent = value;
-            if (value === "1") {
-                var stamp = P.date_consentement_cookies || nowStamp();
-                P.date_consentement_cookies = stamp;
-                window.tracking_params.date_consentement_cookies = stamp;
-            }
+            /* Date du choix (accord ou refus) : celle d'Axeptio si elle est
+               connue, sinon maintenant. Le socle la normalise en ISO UTC. */
+            var stamp = date || P.date_consentement_cookies || nowStamp();
+            P.date_consentement_cookies = stamp;
+            window.tracking_params.date_consentement_cookies = stamp;
             fillAllForms();
         }
+        /* Choix déjà enregistré lors d'une visite précédente :
+           axeptio_cookies = {"$$completed":true,"$$date":"<ISO>","<vendor>":true|false,...} */
         function detectConsent() {
-            if (getCookie("axeptio_authorized_vendors") || getCookie("axeptio_cookies")) { applyConsent("1"); }
+            var brut = getCookie("axeptio_cookies");
+            if (!brut) { return; }
+            var choix = null;
+            try { choix = JSON.parse(brut); } catch (e) { choix = null; }
+            if (!choix || choix.$$completed !== true) { return; }
+            applyConsent(consentDepuisChoix(choix), choix.$$date ? String(choix.$$date) : "");
         }
         window._axcb = window._axcb || [];
         window._axcb.push(function (sdk) {
             try {
-                sdk.on("cookies:complete", function () { applyConsent("1"); });
+                /* Déclenché à chaque choix terminé, y compris un changement
+                   d'avis depuis le lien « Gestion des cookies ». */
+                sdk.on("cookies:complete", function (choix) {
+                    choix = choix || {};
+                    applyConsent(consentDepuisChoix(choix), choix.$$date ? String(choix.$$date) : "");
+                    /* gtag pose _ga APRÈS le consentement : on repasse pour le client_id */
+                    window.setTimeout(fillAllForms, 1500);
+                    window.setTimeout(fillAllForms, 5000);
+                });
             } catch (e) {}
         });
+        /* Repli pour le lien « Gestion des cookies » tant que le SDK Axeptio
+           n'a pas défini la fonction (il la redéfinit en se chargeant). */
+        if (typeof window.openAxeptioCookies !== "function") {
+            window.openAxeptioCookies = function () {
+                window._axcb.push(function (sdk) { try { sdk.openCookies(); } catch (e) {} });
+            };
+        }
 
-        /* --- dataLayer : event form_sent à la soumission ---------------- */
+        /* --- dataLayer : event form_sent, APRÈS la réponse du socle ------
+           L'événement partait sur `submit` en phase de capture : avant la
+           validation JavaScript des formulaires et avant la réponse du CRM,
+           donc aussi pour une soumission refusée (retour Tracking du 08/10).
+           Les formulaires postent la page à elle-même par fetch et lisent le
+           commentaire « socle ecriture: statut=success » dans la réponse
+           (blocks/forms/shared/envoi-socle.js). On observe ce fetch et on ne
+           pousse que sur ce statut. Le formulaire soumis est mémorisé sur
+           `submit` (capture) ; le corps du POST sert de repli pour lire les
+           valeurs. Un formulaire peut aussi le signaler lui-même :
+           window.LPB.formSent(form) ou l'événement DOM « lpb:form:sent ». */
         function pick(form, patterns) {
             var fields = form.querySelectorAll("input, select, textarea");
             for (var i = 0; i < fields.length; i++) {
@@ -569,8 +914,8 @@ var TEST_CASES = [
             return "";
         }
         /* Valeur du premier champ dont le NOM est exactement l'un de ceux
-           donnes. `pick` cherche par morceau de nom : « campus » y attraperait
-           le champ cache utm_campus (en tete du formulaire) avant le vrai
+           donnés. `pick` cherche par morceau de nom : « campus » y attraperait
+           le champ caché utm_campus (en tête du formulaire) avant le vrai
            choix du visiteur. */
         function champExact(form, names) {
             for (var i = 0; i < names.length; i++) {
@@ -580,25 +925,99 @@ var TEST_CASES = [
             return "";
         }
         /* Campus retenu par le visiteur (24/09) : le <select> Campus des six
-           formulaires, sinon le campus choisi recopie dans le champ cache
-           CampusChoisi (ecoles a campus unique, campus masque), sinon le
+           formulaires, sinon le campus choisi recopié dans le champ caché
+           CampusChoisi (écoles à campus unique, campus masqué), sinon le
            campus de l'URL. Valeur telle que le CRM la porte (« CREAD
            MONTPELLIER »), sans changement de casse. */
         function campusChoisi(form) {
             return champExact(form, ["Campus", "CampusChoisi", "utm_campus"]) || P.campus || "";
         }
-        function onSubmit(e) {
-            var form = e.target;
-            if (!form || form.tagName !== "FORM") { return; }
+        /* Téléphone en E.164 (+33612121212), ce que GA4 attend pour
+           l'Enhanced Conversion (retour Tracking du 08/10 : seul le numéro
+           saisi partait). Le select Indicatif porte « 33 » sans le +, le
+           numéro est saisi au format national. Un numéro déjà international
+           (+ ou 00) est gardé ; sans indicatif, un numéro national est
+           supposé français. */
+        function telephoneE164(form, repli) {
+            var brut  = champExact(form, ["MobilePhone"]) || pick(form, ["mobile", "phone", "tel"]) || repli("MobilePhone");
+            var indic = champExact(form, ["Indicatif"]) || repli("Indicatif");
+            brut  = String(brut || "").replace(/[\s.\-()]/g, "");
+            indic = String(indic || "").replace(/[^0-9]/g, "");
+            if (!brut) { return ""; }
+            if (brut.charAt(0) === "+") { return "+" + brut.slice(1).replace(/[^0-9]/g, ""); }
+            if (brut.indexOf("00") === 0) { return "+" + brut.slice(2).replace(/[^0-9]/g, ""); }
+            var national = brut.replace(/[^0-9]/g, "").replace(/^0/, "");
+            return "+" + (indic || "33") + national;
+        }
+        function lireCorps(corps) {
+            var map = {};
+            var paires = String(corps || "").split("&");
+            for (var i = 0; i < paires.length; i++) {
+                var p = paires[i];
+                var eq = p.indexOf("=");
+                var key = eq > -1 ? p.slice(0, eq) : p;
+                var val = eq > -1 ? p.slice(eq + 1) : "";
+                try { key = decodeURIComponent(key.replace(/\+/g, " ")); } catch (e) {}
+                try { val = decodeURIComponent(val.replace(/\+/g, " ")); } catch (e) {}
+                if (key && map[key] == null) { map[key] = val; }
+            }
+            return map;
+        }
+        function pousserFormSent(form, corps) {
+            var f = (form && form.tagName === "FORM") ? form : document.createElement("form");
+            /* Un seul événement par soumission, même si le formulaire le
+               signale aussi de son côté. */
+            var maintenant = new Date().getTime();
+            if (f.__lpbFormSentAt && maintenant - f.__lpbFormSentAt < 10000) { return; }
+            f.__lpbFormSentAt = maintenant;
+            var map = lireCorps(corps);
+            function repli(nom) { return map[nom] || ""; }
             window.dataLayer = window.dataLayer || [];
             window.dataLayer.push({
                 "event": "form_sent",
                 "form_lang": P.lang || "fr",
-                "user_data_country": pick(form, ["country", "pays"]),
-                "user_data_email": pick(form, ["email", "mail"]),
-                "user_data_phone": pick(form, ["phone", "tel", "mobile"]),
-                "user_campus": campusChoisi(form)
+                "user_data_country": champExact(f, ["Country"]) || pick(f, ["country", "pays"]) || repli("Country"),
+                "user_data_email": champExact(f, ["EmailAddress"]) || pick(f, ["email", "mail"]) || repli("EmailAddress"),
+                "user_data_phone": telephoneE164(f, repli),
+                "user_campus": campusChoisi(f) || repli("Campus") || repli("CampusChoisi")
             });
+        }
+        window.LPB.formSent = function (form) { pousserFormSent(form, ""); };
+        document.addEventListener("lpb:form:sent", function (e) { pousserFormSent(e.target, ""); }, true);
+
+        var derniereSoumission = null;
+        function onSubmit(e) {
+            var form = e.target;
+            if (!form || form.tagName !== "FORM") { return; }
+            derniereSoumission = form;
+            /* Le client_id peut être arrivé depuis le chargement : on le pose
+               dans le champ caché AVANT que le formulaire ne lise ses valeurs. */
+            fillForm(form);
+            /* Formulaire de démonstration du panneau &debug=1 : pas de socle,
+               l'événement part tout de suite. */
+            if (form.id === "lpb-demo-form") { pousserFormSent(form, ""); }
+        }
+        /* Observation du POST des formulaires vers la page (socle d'écriture) */
+        if (typeof window.fetch === "function") {
+            var fetchOrigine = window.fetch;
+            window.fetch = function (entree, options) {
+                var promesse = fetchOrigine.apply(window, arguments);
+                try {
+                    var methode = String((options && options.method) || "GET").toUpperCase();
+                    var corps = options && options.body;
+                    if (methode === "POST" && typeof corps === "string" && corps.indexOf("submitted=true") > -1) {
+                        var form = derniereSoumission;
+                        promesse.then(function (reponse) {
+                            try {
+                                reponse.clone().text().then(function (html) {
+                                    if (/socle ecriture:\s*statut=success/i.test(html)) { pousserFormSent(form, corps); }
+                                }, function () {});
+                            } catch (e) {}
+                        }, function () {});
+                    }
+                } catch (e) {}
+                return promesse;
+            };
         }
 
         function boot() {
@@ -689,20 +1108,51 @@ var TEST_CASES = [
         }
         .lpb-demo button:hover { background: #b30510; }
     </style>
+
+    <!-- Pleine largeur : le LP Builder limite la page à 1280px centrée (fond gris).
+         !important car la règle du Content Block arrive plus loin dans la page. -->
+    <style>
+        html { background: #ffffff !important; }
+        body { max-width: none !important; margin: 0 !important; }
+        .lpb-cookies { text-align: center; font: 12px/1.4 Arial, Helvetica, sans-serif; padding: 10px 16px 14px; }
+        .lpb-cookies a { color: inherit; opacity: .75; text-decoration: underline; }
+        .lpb-cookies a:hover { opacity: 1; }
+    </style>
+
+    <!-- Head de la LP (bloc « <clé>_head », section 8ter) : en DERNIER, comme
+         l'était le head de la LP dans le contenu → même ordre des CSS. -->
+    <script runat="server">
+        if (lpHead != "") { Write(lpHead); }
+    </script>
 </head>
 <body>
+
+<!-- Google Tag Manager (noscript) — même condition que le snippet du <head> -->
+<script runat="server">
+    if (gtmId != "" && !gtmNoscriptParLaPage) {
+        Write('<!-- Google Tag Manager (noscript) -->\n<noscript><iframe src="https://' + gtmHote + '/ns.html?id=' + gtmId
+            + '"\nheight="0" width="0" style="display:none;visibility:hidden"></iframe></noscript>\n<!-- End Google Tag Manager (noscript) -->');
+    }
+</script>
 
 <!-- =========== CONTENU : Content Block (prod) OU variables (TEST_MODE) =========== -->
 <script runat="server">
     if (!TEST_MODE) {
         if (cbError == "") {
             Write(cbHtml);
+            /* Lien de gestion du consentement, demandé par l'équipe Tracking
+               (08/10) : <a href="javascript:openAxeptioCookies()">. La
+               fonction est posée par le SDK Axeptio, chargé par GTM ; un
+               repli (script client, plus haut) la définit en attendant. */
+            Write('<div class="lpb-cookies"><a href="javascript:openAxeptioCookies()">'
+                + (pageLang == "fr" ? "Gestion des cookies" : "Cookie settings") + '</a></div>');
         } else {
             Write('<div class="lpb-error">');
             Write('<h1>Landing page indisponible</h1>');
             Write('<p>' + htmlEscape(cbError) + '</p>');
             if (isDebug) {
-                Write('<p style="margin-top:12px;font-family:monospace;font-size:12px;">id = ' + htmlEscape(cbKey) + '</p>');
+                Write('<p style="margin-top:12px;font-family:monospace;font-size:12px;">clé(s) tentée(s) = '
+                    + htmlEscape(cbTried.length ? cbTried.join(" | ") : cbKey) + '</p>');
             }
             Write('</div>');
         }
@@ -722,8 +1172,19 @@ if (TEST_MODE || isDebug) {
     Write('<div class="lpb-debug"><div class="main">');
 
     /* --- 1. Content Block demandé --- */
-    Write('<div class="section"><div class="section-header"><span class="title">Content Block demandé</span><span class="tag">ID</span></div>');
-    Write(debugRow("id (External Key)", cbKey, "ok"));
+    Write('<div class="section"><div class="section-header"><span class="title">Content Block demandé</span><span class="tag">KEY</span></div>');
+    Write(debugRow("ecole", pageSchool + (pageSchool != pageSchoolRaw ? "  (site : " + pageSchoolRaw + ")" : ""), "ok"));
+    Write(debugRow("nom de la page (name / id)", pageName, "ok"));
+    Write(debugRow("GTM", (gtmParLaPage ? "celui de la page" : gtmId + " (CloudPage)")
+        + (gtmNoscriptParLaPage ? " — noscript : page" : " — noscript : CloudPage")
+        + (gtmHote != "" ? " — hôte " + gtmHote + ", " + gtmHotesReecrits + " URL réécrite(s)" : ""), (gtmParLaPage || gtmId != "") ? "ok" : "warn"));
+    Write(debugRow("traductions (DE LPB_Traductions_Pages)", Stringify(LANG_LINKS), "ok"));
+    Write(debugRow("bloc head (LP)", lpHeadInfo, lpHead != "" ? "ok" : "warn"));
+    Write(debugRow("titre SEO (LP)", lpHead != "" ? "— (dans le bloc head)" : lpTitle, (lpHead != "" || lpTitle != "") ? "ok" : "warn"));
+    Write(debugRow("lang", pageLang, "ok"));
+    Write(debugRow("clé reconstruite", cbKey, "ok"));
+    Write(debugRow("repli ?id= tel quel", cbKeyLegacy));
+    Write(debugRow("clés tentées", cbTried.join(" | ")));
     Write(debugRow("résolu via", cbResolvedBy));
     Write(debugRow("erreur", cbError, "warn"));
     Write(debugRow("taille rendue", cbHtml ? (String(cbHtml).length + " caractères") : ""));
@@ -742,6 +1203,8 @@ if (TEST_MODE || isDebug) {
     Write(debugRow("campus", campus));
     Write(debugRow("consent", consent, "warn"));
     Write(debugRow("date_consentement_cookies", date_consentement_cookies));
+    Write(debugRow("axeptio : choix terminé", axComplet ? "oui" : "non"));
+    Write(debugRow("axeptio : vendors acceptés", axVendors));
     Write(debugRow("canal", canal, "ok"));
     Write(debugRow("sous_canal", sous_canal, "ok"));
     Write(debugRow("lang", pageLang));
@@ -764,7 +1227,7 @@ if (TEST_MODE || isDebug) {
        TreatAsContent ne reçoit ici que des noms issus de la liste figée
        ci-dessous — aucune donnée utilisateur n'entre dans l'expression. */
     Write('<div class="section"><div class="section-header"><span class="title">Lecture réelle en AMPscript</span><span class="tag">PREUVE</span></div>');
-    var AMP_PROOF = ["utm_source", "utm_medium", "utm_campaign", "canal", "sous_canal", "campus", "gclid", "lang"];
+    var AMP_PROOF = ["utm_source", "utm_medium", "utm_campaign", "canal", "sous_canal", "campus", "gclid", "lang", "ecole", "cb_key"];
     for (var pi = 0; pi < AMP_PROOF.length; pi++) {
         var expr = "%" + "%=v(@" + AMP_PROOF[pi] + ")=%" + "%";
         var evaluated = "";
@@ -896,6 +1359,48 @@ if (TEST_MODE || isDebug) {
     } else {
         window.setTimeout(refresh, 250);
     }
+})();
+</script>
+
+<!-- Bouton de langue du header (.hdr-lang / .dh-lang)
+     Nom de la page dans l'autre langue : DE LPB_Traductions_Pages (window.LPB.meta.langues).
+     Sur le site de l'école : /<nom> (FR) <-> /<lang>/<nom>. Sur la CloudPage directe : ?id=&lang=.
+     Pas de traduction dans SFMC -> le clic ne fait rien. -->
+<script>
+(function () {
+    document.addEventListener("click", function (e) {
+        var t = e.target;
+        while (t && t.nodeType === 1 && !(t.classList.contains("hdr-lang") || t.classList.contains("dh-lang"))) {
+            t = t.parentNode;
+        }
+        if (!t || t.nodeType !== 1) { return; }
+
+        e.preventDefault();
+        e.stopPropagation();
+
+        var cible = (t.getAttribute("data-lang-switch") || t.textContent || "").replace(/\s+/g, "").toLowerCase();
+        var meta = (window.LPB && window.LPB.meta) || {};
+        var nomCible = meta.langues && meta.langues[cible];
+        if (!nomCible) { return; }   /* pas de traduction : on ne fait rien */
+
+        var u = new URL(window.location.href);
+        if (u.hostname.indexOf("groupe-edh.net") > -1) {
+            /* CloudPage appelée directement : ?id=<nom>&lang=<lang> */
+            u.searchParams.delete("name");
+            u.searchParams.set("id", nomCible);
+            u.searchParams.set("lang", cible);
+        } else {
+            /* Site de l'école : /brochure (FR) <-> /en/brochure. On remplace le
+               dernier segment par le nom traduit et on pose/retire le préfixe
+               de langue ; les paramètres de tracking (?utm_…) sont conservés. */
+            var segs = u.pathname.split("/").filter(function (s) { return s !== ""; });
+            if (segs.length && /^[a-z]{2}$/.test(segs[0])) { segs.shift(); }
+            if (segs.length) { segs[segs.length - 1] = nomCible; } else { segs.push(nomCible); }
+            if (cible !== "fr") { segs.unshift(cible); }
+            u.pathname = "/" + segs.join("/");
+        }
+        window.location.href = u.toString();
+    }, true);
 })();
 </script>
 
