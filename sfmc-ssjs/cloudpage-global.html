@@ -275,7 +275,14 @@ if (utm_source != "" || utm_medium != "") {
     if (refHost != "") {
         tracking_origin = "referrer";
         utm_source = refHost;
-        if (containsAny(refHost, ["google.", "bing", "yahoo", "duckduckgo", "qwant", "ecosia", "baidu"])) {
+        /* Google : seulement le MOTEUR (google.fr, google.com, google.be,
+           google.co.uk…), comme la doc Tracking (« www.google.fr »,
+           « www.google.com »). Un sous-domaine Google — docs.google.com,
+           sites.google.com, mail.google.com — n'est pas une recherche : il
+           tombe en referrals. Jusqu'au 14/10 « google. » suffisait, et un lien
+           cliqué depuis un Google Doc sortait en organic. */
+        var estMoteurGoogle = /^google\.[a-z]+(\.[a-z]+)?$/.test(refHost);
+        if (estMoteurGoogle || containsAny(refHost, ["bing", "yahoo", "duckduckgo", "qwant", "ecosia", "baidu"])) {
             utm_medium = "organic";
         } else if (containsAny(refHost, ["chatgpt", "openai", "perplexity", "gemini", "claude", "copilot", "mistral"])) {
             utm_medium = "ai";
