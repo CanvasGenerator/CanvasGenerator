@@ -1142,10 +1142,17 @@ ENDIF
      synchronise ; le JS n'affiche le label qu'a defaut de date.
    - heures : la DE porte un Date/Heure a l'heure serveur SFMC (UTC-6, sans
      ete) ; le CRM rendait « 07:00:00.000Z ». On ajoute 6 h.
-   - ateliers : summit__Date_Available_Start__c / _End__c et
-     summit__Required_Appointment__c ne sont PAS synchronises (a ajouter a la
-     synchro) : debut/fin vides, required a false. Sans debut, le JS ne met
-     aucune conference en avant, et trie les ateliers par Sort_Order.
+   - ateliers : horaires dans Start_time__c / End_time__c (champs EDH,
+     Date/Heure : 328 lignes sur 330 les portent en prod le 15/10/2026),
+     summit__Date_Available_Start__c / _End__c en repli (vides en prod, c'est
+     le champ du package que le chemin CRM lit). Meme decalage de 6 h que les
+     horaires d'instance, rendus en UTC comme le CRM ; le JS les affiche a
+     l'heure de Paris. summit__Required_Appointment__c ("True"/"False") =
+     case a cocher ; Event_Sub_Type__c ("Conference" / "Atelier") designe la
+     conference mise en avant sous la date. Ajoutes a la synchro le
+     15/10/2026. Champ absent ou vide : debut/fin vides, required a false,
+     sousType vide — le JS ne met alors aucune conference en avant, ne
+     propose aucune case, et trie les ateliers par Sort_Order.
    - repli par nom de campus : egalite avec les noms de LPB_Mapping_Campus
      (LookupRows ne sait pas faire « commence par »).
    En echec (DE non partagee, connecteur), @evtDeSync reste a false et le
@@ -1224,15 +1231,54 @@ try {
                 + "',evenement:'" + escDe(evId) + "',jours:" + deltaR + "}");
             if (evId && !evtIndexDe[evId]) { evtIndexDe[evId] = true; evtListeDe.push(evId); }
         }
+        /* Creneau de conference : un Date/Heure complet, a l'heure serveur
+           SFMC dans la DE (UTC-6, sans ete). On le rend sous la forme que le
+           CRM renvoie, « yyyy-MM-ddTHH:mm:ss.000Z » en UTC, pour que le JS
+           traite les deux chemins pareil (conversion a l'heure de Paris, tri
+           chronologique par simple comparaison de chaines). Le +6 passe par
+           Date.UTC : un report de jour serait absorbe. Deux ecritures
+           acceptees : ISO « 2026-11-14T03:00:00 » (ce que LookupRows rend
+           pour les horaires d'instance) et americaine « 11/14/2026 3:00:00 AM »
+           (ce que l'API SOAP rend pour ces memes colonnes). Vide ou illisible
+           (champ pas encore synchronise, ou non renseigne) : chaine vide. */
+        function dateHeureDe(v) {
+            v = String(v || "");
+            var y, mo, d, hh, mi, ss = 0;
+            var i = v.indexOf("T");
+            if (i >= 10 && v.length >= i + 6) {
+                y = Number(v.substring(0, 4)); mo = Number(v.substring(5, 7)); d = Number(v.substring(8, 10));
+                hh = Number(v.substring(i + 1, i + 3)); mi = Number(v.substring(i + 4, i + 6));
+                ss = v.length >= i + 9 ? Number(v.substring(i + 7, i + 9)) : 0;
+            } else if (v.indexOf("/") > 0 && v.indexOf(" ") > 0) {
+                var morceaux = v.split(" "), dp = morceaux[0].split("/"), tp = String(morceaux[1] || "").split(":");
+                mo = Number(dp[0]); d = Number(dp[1]); y = Number(dp[2]);
+                hh = Number(tp[0]); mi = Number(tp[1]); ss = Number(tp[2] || 0);
+                var ap = String(morceaux[2] || "").toUpperCase();
+                if (ap == "PM" && hh < 12) hh = hh + 12;
+                if (ap == "AM" && hh == 12) hh = 0;
+            } else {
+                return "";
+            }
+            if (isNaN(y) || isNaN(mo) || isNaN(d) || isNaN(hh) || isNaN(mi) || isNaN(ss)) return "";
+            var dt = new Date(Date.UTC(y, mo - 1, d, hh + 6, mi, ss));
+            return dt.getUTCFullYear() + "-" + deux(dt.getUTCMonth() + 1) + "-" + deux(dt.getUTCDate())
+                + "T" + deux(dt.getUTCHours()) + ":" + deux(dt.getUTCMinutes()) + ":" + deux(dt.getUTCSeconds()) + ".000Z";
+        }
+        /* Les booleens d'une DE synchronisee arrivent en "True"/"False". */
+        function boolDe(v) { v = String(v === null || v === undefined ? "" : v).toLowerCase(); return v == "true" || v == "1"; }
         var jsApptsDe = [];
         for (var a = 0; a < evtListeDe.length; a++) {
             var apDe = Platform.Function.LookupRows("ENT.summit__Summit_Events_Appointment_Type__c_Salesforce", "summit__Summit_Events__c", evtListeDe[a]) || [];
             for (var b = 0; b < apDe.length; b++) {
                 var t = apDe[b];
                 var lDe = String(t.summit__Title__c || "") || String(t.Name || "");
+                var debutDe = dateHeureDe(t.Start_time__c) || dateHeureDe(t.summit__Date_Available_Start__c);
+                var finDe   = dateHeureDe(t.End_time__c)   || dateHeureDe(t.summit__Date_Available_End__c);
                 jsApptsDe.push("{value:'" + escDe(t.Id) + "',label:'" + escDe(lDe) + "',evenement:'" + escDe(evtListeDe[a])
                     + "',instance:'" + escDe(t.summit__Restrict_To_Instance_Title__c) + "',type:'" + escDe(t.summit__Appointment_Type__c)
-                    + "',debut:'',fin:'',ordre:'" + escDe(t.summit__Sort_Order__c) + "',required:false}");
+                    + "',sousType:'" + escDe(t.Event_Sub_Type__c)
+                    + "',debut:'" + debutDe + "',fin:'" + finDe
+                    + "',ordre:'" + escDe(t.summit__Sort_Order__c) + "',required:" + (boolDe(t.summit__Required_Appointment__c) ? "true" : "false") + "}");
             }
         }
         Variable.SetValue("@jsInstances", jsInstDe.join(","));
@@ -3940,7 +3986,25 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
      */
     function heureSeule(v) {
         var t = String(v || '');
-        var m = t.match(/T(\d{2}):(\d{2})/) || t.match(/^(\d{2}):(\d{2})/);
+        /* Un creneau de conference est une DATE-HEURE en UTC
+           (« 2026-11-14T09:00:00.000Z » : c'est ce que le CRM renvoie, et ce
+           que le socle reconstruit depuis la DE synchronisee). Lue telle
+           quelle, l'heure etait celle de Greenwich : une conference saisie a
+           10h dans le CRM se lisait 9h en hiver, 8h en ete. On la convertit a
+           l'heure de Paris. Les horaires d'instance (« 09:30:00.000Z », sans
+           T) sont des heures SANS fuseau : ils restent tels quels. Navigateur
+           sans fuseaux (Intl absent) : on retombe sur l'heure brute. */
+        var m = null;
+        if (t.indexOf('T') > 0 && /Z$/.test(t)) {
+            try {
+                var d = new Date(t);
+                if (!isNaN(d.getTime())) {
+                    var p = d.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+                    m = String(p).match(/(\d{1,2}):(\d{2})/);
+                }
+            } catch (eFuseau) { m = null; }
+        }
+        if (!m) m = t.match(/T(\d{2}):(\d{2})/) || t.match(/^(\d{2}):(\d{2})/);
         if (!m) return t;
         return String(Number(m[1])) + 'h' + (m[2] === '00' ? '' : m[2]);
     }
@@ -3996,16 +4060,22 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     /**
      * La conference mise en avant a droite de la date.
      *
-     * On prend le sous-evenement le plus MATINAL de l'instance : c'est celui
-     * qui ouvre la journee, et la maquette lui reserve cette place. Choisir par
-     * le LIBELLE (« conference », « presentation »...) aurait dependu de la
-     * facon dont le CRM nomme ses creneaux — trop fragile pour de l'affichage.
+     * Le CRM distingue les sous-evenements par `Event_Sub_Type__c`
+     * (« Conference » / « Atelier »), publie sous `sousType` par le chemin DE
+     * synchronisee : on prend la conference la plus MATINALE de l'instance.
+     * Sans sous-type (chemin CRM, ou champ vide), on retombe sur le
+     * sous-evenement le plus matinal, qui ouvre la journee. Choisir par le
+     * LIBELLE (« conference », « presentation »...) aurait dependu de la facon
+     * dont le CRM nomme ses creneaux — trop fragile pour de l'affichage ; le
+     * sous-type, lui, est un champ dedie.
      */
     function conferenceDe(instanceId) {
         var liste = ateliersDe(instanceId).filter(function (a) { return a.debut; });
         if (!liste.length) return null;
         liste.sort(function (a, b) { return String(a.debut).localeCompare(String(b.debut)); });
-        return { label: liste[0].label, heure: heureSeule(liste[0].debut) };
+        var confs = liste.filter(function (a) { return String(a.sousType || '').toLowerCase().indexOf('conf') === 0; });
+        var choix = (confs.length ? confs : liste)[0];
+        return { label: choix.label, heure: heureSeule(choix.debut) };
     }
 
     function libelleInstance(inst) {

@@ -2284,7 +2284,25 @@ try {
      */
     function heureSeule(v) {
         var t = String(v || '');
-        var m = t.match(/T(\d{2}):(\d{2})/) || t.match(/^(\d{2}):(\d{2})/);
+        /* Un creneau de conference est une DATE-HEURE en UTC
+           (« 2026-11-14T09:00:00.000Z » : c'est ce que le CRM renvoie, et ce
+           que le socle reconstruit depuis la DE synchronisee). Lue telle
+           quelle, l'heure etait celle de Greenwich : une conference saisie a
+           10h dans le CRM se lisait 9h en hiver, 8h en ete. On la convertit a
+           l'heure de Paris. Les horaires d'instance (« 09:30:00.000Z », sans
+           T) sont des heures SANS fuseau : ils restent tels quels. Navigateur
+           sans fuseaux (Intl absent) : on retombe sur l'heure brute. */
+        var m = null;
+        if (t.indexOf('T') > 0 && /Z$/.test(t)) {
+            try {
+                var d = new Date(t);
+                if (!isNaN(d.getTime())) {
+                    var p = d.toLocaleTimeString('fr-FR', { timeZone: 'Europe/Paris', hour: '2-digit', minute: '2-digit' });
+                    m = String(p).match(/(\d{1,2}):(\d{2})/);
+                }
+            } catch (eFuseau) { m = null; }
+        }
+        if (!m) m = t.match(/T(\d{2}):(\d{2})/) || t.match(/^(\d{2}):(\d{2})/);
         if (!m) return t;
         return String(Number(m[1])) + 'h' + (m[2] === '00' ? '' : m[2]);
     }
@@ -2340,16 +2358,22 @@ try {
     /**
      * La conference mise en avant a droite de la date.
      *
-     * On prend le sous-evenement le plus MATINAL de l'instance : c'est celui
-     * qui ouvre la journee, et la maquette lui reserve cette place. Choisir par
-     * le LIBELLE (« conference », « presentation »...) aurait dependu de la
-     * facon dont le CRM nomme ses creneaux — trop fragile pour de l'affichage.
+     * Le CRM distingue les sous-evenements par `Event_Sub_Type__c`
+     * (« Conference » / « Atelier »), publie sous `sousType` par le chemin DE
+     * synchronisee : on prend la conference la plus MATINALE de l'instance.
+     * Sans sous-type (chemin CRM, ou champ vide), on retombe sur le
+     * sous-evenement le plus matinal, qui ouvre la journee. Choisir par le
+     * LIBELLE (« conference », « presentation »...) aurait dependu de la facon
+     * dont le CRM nomme ses creneaux — trop fragile pour de l'affichage ; le
+     * sous-type, lui, est un champ dedie.
      */
     function conferenceDe(instanceId) {
         var liste = ateliersDe(instanceId).filter(function (a) { return a.debut; });
         if (!liste.length) return null;
         liste.sort(function (a, b) { return String(a.debut).localeCompare(String(b.debut)); });
-        return { label: liste[0].label, heure: heureSeule(liste[0].debut) };
+        var confs = liste.filter(function (a) { return String(a.sousType || '').toLowerCase().indexOf('conf') === 0; });
+        var choix = (confs.length ? confs : liste)[0];
+        return { label: choix.label, heure: heureSeule(choix.debut) };
     }
 
     function libelleInstance(inst) {

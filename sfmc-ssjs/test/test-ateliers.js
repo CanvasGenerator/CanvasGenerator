@@ -234,6 +234,31 @@ test('La carte de date separe le QUAND et le OU [RETOUR 03/09]', () => {
     egal(textes(ou), ['Efap Paris', 'Paris'], 'colonne du OU');
 });
 
+test('La conference mise en avant est celle du sous-type, pas le creneau le plus matinal', () => {
+    /* Releve prod du 15/10 : le CRM distingue « Conférence » et « Atelier »
+       par Event_Sub_Type__c, publie sous `sousType`. A Toulouse les ateliers
+       Dessin et Game Design commencent a 10h30 et la conference a 10h ; mais
+       une autre journee peut ouvrir par un atelier a 9h avant la conference a
+       10h : c'est la conference qu'on annonce sous la date, pas l'atelier. */
+    const d = jouer([
+        { value: 'w1', label: 'Atelier Dessin', required: 'true', sousType: 'Atelier',
+          debut: '2026-11-14T08:00:00.000Z', fin: '2026-11-14T10:00:00.000Z', instance: 'i1', evenement: 'e1' },
+        { value: 'c1', label: 'Conférence de présentation', required: 'false', sousType: 'Conférence',
+          debut: '2026-11-14T09:00:00.000Z', fin: '2026-11-14T09:45:00.000Z', instance: 'i1', evenement: 'e1' },
+    ], { choisirDate: false });
+    const quand = parClasse(d.zoneDates.enfants[0], 'socle-instance-quand');
+    egal(textes(quand), ['Samedi 10 octobre 2026', 'Conférence à : 10h'], 'conference choisie par sous-type');
+    /* Sans sous-type (chemin CRM), le plus matinal garde la place. */
+    const sans = jouer([
+        { value: 'w1', label: 'Atelier Dessin', required: 'true',
+          debut: '2026-11-14T08:00:00.000Z', fin: '', instance: 'i1', evenement: 'e1' },
+        { value: 'c1', label: 'Conférence', required: 'false',
+          debut: '2026-11-14T09:00:00.000Z', fin: '', instance: 'i1', evenement: 'e1' },
+    ], { choisirDate: false });
+    const quand2 = parClasse(sans.zoneDates.enfants[0], 'socle-instance-quand');
+    egal(textes(quand2), ['Samedi 10 octobre 2026', 'Conférence à : 9h'], 'repli sans sous-type');
+});
+
 test('Les minutes rondes tombent : 14:00 donne 14h [RETOUR 03/09]', () => {
     /* La carte du builder ecrit « 10h - 13h », pas « 10h00 - 13h00 » : c'est
        la reference designee par la capture du 03/09. Une heure NON ronde garde
@@ -348,6 +373,28 @@ test('Le zero de tete tombe : 09:30 devient 9h30 [RETOUR 03/09]', () => {
     const textes = d.zone.enfants.map((w) => w.enfants.map((e) => e.textContent).join(''));
     if (!/9h30/.test(textes[0])) throw new Error(`zero de tete non retire : ${textes[0]}`);
     if (/09h30/.test(textes[0])) throw new Error(`zero de tete conserve : ${textes[0]}`);
+});
+
+test('Un creneau date-heure UTC s affiche a l heure de Paris, hiver comme ete', () => {
+    /* Le CRM renvoie summit__Date_Available_Start__c en UTC, et le socle
+       reconstruit la meme forme depuis la DE synchronisee. Une conference
+       saisie a 10h dans le CRM arrive en 09:00Z le 14 novembre (heure
+       d'hiver) et en 08:00Z le 12 juin (heure d'ete) : dans les deux cas
+       l'affichage doit dire 10h, jamais 9h ni 8h. */
+    const hiver = jouer([{ value: 'h1', label: 'Conference', required: 'true',
+                           debut: '2026-11-14T09:00:00.000Z', fin: '2026-11-14T10:30:00.000Z',
+                           instance: 'i1', evenement: 'e1' }]);
+    const tHiver = hiver.zone.enfants[0].enfants.map((e) => e.textContent).join('');
+    if (!/10h - 11h30/.test(tHiver)) throw new Error(`heure d hiver non convertie : ${tHiver}`);
+    const ete = jouer([{ value: 'e1', label: 'Conference', required: 'true',
+                         debut: '2026-06-12T08:00:00.000Z', fin: '',
+                         instance: 'i1', evenement: 'e1' }]);
+    const tEte = ete.zone.enfants[0].enfants.map((e) => e.textContent).join('');
+    if (!/— 10h$/.test(tEte)) throw new Error(`heure d ete non convertie : ${tEte}`);
+    /* Les horaires d'instance, sans fuseau, ne bougent pas : 10:30 reste 10h30. */
+    const brut = jouer(APPOINTMENTS);
+    const tBrut = brut.zone.enfants[0].enfants.map((e) => e.textContent).join('');
+    if (!/10h30/.test(tBrut)) throw new Error(`heure sans fuseau alteree : ${tBrut}`);
 });
 
 test('La mention « (obligatoire) » ne se repete plus sur chaque ligne', () => {

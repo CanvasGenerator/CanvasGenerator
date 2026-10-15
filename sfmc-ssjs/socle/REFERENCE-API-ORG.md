@@ -1185,6 +1185,30 @@ Deux formats a absorber a l'affichage : les creneaux de conference sont des
 DATE-HEURES, les horaires d'instance de simples HEURES
 (`09:30:00.000Z`, sans `T`). `heureSeule()` gere les deux.
 
+⚠ Les DATE-HEURES sont en UTC (le `Z` est vrai) : une conference saisie a 10h
+dans le CRM revient `09:00:00.000Z` en hiver, `08:00:00.000Z` en ete. Depuis le
+15/10, `heureSeule()` convertit ces valeurs a l'heure de Paris avant affichage.
+Les HEURES d'instance, elles, n'ont pas de fuseau (le `Z` est faux) et restent
+telles quelles. Sur le chemin DE synchronisee, le socle reconstruit la forme UTC
+du CRM depuis l'heure serveur SFMC (+6 h, comme pour les horaires d'instance).
+
+⚠ EN PROD, CE NE SONT PAS CES CHAMPS QUI PORTENT LES HORAIRES. Releve du
+15/10/2026 sur la DE synchronisee de l'Enterprise (330 types d'atelier) :
+`summit__Date_Available_Start__c` / `_End__c` vides sur 330, et deux champs EDH
+`Start_time__c` / `End_time__c` (Date/Heure) remplis sur 328. Le CRM y range le
+creneau de chaque sous-evenement ; `Event_Sub_Type__c` dit « Conference » ou
+« Atelier » (72 / 28 chez BRASSART). Le chemin DE lit donc `Start_time__c` d'abord,
+`summit__Date_Available_Start__c` en repli, et publie le sous-type sous `sousType`
+pour que le JS mette en avant une vraie conference et non le creneau le plus
+matinal. Le chemin CRM (`RetrieveSalesforceObjects`) ne lit toujours que les
+champs du package : ajouter `Start_time__c` a sa liste suppose d'avoir verifie
+que l'org de recette le porte aussi, une colonne inconnue tue la page.
+
+Exemple BRASSART Toulouse 14/11/2026 (instance a07MI00002Lm5sdYAB) : conference
+`3:00 AM` heure serveur = 09:00 UTC = 10h Paris ; ateliers 10h30-12h30 et 14h-16h ;
+JPO 9h30-17h. Quatre ateliers `summit__Required_Appointment__c = True`, la
+conference `False`.
+
 ### Campus__c, pas campusNameFor__c
 
 `campusNameFor__c` est vide sur 30 des 34 instances JPO. Le socle filtrait les

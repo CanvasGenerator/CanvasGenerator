@@ -167,11 +167,23 @@ SFMC_LECTURE_DE_SYNC=false` rend le comportement synchrone historique, sans autr
   fonctionnent quand même en AMPscript ; vérifier la même chose en prod dès la première page.
 - **Synchronized Data Sources** : le jeu refait le 07/10/2026 (dossier 50890, noms **sans** suffixe `_1` — le socle lit ces noms depuis cette date ; `BusinessBrand_Salesforce`,
   summit instances/événements/types d'atelier) doit être visible de la BU de prod, sinon
-  `SFMC_LECTURE_DE_SYNC=false`. Pour aller plus loin : demander la synchro de
-  `LearningProgram` (avec `Academic_Level_List__c`, `Speciality__c`, `Rhythm__c`,
-  `InstructionLanguage__c`), `ProgramTermApplnTimeline`, `AcademicTerm`, et sur les
-  instances Summit `Name` et `eventType__c`, sur les types d'atelier
-  `summit__Date_Available_Start__c`, `_End__c`, `summit__Required_Appointment__c`.
+  `SFMC_LECTURE_DE_SYNC=false`. Le jeu porte `LearningProgram` (avec
+  `Academic_Level_List__c`, `Speciality__c`, `Rhythm__c`, `InstructionLanguage__c`),
+  `ProgramTermApplnTimeline` et `AcademicTerm` (vérifié sur brassart.fr le 15/10).
+  **Sous-événements (conférences, ateliers)** : sur `summit__Summit_Events_Appointment_Type__c`,
+  la synchro doit porter `summit__Required_Appointment__c` (case à cocher du formulaire),
+  `Start_time__c` et `End_time__c` (champs EDH : « Conférence à : 10h », plage horaire ;
+  en prod ce sont eux qui portent les horaires, `summit__Date_Available_Start__c` / `_End__c`
+  du package sont vides sur les 330 lignes), `Event_Sub_Type__c` (« Conférence » /
+  « Atelier » : désigne la conférence mise en avant sous la date) et
+  `summit__Appointment_Type__c`. Vérifiés présents dans la synchro le 15/10/2026 ; sans eux
+  le socle rend tous les sous-événements sans horaire et non obligatoires, donc rien ne
+  s'affiche. Le socle inliné dans chaque page lit ces colonnes depuis le 15/10 : les pages
+  publiées avant doivent être **republiées**, puis purger la famille `evenements` du cache
+  de lecture (TTL 24 h) : `node -r dotenv/config scripts/purger-cache-lecture.js
+  --famille=evenements --rechauffer=publiees`. Optionnel sur les instances Summit :
+  `Name` et `eventType__c` (contournés par `summit__Instance_Title__c` et le type de
+  l'événement parent).
 - **Journeys de prod** : entrées par API Event, DE d'entrée avec **une clé par soumission**
   (`Post_Demande_De_Doc_Target` : `Id` + `Date_telechargement_brochure` ;
   `Data_contacts_evenement_new` : `Subscriberkey` + `RegistrationId` + `Nom_action`).
