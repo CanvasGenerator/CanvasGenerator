@@ -20,13 +20,18 @@
        les deux orgs ; pas de try/catch ici, c'est l'enveloppe qui l'assure ;
      - champs cites nommement, tous presents en prod ET en recette (releves
        EntityParticle du 07/10) ; Last_Marketing_Engagement_Date__c (recette
-       seule) est volontairement exclu ;
+       seule) est volontairement exclu. Exception : Start_time__c, End_time__c
+       et Event_Sub_Type__c du type d'atelier (section 7) ne sont verifies
+       qu'en prod (DE synchronisee du 15/10) — en recette, l'enveloppe
+       afficherait l'exception ;
      - pas de Min(), pas de RegExReplace : Substring pour tronquer.
    =========================================================================== */
 VAR @email, @accs, @nA, @a, @acc, @paId, @ctId
 VAR @cps, @nC, @c, @cp, @cpId, @cons, @nK, @k, @ko
 VAR @cms, @nM, @m, @ints, @nI, @i, @apps, @nP, @p
 VAR @regs, @nR, @r, @regId, @rdv, @nV, @v
+VAR @typeId, @types, @typeRow, @typeTitre, @typeSous, @typeOblig, @typeInst
+VAR @debutUtc, @finUtc, @dUtc, @fUtc, @an, @dst1, @dst2, @k, @decalage, @creneauParis
 VAR @logs, @nL, @l, @row, @det, @files, @nF, @f
 
 SET @email = Trim(RequestParameter("email"))
@@ -140,10 +145,59 @@ SET @nA = RowCount(@accs)
 <h3 style="font:600 15px system-ui,sans-serif;margin:18px 0 6px">7. Summit Registration — %%=v(@nR)=%%</h3>
 %%[ FOR @r = 1 TO @nR DO SET @row = Row(@regs, @r)  SET @regId = Field(@row, "Id") ]%%
 <div style="margin:3px 0">• <b>%%=v(@regId)=%%</b> %%=v(Field(@row,"Name"))=%% instance=%%=v(Field(@row,"summit__Event_Instance__c"))=%% email=%%=v(Field(@row,"summit__Registrant_Email__c"))=%% nouveau-contact=%%=v(Field(@row,"summit__New_Contact_Created__c"))=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
-%%[     SET @rdv = RetrieveSalesforceObjects("summit__Summit_Events_Appointments__c", "Id,Name,summit__Appointment_Type__c,summit__Appointment_Status__c,summit__Appointment_Date__c,summit__Appointment_Time__c,CreatedDate", "summit__Event_Registration__c", "=", @regId)
+%%[     /* Le socle n'ecrit sur un rendez-vous que le lien vers le TYPE
+           d'atelier (summit__Event_Appointment_Type__c) : la date n'est pas
+           sur le rendez-vous (summit__Appointment_Date__c / _Time__c restent
+           vides), elle est sur le type, dans les champs EDH Start_time__c /
+           End_time__c (Date/Heure, rendus en UTC avec Z), avec le sous-type
+           Event_Sub_Type__c (Conference / Atelier) et le drapeau
+           summit__Required_Appointment__c — releve prod du 15/10/2026. On relit
+           donc le type et on rend le creneau en UTC puis a l'heure de Paris :
+           +1 h, +2 h du dernier dimanche de mars 01:00 UTC au dernier dimanche
+           d'octobre 01:00 UTC. Le dimanche se reconnait par DateDiff depuis le
+           02/01/2000 (un dimanche) modulo 7, independant de la langue. */
+        SET @rdv = RetrieveSalesforceObjects("summit__Summit_Events_Appointments__c", "Id,Name,summit__Event_Appointment_Type__c,summit__Appointment_Status__c,CreatedDate", "summit__Event_Registration__c", "=", @regId)
         SET @nV = RowCount(@rdv)
-        FOR @v = 1 TO @nV DO SET @row = Row(@rdv, @v) ]%%
-<div style="margin:2px 0 2px 24px;color:#333">↳ rdv <b>%%=v(Field(@row,"Id"))=%%</b> %%=v(Field(@row,"Name"))=%% type=%%=v(Field(@row,"summit__Appointment_Type__c"))=%% statut=%%=v(Field(@row,"summit__Appointment_Status__c"))=%% date=%%=v(Field(@row,"summit__Appointment_Date__c"))=%% %%=v(Field(@row,"summit__Appointment_Time__c"))=%%</div>
+        FOR @v = 1 TO @nV DO SET @row = Row(@rdv, @v)
+            SET @typeId = Field(@row, "summit__Event_Appointment_Type__c")
+            SET @typeTitre = ""
+            SET @typeSous = ""
+            SET @typeOblig = ""
+            SET @typeInst = ""
+            SET @debutUtc = ""
+            SET @finUtc = ""
+            SET @creneauParis = ""
+            IF NOT Empty(@typeId) THEN
+                SET @types = RetrieveSalesforceObjects("summit__Summit_Events_Appointment_Type__c", "Id,summit__Title__c,Event_Sub_Type__c,Start_time__c,End_time__c,summit__Required_Appointment__c,summit__Restrict_To_Instance_Title__c", "Id", "=", @typeId)
+                IF RowCount(@types) > 0 THEN
+                    SET @typeRow = Row(@types, 1)
+                    SET @typeTitre = Field(@typeRow, "summit__Title__c")
+                    SET @typeSous = Field(@typeRow, "Event_Sub_Type__c")
+                    SET @typeOblig = Field(@typeRow, "summit__Required_Appointment__c")
+                    SET @typeInst = Field(@typeRow, "summit__Restrict_To_Instance_Title__c")
+                    SET @debutUtc = Field(@typeRow, "Start_time__c")
+                    SET @finUtc = Field(@typeRow, "End_time__c")
+                    IF Length(@debutUtc) >= 19 THEN
+                        /* "2026-11-14T09:00:00.000Z" -> "2026-11-14 09:00:00", sans
+                           conversion de fuseau : DateParse sans second argument. */
+                        SET @dUtc = DateParse(Concat(Substring(@debutUtc, 1, 10), " ", Substring(@debutUtc, 12, 8)))
+                        SET @an = Substring(@debutUtc, 1, 4)
+                        SET @dst1 = DateParse(Concat(@an, "-03-31 01:00:00"))
+                        FOR @k = 1 TO 7 DO IF Mod(DateDiff("2000-01-02", @dst1, "D"), 7) != 0 THEN SET @dst1 = DateAdd(@dst1, -1, "D") ENDIF NEXT @k
+                        SET @dst2 = DateParse(Concat(@an, "-10-31 01:00:00"))
+                        FOR @k = 1 TO 7 DO IF Mod(DateDiff("2000-01-02", @dst2, "D"), 7) != 0 THEN SET @dst2 = DateAdd(@dst2, -1, "D") ENDIF NEXT @k
+                        SET @decalage = 1
+                        IF @dUtc >= @dst1 AND @dUtc < @dst2 THEN SET @decalage = 2 ENDIF
+                        SET @creneauParis = Format(DateAdd(@dUtc, @decalage, "H"), "dd/MM/yyyy HH:mm")
+                        IF Length(@finUtc) >= 19 THEN
+                            SET @fUtc = DateParse(Concat(Substring(@finUtc, 1, 10), " ", Substring(@finUtc, 12, 8)))
+                            SET @creneauParis = Concat(@creneauParis, " - ", Format(DateAdd(@fUtc, @decalage, "H"), "HH:mm"))
+                        ENDIF
+                        SET @creneauParis = Concat(@creneauParis, " (Paris, UTC+", @decalage, ")")
+                    ENDIF
+                ENDIF
+            ENDIF ]%%
+<div style="margin:2px 0 2px 24px;color:#333">↳ rdv <b>%%=v(Field(@row,"Id"))=%%</b> %%=v(Field(@row,"Name"))=%% statut=%%=v(Field(@row,"summit__Appointment_Status__c"))=%% · atelier=<b>%%=v(@typeTitre)=%%</b> (%%=v(@typeSous)=%%, obligatoire=%%=v(@typeOblig)=%%) type=%%=v(@typeId)=%% instance=%%=v(@typeInst)=%% · creneau=<b>%%=v(@creneauParis)=%%</b> UTC=%%=v(@debutUtc)=%% → %%=v(@finUtc)=%% cree=%%=v(Field(@row,"CreatedDate"))=%%</div>
 %%[     NEXT @v
 NEXT @r ]%%
 
