@@ -1418,7 +1418,9 @@ IF @cacheEvt != "hit" AND NOT Empty(@typeEvt) AND @evtDeSync != "true" THEN
                cours · Inactive = Brouillon · Closed = Termine · Cancelled = Annule.
                On ne garde que les deux premiers ; un statut VIDE est ecarte
                aussi. L'immersion n'est pas concernee : la demande vise JPO,
-               ateliers et stages, et l'instance d'immersion est unique par ecole.
+               ateliers et stages. Ses instances (une annuelle par campus
+               depuis le 01/09/2026, plus des journees datees) partent toutes au
+               navigateur, qui retient celle du campus choisi (regle du 16/10).
                C'est le SEUL filtre : `summit__Open_Registration__c` n'en est plus
                un depuis le 08/09 (voir ci-dessus). */
             SET @statutInst = Field(@row, "summit__Active_Status__c")
@@ -2298,29 +2300,51 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     }
 
     /**
-     * L'instance d'immersion de la marque : la plus proche a venir (date ISO
-     * yyyy-mm-dd >= aujourd'hui), sinon la premiere de la liste. `null` sans
-     * instance. Independant du campus : la journee est celle de la marque.
+     * L'instance d'immersion DU CAMPUS choisi — demande du 16/10/2026. Depuis
+     * le 01/09/2026 le CRM porte une instance « Immersion » par campus,
+     * datee du 01/09 au 31/08 suivant (BRASSART TOULOUSE, EFAP LYON...), et
+     * parfois des journees datees en plus (BRASSART TOURS, ECOLE BLEUE PARIS).
+     * L'inscription doit se rattacher au campus du visiteur, plus a « la
+     * journee de la marque » (regle du 14/09, abandonnee : un visiteur EFAP
+     * Paris atterrissait sur l'immersion de Bordeaux ou de Tours).
+     *
+     * Parmi les instances du campus, dans l'ordre :
+     *   1. celle dont la periode couvre aujourd'hui (date <= jour <= dateFin),
+     *      c'est l'instance annuelle du campus ;
+     *   2. sinon la plus proche a venir ;
+     *   3. sinon la premiere de la liste.
+     * `campus` vide (ecole sans choix de campus) : meme regle sur toute la
+     * marque. `null` quand le campus n'a aucune instance.
      */
-    function instanceImmersion(liste) {
+    function instanceImmersion(liste, campus) {
         if (!liste || !liste.length) return null;
+        var cands = campus
+            ? liste.filter(function (i) { return String(i.campus || '') === String(campus); })
+            : liste.slice();
+        if (!cands.length) return null;
         var d = new Date();
         var pad = function (n) { return (n < 10 ? '0' : '') + n; };
         var aujourdhui = d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
-        var retenue = null;
-        for (var i = 0; i < liste.length; i++) {
-            var date = String(liste[i].date || '');
-            if (!date || date < aujourdhui) continue;
-            if (!retenue || date < String(retenue.date || '')) retenue = liste[i];
+        var enCours = null, prochaine = null;
+        for (var i = 0; i < cands.length; i++) {
+            var date = String(cands[i].date || '').slice(0, 10);
+            var fin = String(cands[i].dateFin || '').slice(0, 10);
+            if (!date) continue;
+            if (date <= aujourdhui && fin >= aujourdhui && !enCours) enCours = cands[i];
+            if (date >= aujourdhui && (!prochaine || date < String(prochaine.date || '').slice(0, 10))) prochaine = cands[i];
         }
-        return retenue || liste[0];
+        return enCours || prochaine || cands[0];
     }
 
-    /** L'immersion n'est pas rattachee a un campus : la phrase parle de l'ecole. */
+    /** L'immersion est rattachee au campus depuis le 16/10 : la phrase le dit. */
     function messageSansImmersion() {
         return langueAffichage() === 'en'
-            ? 'No immersion day is currently scheduled for this school.'
-            : 'Aucune journée d\'immersion n\'est programmée pour cette école actuellement.';
+            ? 'No immersion day is currently scheduled for this campus.'
+            : 'Aucune journée d\'immersion n\'est programmée pour ce campus actuellement.';
+    }
+
+    function messageChoisirCampus() {
+        return langueAffichage() === 'en' ? 'Please choose a campus.' : 'Merci de choisir un campus.';
     }
 
     function libelleMarque(name, option, langue) {
@@ -3891,17 +3915,12 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
     function datesPour(campus) {
         var toutes = (D.instances || []).slice();
 
-        /* ---- IMMERSION : PAS DE DATE, PAS DE CAMPUS, PAS DE CHOIX --------
-           L'immersion n'est pas un evenement date : l'ecole en a UNE, elle sert
-           de rattachement a l'inscription Summit, et le candidat n'a rien a
-           selectionner. Ni la fenetre de 15 jours ni le filtre par campus n'ont
-           donc de sens ici.
-
-           Le campus, en particulier, aurait tout casse : le CRM rattache chaque
-           instance a UN campus precis — EFAP BORDEAUX, ICART LYON, BRASSART
-           NANTES — alors qu'un candidat EFAP choisit souvent PARIS. Il n'aurait
-           vu aucune date et n'aurait pas pu s'inscrire, alors que l'immersion de
-           son ecole existe. */
+        /* ---- IMMERSION : PAS DE DATE, PAS DE CHOIX ------------------------
+           L'immersion n'est pas un evenement date : le candidat n'a rien a
+           selectionner, et la fenetre de 15 jours n'a pas de sens. On rend
+           toute la liste ; c'est `instanceImmersion(liste, campus)` qui
+           retient l'instance DU CAMPUS choisi (regle du 16/10/2026 : le CRM
+           porte une instance annuelle par campus depuis le 01/09/2026). */
         if (estImmersion()) return toutes;
         /* PAS DE CAMPUS, PAS DE DATES — arbitrage du 30/08. On rendait
            auparavant toutes les dates de l'ecole, tous campus confondus : le
@@ -5838,6 +5857,15 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
             var zoneInst = null;
             try { zoneInst = document.querySelector('[data-socle="instances"]'); } catch (eZi) { zoneInst = null; }
             if (zoneInst && !form.querySelector('[name="InstanceId"]')) {
+                /* Immersion sans campus choisi : c'est le campus qui manque,
+                   pas l'immersion (regle du 16/10). */
+                var campusImmGarde = null;
+                try { campusImmGarde = form.querySelector('select[name="Campus"]') || document.querySelector('select[name="Campus"]'); } catch (eCg) { campusImmGarde = null; }
+                if (estImmersion() && campusImmGarde && !String(campusImmGarde.value || '')) {
+                    montrerMessage(form, [messageChoisirCampus()], 'erreur');
+                    try { campusImmGarde.focus(); } catch (eFc) {}
+                    return;
+                }
                 montrerMessage(form, [estImmersion() ? messageSansImmersion() : messageSansDate()], 'erreur');
                 return;
             }
@@ -6011,16 +6039,21 @@ SET @cascadeFerme = Concat("</scr", "ipt>")
                    La zone reste vide de tout libelle : aucune date affichee,
                    conformement au contrat. */
                 zoneDates.innerHTML = '';
-                /* UNE instance pour toute la marque, quel que soit le campus
-                   (regle du 14/09). Le CRM en porte parfois plusieurs datees
-                   (EFAP Montpellier : 9) : on retient la plus proche a venir,
-                   sinon la premiere, pour que deux campus de la meme marque
-                   rattachent la meme journee. */
-                var instImm = instanceImmersion(liste);
+                /* L'instance DU CAMPUS choisi (regle du 16/10/2026, voir
+                   instanceImmersion). Tant que le campus n'est pas choisi, il
+                   n'y a rien a rattacher et rien a reprocher : ni champ cache
+                   ni message, le campus est requis et la garde de soumission
+                   le redemande. Une ecole sans choix de campus (champ cache ou
+                   absent) garde la regle sur toute la marque. */
+                var campusImm = elCampus ? String(elCampus.value || '') : '';
+                var campusAChoisir = Boolean(elCampus && elCampus.tagName === 'SELECT' && !campusImm);
+                var instImm = campusAChoisir ? null : instanceImmersion(liste, campusImm);
                 var porteurImm = zoneDates.closest
                     ? (zoneDates.closest('.imf-dates-field') || zoneDates.closest('.jpo-dates-field') || zoneDates.parentNode)
                     : zoneDates.parentNode;
-                if (instImm) {
+                if (campusAChoisir) {
+                    if (porteurImm && porteurImm.style) porteurImm.style.display = 'none';
+                } else if (instImm) {
                     var cache = document.createElement('input');
                     cache.type = 'hidden';
                     cache.name = 'InstanceId';

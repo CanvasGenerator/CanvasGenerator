@@ -523,26 +523,55 @@ test('Immersion avec instance : champ cache, aucun message, porteur masque', () 
     egal(d.zoneDates.style.display, 'none', 'porteur masque');
 });
 
-test('Immersion : une seule journee pour la marque, la plus proche a venir, quel que soit le campus [14/09]', () => {
-    const passee  = { ...INSTANCE, value: 'imm-passee',  date: '2020-01-05', campus: 'EFAP PARIS' };
-    const loin    = { ...INSTANCE, value: 'imm-loin',    date: '2099-03-01', campus: 'EFAP MONTPELLIER' };
-    const proche  = { ...INSTANCE, value: 'imm-proche',  date: '2098-11-17', campus: 'EFAP MONTPELLIER' };
-    for (const campus of ['EFAP PARIS', 'EFAP BORDEAUX', '']) {
-        const d = jouer([], { choisirDate: false, instances: [loin, passee, proche], typeEvenement: 'immersion', campus });
-        const caches = d.zoneDates.enfants.filter((e) => e.name === 'InstanceId');
-        egal(caches.length, 1, `un champ cache (campus « ${campus} »)`);
-        egal(caches[0].value, 'imm-proche', `la plus proche a venir (campus « ${campus} »)`);
-    }
-    const dPasse = jouer([], { choisirDate: false, instances: [passee], typeEvenement: 'immersion' });
-    egal(dPasse.zoneDates.enfants.filter((e) => e.name === 'InstanceId')[0].value, 'imm-passee', 'sans date a venir, la premiere');
+test('Immersion : l instance DU CAMPUS choisi, l annuelle d abord [16/10]', () => {
+    /* Le CRM porte depuis le 01/09/2026 une instance annuelle par campus
+       (01/09 -> 31/08), et parfois des journees datees en plus (Tours). Le
+       rattachement suit le campus du visiteur, plus la journee de la marque. */
+    const anneeParis  = { ...INSTANCE, value: 'imm-paris-annee', date: '2020-09-01', dateFin: '2099-08-31', campus: 'EFAP PARIS' };
+    const dateeParis  = { ...INSTANCE, value: 'imm-paris-datee', date: '2098-11-17', dateFin: '2098-11-17', campus: 'EFAP PARIS' };
+    const anneeLyon   = { ...INSTANCE, value: 'imm-lyon-annee',  date: '2020-09-01', dateFin: '2099-08-31', campus: 'EFAP LYON' };
+    const dateeTours1 = { ...INSTANCE, value: 'imm-tours-loin',  date: '2099-03-01', dateFin: '2099-03-01', campus: 'EFAP TOURS' };
+    const dateeTours2 = { ...INSTANCE, value: 'imm-tours-proche', date: '2098-11-17', dateFin: '2098-11-17', campus: 'EFAP TOURS' };
+    const passeeNice  = { ...INSTANCE, value: 'imm-nice-passee', date: '2020-01-05', dateFin: '2020-01-05', campus: 'EFAP NICE' };
+    const instances = [dateeTours1, anneeLyon, dateeParis, anneeParis, dateeTours2, passeeNice];
+    const cache = (d) => d.zoneDates.enfants.filter((e) => e.name === 'InstanceId');
+
+    const paris = jouer([], { choisirDate: false, instances, typeEvenement: 'immersion', campus: 'EFAP PARIS' });
+    egal(cache(paris).map((e) => e.value), ['imm-paris-annee'], 'Paris : l annuelle avant la journee datee');
+    const lyon = jouer([], { choisirDate: false, instances, typeEvenement: 'immersion', campus: 'EFAP LYON' });
+    egal(cache(lyon).map((e) => e.value), ['imm-lyon-annee'], 'Lyon : son annuelle, pas celle de Paris');
+    const tours = jouer([], { choisirDate: false, instances, typeEvenement: 'immersion', campus: 'EFAP TOURS' });
+    egal(cache(tours).map((e) => e.value), ['imm-tours-proche'], 'Tours : sans annuelle, la plus proche a venir');
+    const nice = jouer([], { choisirDate: false, instances, typeEvenement: 'immersion', campus: 'EFAP NICE' });
+    egal(cache(nice).map((e) => e.value), ['imm-nice-passee'], 'Nice : sans date a venir, la premiere du campus');
+    egal(paris.zoneDates.style.display, 'none', 'porteur masque quand une instance est rattachee');
+});
+
+test('Immersion : campus sans instance, message « campus » ; campus pas choisi, ni champ ni message [16/10]', () => {
+    const anneeParis = { ...INSTANCE, value: 'imm-paris-annee', date: '2020-09-01', dateFin: '2099-08-31', campus: 'EFAP PARIS' };
+    const bordeaux = jouer([], { choisirDate: false, instances: [anneeParis], typeEvenement: 'immersion', campus: 'EFAP BORDEAUX' });
+    const p = paragraphes(bordeaux.zoneDates, 'socle-instance-vide');
+    egal(p.length, 1, 'un message pour Bordeaux');
+    if (!/immersion/.test(p[0].textContent) || !/campus/.test(p[0].textContent)) throw new Error(`phrase inattendue : ${p[0].textContent}`);
+    egal(bordeaux.zoneDates.enfants.filter((e) => e.name === 'InstanceId').length, 0, 'pas de champ cache : on ne rattache pas Paris a un visiteur de Bordeaux');
+    if (bordeaux.zoneDates.style.display === 'none') throw new Error('le porteur doit rester visible pour que le message se lise');
+
+    const sansChoix = jouer([], { choisirDate: false, instances: [anneeParis], typeEvenement: 'immersion', campus: '' });
+    egal(paragraphes(sansChoix.zoneDates, 'socle-instance-vide').length, 0, 'aucun message avant le choix du campus');
+    egal(sansChoix.zoneDates.enfants.filter((e) => e.name === 'InstanceId').length, 0, 'aucun champ cache avant le choix du campus');
+});
+
+test('Immersion sans choix de campus (champ cache) : la regle vaut sur toute la marque', () => {
+    const anneeArles = { ...INSTANCE, value: 'imm-arles-annee', date: '2020-09-01', dateFin: '2099-08-31', campus: 'MoPA ARLES' };
+    const d = jouer([], { choisirDate: false, instances: [anneeArles], typeEvenement: 'immersion', campusCache: 'MoPA ARLES' });
+    egal(d.zoneDates.enfants.filter((e) => e.name === 'InstanceId').map((e) => e.value), ['imm-arles-annee'], 'champ cache rattache');
 });
 
 test('Immersion sans aucune instance : message dedie, porteur visible [CREAD 14/09]', () => {
-    const d = jouer([], { choisirDate: false, instances: [], typeEvenement: 'immersion' });
+    const d = jouer([], { choisirDate: false, instances: [], typeEvenement: 'immersion', campus: 'EFAP PARIS' });
     const p = paragraphes(d.zoneDates, 'socle-instance-vide');
     egal(p.length, 1, 'un message');
     if (!/immersion/.test(p[0].textContent)) throw new Error(`phrase inattendue : ${p[0].textContent}`);
-    if (/campus/.test(p[0].textContent)) throw new Error('la phrase ne doit pas parler de campus');
     egal(d.zoneDates.enfants.filter((e) => e.name === 'InstanceId').length, 0, 'pas de champ cache');
     if (d.zoneDates.style.display === 'none') throw new Error('le porteur doit rester visible pour que le message se lise');
 });

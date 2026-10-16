@@ -190,6 +190,17 @@ Programme 🔀, RGPD. (Pas de « Vous êtes », pas d'enfant.)
 d'événement daté → **demande de rappel** : accusé de réception puis contact
 téléphonique par le responsable développement (règle métier #2).
 
+**Rattachement Summit (depuis le 16/10/2026) :** l'inscription est créée sur
+l'instance « Immersion » **du campus choisi**. Le CRM porte depuis le 01/09/2026
+une instance annuelle par campus (01/09 → 31/08, statut Active), parfois
+complétée de journées datées (Brassart Tours, École Bleue Paris). Le socle
+retient, parmi les instances du campus : celle dont la période couvre le jour
+de la demande (l'annuelle), sinon la plus proche à venir, sinon la première.
+Campus sans instance → message « Aucune journée d'immersion n'est programmée
+pour ce campus », inscription refusée. Avant le choix du campus : ni
+rattachement ni message. Jusqu'au 16/10, une seule journée par marque était
+retenue quel que soit le campus (règle du 14/09).
+
 | Champ | `name` | Type | Statut | Objet CRM | Champ CRM |
 |---|---|---|---|---|---|
 | Nom / Prénom | `LastName` / `FirstName` | text | ✅ | Compte personnel + Campagne | Nom / Prénom |
